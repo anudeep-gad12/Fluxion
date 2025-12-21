@@ -1,0 +1,30 @@
+# Chat Configuration - Single Source of Truth
+# 
+# All runtime settings are controlled here.
+# Changes require a server restart to take effect.
+
+model:
+  temperature: 0.7
+  max_tokens: 4096
+  seed: null  # Set to an integer for reproducible outputs (e.g., 42)
+  top_p: null
+  frequency_penalty: null
+  presence_penalty: null
+
+context:
+  max_messages: 50        # Maximum conversation turns to keep
+  max_tokens: 6000        # Token budget for conversation history
+  reserve_for_response: 2048  # Tokens reserved for model response
+  truncation_strategy: "sliding_window"  # sliding_window or oldest_first
+
+system_prompt: |
+  You are a helpful AI assistant. Answer directly and clearly.
+
+# Model endpoint (LM Studio default)
+endpoint: "http://127.0.0.1:1234"
+
+# Tracing configuration
+tracing:
+  enabled: true
+  log_level: "info"  # debug, info, warn
+  log_model_calls: true

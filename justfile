@@ -1,0 +1,62 @@
+# Justfile for development commands
+# Install just: brew install just
+
+# Default recipe: show available commands
+default:
+    @just --list
+
+# Install all dependencies
+install:
+    uv sync
+    cd ui && pnpm install
+
+# Start development servers (UI + Orchestrator)
+dev:
+    honcho start
+
+# Start only the orchestrator API
+api:
+    uv run uvicorn orchestrator.app:app --host 127.0.0.1 --port 9000 --reload
+
+# Start only the UI
+ui:
+    cd ui && pnpm dev --port 3000
+
+# Start model servers (requires llama.cpp)
+models:
+    ./scripts/start_models.sh
+
+# Start model servers in single-model mode
+models-single:
+    SINGLE_MODEL=true ./scripts/start_models.sh
+
+# Build UI for production
+build:
+    cd ui && pnpm build
+
+# Run Python linting
+lint:
+    uv run ruff check orchestrator
+
+# Run Python formatting
+fmt:
+    uv run ruff format orchestrator
+
+# Run tests
+test:
+    uv run pytest
+
+# Clean generated files
+clean:
+    rm -rf var/
+    rm -rf ui/dist/
+    rm -rf .pytest_cache/
+    find . -type d -name __pycache__ -exec rm -rf {} +
+
+# Initialize var directory
+init:
+    mkdir -p var/artifacts/model/{router,planner,worker_general,worker_code,critic}
+    mkdir -p var/artifacts/tool/{python/in,python/out,tests/in,tests/out}
+    mkdir -p var/artifacts/draft
+    mkdir -p var/tmp
+    mkdir -p var/scratch
