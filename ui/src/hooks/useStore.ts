@@ -21,6 +21,7 @@ interface AppState {
 
   // Streaming state
   streamingRunId: string | null;
+  streamingText: Record<string, string>;  // runId -> partial response
 
   // Connection state
   isConnected: boolean;
@@ -57,6 +58,8 @@ interface AppState {
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
   setStreamingRunId: (runId: string | null) => void;
+  appendStreamingText: (runId: string, token: string) => void;
+  clearStreamingText: (runId: string) => void;
 
   // Fetch tracking actions
   setFetching: (runId: string, fetching: boolean) => void;
@@ -73,6 +76,7 @@ export const useStore = create<AppState>((set, get) => ({
   detailPanelOpen: false,
   selectedEventSeq: null,
   streamingRunId: null,
+  streamingText: {},
   isConnected: false,
   isLoading: false,
   error: null,
@@ -178,6 +182,18 @@ export const useStore = create<AppState>((set, get) => ({
   setLoading: (isLoading) => set({ isLoading }),
   setError: (error) => set({ error }),
   setStreamingRunId: (streamingRunId) => set({ streamingRunId }),
+
+  // Streaming text actions
+  appendStreamingText: (runId, token) => set((state) => ({
+    streamingText: {
+      ...state.streamingText,
+      [runId]: (state.streamingText[runId] || '') + token,
+    },
+  })),
+  clearStreamingText: (runId) => set((state) => {
+    const { [runId]: _, ...rest } = state.streamingText;
+    return { streamingText: rest };
+  }),
 
   // Fetch tracking actions
   setFetching: (runId, fetching) => set((state) => {

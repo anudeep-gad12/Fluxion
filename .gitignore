@@ -55,3 +55,6 @@ htmlcov/
 
 # Build outputs
 ui/dist/
+
+# Agent outputs
+.pids/

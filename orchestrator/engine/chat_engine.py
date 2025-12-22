@@ -126,8 +126,17 @@ class ChatEngine:
             })
         
         try:
-            # Call model
-            response_text, usage = await self._call_model(messages)
+            # Token callback to send tokens via SSE
+            def on_token(token: str):
+                if event_callback:
+                    event_callback({
+                        "type": "TOKEN",
+                        "run_id": run_id,
+                        "content": token,
+                    })
+            
+            # Call model with streaming
+            response_text, usage = await self._call_model_streaming(messages, on_token)
             
             timing_ms = int((time.time() - start_time) * 1000)
             
@@ -302,8 +311,82 @@ class ChatEngine:
         
         return response_text, usage
 
+    async def _call_model_streaming(
+        self,
+        messages: list[dict],
+        token_callback: Optional[Callable[[str], None]] = None,
+    ) -> tuple[str, Optional[dict]]:
+        """Call the model API with streaming, sending tokens via callback.
+        
+        Args:
+            messages: List of message dicts.
+            token_callback: Called with each token chunk.
+            
+        Returns:
+            Tuple of (response_text, usage_stats).
+        """
+        import json
+        
+        client = await self._get_client()
+        
+        # Build request payload with streaming enabled
+        payload = {
+            "messages": messages,
+            "temperature": self.config.model.temperature,
+            "max_tokens": self.config.model.max_tokens,
+            "stream": True,
+        }
+        
+        # Add optional parameters
+        if self.config.model.seed is not None:
+            payload["seed"] = self.config.model.seed
+        if self.config.model.top_p is not None:
+            payload["top_p"] = self.config.model.top_p
+        if self.config.model.frequency_penalty is not None:
+            payload["frequency_penalty"] = self.config.model.frequency_penalty
+        if self.config.model.presence_penalty is not None:
+            payload["presence_penalty"] = self.config.model.presence_penalty
+        
+        # Make streaming request
+        endpoint = self.config.endpoint.rstrip("/")
+        full_content = []
+        
+        async with client.stream(
+            "POST",
+            f"{endpoint}/v1/chat/completions",
+            json=payload,
+        ) as response:
+            response.raise_for_status()
+            
+            async for line in response.aiter_lines():
+                if not line or not line.startswith("data: "):
+                    continue
+                
+                data_str = line[6:]  # Remove "data: " prefix
+                if data_str == "[DONE]":
+                    break
+                
+                try:
+                    data = json.loads(data_str)
+                    delta = data.get("choices", [{}])[0].get("delta", {})
+                    content = delta.get("content", "")
+                    
+                    if content:
+                        full_content.append(content)
+                        if token_callback:
+                            token_callback(content)
+                            
+                except json.JSONDecodeError:
+                    continue
+        
+        response_text = "".join(full_content)
+        usage = {"completion_tokens": len(full_content)}
+        
+        return response_text, usage
+
     async def close(self):
         """Close the HTTP client."""
         if self._client:
             await self._client.aclose()
             self._client = None
+

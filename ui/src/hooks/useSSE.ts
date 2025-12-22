@@ -16,6 +16,8 @@ export function useSSE(runId: string | null) {
   const setConnected = useStore((s) => s.setConnected);
   const setError = useStore((s) => s.setError);
   const setStreamingRunId = useStore((s) => s.setStreamingRunId);
+  const appendStreamingText = useStore((s) => s.appendStreamingText);
+  const clearStreamingText = useStore((s) => s.clearStreamingText);
 
   const subscribe = useCallback((id: string) => {
     // Unsubscribe from previous
@@ -26,11 +28,22 @@ export function useSSE(runId: string | null) {
     // Clear buffer for new subscription
     eventBufferRef.current = [];
 
+    // Clear any previous streaming text for this run
+    clearStreamingText(id);
+
     setConnected(true);
     setError(null);
     setStreamingRunId(id);
 
     const handleEvent = (event: Event) => {
+      // Handle TOKEN events for streaming text
+      // TOKEN events have content directly on the event object
+      const rawEvent = event as unknown as { type: string; content?: string };
+      if (rawEvent.type === 'TOKEN' && rawEvent.content) {
+        appendStreamingText(id, rawEvent.content);
+        return; // Don't add TOKEN events to event list
+      }
+
       // Check if store has this run's events initialized
       const currentEvents = useStore.getState().eventsByRun[id];
       if (currentEvents === undefined) {
@@ -55,6 +68,9 @@ export function useSSE(runId: string | null) {
         eventBufferRef.current = [];
       }
 
+      // Clear streaming text now that we have final answer
+      clearStreamingText(id);
+
       updateRun(result.run_id, {
         status: result.status as 'succeeded' | 'failed',
         final_answer: result.final_answer,
@@ -70,6 +86,9 @@ export function useSSE(runId: string | null) {
         eventBufferRef.current = [];
       }
 
+      // Clear streaming text on error
+      clearStreamingText(id);
+
       setError(error);
       setConnected(false);
       setStreamingRunId(null);
@@ -81,7 +100,7 @@ export function useSSE(runId: string | null) {
       handleComplete,
       handleError
     );
-  }, [addEvent, setEvents, updateRun, setConnected, setError, setStreamingRunId]);
+  }, [addEvent, setEvents, updateRun, setConnected, setError, setStreamingRunId, appendStreamingText, clearStreamingText]);
 
   const unsubscribe = useCallback(() => {
     if (unsubscribeRef.current) {

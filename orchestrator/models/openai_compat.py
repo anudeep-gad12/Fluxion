@@ -135,6 +135,121 @@ class OpenAICompatClient:
             latency_ms=latency_ms,
         )
 
+    async def complete_streaming(
+        self,
+        messages: list[Message],
+        on_token: Any,  # Callable[[str], None]
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
+        stop: Optional[list[str]] = None,
+    ) -> ModelResponse:
+        """Stream a chat completion, calling on_token for each token.
+
+        Args:
+            messages: Conversation history
+            on_token: Callback called with each token chunk
+            max_tokens: Maximum tokens to generate
+            temperature: Sampling temperature
+            stop: Stop sequences
+
+        Returns:
+            Final ModelResponse with complete content
+        """
+        import json as json_lib
+        
+        # Use config defaults if not specified
+        if max_tokens is None:
+            max_tokens = self._config.max_tokens if self._config else 4096
+        if temperature is None:
+            temperature = self._config.temperature if self._config else 0.7
+
+        # Build request payload with streaming enabled
+        payload: dict[str, Any] = {
+            "model": self._model,
+            "messages": [{"role": m.role, "content": m.content} for m in messages],
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "stream": True,  # Enable streaming
+        }
+
+        if stop:
+            payload["stop"] = stop
+
+        if self._config and self._config.seed is not None:
+            payload["seed"] = self._config.seed
+
+        if self._config:
+            if self._config.top_p is not None:
+                payload["top_p"] = self._config.top_p
+            if self._config.frequency_penalty is not None:
+                payload["frequency_penalty"] = self._config.frequency_penalty
+            if self._config.presence_penalty is not None:
+                payload["presence_penalty"] = self._config.presence_penalty
+
+        start_time = time.perf_counter()
+        full_content = []
+        finish_reason = "unknown"
+
+        try:
+            async with self._client.stream(
+                "POST",
+                f"{self._endpoint}/v1/chat/completions",
+                json=payload,
+            ) as response:
+                response.raise_for_status()
+                
+                async for line in response.aiter_lines():
+                    if not line or not line.startswith("data: "):
+                        continue
+                    
+                    data_str = line[6:]  # Remove "data: " prefix
+                    if data_str == "[DONE]":
+                        break
+                    
+                    try:
+                        data = json_lib.loads(data_str)
+                        delta = data.get("choices", [{}])[0].get("delta", {})
+                        content = delta.get("content", "")
+                        
+                        if content:
+                            full_content.append(content)
+                            await on_token(content)
+                        
+                        # Check for finish reason
+                        fr = data.get("choices", [{}])[0].get("finish_reason")
+                        if fr:
+                            finish_reason = fr
+                            
+                    except json_lib.JSONDecodeError:
+                        continue
+
+        except httpx.HTTPStatusError as e:
+            raise ModelError(
+                f"HTTP error from {self._endpoint}: {e.response.status_code}",
+                endpoint=self._endpoint,
+                status_code=e.response.status_code,
+            ) from e
+        except httpx.RequestError as e:
+            raise ModelError(
+                f"Request error to {self._endpoint}: {str(e)}",
+                endpoint=self._endpoint,
+            ) from e
+
+        latency_ms = int((time.perf_counter() - start_time) * 1000)
+        final_content = "".join(full_content)
+
+        return ModelResponse(
+            content=final_content,
+            raw={"streamed": True},
+            finish_reason=finish_reason,
+            usage={
+                "prompt_tokens": 0,  # Not available in streaming
+                "completion_tokens": len(full_content),
+                "total_tokens": 0,
+            },
+            latency_ms=latency_ms,
+        )
+
     async def health_check(self) -> bool:
         """Check if the model endpoint is healthy."""
         try:

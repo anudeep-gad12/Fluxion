@@ -2,6 +2,8 @@
 
 A local AI chat application with full traceability, built with **FastAPI** (backend) and **React** (frontend).
 
+> 📊 **Interactive Diagram**: Open [architecture-diagram.html](./architecture-diagram.html) in your browser for a visual, step-by-step walkthrough of the complete data flow.
+
 ---
 
 ## Table of Contents
@@ -13,7 +15,8 @@ A local AI chat application with full traceability, built with **FastAPI** (back
 6. [API Reference](#api-reference)
 7. [Configuration](#configuration)
 8. [Data Flows](#data-flows)
-9. [Tracing & Observability](#tracing--observability)
+9. [Real-Time Token Streaming](#real-time-token-streaming)
+10. [Tracing & Observability](#tracing--observability)
 
 ---
 
@@ -231,7 +234,8 @@ flowchart TD
 |--------|---------|
 | `chat()` | Main entry point - orchestrates full chat flow |
 | `_build_messages()` | Constructs message array from history |
-| `_call_model()` | Makes HTTP request to LLM |
+| `_call_model()` | Makes non-streaming HTTP request to LLM |
+| `_call_model_streaming()` | Makes streaming request, emits TOKEN events |
 
 ---
 
@@ -278,14 +282,28 @@ interface AppState {
   // UI State
   detailPanelOpen: boolean;
   selectedEventSeq: number | null;
-  streamingRunId: string | null;
+  
+  // Real-time Streaming State
+  streamingRunId: string | null;           // Currently streaming run
+  streamingText: Record<string, string>;   // runId → accumulated tokens
   
   // Connection
   isConnected: boolean;
   isLoading: boolean;
   error: string | null;
+  
+  // Fetch Tracking
+  fetchingRuns: Set<string>;               // Prevent duplicate fetches
 }
 ```
+
+**Key Actions:**
+| Action | Purpose |
+|--------|---------|
+| `appendStreamingText(runId, token)` | Append token to streaming text |
+| `clearStreamingText(runId)` | Clear streaming text when complete |
+| `setStreamingRunId(runId)` | Track which run is currently streaming |
+| `updateRun(runId, updates)` | Update run status/final_answer |
 
 **Selectors:**
 - `useSelectedConversation()` - Current conversation
@@ -465,12 +483,26 @@ Events:
   event: event
   data: {"type": "CHAT_STARTED", "run_id": "..."}
 
+  event: event
+  data: {"type": "TOKEN", "run_id": "...", "content": "Hello"}  # Real-time token
+
+  event: event
+  data: {"type": "TOKEN", "run_id": "...", "content": " world"}  # Next token
+
   event: event  
-  data: {"type": "CHAT_COMPLETED", "response": "..."}
+  data: {"type": "CHAT_COMPLETED", "response": "..."}  # Full response
 
   event: complete
   data: {"run_id": "...", "status": "succeeded", "final_answer": "..."}
 ```
+
+**Event Types:**
+| Type | When Sent | Data |
+|------|-----------|------|
+| `CHAT_STARTED` | Run begins | `{run_id, conversation_id}` |
+| `TOKEN` | Each token from LLM | `{run_id, content}` |
+| `CHAT_COMPLETED` | LLM finished | `{run_id, response}` |
+| `CHAT_FAILED` | Error occurred | `{run_id, error}` |
 
 ---
 
@@ -557,6 +589,65 @@ sequenceDiagram
     API-->>UI: { status: "deleted" }
     UI->>UI: Remove from store
 ```
+
+---
+
+## Real-Time Token Streaming
+
+The application supports real-time token streaming, displaying LLM responses character-by-character as they're generated.
+
+### How It Works
+
+```mermaid
+sequenceDiagram
+    participant UI as React UI
+    participant SSE as useSSE Hook
+    participant Store as Zustand Store
+    participant API as FastAPI
+    participant Engine as ChatEngine
+    participant LM as LM Studio
+
+    UI->>API: POST /conversations/{id}/runs
+    API-->>UI: {run_id, stream_url}
+    UI->>Store: addRun(run) with status="running"
+    
+    UI->>SSE: subscribe(run_id)
+    SSE->>API: EventSource(/runs/{id}/stream)
+    
+    par Background Processing
+        Engine->>LM: POST /v1/chat/completions (stream=true)
+        loop For each token
+            LM-->>Engine: data: {"delta": {"content": "Hello"}}
+            Engine->>API: event_queue.put({type: TOKEN})
+            API-->>SSE: event: event\ndata: {type: TOKEN, content: "Hello"}
+            SSE->>Store: appendStreamingText(runId, "Hello")
+            Store->>UI: Re-render with updated text
+        end
+    end
+    
+    API-->>SSE: event: complete
+    SSE->>Store: updateRun(runId, {status, final_answer})
+    SSE->>Store: clearStreamingText(runId)
+```
+
+### Key Components
+
+| Component | File | Role |
+|-----------|------|------|
+| `useSSE` | `hooks/useSSE.ts` | Manages EventSource connection |
+| `appendStreamingText` | `hooks/useStore.ts` | Accumulates tokens in state |
+| `_call_model_streaming` | `engine/chat_engine.py` | Streams from LLM, emits tokens |
+| `event_queue` | `routes/runs.py` | asyncio.Queue bridges background task to SSE |
+
+### Frontend Display
+
+```typescript
+// In ConversationView.tsx - RunMessage component
+const streamingText = useStore((s) => s.streamingText[run.run_id] || '');
+const displayText = run.status === 'running' ? streamingText : run.final_answer;
+```
+
+While `status === 'running'`, the UI shows `streamingText` (grows with each token). Once `status === 'succeeded'`, it shows `final_answer`.
 
 ---
 

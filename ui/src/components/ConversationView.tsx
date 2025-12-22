@@ -21,6 +21,11 @@ function RunMessage({
 }) {
   const isRunning = run.status === 'running';
   const finalAnswer = run.final_answer ? extractAnswer(run.final_answer) : '';
+  const streamingText = useStore((s) => s.streamingText[run.run_id] || '');
+
+  // Use streaming text while running, final answer when complete
+  const displayText = isRunning ? streamingText : finalAnswer;
+  const isStreaming = isRunning && streamingText.length > 0;
 
   return (
     <div className="space-y-3 animate-in fade-in slide-in-from-bottom-2">
@@ -37,7 +42,7 @@ function RunMessage({
 
       <div className="flex justify-start">
         <div className="max-w-[80%] rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-          {isRunning && !finalAnswer ? (
+          {isRunning && !displayText ? (
             <div className="flex items-center gap-2 text-sm text-slate-500">
               <Loader2 className="h-4 w-4 animate-spin" />
               Loading...
@@ -46,8 +51,13 @@ function RunMessage({
             <div className="text-sm text-rose-600">
               {run.error_detail || 'Request failed. Please try again.'}
             </div>
-          ) : finalAnswer ? (
-            <AnswerMarkdown content={finalAnswer} />
+          ) : displayText ? (
+            <div>
+              <AnswerMarkdown content={extractAnswer(displayText)} />
+              {isStreaming && (
+                <span className="inline-block w-2 h-4 bg-slate-400 animate-pulse ml-0.5" />
+              )}
+            </div>
           ) : (
             <div className="text-sm text-slate-500">No response.</div>
           )}
