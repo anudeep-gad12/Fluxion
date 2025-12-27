@@ -22,46 +22,40 @@ A local AI chat application with full traceability, built with **FastAPI** (back
 
 ## System Overview
 
-```mermaid
-graph TB
-    subgraph "User"
-        Browser[Web Browser]
-    end
-    
-    subgraph "Frontend - React + Vite"
-        UI[React App<br/>:3000]
-        Store[Zustand Store]
-        SSE[SSE Hook]
-    end
-    
-    subgraph "Backend - FastAPI"
-        API[FastAPI<br/>:9000]
-        Routes[Route Modules]
-        Engine[ChatEngine]
-        Repos[Repositories]
-    end
-    
-    subgraph "Storage"
-        DB[(SQLite<br/>traces.sqlite)]
-        Config[chat_config.yaml]
-    end
-    
-    subgraph "LLM Provider"
-        LM[LM Studio<br/>:1234]
-    end
-    
-    Browser --> UI
-    UI --> Store
-    UI --> SSE
-    SSE -->|Server-Sent Events| API
-    UI -->|REST API| API
-    API --> Routes
-    Routes --> Engine
-    Routes --> Repos
-    Engine -->|OpenAI API| LM
-    Engine --> Repos
-    Repos --> DB
-    Engine -.->|reads| Config
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                                   USER                                       │
+│                              ┌───────────┐                                  │
+│                              │  Browser  │                                  │
+│                              └─────┬─────┘                                  │
+└────────────────────────────────────┼────────────────────────────────────────┘
+                                     │
+┌────────────────────────────────────▼────────────────────────────────────────┐
+│                        FRONTEND - React + Vite (:3000)                       │
+│  ┌─────────────────┐   ┌─────────────────┐   ┌─────────────────┐           │
+│  │    React App    │───│  Zustand Store  │───│    SSE Hook     │           │
+│  └─────────────────┘   └─────────────────┘   └────────┬────────┘           │
+└────────────────────────────────────────────────────────┼────────────────────┘
+                                     │ REST API          │ Server-Sent Events
+                                     ▼                   ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         BACKEND - FastAPI (:9000)                            │
+│  ┌──────────────┐   ┌──────────────┐   ┌──────────────────────────────┐    │
+│  │    Routes    │───│  ChatEngine  │───│       Repositories           │    │
+│  │   /api/*     │   │  (streaming) │   │  (conversation, trace)       │    │
+│  └──────────────┘   └──────┬───────┘   └──────────────┬───────────────┘    │
+└────────────────────────────┼──────────────────────────┼─────────────────────┘
+                             │                          │
+                             ▼                          ▼
+┌────────────────────────────────────────┐  ┌─────────────────────────────────┐
+│       LLM - LM Studio (:1234)          │  │      SQLite (traces.sqlite)     │
+│       OpenAI-compatible API            │  │   conversations │ runs │ calls  │
+└────────────────────────────────────────┘  └─────────────────────────────────┘
+                                                        ▲
+                                                        │ reads
+                                            ┌───────────┴───────────┐
+                                            │   chat_config.yaml    │
+                                            └───────────────────────┘
 ```
 
 ### Tech Stack
@@ -215,17 +209,47 @@ app.include_router(runs.router)
 
 The core orchestration component:
 
-```mermaid
-flowchart TD
-    A[Receive Message] --> B[Load Conversation History]
-    B --> C[Build Messages Array]
-    C --> D[Call LLM via OpenAI API]
-    D --> E{Success?}
-    E -->|Yes| F[Update Run: succeeded]
-    E -->|No| G[Update Run: failed]
-    F --> H[Log Model Call]
-    G --> H
-    H --> I[Return ChatResult]
+```
+┌─────────────────────┐
+│  Receive Message    │
+└──────────┬──────────┘
+           ▼
+┌─────────────────────┐
+│  Load Conversation  │
+│      History        │
+└──────────┬──────────┘
+           ▼
+┌─────────────────────┐
+│  Build Messages     │
+│      Array          │
+└──────────┬──────────┘
+           ▼
+┌─────────────────────┐
+│  Call LLM via       │
+│  OpenAI API         │
+└──────────┬──────────┘
+           ▼
+      ┌────────┐
+      │Success?│
+      └───┬────┘
+    Yes   │   No
+   ┌──────┴──────┐
+   ▼             ▼
+┌──────┐    ┌──────┐
+│Update│    │Update│
+│Run:  │    │Run:  │
+│succ- │    │failed│
+│eeded │    │      │
+└──┬───┘    └──┬───┘
+   └─────┬─────┘
+         ▼
+┌─────────────────────┐
+│   Log Model Call    │
+└──────────┬──────────┘
+           ▼
+┌─────────────────────┐
+│  Return ChatResult  │
+└─────────────────────┘
 ```
 
 **Key Methods:**
@@ -315,23 +339,34 @@ interface AppState {
 
 ### Components
 
-```mermaid
-graph TD
-    App --> Sidebar[ConversationList]
-    App --> Main[ConversationView]
-    App --> Detail[DetailPanel]
-    
-    Sidebar --> ConvCard[ConversationCard]
-    Sidebar --> MultiSelect[Multi-Select Mode]
-    
-    Main --> Messages[Message List]
-    Main --> Input[Message Input]
-    Messages --> UserMsg[User Message]
-    Messages --> AssistantMsg[Assistant Response]
-    AssistantMsg --> AnswerMarkdown
-    
-    Detail --> Events[Event List]
-    Detail --> JSON[Raw JSON View]
+```
+                              ┌───────────────┐
+                              │      App      │
+                              └───────┬───────┘
+           ┌──────────────────────────┼──────────────────────────┐
+           ▼                          ▼                          ▼
+┌──────────────────┐      ┌──────────────────┐      ┌──────────────────┐
+│ ConversationList │      │ ConversationView │      │   DetailPanel    │
+│    (Sidebar)     │      │     (Main)       │      │                  │
+└────────┬─────────┘      └────────┬─────────┘      └────────┬─────────┘
+         │                         │                          │
+    ┌────┴────┐              ┌─────┴─────┐              ┌─────┴─────┐
+    ▼         ▼              ▼           ▼              ▼           ▼
+┌───────┐ ┌───────┐    ┌─────────┐ ┌─────────┐    ┌─────────┐ ┌─────────┐
+│ Conv  │ │Multi- │    │ Message │ │ Message │    │  Event  │ │Raw JSON │
+│ Card  │ │Select │    │  List   │ │  Input  │    │  List   │ │  View   │
+└───────┘ └───────┘    └────┬────┘ └─────────┘    └─────────┘ └─────────┘
+                            │
+                       ┌────┴────┐
+                       ▼         ▼
+                 ┌─────────┐ ┌─────────────┐
+                 │  User   │ │  Assistant  │
+                 │  Msg    │ │  Response   │
+                 └─────────┘ └──────┬──────┘
+                                    ▼
+                            ┌──────────────┐
+                            │AnswerMarkdown│
+                            └──────────────┘
 ```
 
 | Component | File | Purpose |
@@ -366,44 +401,41 @@ subscribeToRun(runId, onEvent, onComplete, onError) → unsubscribe()
 
 ## Database Schema
 
-```mermaid
-erDiagram
-    conversations ||--o{ runs : "has many"
-    runs ||--o{ model_calls : "logs"
-    
-    conversations {
-        text conversation_id PK
-        text title
-        text summary
-        text created_at
-        text status
-        text metadata_json
-    }
-    
-    runs {
-        text run_id PK
-        text conversation_id FK
-        text created_at
-        text user_message
-        text system_prompt_snapshot
-        text profile_name
-        text mode
-        text model_config_snapshot
-        text final_answer
-        text error_message
-        text status
-        text usage_stats
-    }
-    
-    model_calls {
-        text id PK
-        text run_id FK
-        int seq
-        text created_at
-        text step_type
-        text content
-        text metadata_json
-    }
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                          DATABASE SCHEMA                             │
+└─────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────┐       ┌──────────────────────────┐
+│      conversations       │       │          runs            │
+├──────────────────────────┤       ├──────────────────────────┤
+│ conversation_id (PK)     │───┐   │ run_id (PK)              │
+│ title                    │   │   │ conversation_id (FK)     │◄──┐
+│ summary                  │   └──▶│ created_at               │   │
+│ created_at               │       │ user_message             │   │
+│ status                   │       │ system_prompt_snapshot   │   │
+│ metadata_json            │       │ profile_name             │   │
+└──────────────────────────┘       │ mode                     │   │
+                                   │ model_config_snapshot    │   │
+         1:N                       │ final_answer             │   │
+                                   │ error_message            │   │
+                                   │ status                   │   │
+                                   │ usage_stats              │   │
+                                   └─────────────┬────────────┘   │
+                                                 │                │
+                                                 │ 1:N            │
+                                                 ▼                │
+                                   ┌──────────────────────────┐   │
+                                   │       model_calls        │   │
+                                   ├──────────────────────────┤   │
+                                   │ id (PK)                  │   │
+                                   │ run_id (FK)              │───┘
+                                   │ seq                      │
+                                   │ created_at               │
+                                   │ step_type                │
+                                   │ content                  │
+                                   │ metadata_json            │
+                                   └──────────────────────────┘
 ```
 
 ### Table Details
@@ -543,51 +575,73 @@ tracing:
 
 ### Chat Message Flow
 
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant UI as React UI
-    participant API as FastAPI
-    participant CE as ChatEngine
-    participant LM as LM Studio
-    participant DB as SQLite
-
-    U->>UI: Types message, presses Enter
-    UI->>API: POST /conversations/{id}/runs
-    API->>DB: INSERT run (status: running)
-    API-->>UI: { run_id, stream_url }
-    
-    UI->>API: GET /runs/{id}/stream (SSE)
-    
-    par Background Task
-        API->>CE: chat(conversation_id, message)
-        CE->>DB: SELECT prior runs for history
-        CE->>CE: Build messages array
-        CE->>LM: POST /v1/chat/completions
-        LM-->>CE: { choices, usage }
-        CE->>DB: UPDATE run (status: succeeded)
-        CE->>DB: INSERT model_call (full trace)
-        CE-->>API: ChatResult
-    end
-    
-    API-->>UI: SSE: CHAT_COMPLETED
-    UI->>UI: Update store, render response
+```
+User          React UI        FastAPI         ChatEngine      LM Studio       SQLite
+  │               │               │               │               │              │
+  │ types msg     │               │               │               │              │
+  │──────────────▶│               │               │               │              │
+  │               │ POST /runs    │               │               │              │
+  │               │──────────────▶│               │               │              │
+  │               │               │ INSERT run    │               │              │
+  │               │               │──────────────────────────────────────────────▶│
+  │               │ {run_id,      │               │               │              │
+  │               │  stream_url}  │               │               │              │
+  │               │◀──────────────│               │               │              │
+  │               │               │               │               │              │
+  │               │ GET /stream   │               │               │              │
+  │               │──────────────▶│               │               │              │
+  │               │               │               │               │              │
+  │               │               │ ─ ─ ─ ─ ─ ─ ─ Background Task ─ ─ ─ ─ ─ ─ ─ │
+  │               │               │ chat()        │               │              │
+  │               │               │──────────────▶│               │              │
+  │               │               │               │ SELECT history│              │
+  │               │               │               │──────────────────────────────▶│
+  │               │               │               │◀──────────────────────────────│
+  │               │               │               │ build msgs    │              │
+  │               │               │               │               │              │
+  │               │               │               │ POST /v1/chat │              │
+  │               │               │               │──────────────▶│              │
+  │               │               │               │ {choices}     │              │
+  │               │               │               │◀──────────────│              │
+  │               │               │               │ UPDATE run    │              │
+  │               │               │               │──────────────────────────────▶│
+  │               │               │               │ INSERT call   │              │
+  │               │               │               │──────────────────────────────▶│
+  │               │               │ ChatResult    │               │              │
+  │               │               │◀──────────────│               │              │
+  │               │               │ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ │
+  │               │               │               │               │              │
+  │               │ SSE: complete │               │               │              │
+  │               │◀──────────────│               │               │              │
+  │               │ render        │               │               │              │
+  │◀──────────────│               │               │               │              │
+  │               │               │               │               │              │
 ```
 
 ### Conversation Deletion Flow
 
-```mermaid
-sequenceDiagram
-    participant UI as React UI
-    participant API as FastAPI
-    participant DB as SQLite
-
-    UI->>API: DELETE /conversations/{id}
-    API->>DB: DELETE FROM model_calls WHERE run_id IN (...)
-    API->>DB: DELETE FROM runs WHERE conversation_id = ?
-    API->>DB: DELETE FROM conversations WHERE id = ?
-    API-->>UI: { status: "deleted" }
-    UI->>UI: Remove from store
+```
+React UI              FastAPI                           SQLite
+    │                    │                                 │
+    │ DELETE /conv/{id}  │                                 │
+    │───────────────────▶│                                 │
+    │                    │ DELETE FROM model_calls         │
+    │                    │ WHERE run_id IN (...)           │
+    │                    │────────────────────────────────▶│
+    │                    │                                 │
+    │                    │ DELETE FROM runs                │
+    │                    │ WHERE conversation_id = ?       │
+    │                    │────────────────────────────────▶│
+    │                    │                                 │
+    │                    │ DELETE FROM conversations       │
+    │                    │ WHERE id = ?                    │
+    │                    │────────────────────────────────▶│
+    │                    │                                 │
+    │ {status: deleted}  │                                 │
+    │◀───────────────────│                                 │
+    │                    │                                 │
+    │ Remove from store  │                                 │
+    │                    │                                 │
 ```
 
 ---
@@ -598,36 +652,51 @@ The application supports real-time token streaming, displaying LLM responses cha
 
 ### How It Works
 
-```mermaid
-sequenceDiagram
-    participant UI as React UI
-    participant SSE as useSSE Hook
-    participant Store as Zustand Store
-    participant API as FastAPI
-    participant Engine as ChatEngine
-    participant LM as LM Studio
-
-    UI->>API: POST /conversations/{id}/runs
-    API-->>UI: {run_id, stream_url}
-    UI->>Store: addRun(run) with status="running"
-    
-    UI->>SSE: subscribe(run_id)
-    SSE->>API: EventSource(/runs/{id}/stream)
-    
-    par Background Processing
-        Engine->>LM: POST /v1/chat/completions (stream=true)
-        loop For each token
-            LM-->>Engine: data: {"delta": {"content": "Hello"}}
-            Engine->>API: event_queue.put({type: TOKEN})
-            API-->>SSE: event: event\ndata: {type: TOKEN, content: "Hello"}
-            SSE->>Store: appendStreamingText(runId, "Hello")
-            Store->>UI: Re-render with updated text
-        end
-    end
-    
-    API-->>SSE: event: complete
-    SSE->>Store: updateRun(runId, {status, final_answer})
-    SSE->>Store: clearStreamingText(runId)
+```
+React UI        useSSE          Zustand         FastAPI         ChatEngine      LM Studio
+    │              │               │               │                │               │
+    │ POST /runs   │               │               │                │               │
+    │─────────────────────────────────────────────▶│                │               │
+    │ {run_id,     │               │               │                │               │
+    │  stream_url} │               │               │                │               │
+    │◀─────────────────────────────────────────────│                │               │
+    │              │               │               │                │               │
+    │ addRun(run)  │               │               │                │               │
+    │─────────────────────────────▶│               │                │               │
+    │              │               │               │                │               │
+    │ subscribe()  │               │               │                │               │
+    │─────────────▶│               │               │                │               │
+    │              │ EventSource   │               │                │               │
+    │              │──────────────────────────────▶│                │               │
+    │              │               │               │                │               │
+    │              │               │               │ ─ ─ Background Processing ─ ─ │
+    │              │               │               │                │               │
+    │              │               │               │ POST /v1/chat  │               │
+    │              │               │               │ (stream=true)  │               │
+    │              │               │               │───────────────▶│               │
+    │              │               │               │                │──────────────▶│
+    │              │               │               │                │               │
+    │              │               │               │  ┌─────────────────────────────┐
+    │              │               │               │  │  For each token:            │
+    │              │               │               │  │                             │
+    │              │               │               │◀─┤  delta: {content: "Hello"}  │
+    │              │ SSE: TOKEN    │               │  │                             │
+    │              │◀──────────────────────────────│  │                             │
+    │              │ append()      │               │  │                             │
+    │              │──────────────▶│               │  │                             │
+    │ re-render    │               │               │  │                             │
+    │◀─────────────────────────────│               │  │                             │
+    │              │               │               │  └─────────────────────────────┘
+    │              │               │               │                │               │
+    │              │               │               │ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ │
+    │              │               │               │                │               │
+    │              │ SSE: complete │               │                │               │
+    │              │◀──────────────────────────────│                │               │
+    │              │ updateRun()   │               │                │               │
+    │              │──────────────▶│               │                │               │
+    │              │ clear()       │               │                │               │
+    │              │──────────────▶│               │                │               │
+    │              │               │               │                │               │
 ```
 
 ### Key Components

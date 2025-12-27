@@ -8,26 +8,25 @@ A local web application for running reasoning tasks with an orchestrated solver 
 ┌─────────────────────────────────────────────────────────────────┐
 │  Browser (localhost:3000)                                       │
 │  ┌─────────────────────────────────────────────────────────┐   │
-│  │  Vite + React UI                                         │   │
-│  │  - Run List | Timeline | Step Cards | Artifact Viewer    │   │
+│  │  Vite + React + Zustand                                  │   │
+│  │  ConversationList │ ConversationView │ DetailPanel       │   │
 │  └─────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
-                              │ HTTP + SSE
+                              │ HTTP + SSE (real-time tokens)
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│  Orchestrator API (localhost:9000)                              │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────────────┐   │
-│  │  Routes  │ │  Engine  │ │  Tools   │ │  Storage         │   │
-│  │ /api/*   │ │ state_   │ │ python   │ │ SQLite + Artifacts│   │
-│  │          │ │ machine  │ │ tests    │ │                  │   │
-│  └──────────┘ └──────────┘ └──────────┘ └──────────────────┘   │
+│  FastAPI Backend (localhost:9000)                               │
+│  ┌──────────┐ ┌────────────┐ ┌─────────────────────────────┐   │
+│  │  Routes  │ │ ChatEngine │ │  Storage                    │   │
+│  │ /api/*   │ │ streaming  │ │  SQLite (traces.sqlite)     │   │
+│  │          │ │ + tracing  │ │  conversations/runs/calls   │   │
+│  └──────────┘ └────────────┘ └─────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
-                              │ HTTP (OpenAI-compat)
+                              │ HTTP (OpenAI-compatible)
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│  Model Servers (llama.cpp)                                      │
-│  Router:8001 │ Planner:8002 │ Worker-Gen:8003 │                │
-│  Worker-Code:8004 │ Critic:8005                                 │
+│  LM Studio (localhost:1234)                                     │
+│  Local LLM inference with streaming support                     │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -99,119 +98,146 @@ Visit http://localhost:3000
 ## Project Structure
 
 ```
-reasoning-runtime/
-├── orchestrator/           # Python backend
-│   ├── app.py             # FastAPI routes
-│   ├── config.py          # Configuration
-│   ├── engine/            # Solver loop
-│   │   ├── state_machine.py
-│   │   ├── gates.py
-│   │   ├── budgets.py
-│   │   └── stuck.py
-│   ├── models/            # LLM clients
-│   │   ├── base.py
-│   │   └── openai_compat.py
-│   ├── tools/             # Executable tools
-│   │   ├── python_tool.py
-│   │   ├── tests_tool.py
-│   │   └── file_tool.py
-│   ├── storage/           # Persistence
-│   │   ├── sqlite.py
-│   │   └── artifacts.py
-│   └── reporting/         # Report generation
-│       └── report_builder.py
-├── ui/                    # React frontend
+reasoner/
+├── orchestrator/               # Python backend
+│   ├── app.py                  # FastAPI entry point
+│   ├── config.py               # Configuration loader
+│   ├── schemas.py              # Pydantic request/response models
+│   ├── chat_config.yaml        # Runtime settings
+│   │
+│   ├── engine/                 # Core business logic
+│   │   └── chat_engine.py      # LLM orchestration + streaming
+│   │
+│   ├── routes/                 # API route modules
+│   │   ├── conversations.py    # Conversation CRUD
+│   │   └── runs.py             # Run creation + SSE streaming
+│   │
+│   ├── models/                 # LLM clients
+│   │   ├── base.py             # Abstract interface
+│   │   └── openai_compat.py    # OpenAI-compatible client
+│   │
+│   ├── storage/                # Data layer
+│   │   ├── db.py               # SQLite connection manager
+│   │   ├── schema.sql          # Table definitions
+│   │   └── repositories/
+│   │       ├── conversation_repo.py
+│   │       └── trace_repo.py
+│   │
+│   ├── reporting/              # Report generation
+│   │   └── report_builder.py
+│   │
+│   ├── utils/                  # Utilities
+│   │   ├── tokens.py           # Token counting
+│   │   └── prompts.py          # Prompt helpers
+│   │
+│   └── prompts/                # Prompt templates
+│       └── chat.txt            # Default system prompt
+│
+├── ui/                         # React frontend
 │   └── src/
-│       ├── components/
-│       ├── hooks/
+│       ├── App.tsx             # Main layout
 │       ├── api/
+│       │   └── client.ts       # API client
+│       ├── components/
+│       │   ├── ConversationList.tsx
+│       │   ├── ConversationView.tsx
+│       │   ├── DetailPanel.tsx
+│       │   └── ui/             # Reusable UI components
+│       ├── hooks/
+│       │   ├── useStore.ts     # Zustand store
+│       │   └── useSSE.ts       # SSE subscription
 │       └── types/
-├── var/                   # Runtime data (gitignored)
-├── scripts/               # Helper scripts
-├── Procfile              # Process definitions
-├── pyproject.toml        # Python config
-└── justfile              # Dev commands
+│           └── index.ts
+│
+├── var/                        # Runtime data (gitignored)
+│   └── traces.sqlite           # SQLite database
+├── logs/                       # Server logs
+├── Procfile                    # Process definitions
+├── pyproject.toml              # Python config
+└── justfile                    # Dev commands
 ```
 
 ## API Endpoints
 
+### Conversations
+
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/api/runs` | Create new run |
+| POST | `/api/conversations` | Create new conversation |
+| GET | `/api/conversations` | List conversations |
+| GET | `/api/conversations/{id}` | Get conversation with runs |
+| PATCH | `/api/conversations/{id}` | Update title/status |
+| DELETE | `/api/conversations/{id}` | Delete conversation + runs |
+
+### Runs
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/conversations/{id}/runs` | Send message to conversation |
+| POST | `/api/runs` | Create standalone run |
 | GET | `/api/runs` | List all runs |
 | GET | `/api/runs/{id}` | Get run details |
 | GET | `/api/runs/{id}/stream` | SSE event stream |
-| GET | `/api/runs/{id}/events` | Get run events |
-| GET | `/api/runs/{id}/report` | Get human-readable report |
-| GET | `/api/artifacts/{ref}` | Get artifact content |
-| GET | `/api/profiles` | List available profiles |
+| GET | `/api/runs/{id}/events` | Get logged events |
+| GET | `/api/runs/{id}/report` | Get markdown report |
+
+### System
+
+| Method | Path | Description |
+|--------|------|-------------|
 | GET | `/api/health` | Health check |
+| GET | `/api/config` | Get current configuration |
 
-## Solver Loop Stages
+## Chat Flow
 
-Baseline (single-trajectory):
+```
+┌─────────────┐     ┌──────────────┐     ┌────────────┐
+│   User      │────▶│  ChatEngine  │────▶│  LM Studio │
+│   Message   │     │  (streaming) │     │    LLM     │
+└─────────────┘     └──────────────┘     └────────────┘
+                           │
+                    ┌──────▼──────┐
+                    │   SQLite    │
+                    │  (traces)   │
+                    └─────────────┘
+```
 
-1. **Route** - Analyze task, determine type and required gates
-2. **Plan** - Create step-by-step execution plan
-3. **Execute** - Worker executes actions, calls tools
-4. **Critique** - Critic evaluates the draft answer
-5. **Revise** - Worker addresses critique (if needed)
-6. **Finalize** - Check gates, accept or reject
-
-Forked (multi-trajectory):
-
-1. **Route** - Analyze task, determine type and required gates
-2. **Plan Fork** - Generate multiple diverse candidate plans
-3. **Execute Candidates** - Run each plan end-to-end in isolation
-4. **Discriminate** - Judge selects the best candidate without rewriting
-5. **Verify** - Adversarial verifier attempts to falsify the candidate
-6. **Finalize** - Gate checks scoped to the selected candidate
+1. **Receive Message** - User sends message to conversation
+2. **Build Context** - Load conversation history, construct messages array
+3. **Stream Response** - Call LLM with streaming, emit tokens via SSE
+4. **Log Trace** - Store model call with full messages/response for debugging
+5. **Return Result** - Final answer saved to run, UI updates
 
 ## Configuration
 
-Profiles are defined in `orchestrator/config.py`:
+Settings are defined in `orchestrator/chat_config.yaml`:
 
-```python
-PROFILES = {
-    "local_m4": Profile(
-        name="local_m4",
-        endpoints=ModelEndpoints(
-            router="http://127.0.0.1:8001",
-            planner="http://127.0.0.1:8002",
-            worker_general="http://127.0.0.1:8003",
-            worker_code="http://127.0.0.1:8004",
-            critic="http://127.0.0.1:8005",
-        ),
-        budgets=BudgetConfig(
-            max_steps=50,
-            max_tool_calls=20,
-            max_time_seconds=300,
-            max_revisions=3,
-        ),
-        num_candidates=3,
-    ),
-}
+```yaml
+# LLM endpoint
+endpoint: "http://127.0.0.1:1234"
+
+# Model parameters
+model:
+  temperature: 0.7
+  max_tokens: 4096
+  seed: null
+
+# Context management
+context:
+  max_messages: 50
+  max_tokens: 6000
+  reserve_for_response: 2048
+  truncation_strategy: sliding_window
+
+# System prompt
+system_prompt: "You are a helpful AI assistant..."
+
+# Tracing
+tracing:
+  enabled: true
+  log_level: info
+  log_model_calls: true
 ```
-
-## Evaluation
-
-Run the baseline vs forked comparison on a JSONL dataset:
-
-```bash
-uv run python -m orchestrator.eval.run_eval --dataset eval/sample.jsonl --profile local_m4
-```
-
-Dataset format (one JSON per line):
-
-```json
-{\"prompt\": \"Compute 22 + 66 * 88.\", \"expected_number\": 5830}
-```
-
-Optional fields:
-- `expected` (string substring match)
-- `expected_regex` (regex search)
-- `expected_number` (numeric match)
-- `test_code` (pytest code, evaluated against a Python code block in the answer)
 
 ## Development
 
@@ -228,7 +254,3 @@ just test
 # Clean generated files
 just clean
 ```
-
-## License
-
-MIT
