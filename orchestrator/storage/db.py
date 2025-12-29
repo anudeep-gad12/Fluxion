@@ -21,13 +21,34 @@ class Database:
         self._connection = await aiosqlite.connect(self.db_path)
         self._connection.row_factory = aiosqlite.Row
         await self._connection.execute("PRAGMA foreign_keys = ON")
-        
+
         # Apply strict schema
         if SCHEMA_PATH.exists():
             schema_sql = SCHEMA_PATH.read_text()
             await self._connection.executescript(schema_sql)
-        
+
+        # Run migrations for schema changes
+        await self._run_migrations()
+
         await self._connection.commit()
+
+    async def _run_migrations(self) -> None:
+        """Run schema migrations for existing databases."""
+        # Migration 1: Add thinking_summary column to runs table
+        await self._add_column_if_not_exists("runs", "thinking_summary", "TEXT")
+
+    async def _add_column_if_not_exists(
+        self, table: str, column: str, column_type: str
+    ) -> None:
+        """Add a column to a table if it doesn't already exist."""
+        cursor = await self._connection.execute(f"PRAGMA table_info({table})")
+        columns = await cursor.fetchall()
+        column_names = [col["name"] for col in columns]
+
+        if column not in column_names:
+            await self._connection.execute(
+                f"ALTER TABLE {table} ADD COLUMN {column} {column_type}"
+            )
 
     async def close(self) -> None:
         """Close database connection."""

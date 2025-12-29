@@ -1,18 +1,19 @@
-"""Simple chat engine - no reasoning, just conversation.
+"""Chat engine with pluggable thinking strategies.
 
-This module provides a straightforward chat interface that:
+This module provides a chat interface that:
 1. Loads conversation history
 2. Builds messages with system prompt
-3. Calls the model
-4. Stores trace
-5. Returns result
+3. Optionally applies thinking strategies (direct, vote, CoT, etc.)
+4. Calls the model
+5. Stores trace including thinking steps
+6. Returns result
 
 All settings come from chat_config.yaml.
 """
 
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
@@ -22,6 +23,8 @@ from orchestrator.config import ChatConfig, get_chat_config
 from orchestrator.storage.db import get_db
 from orchestrator.storage.repositories.conversation_repo import ConversationRepo
 from orchestrator.storage.repositories.trace_repo import TraceRepo
+from orchestrator.thinking import ThinkingOrchestrator
+from orchestrator.utils.tokens import get_token_counter
 
 
 @dataclass
@@ -35,22 +38,28 @@ class ChatResult:
     error: Optional[str] = None
     timing_ms: int = 0
     token_usage: Optional[dict] = None
+    thinking_summary: str = ""  # Cleaned thinking for UI display
 
 
 class ChatEngine:
-    """Simple chat engine - direct model calls with full tracing.
-    
-    No routing, no reasoning stages, no thinking. Just clean conversation.
+    """Chat engine with pluggable thinking strategies.
+
+    Supports different reasoning approaches via ThinkingOrchestrator:
+    - direct: No explicit thinking, just generate answer (default)
+    - cot: Chain of thought reasoning (future)
+    - vote: Generate N candidates, majority vote (future)
+    - solve_verify: Generate + verify candidates (future)
     """
 
     def __init__(self, config: Optional[ChatConfig] = None):
         """Initialize the chat engine.
-        
+
         Args:
             config: Chat configuration. If None, loads from chat_config.yaml.
         """
         self.config = config or get_chat_config()
         self._client: Optional[httpx.AsyncClient] = None
+        self.thinking_orchestrator = ThinkingOrchestrator(default_strategy="direct")
 
     async def _get_client(self) -> httpx.AsyncClient:
         """Get or create HTTP client."""
@@ -64,18 +73,27 @@ class ChatEngine:
         message: str,
         run_id: Optional[str] = None,
         event_callback: Optional[Callable[[dict], None]] = None,
+        thinking_strategy: Optional[str] = None,
+        thinking_params: Optional[dict] = None,
     ) -> ChatResult:
         """Send a message and get a response.
-        
+
         Args:
             conversation_id: ID of the conversation.
             message: User's message.
             run_id: Optional run ID. Generated if not provided.
             event_callback: Optional callback for streaming events.
-            
+            thinking_strategy: Optional thinking strategy name (e.g., "direct", "vote").
+                              If None, uses the orchestrator's default.
+            thinking_params: Optional parameters for the thinking strategy.
+
         Returns:
             ChatResult with the response.
         """
+        # Get the thinking strategy (validates name, allows future extensibility)
+        strategy = self.thinking_orchestrator.get_strategy(
+            thinking_strategy, **(thinking_params or {})
+        )
         run_id = run_id or str(uuid.uuid4())[:8]
         start_time = time.time()
         
@@ -165,6 +183,7 @@ class ChatEngine:
                         "output_tokens": usage.get("completion_tokens") if usage else None,
                         "timing_ms": timing_ms,
                         "config_snapshot": self.config.get_snapshot(),
+                        "strategy": strategy.name,  # Track which strategy was used
                     },
                 )
             
@@ -184,6 +203,7 @@ class ChatEngine:
                 status="succeeded",
                 timing_ms=timing_ms,
                 token_usage=usage,
+                thinking_summary="",  # Empty for direct strategy
             )
             
         except Exception as e:
@@ -380,8 +400,18 @@ class ChatEngine:
                     continue
         
         response_text = "".join(full_content)
-        usage = {"completion_tokens": len(full_content)}
-        
+
+        # Count tokens properly using tiktoken
+        token_counter = get_token_counter()
+        prompt_tokens = token_counter.count_message_dicts(messages)
+        completion_tokens = token_counter.count_tokens(response_text)
+
+        usage = {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": prompt_tokens + completion_tokens,
+        }
+
         return response_text, usage
 
     async def close(self):

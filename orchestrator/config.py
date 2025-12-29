@@ -52,6 +52,15 @@ class ChatTracingConfig(BaseModel):
     log_model_calls: bool = True
 
 
+class SystemPromptConfig(BaseModel):
+    """System prompt configuration with file path and inline fallback."""
+
+    reasoning_prompt: str = "You are a helpful AI assistant. Think step by step."
+    reasoning_prompt_path: Optional[Path] = None
+    chat_prompt: str = "You are a helpful AI assistant. Answer directly and clearly."
+    chat_prompt_path: Optional[Path] = None
+
+
 class ChatConfig(BaseModel):
     """Complete chat configuration loaded from chat_config.yaml.
     
