@@ -1,256 +1,166 @@
-# Reasoning Runtime
+# Reasoner
 
-A local web application for running reasoning tasks with an orchestrated solver loop.
+A local AI chat application with a FastAPI backend, a React + Vite UI, and a pluggable thinking system. It streams tokens in real time, stores full traces in SQLite, and exposes a small REST + SSE API for the UI.
 
-## Architecture
+## What It Does
+
+- Runs local or OpenAI-compatible LLMs via HTTP (LM Studio by default)
+- Supports multiple reasoning strategies (direct, CoT, auto routing, self-consistency, self-reflection, chain-of-draft)
+- Streams answer and thinking tokens over SSE
+- Persists conversations, runs, and thinking traces in SQLite
+- Provides a UI for chats, streaming, and raw trace inspection
+
+## Architecture Snapshot
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│  Browser (localhost:3000)                                       │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │  Vite + React + Zustand                                  │   │
-│  │  ConversationList │ ConversationView │ DetailPanel       │   │
-│  └─────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────┘
-                              │ HTTP + SSE (real-time tokens)
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  FastAPI Backend (localhost:9000)                               │
-│  ┌──────────┐ ┌────────────┐ ┌─────────────────────────────┐   │
-│  │  Routes  │ │ ChatEngine │ │  Storage                    │   │
-│  │ /api/*   │ │ streaming  │ │  SQLite (traces.sqlite)     │   │
-│  │          │ │ + tracing  │ │  conversations/runs/calls   │   │
-│  └──────────┘ └────────────┘ └─────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────┘
-                              │ HTTP (OpenAI-compatible)
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  LM Studio (localhost:1234)                                     │
-│  Local LLM inference with streaming support                     │
-└─────────────────────────────────────────────────────────────────┘
+Browser (React + Vite)
+  - Conversation list, chat view, thinking panel, trace panel
+  - Zustand store, SSE hook
+        |
+        | HTTP + SSE
+        v
+FastAPI Backend
+  - Routes: conversations, runs
+  - ChatEngine: model orchestration + streaming
+  - ThinkingOrchestrator: strategy selection
+  - SQLite repositories (conversations, runs, model_calls)
+        |
+        | OpenAI-compatible HTTP
+        v
+Local LLM (LM Studio / llama.cpp / vLLM)
 ```
-
-## Prerequisites
-
-- Python 3.11+
-- Node.js 18+
-- pnpm (`npm install -g pnpm`)
-- uv (`curl -LsSf https://astral.sh/uv/install.sh | sh`)
-- llama.cpp (for local model serving)
-- honcho (`pip install honcho`) - optional, for process supervision
 
 ## Quick Start
 
-### 1. Install dependencies
+### 1) Install dependencies
 
 ```bash
-# Python dependencies
+# Python
 uv sync
-
-# UI dependencies
-cd ui && pnpm install && cd ..
 ```
 
-Or using just:
+```bash
+# UI
+cd ui && pnpm install
+```
+
+Or:
+
 ```bash
 just install
 ```
 
-### 2. Start a model server
+### 2) Start a model server
 
-#### Option A: LM Studio (Recommended)
+- **LM Studio** (default): run a model on `http://127.0.0.1:1234`
+- **llama.cpp**: use `./scripts/start_models.sh` and update `orchestrator/chat_config.yaml`
 
-If you have LM Studio installed with models:
-
-1. Open **LM Studio**
-2. Go to **Local Server** tab (left sidebar)
-3. Load any model (e.g., Mistral, Llama, Qwen)
-4. Click **Start Server** (runs on port 1234)
-
-That's it! The app is pre-configured to use LM Studio.
-
-#### Option B: llama.cpp
+### 3) Run the app
 
 ```bash
-./scripts/start_models.sh ~/path/to/model.gguf
+# UI + API (Procfile)
+honcho start
 ```
 
-Then change the profile in `orchestrator/config.py` from `lmstudio` to `local_single`.
-
-### 3. Start the application
+Or separately:
 
 ```bash
-# Using honcho (starts UI + API)
-honcho start
-
-# Or start separately:
-# Terminal 1: API
 uv run uvicorn orchestrator.app:app --host 127.0.0.1 --port 9000 --reload
-
-# Terminal 2: UI
 cd ui && pnpm dev
 ```
 
-### 4. Open the UI
+Open http://localhost:3000
 
-Visit http://localhost:3000
-
-## Project Structure
+## Repository Layout
 
 ```
 reasoner/
-├── orchestrator/               # Python backend
-│   ├── app.py                  # FastAPI entry point
-│   ├── config.py               # Configuration loader
-│   ├── schemas.py              # Pydantic request/response models
-│   ├── chat_config.yaml        # Runtime settings
-│   │
-│   ├── engine/                 # Core business logic
-│   │   └── chat_engine.py      # LLM orchestration + streaming
-│   │
-│   ├── routes/                 # API route modules
-│   │   ├── conversations.py    # Conversation CRUD
-│   │   └── runs.py             # Run creation + SSE streaming
-│   │
-│   ├── models/                 # LLM clients
-│   │   ├── base.py             # Abstract interface
-│   │   └── openai_compat.py    # OpenAI-compatible client
-│   │
-│   ├── storage/                # Data layer
-│   │   ├── db.py               # SQLite connection manager
-│   │   ├── schema.sql          # Table definitions
-│   │   └── repositories/
-│   │       ├── conversation_repo.py
-│   │       └── trace_repo.py
-│   │
-│   ├── reporting/              # Report generation
-│   │   └── report_builder.py
-│   │
-│   ├── utils/                  # Utilities
-│   │   ├── tokens.py           # Token counting
-│   │   └── prompts.py          # Prompt helpers
-│   │
-│   └── prompts/                # Prompt templates
-│       └── chat.txt            # Default system prompt
-│
-├── ui/                         # React frontend
+├── orchestrator/              # Backend (FastAPI)
+│   ├── app.py                 # FastAPI entrypoint, routers, CORS
+│   ├── config.py              # ChatConfig + loader for chat_config.yaml
+│   ├── chat_config.yaml       # Runtime settings (model, thinking, tracing)
+│   ├── schemas.py             # API request/response models
+│   ├── engine/
+│   │   └── chat_engine.py     # Orchestrates model calls + streaming
+│   ├── thinking/              # Thinking strategies + orchestrator
+│   ├── routes/                # API routes (conversations, runs)
+│   ├── storage/               # SQLite schema + repositories
+│   ├── reporting/             # Report builder for runs
+│   ├── models/                # OpenAI-compatible client (utility)
+│   └── utils/                 # Token counting, prompt helpers
+├── ui/                        # Frontend (React + Vite)
 │   └── src/
-│       ├── App.tsx             # Main layout
-│       ├── api/
-│       │   └── client.ts       # API client
-│       ├── components/
-│       │   ├── ConversationList.tsx
-│       │   ├── ConversationView.tsx
-│       │   ├── DetailPanel.tsx
-│       │   └── ui/             # Reusable UI components
-│       ├── hooks/
-│       │   ├── useStore.ts     # Zustand store
-│       │   └── useSSE.ts       # SSE subscription
-│       └── types/
-│           └── index.ts
-│
-├── var/                        # Runtime data (gitignored)
-│   └── traces.sqlite           # SQLite database
-├── logs/                       # Server logs
-├── Procfile                    # Process definitions
-├── pyproject.toml              # Python config
-└── justfile                    # Dev commands
+│       ├── components/        # Conversation UI, thinking panel, trace panel
+│       ├── hooks/             # Zustand store, SSE hook
+│       ├── api/               # REST + SSE client
+│       └── types/             # Shared TS types
+├── ARCHITECTURE.md            # Detailed architecture map
+├── Procfile                   # dev process manager
+├── justfile                   # dev tasks
+└── var/                        # SQLite DB and runtime artifacts
 ```
 
-## API Endpoints
+## Thinking System (Backend)
+
+The backend supports multiple reasoning strategies under `orchestrator/thinking`:
+
+- `direct`: single model call, no explicit reasoning
+- `cot`: chain-of-thought using `[THINK]...[/THINK]` tags
+- `auto`: routes by complexity (see `thinking/complexity.py`)
+- `self_consistency`: parallel candidates + majority vote
+- `self_reflection`: critique + revise loop
+- `chain_of_draft`: minimal drafts for faster responses
+
+The `ChatEngine` uses `ThinkingOrchestrator` to select a strategy based on config or a request override.
+
+## Data & Tracing
+
+SQLite stores three core entities:
+
+- `conversations`: chat sessions and summaries
+- `runs`: one run per user message
+- `model_calls`: each thinking step or model call
+
+Thinking traces are stored in `model_calls` with both internal and UI-friendly metadata. The UI uses `thinking_summary` for display, and detailed thinking steps are available via `/api/runs/{id}/thinking`.
+
+## API Summary
 
 ### Conversations
 
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/api/conversations` | Create new conversation |
-| GET | `/api/conversations` | List conversations |
-| GET | `/api/conversations/{id}` | Get conversation with runs |
-| PATCH | `/api/conversations/{id}` | Update title/status |
-| DELETE | `/api/conversations/{id}` | Delete conversation + runs |
+- `POST /api/conversations`
+- `GET /api/conversations`
+- `GET /api/conversations/{id}`
+- `PATCH /api/conversations/{id}`
+- `DELETE /api/conversations/{id}`
 
 ### Runs
 
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/api/conversations/{id}/runs` | Send message to conversation |
-| POST | `/api/runs` | Create standalone run |
-| GET | `/api/runs` | List all runs |
-| GET | `/api/runs/{id}` | Get run details |
-| GET | `/api/runs/{id}/stream` | SSE event stream |
-| GET | `/api/runs/{id}/events` | Get logged events |
-| GET | `/api/runs/{id}/report` | Get markdown report |
+- `POST /api/conversations/{id}/runs`
+- `POST /api/runs`
+- `GET /api/runs`
+- `GET /api/runs/{id}`
+- `GET /api/runs/{id}/stream` (SSE)
+- `GET /api/runs/{id}/events`
+- `GET /api/runs/{id}/report`
+- `GET /api/runs/{id}/thinking`
 
 ### System
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/health` | Health check |
-| GET | `/api/config` | Get current configuration |
-
-## Chat Flow
-
-```
-┌─────────────┐     ┌──────────────┐     ┌────────────┐
-│   User      │────▶│  ChatEngine  │────▶│  LM Studio │
-│   Message   │     │  (streaming) │     │    LLM     │
-└─────────────┘     └──────────────┘     └────────────┘
-                           │
-                    ┌──────▼──────┐
-                    │   SQLite    │
-                    │  (traces)   │
-                    └─────────────┘
-```
-
-1. **Receive Message** - User sends message to conversation
-2. **Build Context** - Load conversation history, construct messages array
-3. **Stream Response** - Call LLM with streaming, emit tokens via SSE
-4. **Log Trace** - Store model call with full messages/response for debugging
-5. **Return Result** - Final answer saved to run, UI updates
+- `GET /api/health`
+- `GET /api/config`
 
 ## Configuration
 
-Settings are defined in `orchestrator/chat_config.yaml`:
+All runtime settings live in `orchestrator/chat_config.yaml` and are loaded by `orchestrator/config.py`. It controls:
 
-```yaml
-# LLM endpoint
-endpoint: "http://127.0.0.1:1234"
+- Model endpoint + generation parameters
+- Context window limits
+- Default thinking strategy and thresholds
+- Tracing options
 
-# Model parameters
-model:
-  temperature: 0.7
-  max_tokens: 4096
-  seed: null
+Changes require a backend restart.
 
-# Context management
-context:
-  max_messages: 50
-  max_tokens: 6000
-  reserve_for_response: 2048
-  truncation_strategy: sliding_window
+## Notes
 
-# System prompt
-system_prompt: "You are a helpful AI assistant..."
-
-# Tracing
-tracing:
-  enabled: true
-  log_level: info
-  log_model_calls: true
-```
-
-## Development
-
-```bash
-# Run linting
-just lint
-
-# Run formatting
-just fmt
-
-# Run tests
-just test
-
-# Clean generated files
-just clean
-```
+- `orchestrator/models/openai_compat.py` is an optional reusable client. The current `ChatEngine` calls the OpenAI-compatible endpoint directly via `httpx`.
+- Evaluation tables (`eval_runs`, `eval_samples`) exist in `orchestrator/storage/schema.sql` but are not wired to routes yet.
