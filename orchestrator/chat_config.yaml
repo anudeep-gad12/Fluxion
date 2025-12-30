@@ -28,3 +28,45 @@ tracing:
   enabled: true
   log_level: "info"  # debug, info, warn
   log_model_calls: true
+
+# Thinking/Reasoning configuration
+thinking:
+  default_strategy: "auto"  # auto, direct, cot, self_consistency, self_reflection, chain_of_draft
+
+  # Auto-detection settings for routing queries
+  auto_detection:
+    enabled: true
+    simple_threshold: 0.3   # Below = direct strategy
+    complex_threshold: 0.7  # Above = full reasoning
+
+  # Chain-of-Thought settings
+  cot:
+    enabled: true
+    trigger_phrase: "Let's think step by step."
+
+  # Self-Consistency settings
+  self_consistency:
+    enabled: true
+    n_samples: 3           # Number of reasoning paths to generate
+    temperature: 0.7       # Sampling temperature for diversity
+    voting_method: "majority"  # majority or weighted
+
+  # Self-Reflection settings
+  self_reflection:
+    enabled: true
+    max_iterations: 2      # Max critique-revise cycles
+
+  # Chain-of-Draft settings
+  chain_of_draft:
+    enabled: true
+    max_words_per_step: 5  # Concise draft constraint
+
+  # Tracing settings for thinking
+  tracing:
+    save_internal: true      # Save full raw traces
+    save_user_summary: true  # Save humane summaries
+
+  # UI display settings
+  ui:
+    show_thinking: false    # Hidden by default
+    collapsible: true       # Allow expansion

@@ -23,7 +23,7 @@ from orchestrator.config import ChatConfig, get_chat_config
 from orchestrator.storage.db import get_db
 from orchestrator.storage.repositories.conversation_repo import ConversationRepo
 from orchestrator.storage.repositories.trace_repo import TraceRepo
-from orchestrator.thinking import ThinkingOrchestrator
+from orchestrator.thinking import ThinkingOrchestrator, StreamParser
 from orchestrator.utils.tokens import get_token_counter
 
 
@@ -45,10 +45,12 @@ class ChatEngine:
     """Chat engine with pluggable thinking strategies.
 
     Supports different reasoning approaches via ThinkingOrchestrator:
-    - direct: No explicit thinking, just generate answer (default)
-    - cot: Chain of thought reasoning (future)
-    - vote: Generate N candidates, majority vote (future)
-    - solve_verify: Generate + verify candidates (future)
+    - direct: No explicit thinking, just generate answer (fastest)
+    - cot: Chain-of-Thought with <think>/<answer> tags (+17% on reasoning)
+    - auto: Auto-detect complexity and route to appropriate strategy
+    - self_consistency: Multiple paths + voting (coming soon)
+    - self_reflection: Critique and revise loop (coming soon)
+    - chain_of_draft: Minimal drafts per step (coming soon)
     """
 
     def __init__(self, config: Optional[ChatConfig] = None):
@@ -59,7 +61,10 @@ class ChatEngine:
         """
         self.config = config or get_chat_config()
         self._client: Optional[httpx.AsyncClient] = None
-        self.thinking_orchestrator = ThinkingOrchestrator(default_strategy="direct")
+
+        # Initialize thinking orchestrator with default from config
+        default_strategy = self.config.thinking.default_strategy
+        self.thinking_orchestrator = ThinkingOrchestrator(default_strategy=default_strategy)
 
     async def _get_client(self) -> httpx.AsyncClient:
         """Get or create HTTP client."""
@@ -144,66 +149,110 @@ class ChatEngine:
             })
         
         try:
-            # Token callback to send tokens via SSE
-            def on_token(token: str):
-                if event_callback:
-                    event_callback({
-                        "type": "TOKEN",
-                        "run_id": run_id,
-                        "content": token,
-                    })
-            
-            # Call model with streaming
-            response_text, usage = await self._call_model_streaming(messages, on_token)
-            
+            # Create model_call wrapper that strategies will use
+            async def model_call_wrapper(
+                msgs: list[dict],
+                temperature: Optional[float] = None,
+                **kwargs,
+            ) -> tuple[str, dict]:
+                """Model call function passed to thinking strategies."""
+                # Override temperature if specified (for self-consistency sampling)
+                temp_override = temperature if temperature is not None else self.config.model.temperature
+
+                # Create stream parser to route thinking vs answer tokens
+                stream_parser = StreamParser()
+
+                # Token callback for streaming - routes to THINKING_TOKEN or TOKEN
+                def on_token(token: str):
+                    if not event_callback:
+                        return
+
+                    # Feed token to parser to detect thinking vs answer sections
+                    thinking_token, answer_token = stream_parser.feed(token)
+
+                    # Emit thinking token if in thinking section
+                    if thinking_token:
+                        event_callback({
+                            "type": "THINKING_TOKEN",
+                            "run_id": run_id,
+                            "content": thinking_token,
+                        })
+
+                    # Emit answer token if in answer section
+                    if answer_token:
+                        event_callback({
+                            "type": "TOKEN",
+                            "run_id": run_id,
+                            "content": answer_token,
+                        })
+
+                # Save original temperature and restore after
+                original_temp = self.config.model.temperature
+                self.config.model.temperature = temp_override
+
+                try:
+                    response_text, usage = await self._call_model_streaming(msgs, on_token)
+                    return response_text, usage or {}
+                finally:
+                    self.config.model.temperature = original_temp
+
+            # Execute the thinking strategy
+            thinking_result = await strategy.think(
+                messages=messages,
+                model_call=model_call_wrapper,
+                event_callback=event_callback,
+            )
+
             timing_ms = int((time.time() - start_time) * 1000)
-            
-            # Update trace with result
+
+            # Store thinking steps if tracing is enabled
+            if self.config.tracing.log_model_calls and self.config.thinking.tracing.save_internal:
+                for step in thinking_result.steps:
+                    await trace_repo.add_thinking_step(run_id=run_id, step=step)
+
+            # Update run with final answer and thinking summary
+            usage_stats = {
+                "prompt_tokens": thinking_result.metadata.get("usage", {}).get("prompt_tokens", 0),
+                "completion_tokens": thinking_result.thinking_tokens + thinking_result.answer_tokens,
+                "total_tokens": thinking_result.total_tokens,
+                "thinking_tokens": thinking_result.thinking_tokens,
+                "answer_tokens": thinking_result.answer_tokens,
+                "timing_ms": timing_ms,
+            }
+
             await trace_repo.update_conversation_trace(
                 run_id=run_id,
-                final_answer=response_text,
+                final_answer=thinking_result.final_answer,
                 status="succeeded",
-                usage_stats={
-                    **(usage or {}),
-                    "timing_ms": timing_ms,
-                },
+                usage_stats=usage_stats,
             )
-            
-            # Log model call if enabled
-            if self.config.tracing.log_model_calls:
-                await trace_repo.add_reasoning_step(
+
+            # Update thinking summary if enabled
+            if self.config.thinking.tracing.save_user_summary and thinking_result.thinking_summary:
+                await trace_repo.update_thinking_summary(
                     run_id=run_id,
-                    seq=1,
-                    step_type="model_call",
-                    content=response_text,  # Full response
-                    metadata={
-                        "messages": messages,  # Full message array sent to model
-                        "response": response_text,  # Full response from model
-                        "input_tokens": usage.get("prompt_tokens") if usage else None,
-                        "output_tokens": usage.get("completion_tokens") if usage else None,
-                        "timing_ms": timing_ms,
-                        "config_snapshot": self.config.get_snapshot(),
-                        "strategy": strategy.name,  # Track which strategy was used
-                    },
+                    thinking_summary=thinking_result.thinking_summary,
                 )
-            
+
             # Emit completion event
             if event_callback:
                 event_callback({
                     "type": "CHAT_COMPLETED",
                     "run_id": run_id,
-                    "response": response_text,
+                    "response": thinking_result.final_answer,
+                    "thinking_summary": thinking_result.thinking_summary,
+                    "strategy": strategy.name,
                 })
-            
+
             return ChatResult(
                 run_id=run_id,
                 conversation_id=conversation_id,
                 message=message,
-                response=response_text,
+                response=thinking_result.final_answer,
                 status="succeeded",
                 timing_ms=timing_ms,
-                token_usage=usage,
-                thinking_summary="",  # Empty for direct strategy
+                token_usage=usage_stats,
+                thinking_summary=thinking_result.thinking_summary,
             )
             
         except Exception as e:

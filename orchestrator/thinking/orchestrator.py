@@ -8,6 +8,11 @@ from typing import Dict, Optional, Type
 
 from orchestrator.thinking.base import ThinkingStrategy
 from orchestrator.thinking.strategies.direct import DirectStrategy
+from orchestrator.thinking.strategies.cot import ChainOfThoughtStrategy
+from orchestrator.thinking.strategies.auto import AutoStrategy
+from orchestrator.thinking.strategies.self_consistency import SelfConsistencyStrategy
+from orchestrator.thinking.strategies.self_reflection import SelfReflectionStrategy
+from orchestrator.thinking.strategies.chain_of_draft import ChainOfDraftStrategy
 
 
 class ThinkingOrchestrator:
@@ -16,19 +21,34 @@ class ThinkingOrchestrator:
     The orchestrator maintains a registry of available strategies and
     can instantiate them with the appropriate configuration.
 
+    Available strategies:
+        - direct: No thinking, just generate answer (fastest)
+        - cot: Chain-of-Thought with Mistral native [THINK]/[/THINK] tags (+17% on reasoning)
+        - auto: Auto-detect complexity and route to appropriate strategy
+        - self_consistency: Multiple paths + voting (+12-18% accuracy)
+        - self_reflection: Critique and revise loop (+4-6% accuracy)
+        - chain_of_draft: Minimal drafts per step (80% token reduction)
+
     Example:
-        orchestrator = ThinkingOrchestrator(default_strategy="direct")
-        strategy = orchestrator.get_strategy("vote", n_candidates=3)
+        orchestrator = ThinkingOrchestrator(default_strategy="auto")
+        strategy = orchestrator.get_strategy("cot")
         result = await strategy.think(messages, model_call)
     """
 
     # Default strategies registry
     _default_strategies: Dict[str, Type[ThinkingStrategy]] = {
         "direct": DirectStrategy,
-        # Future strategies will be added here:
-        # "cot": ChainOfThoughtStrategy,
-        # "vote": VoteStrategy,
-        # "solve_verify": SolveVerifyStrategy,
+        "cot": ChainOfThoughtStrategy,
+        "auto": AutoStrategy,
+        "self_consistency": SelfConsistencyStrategy,
+        "self_reflection": SelfReflectionStrategy,
+        "chain_of_draft": ChainOfDraftStrategy,
+        # Aliases
+        "chain_of_thought": ChainOfThoughtStrategy,
+        "vote": SelfConsistencyStrategy,
+        "refine": SelfReflectionStrategy,
+        "cod": ChainOfDraftStrategy,
+        "draft": ChainOfDraftStrategy,
     }
 
     def __init__(self, default_strategy: str = "direct"):
