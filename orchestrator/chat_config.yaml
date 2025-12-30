@@ -4,7 +4,8 @@
 # Changes require a server restart to take effect.
 
 model:
-  temperature: 0.7
+  name: "ministral-14b-reasoning"  # Reasoning model with native [THINK] tags
+  temperature: 1.0  # Recommended for reasoning models
   max_tokens: 4096
   seed: null  # Set to an integer for reproducible outputs (e.g., 42)
   top_p: null
@@ -20,11 +21,58 @@ context:
 system_prompt: |
   You are a helpful AI assistant. Answer directly and clearly.
 
-# Model endpoint (LM Studio default)
-endpoint: "http://127.0.0.1:1234"
+# Model endpoint (Ollama)
+endpoint: "http://127.0.0.1:11434"
 
 # Tracing configuration
 tracing:
   enabled: true
-  log_level: "info"  # debug, info, warn
+  log_level: "debug"  # debug, info, warn
   log_model_calls: true
+
+# Thinking/Reasoning configuration
+thinking:
+  default_strategy: "car"  # car (default), cot (thinking), auto, direct, self_consistency
+
+  # CAR (Certainty-based Adaptive Routing) settings
+  car:
+    ppl_threshold: 5.0       # Below = direct answer, above = CoT reasoning
+    max_short_tokens: 100    # Max tokens for short answer probe
+
+  # Auto-detection settings for routing queries
+  auto_detection:
+    enabled: true
+    simple_threshold: 0.3   # Below = direct strategy
+    complex_threshold: 0.7  # Above = full reasoning
+
+  # Chain-of-Thought settings
+  cot:
+    enabled: true
+    trigger_phrase: "Let's think step by step."
+
+  # Self-Consistency settings
+  self_consistency:
+    enabled: true
+    n_samples: 3           # Number of reasoning paths to generate
+    temperature: 0.7       # Sampling temperature for diversity
+    voting_method: "majority"  # majority or weighted
+
+  # Self-Reflection settings
+  self_reflection:
+    enabled: true
+    max_iterations: 2      # Max critique-revise cycles
+
+  # Chain-of-Draft settings
+  chain_of_draft:
+    enabled: true
+    max_words_per_step: 5  # Concise draft constraint
+
+  # Tracing settings for thinking
+  tracing:
+    save_internal: true      # Save full raw traces
+    save_user_summary: true  # Save humane summaries
+
+  # UI display settings
+  ui:
+    show_thinking: false    # Hidden by default
+    collapsible: true       # Allow expansion

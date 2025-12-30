@@ -62,24 +62,95 @@ function coerceString(value: unknown): string {
   }
 }
 
+/**
+ * Strip thinking tags from content and extract ONLY the answer portion.
+ *
+ * This function handles:
+ * - [THINK]...thinking...[/THINK]answer -> returns "answer"
+ * - [THINK]...thinking... (no closing tag) -> returns "" (still thinking, no answer)
+ * - No tags at all -> returns original content
+ *
+ * Handles:
+ * - Case variations: [THINK], [think], [Think]
+ * - Whitespace in tags: [ THINK ], [THINK ], [ /THINK]
+ * - Legacy <think>...</think> format
+ */
+function stripThinkingTags(content: string): string {
+  if (!content) return '';
+
+  const thinkPattern = /\[\s*THINK\s*\]/i;
+  const endThinkPattern = /\[\s*\/\s*THINK\s*\]/gi;
+
+  const hasThinkOpen = thinkPattern.test(content);
+  const hasThinkClose = /\[\s*\/\s*THINK\s*\]/i.test(content);
+
+  if (hasThinkOpen) {
+    if (hasThinkClose) {
+      // Extract ONLY the content after the LAST [/THINK] tag
+      const parts = content.split(endThinkPattern);
+      if (parts.length > 1) {
+        let result = parts[parts.length - 1].trim();
+        // Clean up any remaining tags
+        result = result.replace(/\[\s*THINK\s*\]/gi, '');
+        result = result.replace(/\[\s*\/\s*THINK\s*\]/gi, '');
+        return result.trim();
+      }
+      return '';
+    } else {
+      // Opening tag without closing - model is still thinking, no answer yet
+      return '';
+    }
+  }
+
+  // Check for legacy <think>...</think> format
+  const legacyThinkPattern = /<\s*think\s*>/i;
+  const legacyEndPattern = /<\s*\/\s*think\s*>/gi;
+
+  const hasLegacyOpen = legacyThinkPattern.test(content);
+  const hasLegacyClose = /<\s*\/\s*think\s*>/i.test(content);
+
+  if (hasLegacyOpen) {
+    if (hasLegacyClose) {
+      const parts = content.split(legacyEndPattern);
+      if (parts.length > 1) {
+        let result = parts[parts.length - 1].trim();
+        result = result.replace(/<\s*think\s*>/gi, '');
+        result = result.replace(/<\s*\/\s*think\s*>/gi, '');
+        result = result.replace(/<\s*answer\s*>/gi, '');
+        result = result.replace(/<\s*\/\s*answer\s*>/gi, '');
+        return result.trim();
+      }
+      return '';
+    } else {
+      return '';
+    }
+  }
+
+  // No thinking tags found - return original content as-is
+  return content.trim();
+}
+
 export function extractAnswer(rawAnswer: string): string {
   if (!rawAnswer) return '';
 
+  let content = rawAnswer;
+
   try {
     const parsed = JSON.parse(rawAnswer);
-    if (typeof parsed === 'string') return parsed.trim();
-    if (parsed.content) return coerceString(parsed.content).trim();
-    if (parsed.answer) return coerceString(parsed.answer).trim();
-    if (parsed.final_answer) return coerceString(parsed.final_answer).trim();
-    if (parsed.result) return coerceString(parsed.result).trim();
-    if (parsed.response) return coerceString(parsed.response).trim();
-    if (parsed.text) return coerceString(parsed.text).trim();
-    if (parsed.conclusion) return coerceString(parsed.conclusion).trim();
+    if (typeof parsed === 'string') content = parsed;
+    else if (parsed.content) content = coerceString(parsed.content);
+    else if (parsed.answer) content = coerceString(parsed.answer);
+    else if (parsed.final_answer) content = coerceString(parsed.final_answer);
+    else if (parsed.result) content = coerceString(parsed.result);
+    else if (parsed.response) content = coerceString(parsed.response);
+    else if (parsed.text) content = coerceString(parsed.text);
+    else if (parsed.conclusion) content = coerceString(parsed.conclusion);
   } catch {
-    // Not JSON
+    // Not JSON, use raw content
   }
 
-  return rawAnswer.trim();
+  // Strip any thinking tags and return clean answer
+  return stripThinkingTags(content);
 }
 
 export function AnswerMarkdown({ content }: { content: string }) {

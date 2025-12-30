@@ -3,14 +3,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import { AnswerMarkdown, extractAnswer } from '@/components/AnswerMarkdown';
+import { ThinkingPanel } from '@/components/ThinkingPanel';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { createConversation, createConversationRun, getConversation } from '@/api/client';
 import { useConversationRuns, useSelectedConversation, useStore } from '@/hooks/useStore';
 import { useSSE } from '@/hooks/useSSE';
 import { cn, formatRelativeTime } from '@/lib/utils';
-import { Eye, Loader2, Send } from 'lucide-react';
-import type { Run, Conversation } from '@/types';
+import { Brain, Eye, Loader2, Send, Zap } from 'lucide-react';
+import type { Run, Conversation, ThinkingMode } from '@/types';
 
 function RunMessage({
   run,
@@ -22,10 +23,14 @@ function RunMessage({
   const isRunning = run.status === 'running';
   const finalAnswer = run.final_answer ? extractAnswer(run.final_answer) : '';
   const streamingText = useStore((s) => s.streamingText[run.run_id] || '');
+  const streamingThinking = useStore((s) => s.streamingThinking[run.run_id] || '');
 
   // Use streaming text while running, final answer when complete
   const displayText = isRunning ? streamingText : finalAnswer;
   const isStreaming = isRunning && streamingText.length > 0;
+
+  // Determine if we're in thinking phase (streaming thinking but no answer yet)
+  const isThinking = isRunning && streamingThinking.length > 0;
 
   return (
     <div className="space-y-3 animate-in fade-in slide-in-from-bottom-2">
@@ -42,7 +47,16 @@ function RunMessage({
 
       <div className="flex justify-start">
         <div className="max-w-[80%] rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-          {isRunning && !displayText ? (
+          {/* Thinking Panel - shows while thinking or after completion with thinking data */}
+          <ThinkingPanel
+            summary={run.thinking_summary}
+            steps={run.thinking_steps}
+            isStreaming={isThinking}
+            streamingContent={streamingThinking}
+            defaultExpanded={false}
+          />
+
+          {isRunning && !displayText && !streamingThinking ? (
             <div className="flex items-center gap-2 text-sm text-slate-500">
               <Loader2 className="h-4 w-4 animate-spin" />
               Loading...
@@ -58,9 +72,9 @@ function RunMessage({
                 <span className="inline-block w-2 h-4 bg-slate-400 animate-pulse ml-0.5" />
               )}
             </div>
-          ) : (
+          ) : !isThinking ? (
             <div className="text-sm text-slate-500">No response.</div>
-          )}
+          ) : null}
 
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <Button size="sm" variant="ghost" onClick={onShowTrace}>
@@ -98,6 +112,7 @@ export function ConversationView() {
   const runs = useConversationRuns(selectedConversationId);
   const [message, setMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [thinkingMode, setThinkingMode] = useState<ThinkingMode>('default');
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const activeRunId = useMemo(() => {
@@ -162,6 +177,7 @@ export function ConversationView() {
 
       const response = await createConversationRun(conversationId!, {
         message: message.trim(),
+        thinking_mode: thinkingMode,
       });
 
       const run: Run = {
@@ -210,14 +226,27 @@ export function ConversationView() {
               className="resize-none"
               disabled={isSubmitting}
             />
-            <Button
-              onClick={handleSubmit}
-              disabled={!message.trim() || isSubmitting}
-              className="self-end"
-            >
-              {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-            </Button>
+            <div className="flex flex-col gap-2 self-end">
+              <Button
+                variant={thinkingMode === 'thinking' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setThinkingMode(thinkingMode === 'default' ? 'thinking' : 'default')}
+                title={thinkingMode === 'thinking' ? 'Thinking mode (always reason)' : 'Default mode (auto-detect)'}
+                className="h-8 w-8 p-0"
+              >
+                {thinkingMode === 'thinking' ? <Brain className="h-4 w-4" /> : <Zap className="h-4 w-4" />}
+              </Button>
+              <Button
+                onClick={handleSubmit}
+                disabled={!message.trim() || isSubmitting}
+              >
+                {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              </Button>
+            </div>
           </div>
+          <p className="text-xs text-slate-500 mt-2">
+            {thinkingMode === 'thinking' ? '🧠 Thinking mode' : '⚡ Default mode'} · Cmd/Ctrl + Enter to send
+          </p>
         </div>
       </div>
     );
@@ -254,15 +283,27 @@ export function ConversationView() {
             className="resize-none"
             disabled={isSubmitting}
           />
-          <Button
-            onClick={handleSubmit}
-            disabled={!message.trim() || isSubmitting}
-            className="self-end"
-          >
-            {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-          </Button>
+          <div className="flex flex-col gap-2 self-end">
+            <Button
+              variant={thinkingMode === 'thinking' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setThinkingMode(thinkingMode === 'default' ? 'thinking' : 'default')}
+              title={thinkingMode === 'thinking' ? 'Thinking mode (always reason)' : 'Default mode (auto-detect)'}
+              className="h-8 w-8 p-0"
+            >
+              {thinkingMode === 'thinking' ? <Brain className="h-4 w-4" /> : <Zap className="h-4 w-4" />}
+            </Button>
+            <Button
+              onClick={handleSubmit}
+              disabled={!message.trim() || isSubmitting}
+            >
+              {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+            </Button>
+          </div>
         </div>
-        <p className="text-xs text-slate-500 mt-2">Cmd/Ctrl + Enter to send</p>
+        <p className="text-xs text-slate-500 mt-2">
+          {thinkingMode === 'thinking' ? '🧠 Thinking mode' : '⚡ Default mode'} · Cmd/Ctrl + Enter to send
+        </p>
       </div>
     </div>
   );
