@@ -50,6 +50,15 @@ def _conversation_title_from_message(message: str, max_len: int = 64) -> str:
     return cleaned[: max_len - 3] + "..."
 
 
+def _mode_to_strategy(thinking_mode: str) -> str:
+    """Map UI thinking mode to strategy name."""
+    mode_map = {
+        "default": "car",      # CAR (Certainty-based Adaptive Routing)
+        "thinking": "cot",     # Chain-of-Thought (always think)
+    }
+    return mode_map.get(thinking_mode, "car")
+
+
 @router.post("/conversations/{conversation_id}/runs", response_model=CreateRunResponse)
 async def create_conversation_run(conversation_id: str, request: CreateConversationRunRequest):
     """Send a message to a conversation and get a response."""
@@ -80,12 +89,16 @@ async def create_conversation_run(conversation_id: str, request: CreateConversat
             except asyncio.QueueFull:
                 pass
 
+        # Map UI mode to strategy
+        strategy = _mode_to_strategy(request.thinking_mode)
+
         try:
             result = await engine.chat(
                 conversation_id=conversation_id,
                 message=request.message,
                 run_id=run_id,
                 event_callback=event_callback,
+                thinking_strategy=strategy,
             )
 
             # Update conversation summary

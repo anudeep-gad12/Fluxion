@@ -83,6 +83,9 @@ export interface CreateConversationResponse {
   conversation_id: string;
 }
 
+export type ThinkingMode = 'default' | 'thinking';
+
 export interface CreateConversationRunRequest {
   message: string;
+  thinking_mode?: ThinkingMode;
 }

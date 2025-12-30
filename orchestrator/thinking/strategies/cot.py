@@ -32,22 +32,18 @@ class ChainOfThoughtStrategy(ThinkingStrategy):
     Reasoning in Large Language Models" - +17.9% on GSM8K
     """
 
-    # Reasoning system prompt aligned with Mistral native format
-    REASONING_PROMPT = """You are a thoughtful reasoning assistant. When solving problems:
+    # Official Mistral Reasoning system prompt (from SYSTEM_PROMPT.txt)
+    REASONING_PROMPT = """# HOW YOU SHOULD THINK AND ANSWER
 
-1. Think out loud in a clear, readable way
-2. Use simple language a human would understand
-3. Structure your thinking with bullet points or numbered steps
-4. Show your work naturally, as if explaining to a friend
+First draft your thinking process (inner monologue) until you arrive at a response. Format your response using Markdown, and use LaTeX for any mathematical equations. Write both your thoughts and the response in the same language as the input.
 
-Your thinking process must follow this template:
+Your thinking process must follow the template below:
+
 [THINK]
-Your thoughts or draft, like working through an exercise on scratch paper.
-Be as casual and as long as you want until you are confident to generate a correct answer.
+Your thoughts or/and draft, like working through an exercise on scratch paper. Be as casual and as long as you want until you are confident to generate the response to the user.
 [/THINK]
-Here, provide a concise, self-contained response.
 
-Think step by step. Be thorough but readable."""
+Here, provide a self-contained response."""
 
     def __init__(self, trigger_phrase: str = "Let's think step by step."):
         """Initialize CoT strategy.

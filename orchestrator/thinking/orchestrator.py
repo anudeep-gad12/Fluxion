@@ -13,6 +13,7 @@ from orchestrator.thinking.strategies.auto import AutoStrategy
 from orchestrator.thinking.strategies.self_consistency import SelfConsistencyStrategy
 from orchestrator.thinking.strategies.self_reflection import SelfReflectionStrategy
 from orchestrator.thinking.strategies.chain_of_draft import ChainOfDraftStrategy
+from orchestrator.thinking.strategies.car import CARStrategy
 
 
 class ThinkingOrchestrator:
@@ -40,6 +41,7 @@ class ThinkingOrchestrator:
         "direct": DirectStrategy,
         "cot": ChainOfThoughtStrategy,
         "auto": AutoStrategy,
+        "car": CARStrategy,
         "self_consistency": SelfConsistencyStrategy,
         "self_reflection": SelfReflectionStrategy,
         "chain_of_draft": ChainOfDraftStrategy,
@@ -49,6 +51,7 @@ class ThinkingOrchestrator:
         "refine": SelfReflectionStrategy,
         "cod": ChainOfDraftStrategy,
         "draft": ChainOfDraftStrategy,
+        "adaptive": CARStrategy,
     }
 
     def __init__(self, default_strategy: str = "direct"):
