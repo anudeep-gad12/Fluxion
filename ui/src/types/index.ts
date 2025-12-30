@@ -1,5 +1,12 @@
 // API Types
 
+export interface ThinkingStep {
+  seq: number;
+  step_type: string;
+  summary: string;
+  status: string;
+}
+
 export interface Run {
   run_id: string;
   created_at: string;
@@ -14,6 +21,10 @@ export interface Run {
   final_report?: string;
   error_code?: string;
   error_detail?: string;
+  // Thinking data
+  thinking_summary?: string;
+  thinking_steps?: ThinkingStep[];
+  strategy?: string;
 }
 
 export interface Event {
@@ -72,6 +83,9 @@ export interface CreateConversationResponse {
   conversation_id: string;
 }
 
+export type ThinkingMode = 'default' | 'thinking';
+
 export interface CreateConversationRunRequest {
   message: string;
+  thinking_mode?: ThinkingMode;
 }

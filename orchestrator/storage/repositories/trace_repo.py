@@ -184,3 +184,115 @@ class TraceRepo:
     # Alias for backward compatibility
     async def get_reasoning_traces(self, run_id: str):
         return await self.get_model_calls(run_id)
+
+    # --- Thinking Traces (dual-layer) ---
+
+    async def add_thinking_step(
+        self,
+        run_id: str,
+        step: "ThinkingStep",
+    ) -> None:
+        """Store both internal and UI trace for a thinking step.
+
+        Args:
+            run_id: The run ID to associate with.
+            step: ThinkingStep with both internal and UI data.
+        """
+        from orchestrator.thinking.base import ThinkingStep
+
+        now = datetime.now(timezone.utc).isoformat()
+        import uuid
+        id = str(uuid.uuid4())
+
+        # Build metadata with both internal and UI sections
+        metadata = {
+            "internal": step.to_internal_dict(),
+            "ui": step.to_ui_dict(),
+        }
+        meta_json = json.dumps(metadata, ensure_ascii=False)
+
+        await self.db.conn.execute(
+            """
+            INSERT INTO model_calls (id, run_id, seq, created_at, step_type, content, metadata_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (id, run_id, step.seq, now, step.step_type, step.ui_summary, meta_json),
+        )
+        await self.db.conn.commit()
+
+    async def update_thinking_summary(
+        self,
+        run_id: str,
+        thinking_summary: str,
+    ) -> None:
+        """Update the thinking_summary for a run."""
+        await self.db.conn.execute(
+            "UPDATE runs SET thinking_summary = ? WHERE run_id = ?",
+            (thinking_summary, run_id),
+        )
+        await self.db.conn.commit()
+
+    async def get_thinking(
+        self,
+        run_id: str,
+        detail: str = "user",
+    ) -> dict[str, Any]:
+        """Get thinking trace for a run.
+
+        Args:
+            run_id: The run ID.
+            detail: Level of detail - "user", "internal", or "full".
+
+        Returns:
+            Dict with thinking data based on detail level.
+        """
+        # Get run for thinking_summary
+        run = await self.get_run(run_id)
+        if not run:
+            return {"error": "Run not found"}
+
+        # Get all model calls (thinking steps)
+        calls = await self.get_model_calls(run_id)
+
+        # Filter to thinking-related steps
+        thinking_steps = []
+        for call in calls:
+            meta = call.get("metadata", {})
+            step_type = call.get("step_type", "")
+
+            if detail == "user":
+                # Return only UI-friendly data
+                ui_data = meta.get("ui", {})
+                thinking_steps.append({
+                    "seq": call.get("seq"),
+                    "step_type": step_type,
+                    "summary": ui_data.get("summary", call.get("content", "")),
+                    "status": ui_data.get("status", "done"),
+                })
+            elif detail == "internal":
+                # Return full internal trace
+                internal_data = meta.get("internal", {})
+                thinking_steps.append({
+                    "seq": call.get("seq"),
+                    "step_type": step_type,
+                    "raw_content": internal_data.get("raw_content", call.get("content", "")),
+                    "messages_sent": internal_data.get("messages_sent", []),
+                    "tokens": internal_data.get("tokens", {}),
+                    "timing_ms": internal_data.get("timing_ms", 0),
+                })
+            else:  # full
+                # Return everything
+                thinking_steps.append({
+                    "seq": call.get("seq"),
+                    "step_type": step_type,
+                    "internal": meta.get("internal", {}),
+                    "ui": meta.get("ui", {}),
+                })
+
+        return {
+            "run_id": run_id,
+            "thinking_summary": run.get("thinking_summary", ""),
+            "strategy": run.get("model_config", {}).get("thinking", {}).get("default_strategy", "unknown"),
+            "steps": thinking_steps,
+            "detail_level": detail,
+        }

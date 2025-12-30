@@ -1,18 +1,20 @@
-"""Simple chat engine - no reasoning, just conversation.
+"""Chat engine with pluggable thinking strategies.
 
-This module provides a straightforward chat interface that:
+This module provides a chat interface that:
 1. Loads conversation history
 2. Builds messages with system prompt
-3. Calls the model
-4. Stores trace
-5. Returns result
+3. Optionally applies thinking strategies (direct, vote, CoT, etc.)
+4. Calls the model
+5. Stores trace including thinking steps
+6. Returns result
 
 All settings come from chat_config.yaml.
 """
 
+import asyncio
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
@@ -22,6 +24,8 @@ from orchestrator.config import ChatConfig, get_chat_config
 from orchestrator.storage.db import get_db
 from orchestrator.storage.repositories.conversation_repo import ConversationRepo
 from orchestrator.storage.repositories.trace_repo import TraceRepo
+from orchestrator.thinking import ThinkingOrchestrator, StreamParser
+from orchestrator.utils.tokens import get_token_counter
 
 
 @dataclass
@@ -35,22 +39,33 @@ class ChatResult:
     error: Optional[str] = None
     timing_ms: int = 0
     token_usage: Optional[dict] = None
+    thinking_summary: str = ""  # Cleaned thinking for UI display
 
 
 class ChatEngine:
-    """Simple chat engine - direct model calls with full tracing.
-    
-    No routing, no reasoning stages, no thinking. Just clean conversation.
+    """Chat engine with pluggable thinking strategies.
+
+    Supports different reasoning approaches via ThinkingOrchestrator:
+    - direct: No explicit thinking, just generate answer (fastest)
+    - cot: Chain-of-Thought with <think>/<answer> tags (+17% on reasoning)
+    - auto: Auto-detect complexity and route to appropriate strategy
+    - self_consistency: Multiple paths + voting (coming soon)
+    - self_reflection: Critique and revise loop (coming soon)
+    - chain_of_draft: Minimal drafts per step (coming soon)
     """
 
     def __init__(self, config: Optional[ChatConfig] = None):
         """Initialize the chat engine.
-        
+
         Args:
             config: Chat configuration. If None, loads from chat_config.yaml.
         """
         self.config = config or get_chat_config()
         self._client: Optional[httpx.AsyncClient] = None
+
+        # Initialize thinking orchestrator with default from config
+        default_strategy = self.config.thinking.default_strategy
+        self.thinking_orchestrator = ThinkingOrchestrator(default_strategy=default_strategy)
 
     async def _get_client(self) -> httpx.AsyncClient:
         """Get or create HTTP client."""
@@ -64,18 +79,27 @@ class ChatEngine:
         message: str,
         run_id: Optional[str] = None,
         event_callback: Optional[Callable[[dict], None]] = None,
+        thinking_strategy: Optional[str] = None,
+        thinking_params: Optional[dict] = None,
     ) -> ChatResult:
         """Send a message and get a response.
-        
+
         Args:
             conversation_id: ID of the conversation.
             message: User's message.
             run_id: Optional run ID. Generated if not provided.
             event_callback: Optional callback for streaming events.
-            
+            thinking_strategy: Optional thinking strategy name (e.g., "direct", "vote").
+                              If None, uses the orchestrator's default.
+            thinking_params: Optional parameters for the thinking strategy.
+
         Returns:
             ChatResult with the response.
         """
+        # Get the thinking strategy (validates name, allows future extensibility)
+        strategy = self.thinking_orchestrator.get_strategy(
+            thinking_strategy, **(thinking_params or {})
+        )
         run_id = run_id or str(uuid.uuid4())[:8]
         start_time = time.time()
         
@@ -126,64 +150,135 @@ class ChatEngine:
             })
         
         try:
-            # Token callback to send tokens via SSE
-            def on_token(token: str):
-                if event_callback:
-                    event_callback({
-                        "type": "TOKEN",
-                        "run_id": run_id,
-                        "content": token,
-                    })
-            
-            # Call model with streaming
-            response_text, usage = await self._call_model_streaming(messages, on_token)
-            
+            # Create model_call wrapper that strategies will use
+            async def model_call_wrapper(
+                msgs: list[dict],
+                temperature: Optional[float] = None,
+                max_tokens: Optional[int] = None,
+                logprobs: bool = False,
+                **kwargs,
+            ) -> tuple:
+                """Model call function passed to thinking strategies.
+                
+                Returns:
+                    If logprobs=False: (response_text, usage_dict)
+                    If logprobs=True: (response_text, usage_dict, logprobs_list)
+                """
+                # Override temperature if specified (for self-consistency sampling)
+                temp_override = temperature if temperature is not None else self.config.model.temperature
+                max_tokens_override = max_tokens if max_tokens is not None else self.config.model.max_tokens
+
+                # Save original values and restore after
+                original_temp = self.config.model.temperature
+                original_max_tokens = self.config.model.max_tokens
+                self.config.model.temperature = temp_override
+                self.config.model.max_tokens = max_tokens_override
+
+                try:
+                    if logprobs:
+                        # Use non-streaming call with logprobs for CAR
+                        response_text, usage, logprobs_data = await self._call_model_with_logprobs(msgs)
+                        return response_text, usage or {}, logprobs_data
+                    else:
+                        # Create stream parser to route thinking vs answer tokens
+                        stream_parser = StreamParser()
+
+                        # Token callback for streaming - routes to THINKING_TOKEN or TOKEN
+                        def on_token(token: str):
+                            if not event_callback:
+                                return
+
+                            # Feed token to parser to detect thinking vs answer sections
+                            thinking_token, answer_token = stream_parser.feed(token)
+
+                            # Emit thinking token if in thinking section
+                            if thinking_token:
+                                event_callback({
+                                    "type": "THINKING_TOKEN",
+                                    "run_id": run_id,
+                                    "content": thinking_token,
+                                })
+
+                            # Emit answer token if in answer section
+                            if answer_token:
+                                event_callback({
+                                    "type": "TOKEN",
+                                    "run_id": run_id,
+                                    "content": answer_token,
+                                })
+
+                        response_text, usage = await self._call_model_streaming(msgs, on_token)
+                        return response_text, usage or {}
+                except Exception as e:
+                    # Emit error event so UI knows to stop waiting
+                    if event_callback:
+                        event_callback({
+                            "type": "STREAM_ERROR",
+                            "run_id": run_id,
+                            "error": str(e),
+                        })
+                    raise
+                finally:
+                    self.config.model.temperature = original_temp
+                    self.config.model.max_tokens = original_max_tokens
+
+            # Execute the thinking strategy
+            thinking_result = await strategy.think(
+                messages=messages,
+                model_call=model_call_wrapper,
+                event_callback=event_callback,
+            )
+
             timing_ms = int((time.time() - start_time) * 1000)
-            
-            # Update trace with result
+
+            # Store thinking steps if tracing is enabled
+            if self.config.tracing.log_model_calls and self.config.thinking.tracing.save_internal:
+                for step in thinking_result.steps:
+                    await trace_repo.add_thinking_step(run_id=run_id, step=step)
+
+            # Update run with final answer and thinking summary
+            usage_stats = {
+                "prompt_tokens": thinking_result.metadata.get("usage", {}).get("prompt_tokens", 0),
+                "completion_tokens": thinking_result.thinking_tokens + thinking_result.answer_tokens,
+                "total_tokens": thinking_result.total_tokens,
+                "thinking_tokens": thinking_result.thinking_tokens,
+                "answer_tokens": thinking_result.answer_tokens,
+                "timing_ms": timing_ms,
+            }
+
             await trace_repo.update_conversation_trace(
                 run_id=run_id,
-                final_answer=response_text,
+                final_answer=thinking_result.final_answer,
                 status="succeeded",
-                usage_stats={
-                    **(usage or {}),
-                    "timing_ms": timing_ms,
-                },
+                usage_stats=usage_stats,
             )
-            
-            # Log model call if enabled
-            if self.config.tracing.log_model_calls:
-                await trace_repo.add_reasoning_step(
+
+            # Update thinking summary if enabled
+            if self.config.thinking.tracing.save_user_summary and thinking_result.thinking_summary:
+                await trace_repo.update_thinking_summary(
                     run_id=run_id,
-                    seq=1,
-                    step_type="model_call",
-                    content=response_text,  # Full response
-                    metadata={
-                        "messages": messages,  # Full message array sent to model
-                        "response": response_text,  # Full response from model
-                        "input_tokens": usage.get("prompt_tokens") if usage else None,
-                        "output_tokens": usage.get("completion_tokens") if usage else None,
-                        "timing_ms": timing_ms,
-                        "config_snapshot": self.config.get_snapshot(),
-                    },
+                    thinking_summary=thinking_result.thinking_summary,
                 )
-            
+
             # Emit completion event
             if event_callback:
                 event_callback({
                     "type": "CHAT_COMPLETED",
                     "run_id": run_id,
-                    "response": response_text,
+                    "response": thinking_result.final_answer,
+                    "thinking_summary": thinking_result.thinking_summary,
+                    "strategy": strategy.name,
                 })
-            
+
             return ChatResult(
                 run_id=run_id,
                 conversation_id=conversation_id,
                 message=message,
-                response=response_text,
+                response=thinking_result.final_answer,
                 status="succeeded",
                 timing_ms=timing_ms,
-                token_usage=usage,
+                token_usage=usage_stats,
+                thinking_summary=thinking_result.thinking_summary,
             )
             
         except Exception as e:
@@ -275,6 +370,7 @@ class ChatEngine:
         
         # Build request payload
         payload = {
+            "model": self.config.model.name,
             "messages": messages,
             "temperature": self.config.model.temperature,
             "max_tokens": self.config.model.max_tokens,
@@ -311,6 +407,103 @@ class ChatEngine:
         
         return response_text, usage
 
+    async def _call_model_with_logprobs(
+        self, messages: list[dict]
+    ) -> tuple[str, Optional[dict], Optional[list]]:
+        """Call the model API with logprobs enabled.
+        
+        Args:
+            messages: List of message dicts.
+            
+        Returns:
+            Tuple of (response_text, usage_stats, logprobs_list).
+        """
+        client = await self._get_client()
+        
+        # Build request payload with logprobs enabled
+        payload = {
+            "model": self.config.model.name,
+            "messages": messages,
+            "temperature": self.config.model.temperature,
+            "max_tokens": self.config.model.max_tokens,
+            "stream": False,
+            "logprobs": True,  # Enable logprobs
+            "top_logprobs": 1,  # Get top 1 logprob per token
+        }
+        
+        # Add optional parameters
+        if self.config.model.seed is not None:
+            payload["seed"] = self.config.model.seed
+        if self.config.model.top_p is not None:
+            payload["top_p"] = self.config.model.top_p
+        if self.config.model.frequency_penalty is not None:
+            payload["frequency_penalty"] = self.config.model.frequency_penalty
+        if self.config.model.presence_penalty is not None:
+            payload["presence_penalty"] = self.config.model.presence_penalty
+        
+        # Make request
+        endpoint = self.config.endpoint.rstrip("/")
+        response = await client.post(
+            f"{endpoint}/v1/chat/completions",
+            json=payload,
+        )
+        response.raise_for_status()
+        
+        data = response.json()
+        
+        # Extract response
+        response_text = ""
+        logprobs_data = None
+
+        if data.get("choices"):
+            choice = data["choices"][0]
+            response_text = choice.get("message", {}).get("content", "")
+
+            # Extract logprobs if available
+            logprobs_raw = choice.get("logprobs")
+
+            # Debug logging to see what Ollama returns
+            if self.config.tracing.log_level == "debug":
+                print(f"[ChatEngine] Raw logprobs from Ollama: {logprobs_raw}")
+
+            # Normalize logprobs from various formats
+            logprobs_data = self._normalize_logprobs(logprobs_raw)
+
+        # Extract usage
+        usage = data.get("usage")
+
+        return response_text, usage, logprobs_data
+
+    def _normalize_logprobs(self, logprobs_raw) -> list:
+        """Normalize logprobs from various formats (OpenAI/Ollama).
+
+        Args:
+            logprobs_raw: Raw logprobs from API response.
+
+        Returns:
+            List of dicts with 'logprob' key, or empty list if unavailable.
+        """
+        if not logprobs_raw:
+            return []
+
+        # OpenAI format: {"content": [{"token": "...", "logprob": -0.5}, ...]}
+        if isinstance(logprobs_raw, dict):
+            content = logprobs_raw.get("content", [])
+            if content:
+                return content
+
+        # Direct list format (some Ollama versions)
+        if isinstance(logprobs_raw, list):
+            normalized = []
+            for item in logprobs_raw:
+                if isinstance(item, dict) and "logprob" in item:
+                    normalized.append(item)
+                elif isinstance(item, (int, float)):
+                    normalized.append({"logprob": item})
+            return normalized
+
+        return []
+
     async def _call_model_streaming(
         self,
         messages: list[dict],
@@ -331,6 +524,7 @@ class ChatEngine:
         
         # Build request payload with streaming enabled
         payload = {
+            "model": self.config.model.name,
             "messages": messages,
             "temperature": self.config.model.temperature,
             "max_tokens": self.config.model.max_tokens,
@@ -350,38 +544,55 @@ class ChatEngine:
         # Make streaming request
         endpoint = self.config.endpoint.rstrip("/")
         full_content = []
-        
+
         async with client.stream(
             "POST",
             f"{endpoint}/v1/chat/completions",
             json=payload,
         ) as response:
             response.raise_for_status()
-            
-            async for line in response.aiter_lines():
-                if not line or not line.startswith("data: "):
-                    continue
-                
-                data_str = line[6:]  # Remove "data: " prefix
-                if data_str == "[DONE]":
-                    break
-                
-                try:
-                    data = json.loads(data_str)
-                    delta = data.get("choices", [{}])[0].get("delta", {})
-                    content = delta.get("content", "")
-                    
-                    if content:
-                        full_content.append(content)
-                        if token_callback:
-                            token_callback(content)
-                            
-                except json.JSONDecodeError:
-                    continue
+
+            try:
+                # Add timeout to prevent infinite hangs
+                async with asyncio.timeout(120):  # 2 minute timeout
+                    async for line in response.aiter_lines():
+                        if not line or not line.startswith("data: "):
+                            continue
+
+                        data_str = line[6:]  # Remove "data: " prefix
+                        if data_str == "[DONE]":
+                            break
+
+                        try:
+                            data = json.loads(data_str)
+                            delta = data.get("choices", [{}])[0].get("delta", {})
+                            content = delta.get("content", "")
+
+                            if content:
+                                full_content.append(content)
+                                if token_callback:
+                                    token_callback(content)
+
+                        except json.JSONDecodeError:
+                            continue
+            except asyncio.TimeoutError:
+                # Stream timed out - log and return what we have
+                if self.config.tracing.log_level == "debug":
+                    print(f"[ChatEngine] Stream timeout after 120s, returning partial response")
         
         response_text = "".join(full_content)
-        usage = {"completion_tokens": len(full_content)}
-        
+
+        # Count tokens properly using tiktoken
+        token_counter = get_token_counter()
+        prompt_tokens = token_counter.count_message_dicts(messages)
+        completion_tokens = token_counter.count_tokens(response_text)
+
+        usage = {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": prompt_tokens + completion_tokens,
+        }
+
         return response_text, usage
 
     async def close(self):

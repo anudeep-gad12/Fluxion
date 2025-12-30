@@ -83,6 +83,7 @@ class CreateConversationResponse(BaseModel):
 class CreateConversationRunRequest(BaseModel):
     """Request to add a run to a conversation."""
     message: str
+    thinking_mode: str = "default"  # "default" (CAR) or "thinking" (CoT)
 
 
 class ConversationDetailResponse(BaseModel):
