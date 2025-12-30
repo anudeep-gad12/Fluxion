@@ -11,6 +11,7 @@ This module provides a chat interface that:
 All settings come from chat_config.yaml.
 """
 
+import asyncio
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -153,48 +154,73 @@ class ChatEngine:
             async def model_call_wrapper(
                 msgs: list[dict],
                 temperature: Optional[float] = None,
+                max_tokens: Optional[int] = None,
+                logprobs: bool = False,
                 **kwargs,
-            ) -> tuple[str, dict]:
-                """Model call function passed to thinking strategies."""
+            ) -> tuple:
+                """Model call function passed to thinking strategies.
+                
+                Returns:
+                    If logprobs=False: (response_text, usage_dict)
+                    If logprobs=True: (response_text, usage_dict, logprobs_list)
+                """
                 # Override temperature if specified (for self-consistency sampling)
                 temp_override = temperature if temperature is not None else self.config.model.temperature
+                max_tokens_override = max_tokens if max_tokens is not None else self.config.model.max_tokens
 
-                # Create stream parser to route thinking vs answer tokens
-                stream_parser = StreamParser()
-
-                # Token callback for streaming - routes to THINKING_TOKEN or TOKEN
-                def on_token(token: str):
-                    if not event_callback:
-                        return
-
-                    # Feed token to parser to detect thinking vs answer sections
-                    thinking_token, answer_token = stream_parser.feed(token)
-
-                    # Emit thinking token if in thinking section
-                    if thinking_token:
-                        event_callback({
-                            "type": "THINKING_TOKEN",
-                            "run_id": run_id,
-                            "content": thinking_token,
-                        })
-
-                    # Emit answer token if in answer section
-                    if answer_token:
-                        event_callback({
-                            "type": "TOKEN",
-                            "run_id": run_id,
-                            "content": answer_token,
-                        })
-
-                # Save original temperature and restore after
+                # Save original values and restore after
                 original_temp = self.config.model.temperature
+                original_max_tokens = self.config.model.max_tokens
                 self.config.model.temperature = temp_override
+                self.config.model.max_tokens = max_tokens_override
 
                 try:
-                    response_text, usage = await self._call_model_streaming(msgs, on_token)
-                    return response_text, usage or {}
+                    if logprobs:
+                        # Use non-streaming call with logprobs for CAR
+                        response_text, usage, logprobs_data = await self._call_model_with_logprobs(msgs)
+                        return response_text, usage or {}, logprobs_data
+                    else:
+                        # Create stream parser to route thinking vs answer tokens
+                        stream_parser = StreamParser()
+
+                        # Token callback for streaming - routes to THINKING_TOKEN or TOKEN
+                        def on_token(token: str):
+                            if not event_callback:
+                                return
+
+                            # Feed token to parser to detect thinking vs answer sections
+                            thinking_token, answer_token = stream_parser.feed(token)
+
+                            # Emit thinking token if in thinking section
+                            if thinking_token:
+                                event_callback({
+                                    "type": "THINKING_TOKEN",
+                                    "run_id": run_id,
+                                    "content": thinking_token,
+                                })
+
+                            # Emit answer token if in answer section
+                            if answer_token:
+                                event_callback({
+                                    "type": "TOKEN",
+                                    "run_id": run_id,
+                                    "content": answer_token,
+                                })
+
+                        response_text, usage = await self._call_model_streaming(msgs, on_token)
+                        return response_text, usage or {}
+                except Exception as e:
+                    # Emit error event so UI knows to stop waiting
+                    if event_callback:
+                        event_callback({
+                            "type": "STREAM_ERROR",
+                            "run_id": run_id,
+                            "error": str(e),
+                        })
+                    raise
                 finally:
                     self.config.model.temperature = original_temp
+                    self.config.model.max_tokens = original_max_tokens
 
             # Execute the thinking strategy
             thinking_result = await strategy.think(
@@ -344,6 +370,7 @@ class ChatEngine:
         
         # Build request payload
         payload = {
+            "model": self.config.model.name,
             "messages": messages,
             "temperature": self.config.model.temperature,
             "max_tokens": self.config.model.max_tokens,
@@ -380,6 +407,103 @@ class ChatEngine:
         
         return response_text, usage
 
+    async def _call_model_with_logprobs(
+        self, messages: list[dict]
+    ) -> tuple[str, Optional[dict], Optional[list]]:
+        """Call the model API with logprobs enabled.
+        
+        Args:
+            messages: List of message dicts.
+            
+        Returns:
+            Tuple of (response_text, usage_stats, logprobs_list).
+        """
+        client = await self._get_client()
+        
+        # Build request payload with logprobs enabled
+        payload = {
+            "model": self.config.model.name,
+            "messages": messages,
+            "temperature": self.config.model.temperature,
+            "max_tokens": self.config.model.max_tokens,
+            "stream": False,
+            "logprobs": True,  # Enable logprobs
+            "top_logprobs": 1,  # Get top 1 logprob per token
+        }
+        
+        # Add optional parameters
+        if self.config.model.seed is not None:
+            payload["seed"] = self.config.model.seed
+        if self.config.model.top_p is not None:
+            payload["top_p"] = self.config.model.top_p
+        if self.config.model.frequency_penalty is not None:
+            payload["frequency_penalty"] = self.config.model.frequency_penalty
+        if self.config.model.presence_penalty is not None:
+            payload["presence_penalty"] = self.config.model.presence_penalty
+        
+        # Make request
+        endpoint = self.config.endpoint.rstrip("/")
+        response = await client.post(
+            f"{endpoint}/v1/chat/completions",
+            json=payload,
+        )
+        response.raise_for_status()
+        
+        data = response.json()
+        
+        # Extract response
+        response_text = ""
+        logprobs_data = None
+
+        if data.get("choices"):
+            choice = data["choices"][0]
+            response_text = choice.get("message", {}).get("content", "")
+
+            # Extract logprobs if available
+            logprobs_raw = choice.get("logprobs")
+
+            # Debug logging to see what Ollama returns
+            if self.config.tracing.log_level == "debug":
+                print(f"[ChatEngine] Raw logprobs from Ollama: {logprobs_raw}")
+
+            # Normalize logprobs from various formats
+            logprobs_data = self._normalize_logprobs(logprobs_raw)
+
+        # Extract usage
+        usage = data.get("usage")
+
+        return response_text, usage, logprobs_data
+
+    def _normalize_logprobs(self, logprobs_raw) -> list:
+        """Normalize logprobs from various formats (OpenAI/Ollama).
+
+        Args:
+            logprobs_raw: Raw logprobs from API response.
+
+        Returns:
+            List of dicts with 'logprob' key, or empty list if unavailable.
+        """
+        if not logprobs_raw:
+            return []
+
+        # OpenAI format: {"content": [{"token": "...", "logprob": -0.5}, ...]}
+        if isinstance(logprobs_raw, dict):
+            content = logprobs_raw.get("content", [])
+            if content:
+                return content
+
+        # Direct list format (some Ollama versions)
+        if isinstance(logprobs_raw, list):
+            normalized = []
+            for item in logprobs_raw:
+                if isinstance(item, dict) and "logprob" in item:
+                    normalized.append(item)
+                elif isinstance(item, (int, float)):
+                    normalized.append({"logprob": item})
+            return normalized
+
+        return []
+
     async def _call_model_streaming(
         self,
         messages: list[dict],
@@ -400,6 +524,7 @@ class ChatEngine:
         
         # Build request payload with streaming enabled
         payload = {
+            "model": self.config.model.name,
             "messages": messages,
             "temperature": self.config.model.temperature,
             "max_tokens": self.config.model.max_tokens,
@@ -419,34 +544,41 @@ class ChatEngine:
         # Make streaming request
         endpoint = self.config.endpoint.rstrip("/")
         full_content = []
-        
+
         async with client.stream(
             "POST",
             f"{endpoint}/v1/chat/completions",
             json=payload,
         ) as response:
             response.raise_for_status()
-            
-            async for line in response.aiter_lines():
-                if not line or not line.startswith("data: "):
-                    continue
-                
-                data_str = line[6:]  # Remove "data: " prefix
-                if data_str == "[DONE]":
-                    break
-                
-                try:
-                    data = json.loads(data_str)
-                    delta = data.get("choices", [{}])[0].get("delta", {})
-                    content = delta.get("content", "")
-                    
-                    if content:
-                        full_content.append(content)
-                        if token_callback:
-                            token_callback(content)
-                            
-                except json.JSONDecodeError:
-                    continue
+
+            try:
+                # Add timeout to prevent infinite hangs
+                async with asyncio.timeout(120):  # 2 minute timeout
+                    async for line in response.aiter_lines():
+                        if not line or not line.startswith("data: "):
+                            continue
+
+                        data_str = line[6:]  # Remove "data: " prefix
+                        if data_str == "[DONE]":
+                            break
+
+                        try:
+                            data = json.loads(data_str)
+                            delta = data.get("choices", [{}])[0].get("delta", {})
+                            content = delta.get("content", "")
+
+                            if content:
+                                full_content.append(content)
+                                if token_callback:
+                                    token_callback(content)
+
+                        except json.JSONDecodeError:
+                            continue
+            except asyncio.TimeoutError:
+                # Stream timed out - log and return what we have
+                if self.config.tracing.log_level == "debug":
+                    print(f"[ChatEngine] Stream timeout after 120s, returning partial response")
         
         response_text = "".join(full_content)
 

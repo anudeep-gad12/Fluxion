@@ -10,8 +10,8 @@ import { createConversation, createConversationRun, getConversation } from '@/ap
 import { useConversationRuns, useSelectedConversation, useStore } from '@/hooks/useStore';
 import { useSSE } from '@/hooks/useSSE';
 import { cn, formatRelativeTime } from '@/lib/utils';
-import { Eye, Loader2, Send } from 'lucide-react';
-import type { Run, Conversation } from '@/types';
+import { Brain, Eye, Loader2, Send, Zap } from 'lucide-react';
+import type { Run, Conversation, ThinkingMode } from '@/types';
 
 function RunMessage({
   run,
@@ -112,6 +112,7 @@ export function ConversationView() {
   const runs = useConversationRuns(selectedConversationId);
   const [message, setMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [thinkingMode, setThinkingMode] = useState<ThinkingMode>('default');
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const activeRunId = useMemo(() => {
@@ -176,6 +177,7 @@ export function ConversationView() {
 
       const response = await createConversationRun(conversationId!, {
         message: message.trim(),
+        thinking_mode: thinkingMode,
       });
 
       const run: Run = {
@@ -224,14 +226,27 @@ export function ConversationView() {
               className="resize-none"
               disabled={isSubmitting}
             />
-            <Button
-              onClick={handleSubmit}
-              disabled={!message.trim() || isSubmitting}
-              className="self-end"
-            >
-              {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-            </Button>
+            <div className="flex flex-col gap-2 self-end">
+              <Button
+                variant={thinkingMode === 'thinking' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setThinkingMode(thinkingMode === 'default' ? 'thinking' : 'default')}
+                title={thinkingMode === 'thinking' ? 'Thinking mode (always reason)' : 'Default mode (auto-detect)'}
+                className="h-8 w-8 p-0"
+              >
+                {thinkingMode === 'thinking' ? <Brain className="h-4 w-4" /> : <Zap className="h-4 w-4" />}
+              </Button>
+              <Button
+                onClick={handleSubmit}
+                disabled={!message.trim() || isSubmitting}
+              >
+                {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              </Button>
+            </div>
           </div>
+          <p className="text-xs text-slate-500 mt-2">
+            {thinkingMode === 'thinking' ? '🧠 Thinking mode' : '⚡ Default mode'} · Cmd/Ctrl + Enter to send
+          </p>
         </div>
       </div>
     );
@@ -268,15 +283,27 @@ export function ConversationView() {
             className="resize-none"
             disabled={isSubmitting}
           />
-          <Button
-            onClick={handleSubmit}
-            disabled={!message.trim() || isSubmitting}
-            className="self-end"
-          >
-            {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-          </Button>
+          <div className="flex flex-col gap-2 self-end">
+            <Button
+              variant={thinkingMode === 'thinking' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setThinkingMode(thinkingMode === 'default' ? 'thinking' : 'default')}
+              title={thinkingMode === 'thinking' ? 'Thinking mode (always reason)' : 'Default mode (auto-detect)'}
+              className="h-8 w-8 p-0"
+            >
+              {thinkingMode === 'thinking' ? <Brain className="h-4 w-4" /> : <Zap className="h-4 w-4" />}
+            </Button>
+            <Button
+              onClick={handleSubmit}
+              disabled={!message.trim() || isSubmitting}
+            >
+              {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+            </Button>
+          </div>
         </div>
-        <p className="text-xs text-slate-500 mt-2">Cmd/Ctrl + Enter to send</p>
+        <p className="text-xs text-slate-500 mt-2">
+          {thinkingMode === 'thinking' ? '🧠 Thinking mode' : '⚡ Default mode'} · Cmd/Ctrl + Enter to send
+        </p>
       </div>
     </div>
   );

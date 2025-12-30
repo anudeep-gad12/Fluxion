@@ -105,13 +105,16 @@ class StreamParser:
     START_TAG = "[THINK]"
     END_TAG = "[/THINK]"
     BUFFER_SIZE = 10  # Keep chars for partial tag detection
+    DIRECT_THRESHOLD = 50  # After this many chars without [THINK], treat as direct answer
 
     def __init__(self):
         self.buffer = ""
         self.in_thinking = False
         self.after_thinking = False  # Everything after [/THINK] is answer
+        self.is_direct = False  # No thinking tags detected, treat as direct answer
         self.thinking_content = ""
         self.answer_content = ""
+        self.total_received = 0  # Track total chars received
 
     def _find_tag(self, text: str, tag: str) -> int:
         """Find tag position in text (case-insensitive).
@@ -136,20 +139,40 @@ class StreamParser:
         One of the returned values will be empty string.
         """
         self.buffer += token
+        self.total_received += len(token)
         thinking_out = ""
         answer_out = ""
 
         # Check for tag transitions
         while True:
+            if self.is_direct:
+                # Direct answer mode - emit everything as answer
+                answer_out += self.buffer
+                self.answer_content += self.buffer
+                self.buffer = ""
+                break
+
             if not self.in_thinking and not self.after_thinking:
                 # Looking for [THINK] start tag (case-insensitive)
                 if self._find_tag(self.buffer, self.START_TAG) >= 0:
                     self.in_thinking = True
                     _, self.buffer = self._split_at_tag(self.buffer, self.START_TAG)
                     continue
+                elif self.total_received > self.DIRECT_THRESHOLD:
+                    # No [THINK] tag after threshold, treat as direct answer
+                    self.is_direct = True
+                    answer_out += self.buffer
+                    self.answer_content += self.buffer
+                    self.buffer = ""
+                    break
                 else:
-                    # No tag found, keep buffer for partial tag detection
-                    self.buffer = self.buffer[-self.BUFFER_SIZE:]
+                    # Still looking for tag, keep buffer for partial tag detection
+                    if len(self.buffer) > self.BUFFER_SIZE:
+                        # Emit older content as answer (likely direct)
+                        safe_content = self.buffer[:-self.BUFFER_SIZE]
+                        self.buffer = self.buffer[-self.BUFFER_SIZE:]
+                        answer_out += safe_content
+                        self.answer_content += safe_content
                     break
 
             elif self.in_thinking:
@@ -187,7 +210,11 @@ class StreamParser:
         if self.in_thinking:
             thinking_out = self.buffer
             self.thinking_content += self.buffer
-        elif self.after_thinking:
+        elif self.after_thinking or self.is_direct:
+            answer_out = self.buffer
+            self.answer_content += self.buffer
+        else:
+            # Never saw [THINK] tag, treat remaining as answer
             answer_out = self.buffer
             self.answer_content += self.buffer
 
@@ -203,8 +230,10 @@ class StreamParser:
         self.buffer = ""
         self.in_thinking = False
         self.after_thinking = False
+        self.is_direct = False
         self.thinking_content = ""
         self.answer_content = ""
+        self.total_received = 0
 
 
 @dataclass

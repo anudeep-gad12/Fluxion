@@ -29,6 +29,7 @@ VAR_DIR.mkdir(exist_ok=True)
 
 class ChatModelConfig(BaseModel):
     """Model generation parameters."""
+    name: str = "ministral-14b-reasoning"  # Model name for Ollama
     temperature: float = 0.7
     max_tokens: int = 4096
     seed: Optional[int] = None
@@ -98,6 +99,12 @@ class ChainOfDraftConfig(BaseModel):
     max_words_per_step: int = 5
 
 
+class CARConfig(BaseModel):
+    """CAR (Certainty-based Adaptive Routing) strategy settings."""
+    ppl_threshold: float = 5.0  # Below = direct answer, above = CoT
+    max_short_tokens: int = 100  # Max tokens for short answer probe
+
+
 class ThinkingTracingConfig(BaseModel):
     """Thinking tracing settings."""
     save_internal: bool = True
@@ -112,7 +119,8 @@ class ThinkingUIConfig(BaseModel):
 
 class ThinkingConfig(BaseModel):
     """Complete thinking/reasoning configuration."""
-    default_strategy: str = "auto"
+    default_strategy: str = "car"
+    car: CARConfig = CARConfig()
     auto_detection: AutoDetectionConfig = AutoDetectionConfig()
     cot: CoTConfig = CoTConfig()
     self_consistency: SelfConsistencyConfig = SelfConsistencyConfig()

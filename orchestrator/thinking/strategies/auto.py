@@ -81,8 +81,8 @@ class AutoStrategy(ThinkingStrategy):
                 query = msg.get("content", "")
                 break
 
-        # Detect complexity
-        complexity = self.detector.detect(query)
+        # Detect complexity with conversation history for context awareness
+        complexity = self.detector.detect(query, history=messages)
 
         # Emit complexity detection event
         self.emit_event(
