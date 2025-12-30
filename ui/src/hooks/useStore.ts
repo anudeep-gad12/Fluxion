@@ -22,6 +22,7 @@ interface AppState {
   // Streaming state
   streamingRunId: string | null;
   streamingText: Record<string, string>;  // runId -> partial response
+  streamingThinking: Record<string, string>;  // runId -> partial thinking content
 
   // Connection state
   isConnected: boolean;
@@ -60,6 +61,8 @@ interface AppState {
   setStreamingRunId: (runId: string | null) => void;
   appendStreamingText: (runId: string, token: string) => void;
   clearStreamingText: (runId: string) => void;
+  appendStreamingThinking: (runId: string, token: string) => void;
+  clearStreamingThinking: (runId: string) => void;
 
   // Fetch tracking actions
   setFetching: (runId: string, fetching: boolean) => void;
@@ -77,6 +80,7 @@ export const useStore = create<AppState>((set, get) => ({
   selectedEventSeq: null,
   streamingRunId: null,
   streamingText: {},
+  streamingThinking: {},
   isConnected: false,
   isLoading: false,
   error: null,
@@ -193,6 +197,18 @@ export const useStore = create<AppState>((set, get) => ({
   clearStreamingText: (runId) => set((state) => {
     const { [runId]: _, ...rest } = state.streamingText;
     return { streamingText: rest };
+  }),
+
+  // Streaming thinking actions
+  appendStreamingThinking: (runId, token) => set((state) => ({
+    streamingThinking: {
+      ...state.streamingThinking,
+      [runId]: (state.streamingThinking[runId] || '') + token,
+    },
+  })),
+  clearStreamingThinking: (runId) => set((state) => {
+    const { [runId]: _, ...rest } = state.streamingThinking;
+    return { streamingThinking: rest };
   }),
 
   // Fetch tracking actions

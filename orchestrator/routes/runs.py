@@ -106,6 +106,7 @@ async def create_conversation_run(conversation_id: str, request: CreateConversat
                     "final_answer": result.response,
                     "status": result.status,
                     "error": result.error,
+                    "thinking_summary": result.thinking_summary,
                 },
             })
         except Exception as e:
@@ -168,6 +169,7 @@ async def create_run(request: CreateRunRequest):
                     "final_answer": result.response,
                     "status": result.status,
                     "error": result.error,
+                    "thinking_summary": result.thinking_summary,
                 },
             })
         except Exception as e:
@@ -226,6 +228,7 @@ async def stream_run_events(run_id: str):
                             "run_id": run_id,
                             "status": trace.get("status"),
                             "final_answer": trace.get("final_answer"),
+                            "thinking_summary": trace.get("thinking_summary"),
                         }),
                     }
 
@@ -335,3 +338,37 @@ async def get_run_report(run_id: str):
         "report": report,
         "timeline": timeline,
     }
+
+
+@router.get("/runs/{run_id}/thinking")
+async def get_run_thinking(
+    run_id: str,
+    detail: str = Query("user", description="Detail level: user, internal, or full"),
+):
+    """Get thinking trace for a run.
+
+    Args:
+        run_id: The run ID.
+        detail: Level of detail:
+            - "user": Clean, UI-friendly summaries (default)
+            - "internal": Full raw traces with tokens, timing, messages
+            - "full": Both internal and UI data
+
+    Returns:
+        Thinking trace data based on detail level.
+    """
+    if detail not in ("user", "internal", "full"):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid detail level. Use 'user', 'internal', or 'full'",
+        )
+
+    db = await get_db()
+    trace_repo = TraceRepo(db)
+
+    thinking = await trace_repo.get_thinking(run_id, detail=detail)
+
+    if "error" in thinking:
+        raise HTTPException(status_code=404, detail=thinking["error"])
+
+    return thinking

@@ -18,6 +18,8 @@ export function useSSE(runId: string | null) {
   const setStreamingRunId = useStore((s) => s.setStreamingRunId);
   const appendStreamingText = useStore((s) => s.appendStreamingText);
   const clearStreamingText = useStore((s) => s.clearStreamingText);
+  const appendStreamingThinking = useStore((s) => s.appendStreamingThinking);
+  const clearStreamingThinking = useStore((s) => s.clearStreamingThinking);
 
   const subscribe = useCallback((id: string) => {
     // Unsubscribe from previous
@@ -28,8 +30,9 @@ export function useSSE(runId: string | null) {
     // Clear buffer for new subscription
     eventBufferRef.current = [];
 
-    // Clear any previous streaming text for this run
+    // Clear any previous streaming text and thinking for this run
     clearStreamingText(id);
+    clearStreamingThinking(id);
 
     setConnected(true);
     setError(null);
@@ -42,6 +45,12 @@ export function useSSE(runId: string | null) {
       if (rawEvent.type === 'TOKEN' && rawEvent.content) {
         appendStreamingText(id, rawEvent.content);
         return; // Don't add TOKEN events to event list
+      }
+
+      // Handle THINKING_TOKEN events for streaming thinking content
+      if (rawEvent.type === 'THINKING_TOKEN' && rawEvent.content) {
+        appendStreamingThinking(id, rawEvent.content);
+        return; // Don't add THINKING_TOKEN events to event list
       }
 
       // Check if store has this run's events initialized
@@ -61,19 +70,21 @@ export function useSSE(runId: string | null) {
       }
     };
 
-    const handleComplete = (result: { run_id: string; status: string; final_answer?: string }) => {
+    const handleComplete = (result: { run_id: string; status: string; final_answer?: string; thinking_summary?: string }) => {
       // Flush any remaining buffered events
       if (eventBufferRef.current.length > 0) {
         setEvents(id, eventBufferRef.current);
         eventBufferRef.current = [];
       }
 
-      // Clear streaming text now that we have final answer
+      // Clear streaming text and thinking now that we have final answer
       clearStreamingText(id);
+      clearStreamingThinking(id);
 
       updateRun(result.run_id, {
         status: result.status as 'succeeded' | 'failed',
         final_answer: result.final_answer,
+        thinking_summary: result.thinking_summary,
       });
       setConnected(false);
       setStreamingRunId(null);
@@ -86,8 +97,9 @@ export function useSSE(runId: string | null) {
         eventBufferRef.current = [];
       }
 
-      // Clear streaming text on error
+      // Clear streaming text and thinking on error
       clearStreamingText(id);
+      clearStreamingThinking(id);
 
       setError(error);
       setConnected(false);
@@ -100,7 +112,7 @@ export function useSSE(runId: string | null) {
       handleComplete,
       handleError
     );
-  }, [addEvent, setEvents, updateRun, setConnected, setError, setStreamingRunId, appendStreamingText, clearStreamingText]);
+  }, [addEvent, setEvents, updateRun, setConnected, setError, setStreamingRunId, appendStreamingText, clearStreamingText, appendStreamingThinking, clearStreamingThinking]);
 
   const unsubscribe = useCallback(() => {
     if (unsubscribeRef.current) {

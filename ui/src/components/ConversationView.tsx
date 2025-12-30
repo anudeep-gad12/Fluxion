@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import { AnswerMarkdown, extractAnswer } from '@/components/AnswerMarkdown';
+import { ThinkingPanel } from '@/components/ThinkingPanel';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { createConversation, createConversationRun, getConversation } from '@/api/client';
@@ -22,10 +23,14 @@ function RunMessage({
   const isRunning = run.status === 'running';
   const finalAnswer = run.final_answer ? extractAnswer(run.final_answer) : '';
   const streamingText = useStore((s) => s.streamingText[run.run_id] || '');
+  const streamingThinking = useStore((s) => s.streamingThinking[run.run_id] || '');
 
   // Use streaming text while running, final answer when complete
   const displayText = isRunning ? streamingText : finalAnswer;
   const isStreaming = isRunning && streamingText.length > 0;
+
+  // Determine if we're in thinking phase (streaming thinking but no answer yet)
+  const isThinking = isRunning && streamingThinking.length > 0;
 
   return (
     <div className="space-y-3 animate-in fade-in slide-in-from-bottom-2">
@@ -42,7 +47,16 @@ function RunMessage({
 
       <div className="flex justify-start">
         <div className="max-w-[80%] rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-          {isRunning && !displayText ? (
+          {/* Thinking Panel - shows while thinking or after completion with thinking data */}
+          <ThinkingPanel
+            summary={run.thinking_summary}
+            steps={run.thinking_steps}
+            isStreaming={isThinking}
+            streamingContent={streamingThinking}
+            defaultExpanded={false}
+          />
+
+          {isRunning && !displayText && !streamingThinking ? (
             <div className="flex items-center gap-2 text-sm text-slate-500">
               <Loader2 className="h-4 w-4 animate-spin" />
               Loading...
@@ -58,9 +72,9 @@ function RunMessage({
                 <span className="inline-block w-2 h-4 bg-slate-400 animate-pulse ml-0.5" />
               )}
             </div>
-          ) : (
+          ) : !isThinking ? (
             <div className="text-sm text-slate-500">No response.</div>
-          )}
+          ) : null}
 
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <Button size="sm" variant="ghost" onClick={onShowTrace}>
