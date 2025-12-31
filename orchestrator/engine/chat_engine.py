@@ -97,8 +97,31 @@ class ChatEngine:
             ChatResult with the response.
         """
         # Get the thinking strategy (validates name, allows future extensibility)
+        # Inject config-based params for specific strategies
+        params = dict(thinking_params or {})
+
+        # CoT strategy params
+        if thinking_strategy == "cot":
+            cot_config = self.config.thinking.cot
+            if "thinking_budget" not in params:
+                params["thinking_budget"] = cot_config.thinking_budget
+            if "answer_budget" not in params:
+                params["answer_budget"] = cot_config.answer_budget
+
+        # CAR strategy params (also applies when thinking_strategy is None, since CAR is default)
+        if thinking_strategy in ("car", None):
+            car_config = self.config.thinking.car
+            if "ppl_threshold" not in params:
+                params["ppl_threshold"] = car_config.ppl_threshold
+            if "max_short_tokens" not in params:
+                params["max_short_tokens"] = car_config.max_short_tokens
+            if "thinking_budget" not in params:
+                params["thinking_budget"] = car_config.thinking_budget
+            if "answer_budget" not in params:
+                params["answer_budget"] = car_config.answer_budget
+
         strategy = self.thinking_orchestrator.get_strategy(
-            thinking_strategy, **(thinking_params or {})
+            thinking_strategy, **params
         )
         run_id = run_id or str(uuid.uuid4())[:8]
         start_time = time.time()
@@ -156,6 +179,7 @@ class ChatEngine:
                 temperature: Optional[float] = None,
                 max_tokens: Optional[int] = None,
                 logprobs: bool = False,
+                stop: Optional[list[str]] = None,  # Stop sequences for thinking control
                 **kwargs,
             ) -> tuple:
                 """Model call function passed to thinking strategies.
@@ -207,7 +231,7 @@ class ChatEngine:
                                     "content": answer_token,
                                 })
 
-                        response_text, usage = await self._call_model_streaming(msgs, on_token)
+                        response_text, usage = await self._call_model_streaming(msgs, on_token, stop=stop)
                         return response_text, usage or {}
                 except Exception as e:
                     # Emit error event so UI knows to stop waiting
@@ -508,6 +532,7 @@ class ChatEngine:
         self,
         messages: list[dict],
         token_callback: Optional[Callable[[str], None]] = None,
+        stop: Optional[list[str]] = None,
     ) -> tuple[str, Optional[dict]]:
         """Call the model API with streaming, sending tokens via callback.
         
@@ -530,7 +555,7 @@ class ChatEngine:
             "max_tokens": self.config.model.max_tokens,
             "stream": True,
         }
-        
+
         # Add optional parameters
         if self.config.model.seed is not None:
             payload["seed"] = self.config.model.seed
@@ -540,7 +565,9 @@ class ChatEngine:
             payload["frequency_penalty"] = self.config.model.frequency_penalty
         if self.config.model.presence_penalty is not None:
             payload["presence_penalty"] = self.config.model.presence_penalty
-        
+        if stop is not None:
+            payload["stop"] = stop  # Stop sequences for thinking control
+
         # Make streaming request
         endpoint = self.config.endpoint.rstrip("/")
         full_content = []
