@@ -77,6 +77,8 @@ class CoTConfig(BaseModel):
     """Chain-of-Thought strategy settings."""
     enabled: bool = True
     trigger_phrase: str = "Let's think step by step."
+    thinking_budget: int = 512  # Max tokens for thinking phase
+    answer_budget: int = 256  # Max tokens for answer phase
 
 
 class SelfConsistencyConfig(BaseModel):
@@ -103,6 +105,8 @@ class CARConfig(BaseModel):
     """CAR (Certainty-based Adaptive Routing) strategy settings."""
     ppl_threshold: float = 5.0  # Below = direct answer, above = CoT
     max_short_tokens: int = 100  # Max tokens for short answer probe
+    thinking_budget: int = 512  # Max tokens for thinking phase (when escalating)
+    answer_budget: int = 256  # Max tokens for answer phase (when escalating)
 
 
 class ThinkingTracingConfig(BaseModel):

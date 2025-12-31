@@ -38,6 +38,8 @@ thinking:
   car:
     ppl_threshold: 5.0       # Below = direct answer, above = CoT reasoning
     max_short_tokens: 100    # Max tokens for short answer probe
+    thinking_budget: 512     # Max tokens for thinking phase (when escalating)
+    answer_budget: 256       # Max tokens for answer phase (when escalating)
 
   # Auto-detection settings for routing queries
   auto_detection:
@@ -45,10 +47,12 @@ thinking:
     simple_threshold: 0.3   # Below = direct strategy
     complex_threshold: 0.7  # Above = full reasoning
 
-  # Chain-of-Thought settings
+  # Chain-of-Thought settings (two-phase: thinking then answer)
   cot:
     enabled: true
     trigger_phrase: "Let's think step by step."
+    thinking_budget: 512  # Max tokens for thinking phase
+    answer_budget: 256    # Max tokens for answer phase
 
   # Self-Consistency settings
   self_consistency:
