@@ -16,7 +16,6 @@ from pydantic import BaseModel
 BASE_DIR = Path(__file__).parent.parent
 VAR_DIR = BASE_DIR / "var"
 DB_PATH = VAR_DIR / "traces.sqlite"
-PROMPTS_DIR = Path(__file__).parent / "prompts"
 CHAT_CONFIG_PATH = Path(__file__).parent / "chat_config.yaml"
 
 # Ensure directories exist
@@ -53,25 +52,9 @@ class ChatTracingConfig(BaseModel):
     log_model_calls: bool = True
 
 
-class SystemPromptConfig(BaseModel):
-    """System prompt configuration with file path and inline fallback."""
-
-    reasoning_prompt: str = "You are a helpful AI assistant. Think step by step."
-    reasoning_prompt_path: Optional[Path] = None
-    chat_prompt: str = "You are a helpful AI assistant. Answer directly and clearly."
-    chat_prompt_path: Optional[Path] = None
-
-
 # =============================================================================
 # Thinking Configuration Classes
 # =============================================================================
-
-class AutoDetectionConfig(BaseModel):
-    """Complexity auto-detection settings."""
-    enabled: bool = True
-    simple_threshold: float = 0.3
-    complex_threshold: float = 0.7
-
 
 class CoTConfig(BaseModel):
     """Chain-of-Thought strategy settings."""
@@ -79,26 +62,6 @@ class CoTConfig(BaseModel):
     trigger_phrase: str = "Let's think step by step."
     thinking_budget: int = 512  # Max tokens for thinking phase
     answer_budget: int = 256  # Max tokens for answer phase
-
-
-class SelfConsistencyConfig(BaseModel):
-    """Self-Consistency strategy settings."""
-    enabled: bool = True
-    n_samples: int = 3
-    temperature: float = 0.7
-    voting_method: Literal["majority", "weighted"] = "majority"
-
-
-class SelfReflectionConfig(BaseModel):
-    """Self-Reflection strategy settings."""
-    enabled: bool = True
-    max_iterations: int = 2
-
-
-class ChainOfDraftConfig(BaseModel):
-    """Chain-of-Draft strategy settings."""
-    enabled: bool = True
-    max_words_per_step: int = 5
 
 
 class CARConfig(BaseModel):
@@ -125,11 +88,7 @@ class ThinkingConfig(BaseModel):
     """Complete thinking/reasoning configuration."""
     default_strategy: str = "car"
     car: CARConfig = CARConfig()
-    auto_detection: AutoDetectionConfig = AutoDetectionConfig()
     cot: CoTConfig = CoTConfig()
-    self_consistency: SelfConsistencyConfig = SelfConsistencyConfig()
-    self_reflection: SelfReflectionConfig = SelfReflectionConfig()
-    chain_of_draft: ChainOfDraftConfig = ChainOfDraftConfig()
     tracing: ThinkingTracingConfig = ThinkingTracingConfig()
     ui: ThinkingUIConfig = ThinkingUIConfig()
 
