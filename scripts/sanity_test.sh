@@ -315,7 +315,6 @@ python -c "from orchestrator.config import get_chat_config" 2>/dev/null && pass 
 python -c "from orchestrator.thinking import ThinkingOrchestrator, StreamParser" 2>/dev/null && pass "thinking module imports" || fail "thinking module imports"
 python -c "from orchestrator.engine.chat_engine import ChatEngine" 2>/dev/null && pass "chat_engine imports" || fail "chat_engine imports"
 python -c "from orchestrator.thinking.strategies.direct import DirectStrategy" 2>/dev/null && pass "direct strategy imports" || fail "direct strategy imports"
-python -c "from orchestrator.thinking.strategies.car import CARStrategy" 2>/dev/null && pass "CAR strategy imports" || fail "CAR strategy imports"
 python -c "from orchestrator.thinking.strategies.cot import ChainOfThoughtStrategy" 2>/dev/null && pass "CoT strategy imports" || fail "CoT strategy imports"
 
 # ============================================================
@@ -372,9 +371,9 @@ else
 fi
 
 # ============================================================
-# 3. DIRECT / CAR FLOW (default mode)
+# 3. DIRECT FLOW (default mode)
 # ============================================================
-print_header "3. Direct/CAR Flow (default mode)"
+print_header "3. Direct Flow (default mode)"
 
 DIRECT_CONV=$(curl -s -X POST "$API_URL/api/conversations" \
     -H "Content-Type: application/json" \
@@ -399,13 +398,13 @@ else
 fi
 
 if [ -n "$DIRECT_RUN_ID" ]; then
-    wait_for_run "$DIRECT_RUN_ID" "Direct/CAR run"
-    check_stream_complete "$DIRECT_RUN_ID" "Direct/CAR run"
-    check_events "$DIRECT_RUN_ID" "Direct/CAR run"
-    check_thinking "$DIRECT_RUN_ID" "Direct/CAR run" "user" "false"
-    check_thinking "$DIRECT_RUN_ID" "Direct/CAR run" "internal" "false"
-    check_report "$DIRECT_RUN_ID" "Direct/CAR run"
-    check_conversation_detail "$DIRECT_CONV_ID" "$DIRECT_RUN_ID" "Direct/CAR"
+    wait_for_run "$DIRECT_RUN_ID" "Direct run"
+    check_stream_complete "$DIRECT_RUN_ID" "Direct run"
+    check_events "$DIRECT_RUN_ID" "Direct run"
+    check_thinking "$DIRECT_RUN_ID" "Direct run" "user" "false"
+    check_thinking "$DIRECT_RUN_ID" "Direct run" "internal" "false"
+    check_report "$DIRECT_RUN_ID" "Direct run"
+    check_conversation_detail "$DIRECT_CONV_ID" "$DIRECT_RUN_ID" "Direct"
 fi
 
 # ============================================================

@@ -18,6 +18,8 @@ from orchestrator.schemas import (
     RunResponse,
     RunListResponse,
     EventResponse,
+    TraceEventResponse,
+    RunTimelineResponse,
     trace_to_run,
 )
 from orchestrator.storage.db import get_db
@@ -50,13 +52,9 @@ def _conversation_title_from_message(message: str, max_len: int = 64) -> str:
     return cleaned[: max_len - 3] + "..."
 
 
-def _mode_to_strategy(thinking_mode: str) -> str:
-    """Map UI thinking mode to strategy name."""
-    mode_map = {
-        "default": "car",      # CAR (Certainty-based Adaptive Routing)
-        "thinking": "cot",     # Chain-of-Thought (always think)
-    }
-    return mode_map.get(thinking_mode, "car")
+def _mode_to_strategy(thinking_mode: str, mode_mapping: dict) -> str:
+    """Map UI thinking mode to strategy name using config."""
+    return mode_mapping.get(thinking_mode, "direct")
 
 
 @router.post("/conversations/{conversation_id}/runs", response_model=CreateRunResponse)
@@ -89,8 +87,8 @@ async def create_conversation_run(conversation_id: str, request: CreateConversat
             except asyncio.QueueFull:
                 pass
 
-        # Map UI mode to strategy
-        strategy = _mode_to_strategy(request.thinking_mode)
+        # Map UI mode to strategy (from config)
+        strategy = _mode_to_strategy(request.thinking_mode, config.thinking.mode_mapping)
 
         try:
             result = await engine.chat(
@@ -99,6 +97,7 @@ async def create_conversation_run(conversation_id: str, request: CreateConversat
                 run_id=run_id,
                 event_callback=event_callback,
                 thinking_strategy=strategy,
+                reasoning_effort=request.reasoning_effort,
             )
 
             # Update conversation summary
@@ -385,3 +384,49 @@ async def get_run_thinking(
         raise HTTPException(status_code=404, detail=thinking["error"])
 
     return thinking
+
+
+@router.get("/runs/{run_id}/timeline", response_model=RunTimelineResponse)
+async def get_run_timeline(run_id: str):
+    """Get complete timeline for a run with all trace events.
+
+    Returns chronologically ordered trace events for debugging and observability.
+    Events include: llm_request, llm_response, reasoning, tool_call, tool_response, error, retry.
+    """
+    db = await get_db()
+    trace_repo = TraceRepo(db)
+
+    timeline = await trace_repo.get_run_timeline(run_id)
+
+    if "error" in timeline:
+        raise HTTPException(status_code=404, detail=timeline["error"])
+
+    # Convert events to response schema
+    events = [
+        TraceEventResponse(
+            id=e.get("id", ""),
+            run_id=e.get("run_id", ""),
+            seq=e.get("seq", 0),
+            created_at=e.get("created_at", ""),
+            event_type=e.get("event_type", ""),
+            event_status=e.get("event_status", ""),
+            actor=e.get("actor", ""),
+            endpoint=e.get("endpoint"),
+            attempt=e.get("attempt", 1),
+            content=e.get("content", {}),
+            parent_event_id=e.get("parent_event_id"),
+            step_number=e.get("step_number"),
+            duration_ms=e.get("duration_ms"),
+            token_count=e.get("token_count"),
+            error_message=e.get("error_message"),
+        )
+        for e in timeline.get("events", [])
+    ]
+
+    return RunTimelineResponse(
+        run_id=run_id,
+        status=timeline.get("status", "unknown"),
+        created_at=timeline.get("created_at", ""),
+        events=events,
+        total_events=timeline.get("total_events", 0),
+    )

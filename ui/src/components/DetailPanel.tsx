@@ -7,7 +7,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { useRunEvents, useSelectedRun, useStore } from '@/hooks/useStore';
 import { cn } from '@/lib/utils';
 import { Braces, Copy, X, Bug, Eye, EyeOff } from 'lucide-react';
-import { getRun, getRunEvents } from '@/api/client';
+import { getRun, getRunTimeline, type TraceEvent } from '@/api/client';
 import type { Event } from '@/types';
 
 export function DetailPanel() {
@@ -48,8 +48,32 @@ export function DetailPanel() {
     async function loadEvents() {
       setFetching(selectedRunId!, true);
       try {
-        const data = await getRunEvents(selectedRunId!);
-        setEvents(selectedRunId!, data.events);
+        // Use timeline endpoint for trace events (llm_request, llm_response, etc.)
+        const timeline = await getRunTimeline(selectedRunId!);
+        // Convert TraceEvent[] to Event[] for the store
+        const events: Event[] = timeline.events.map((te: TraceEvent) => ({
+          run_id: te.run_id,
+          seq: te.seq,
+          ts: te.created_at,
+          type: te.event_type,
+          display: {
+            title: te.event_type,
+            summary: te.error_message || `${te.actor} - ${te.event_status}`,
+            status: te.event_status,
+            result_preview: te.duration_ms ? `${te.duration_ms}ms` : undefined,
+          },
+          payload: {
+            ...te.content,
+            actor: te.actor,
+            endpoint: te.endpoint,
+            attempt: te.attempt,
+            step_number: te.step_number,
+            duration_ms: te.duration_ms,
+            token_count: te.token_count,
+            error_message: te.error_message,
+          },
+        }));
+        setEvents(selectedRunId!, events);
         loadedRunIdRef.current = selectedRunId;
       } catch (error) {
         console.error('Failed to load trace events:', error);
