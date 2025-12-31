@@ -9,10 +9,6 @@ from typing import Dict, Optional, Type
 from orchestrator.thinking.base import ThinkingStrategy
 from orchestrator.thinking.strategies.direct import DirectStrategy
 from orchestrator.thinking.strategies.cot import ChainOfThoughtStrategy
-from orchestrator.thinking.strategies.auto import AutoStrategy
-from orchestrator.thinking.strategies.self_consistency import SelfConsistencyStrategy
-from orchestrator.thinking.strategies.self_reflection import SelfReflectionStrategy
-from orchestrator.thinking.strategies.chain_of_draft import ChainOfDraftStrategy
 from orchestrator.thinking.strategies.car import CARStrategy
 
 
@@ -24,14 +20,11 @@ class ThinkingOrchestrator:
 
     Available strategies:
         - direct: No thinking, just generate answer (fastest)
-        - cot: Chain-of-Thought with Mistral native [THINK]/[/THINK] tags (+17% on reasoning)
-        - auto: Auto-detect complexity and route to appropriate strategy
-        - self_consistency: Multiple paths + voting (+12-18% accuracy)
-        - self_reflection: Critique and revise loop (+4-6% accuracy)
-        - chain_of_draft: Minimal drafts per step (80% token reduction)
+        - cot: Chain-of-Thought with [THINK]/[/THINK] tags (+17% on reasoning)
+        - car: Certainty-based Adaptive Routing using perplexity (default)
 
     Example:
-        orchestrator = ThinkingOrchestrator(default_strategy="auto")
+        orchestrator = ThinkingOrchestrator(default_strategy="car")
         strategy = orchestrator.get_strategy("cot")
         result = await strategy.think(messages, model_call)
     """
@@ -40,17 +33,9 @@ class ThinkingOrchestrator:
     _default_strategies: Dict[str, Type[ThinkingStrategy]] = {
         "direct": DirectStrategy,
         "cot": ChainOfThoughtStrategy,
-        "auto": AutoStrategy,
         "car": CARStrategy,
-        "self_consistency": SelfConsistencyStrategy,
-        "self_reflection": SelfReflectionStrategy,
-        "chain_of_draft": ChainOfDraftStrategy,
         # Aliases
         "chain_of_thought": ChainOfThoughtStrategy,
-        "vote": SelfConsistencyStrategy,
-        "refine": SelfReflectionStrategy,
-        "cod": ChainOfDraftStrategy,
-        "draft": ChainOfDraftStrategy,
         "adaptive": CARStrategy,
     }
 

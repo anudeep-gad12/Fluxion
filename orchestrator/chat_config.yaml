@@ -32,7 +32,7 @@ tracing:
 
 # Thinking/Reasoning configuration
 thinking:
-  default_strategy: "car"  # car (default), cot (thinking), auto, direct, self_consistency
+  default_strategy: "car"  # car (default), cot (thinking), direct
 
   # CAR (Certainty-based Adaptive Routing) settings
   car:
@@ -41,35 +41,12 @@ thinking:
     thinking_budget: 512     # Max tokens for thinking phase (when escalating)
     answer_budget: 256       # Max tokens for answer phase (when escalating)
 
-  # Auto-detection settings for routing queries
-  auto_detection:
-    enabled: true
-    simple_threshold: 0.3   # Below = direct strategy
-    complex_threshold: 0.7  # Above = full reasoning
-
   # Chain-of-Thought settings (two-phase: thinking then answer)
   cot:
     enabled: true
     trigger_phrase: "Let's think step by step."
     thinking_budget: 512  # Max tokens for thinking phase
     answer_budget: 256    # Max tokens for answer phase
-
-  # Self-Consistency settings
-  self_consistency:
-    enabled: true
-    n_samples: 3           # Number of reasoning paths to generate
-    temperature: 0.7       # Sampling temperature for diversity
-    voting_method: "majority"  # majority or weighted
-
-  # Self-Reflection settings
-  self_reflection:
-    enabled: true
-    max_iterations: 2      # Max critique-revise cycles
-
-  # Chain-of-Draft settings
-  chain_of_draft:
-    enabled: true
-    max_words_per_step: 5  # Concise draft constraint
 
   # Tracing settings for thinking
   tracing:
