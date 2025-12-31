@@ -1,59 +1,111 @@
 # Chat Configuration - Single Source of Truth
-# 
+#
 # All runtime settings are controlled here.
 # Changes require a server restart to take effect.
+#
+# Environment variable syntax:
+#   ${VAR}           - Required, errors if not set
+#   ${VAR:-default}  - Optional with default value
+
+# =============================================================================
+# Provider Configuration
+# =============================================================================
+# All providers are OpenAI-compatible - same code works with:
+# LM Studio, vLLM, Ollama, OpenAI, Azure OpenAI, etc.
+
+provider:
+  # Base URL - supports env vars for deployment flexibility
+  base_url: ${LLM_BASE_URL:-http://127.0.0.1:1234}
+
+  # API key - use env var for secrets (empty = no auth for local servers)
+  api_key: ${LLM_API_KEY:-}
+
+  # Endpoint selection: responses | chat_completions | auto
+  # - responses: Primary endpoint for agents/tool use (recommended)
+  # - chat_completions: Fallback for compatibility
+  # - auto: Probe and cache result
+  endpoint: "responses"
+
+  # If /v1/responses returns 404/405, try /v1/chat/completions
+  fallback_on_404: true
+  # Note: Tool fallback policy is model-based:
+  #   - gpt-oss models: REQUIRE /v1/responses for tools (hard fail if unavailable)
+  #   - Other models: Allow chat_completions + tools
+
+  # Reliability - exponential backoff with jitter
+  timeout: 120.0
+  max_retries: 3
+  base_delay: 1.0       # Initial delay for exponential backoff
+  max_delay: 30.0       # Cap for backoff
+  retryable_statuses: [429, 500, 502, 503, 504]
+
+  # Extra headers (e.g., api-version for Azure)
+  extra_headers: {}
+
+# =============================================================================
+# Model Configuration
+# =============================================================================
 
 model:
-  name: "ministral-14b-reasoning"  # Reasoning model with native [THINK] tags
-  temperature: 1.0  # Recommended for reasoning models
+  name: "openai/gpt-oss-20b"  # Model name as expected by the provider
+  temperature: 1.0            # Recommended for reasoning models
   max_tokens: 4096
-  seed: null  # Set to an integer for reproducible outputs (e.g., 42)
+  seed: null                  # Set to integer for reproducible outputs
   top_p: null
   frequency_penalty: null
   presence_penalty: null
+  # Native reasoning effort for gpt-oss models (low, medium, high)
+  # Higher = deeper reasoning, more tokens, better for complex tasks
+  reasoning_effort: "medium"
+
+# =============================================================================
+# Context Management
+# =============================================================================
 
 context:
-  max_messages: 50        # Maximum conversation turns to keep
-  max_tokens: 6000        # Token budget for conversation history
+  max_messages: 50            # Maximum conversation turns to keep
+  max_tokens: 6000            # Token budget for conversation history
   reserve_for_response: 2048  # Tokens reserved for model response
-  truncation_strategy: "sliding_window"  # sliding_window or oldest_first
+  truncation_strategy: "sliding_window"  # sliding_window | oldest_first
+
+# =============================================================================
+# System Prompt
+# =============================================================================
 
 system_prompt: |
   You are a helpful AI assistant. Answer directly and clearly.
 
-# Model endpoint (Ollama)
-endpoint: "http://127.0.0.1:11434"
+# =============================================================================
+# Tracing & Observability
+# =============================================================================
 
-# Tracing configuration
 tracing:
   enabled: true
-  log_level: "debug"  # debug, info, warn
+  log_level: "debug"      # debug | info | warn
   log_model_calls: true
 
-# Thinking/Reasoning configuration
+# =============================================================================
+# Thinking/Reasoning Strategies
+# =============================================================================
+
 thinking:
-  default_strategy: "car"  # car (default), cot (thinking), direct
+  # Mode to strategy mapping (UI mode -> strategy name)
+  # For gpt-oss models: Use "direct" for both - native reasoning comes via API field
+  mode_mapping:
+    default: "direct"     # Fast - no thinking prompts
+    thinking: "direct"    # gpt-oss has native reasoning via reasoning_effort
 
-  # CAR (Certainty-based Adaptive Routing) settings
-  car:
-    ppl_threshold: 5.0       # Below = direct answer, above = CoT reasoning
-    max_short_tokens: 100    # Max tokens for short answer probe
-    thinking_budget: 512     # Max tokens for thinking phase (when escalating)
-    answer_budget: 256       # Max tokens for answer phase (when escalating)
-
-  # Chain-of-Thought settings (two-phase: thinking then answer)
+  # Chain-of-Thought settings (for non-gpt-oss models)
   cot:
-    enabled: true
-    trigger_phrase: "Let's think step by step."
     thinking_budget: 512  # Max tokens for thinking phase
     answer_budget: 256    # Max tokens for answer phase
 
   # Tracing settings for thinking
   tracing:
-    save_internal: true      # Save full raw traces
-    save_user_summary: true  # Save humane summaries
+    save_internal: true       # Save full raw traces
+    save_user_summary: true   # Save humane summaries
 
   # UI display settings
   ui:
-    show_thinking: false    # Hidden by default
-    collapsible: true       # Allow expansion
+    show_thinking: false      # Hidden by default
+    collapsible: true         # Allow expansion

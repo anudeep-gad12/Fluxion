@@ -9,7 +9,6 @@ from typing import Dict, Optional, Type
 from orchestrator.thinking.base import ThinkingStrategy
 from orchestrator.thinking.strategies.direct import DirectStrategy
 from orchestrator.thinking.strategies.cot import ChainOfThoughtStrategy
-from orchestrator.thinking.strategies.car import CARStrategy
 
 
 class ThinkingOrchestrator:
@@ -21,10 +20,9 @@ class ThinkingOrchestrator:
     Available strategies:
         - direct: No thinking, just generate answer (fastest)
         - cot: Chain-of-Thought with [THINK]/[/THINK] tags (+17% on reasoning)
-        - car: Certainty-based Adaptive Routing using perplexity (default)
 
     Example:
-        orchestrator = ThinkingOrchestrator(default_strategy="car")
+        orchestrator = ThinkingOrchestrator(default_strategy="direct")
         strategy = orchestrator.get_strategy("cot")
         result = await strategy.think(messages, model_call)
     """
@@ -33,10 +31,8 @@ class ThinkingOrchestrator:
     _default_strategies: Dict[str, Type[ThinkingStrategy]] = {
         "direct": DirectStrategy,
         "cot": ChainOfThoughtStrategy,
-        "car": CARStrategy,
         # Aliases
         "chain_of_thought": ChainOfThoughtStrategy,
-        "adaptive": CARStrategy,
     }
 
     def __init__(self, default_strategy: str = "direct"):

@@ -10,8 +10,8 @@ import { createConversation, createConversationRun, getConversation } from '@/ap
 import { useConversationRuns, useSelectedConversation, useStore } from '@/hooks/useStore';
 import { useSSE } from '@/hooks/useSSE';
 import { cn, formatRelativeTime } from '@/lib/utils';
-import { Brain, Eye, Loader2, Send, Zap } from 'lucide-react';
-import type { Run, Conversation, ThinkingMode } from '@/types';
+import { Eye, Loader2, Send } from 'lucide-react';
+import type { Run, Conversation, ReasoningEffort } from '@/types';
 
 function RunMessage({
   run,
@@ -24,6 +24,16 @@ function RunMessage({
   const finalAnswer = run.final_answer ? extractAnswer(run.final_answer) : '';
   const streamingText = useStore((s) => s.streamingText[run.run_id] || '');
   const streamingThinking = useStore((s) => s.streamingThinking[run.run_id] || '');
+
+  // Debug logging for streaming state
+  if (isRunning) {
+    console.log('[RunMessage] Streaming state:', {
+      run_id: run.run_id,
+      streamingText_len: streamingText.length,
+      streamingThinking_len: streamingThinking.length,
+      streamingThinking_preview: streamingThinking.slice(0, 50),
+    });
+  }
 
   // Use streaming text while running, final answer when complete
   const displayText = isRunning ? streamingText : finalAnswer;
@@ -112,7 +122,7 @@ export function ConversationView() {
   const runs = useConversationRuns(selectedConversationId);
   const [message, setMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [thinkingMode, setThinkingMode] = useState<ThinkingMode>('default');
+  const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>('medium');
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const activeRunId = useMemo(() => {
@@ -124,7 +134,9 @@ export function ConversationView() {
     return null;
   }, [runs]);
 
-  useSSE(activeRunId);
+  // Get subscribe function from useSSE - we'll call it manually on run creation
+  // to avoid race condition where events are emitted before React re-renders
+  const { subscribe } = useSSE(activeRunId);
 
   useEffect(() => {
     if (!selectedConversationId) return;
@@ -177,8 +189,13 @@ export function ConversationView() {
 
       const response = await createConversationRun(conversationId!, {
         message: message.trim(),
-        thinking_mode: thinkingMode,
+        reasoning_effort: reasoningEffort,
       });
+
+      // CRITICAL: Subscribe to SSE IMMEDIATELY after getting run_id
+      // This prevents race condition where events are emitted before frontend subscribes
+      // (Phase 1 thinking tokens were being lost while waiting for React re-render)
+      subscribe(response.run_id);
 
       const run: Run = {
         run_id: response.run_id,
@@ -227,15 +244,16 @@ export function ConversationView() {
               disabled={isSubmitting}
             />
             <div className="flex flex-col gap-2 self-end">
-              <Button
-                variant={thinkingMode === 'thinking' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => setThinkingMode(thinkingMode === 'default' ? 'thinking' : 'default')}
-                title={thinkingMode === 'thinking' ? 'Thinking mode (always reason)' : 'Default mode (auto-detect)'}
-                className="h-8 w-8 p-0"
+              <select
+                value={reasoningEffort}
+                onChange={(e) => setReasoningEffort(e.target.value as ReasoningEffort)}
+                className="h-8 px-2 text-xs border border-slate-200 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                title="Reasoning effort: how deeply the model thinks"
               >
-                {thinkingMode === 'thinking' ? <Brain className="h-4 w-4" /> : <Zap className="h-4 w-4" />}
-              </Button>
+                <option value="low">⚡ Low</option>
+                <option value="medium">🧠 Medium</option>
+                <option value="high">🔬 High</option>
+              </select>
               <Button
                 onClick={handleSubmit}
                 disabled={!message.trim() || isSubmitting}
@@ -245,7 +263,7 @@ export function ConversationView() {
             </div>
           </div>
           <p className="text-xs text-slate-500 mt-2">
-            {thinkingMode === 'thinking' ? '🧠 Thinking mode' : '⚡ Default mode'} · Cmd/Ctrl + Enter to send
+            {reasoningEffort === 'high' ? '🔬 Deep reasoning' : reasoningEffort === 'medium' ? '🧠 Balanced' : '⚡ Fast'} · Cmd/Ctrl + Enter to send
           </p>
         </div>
       </div>
@@ -284,15 +302,16 @@ export function ConversationView() {
             disabled={isSubmitting}
           />
           <div className="flex flex-col gap-2 self-end">
-            <Button
-              variant={thinkingMode === 'thinking' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setThinkingMode(thinkingMode === 'default' ? 'thinking' : 'default')}
-              title={thinkingMode === 'thinking' ? 'Thinking mode (always reason)' : 'Default mode (auto-detect)'}
-              className="h-8 w-8 p-0"
+            <select
+              value={reasoningEffort}
+              onChange={(e) => setReasoningEffort(e.target.value as ReasoningEffort)}
+              className="h-8 px-2 text-xs border border-slate-200 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              title="Reasoning effort: how deeply the model thinks"
             >
-              {thinkingMode === 'thinking' ? <Brain className="h-4 w-4" /> : <Zap className="h-4 w-4" />}
-            </Button>
+              <option value="low">⚡ Low</option>
+              <option value="medium">🧠 Medium</option>
+              <option value="high">🔬 High</option>
+            </select>
             <Button
               onClick={handleSubmit}
               disabled={!message.trim() || isSubmitting}
@@ -302,7 +321,7 @@ export function ConversationView() {
           </div>
         </div>
         <p className="text-xs text-slate-500 mt-2">
-          {thinkingMode === 'thinking' ? '🧠 Thinking mode' : '⚡ Default mode'} · Cmd/Ctrl + Enter to send
+          {reasoningEffort === 'high' ? '🔬 Deep reasoning' : reasoningEffort === 'medium' ? '🧠 Balanced' : '⚡ Fast'} · Cmd/Ctrl + Enter to send
         </p>
       </div>
     </div>

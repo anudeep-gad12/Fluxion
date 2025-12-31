@@ -85,7 +85,10 @@ export interface CreateConversationResponse {
 
 export type ThinkingMode = 'default' | 'thinking';
 
+export type ReasoningEffort = 'low' | 'medium' | 'high';
+
 export interface CreateConversationRunRequest {
   message: string;
   thinking_mode?: ThinkingMode;
+  reasoning_effort?: ReasoningEffort;
 }

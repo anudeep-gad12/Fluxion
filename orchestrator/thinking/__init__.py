@@ -8,7 +8,6 @@ Uses [THINK]/[/THINK] token format for thinking separation.
 Available strategies:
 - DirectStrategy: No explicit thinking, just generate answer directly
 - ChainOfThoughtStrategy: Step-by-step reasoning with [THINK]/[/THINK] tags
-- CARStrategy: Certainty-based Adaptive Routing using perplexity (default)
 """
 
 from orchestrator.thinking.base import (
@@ -21,7 +20,6 @@ from orchestrator.thinking.base import (
 from orchestrator.thinking.orchestrator import ThinkingOrchestrator
 from orchestrator.thinking.strategies.direct import DirectStrategy
 from orchestrator.thinking.strategies.cot import ChainOfThoughtStrategy
-from orchestrator.thinking.strategies.car import CARStrategy
 
 __all__ = [
     # Base classes
@@ -35,5 +33,4 @@ __all__ = [
     # Strategies
     "DirectStrategy",
     "ChainOfThoughtStrategy",
-    "CARStrategy",
 ]

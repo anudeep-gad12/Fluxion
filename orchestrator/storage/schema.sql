@@ -122,3 +122,46 @@ CREATE INDEX IF NOT EXISTS idx_eval_runs_created_at ON eval_runs(created_at);
 CREATE INDEX IF NOT EXISTS idx_eval_runs_benchmark ON eval_runs(benchmark_name);
 CREATE INDEX IF NOT EXISTS idx_eval_samples_eval_run_id ON eval_samples(eval_run_id);
 CREATE INDEX IF NOT EXISTS idx_eval_samples_run_id ON eval_samples(run_id);
+
+-- =============================================================================
+-- Trace Events (granular timeline for multi-step agent flows)
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS trace_events (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    seq INTEGER NOT NULL,               -- Atomic sequential ordering per run
+    created_at TEXT NOT NULL,
+
+    -- Event classification
+    event_type TEXT NOT NULL,           -- llm_request | llm_response | reasoning | tool_call | tool_response | error | retry
+    event_status TEXT NOT NULL,         -- pending | success | error | skipped
+    actor TEXT NOT NULL,                -- model | system | tool:<name>
+
+    -- Request/response tracking
+    endpoint TEXT,                      -- /v1/responses | /v1/chat/completions
+    attempt INTEGER DEFAULT 1,          -- Retry attempt number
+
+    -- Content
+    content_json TEXT NOT NULL,         -- Event payload (JSON)
+
+    -- Relationships
+    parent_event_id TEXT,               -- tool_response -> tool_call linking
+    step_number INTEGER,                -- Agent step (1, 2, 3...)
+
+    -- Telemetry
+    duration_ms INTEGER,
+    token_count INTEGER,
+    error_message TEXT,
+
+    -- Constraints
+    UNIQUE(run_id, seq),                -- Strict ordering guarantee
+    FOREIGN KEY(run_id) REFERENCES runs(run_id),
+    FOREIGN KEY(parent_event_id) REFERENCES trace_events(id)
+);
+
+-- Trace event indexes
+CREATE INDEX IF NOT EXISTS idx_trace_events_run_seq ON trace_events(run_id, seq);
+CREATE INDEX IF NOT EXISTS idx_trace_events_type ON trace_events(event_type);
+CREATE INDEX IF NOT EXISTS idx_trace_events_step ON trace_events(run_id, step_number);
+CREATE INDEX IF NOT EXISTS idx_trace_events_parent ON trace_events(parent_event_id);

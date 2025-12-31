@@ -34,6 +34,8 @@ class RunResponse(BaseModel):
     final_report: Optional[str] = None
     error_code: Optional[str] = None
     error_detail: Optional[str] = None
+    # Thinking data for CoT mode
+    thinking_summary: Optional[str] = None
 
 
 class RunListResponse(BaseModel):
@@ -83,7 +85,8 @@ class CreateConversationResponse(BaseModel):
 class CreateConversationRunRequest(BaseModel):
     """Request to add a run to a conversation."""
     message: str
-    thinking_mode: str = "default"  # "default" (CAR) or "thinking" (CoT)
+    thinking_mode: str = "default"  # "default" or "thinking" (maps to strategy via config)
+    reasoning_effort: Optional[str] = None  # "low", "medium", "high" for native reasoning models
 
 
 class ConversationDetailResponse(BaseModel):
@@ -96,6 +99,74 @@ class UpdateConversationRequest(BaseModel):
     """Request to update a conversation."""
     title: Optional[str] = None
     status: Optional[str] = None
+
+
+# ==================== Tool Use Schemas ====================
+
+class ToolFunction(BaseModel):
+    """Function definition for a tool call."""
+    name: str
+    arguments: str  # JSON-encoded arguments
+
+
+class ToolCall(BaseModel):
+    """A tool call from the model.
+
+    Represents a function call the model wants to make.
+    Compatible with OpenAI's tool_calls format.
+    """
+    id: str
+    type: str = "function"
+    function: ToolFunction
+
+
+class ToolResponse(BaseModel):
+    """Response from a tool execution.
+
+    Used to send tool results back to the model.
+    """
+    tool_call_id: str
+    role: str = "tool"
+    content: str  # JSON-encoded result or error message
+
+
+class ToolDefinition(BaseModel):
+    """Definition of a tool available to the model.
+
+    Compatible with OpenAI's tools format.
+    """
+    type: str = "function"
+    function: dict[str, Any]  # {name, description, parameters}
+
+
+# ==================== Trace Event Schemas ====================
+
+class TraceEventResponse(BaseModel):
+    """A trace event in a run timeline."""
+    id: str
+    run_id: str
+    seq: int
+    created_at: str
+    event_type: str  # llm_request | llm_response | reasoning | tool_call | tool_response | error | retry
+    event_status: str  # pending | success | error | skipped
+    actor: str  # model | system | tool:<name>
+    endpoint: Optional[str] = None
+    attempt: int = 1
+    content: dict[str, Any] = Field(default_factory=dict)
+    parent_event_id: Optional[str] = None
+    step_number: Optional[int] = None
+    duration_ms: Optional[int] = None
+    token_count: Optional[int] = None
+    error_message: Optional[str] = None
+
+
+class RunTimelineResponse(BaseModel):
+    """Complete timeline for a run with all events."""
+    run_id: str
+    status: str
+    created_at: str
+    events: list[TraceEventResponse]
+    total_events: int
 
 
 # ==================== Helpers ====================
@@ -113,4 +184,5 @@ def trace_to_run(trace: dict) -> RunResponse:
         conversation_id=trace.get("conversation_id"),
         final_answer=trace.get("final_answer"),
         error_detail=trace.get("error_message"),
+        thinking_summary=trace.get("thinking_summary"),
     )

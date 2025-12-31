@@ -1,6 +1,7 @@
-"""Repository for runs and model calls."""
+"""Repository for runs, model calls, and trace events."""
 
 import json
+import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional, List
 from orchestrator.storage.db import Database
@@ -148,7 +149,6 @@ class TraceRepo:
     ) -> None:
         """Add a model call record."""
         now = datetime.now(timezone.utc).isoformat()
-        import uuid
         id = str(uuid.uuid4())
         
         # Ensure metadata is valid JSON
@@ -201,7 +201,6 @@ class TraceRepo:
         from orchestrator.thinking.base import ThinkingStep
 
         now = datetime.now(timezone.utc).isoformat()
-        import uuid
         id = str(uuid.uuid4())
 
         # Build metadata with both internal and UI sections
@@ -295,4 +294,194 @@ class TraceRepo:
             "strategy": run.get("model_config", {}).get("thinking", {}).get("default_strategy", "unknown"),
             "steps": thinking_steps,
             "detail_level": detail,
+        }
+
+    # --- Trace Events (granular timeline for multi-step agent flows) ---
+
+    async def add_trace_event(
+        self,
+        run_id: str,
+        event_type: str,
+        content: dict,
+        actor: str = "system",
+        event_status: str = "success",
+        endpoint: Optional[str] = None,
+        attempt: int = 1,
+        parent_event_id: Optional[str] = None,
+        step_number: Optional[int] = None,
+        duration_ms: Optional[int] = None,
+        token_count: Optional[int] = None,
+        error_message: Optional[str] = None,
+    ) -> str:
+        """Add trace event with atomic seq allocation.
+
+        Uses BEGIN IMMEDIATE to ensure sequential ordering even under concurrent access.
+
+        Args:
+            run_id: The run ID to associate with.
+            event_type: Type of event (llm_request, llm_response, reasoning, tool_call, tool_response, error, retry).
+            content: Event payload as dict (will be JSON serialized).
+            actor: Who created the event (model, system, tool:<name>).
+            event_status: Status (pending, success, error, skipped).
+            endpoint: API endpoint used (/v1/responses or /v1/chat/completions).
+            attempt: Retry attempt number.
+            parent_event_id: Parent event ID for linking (e.g., tool_response -> tool_call).
+            step_number: Agent step number (1, 2, 3...).
+            duration_ms: Duration of the operation.
+            token_count: Number of tokens used.
+            error_message: Error message if event_status is "error".
+
+        Returns:
+            The created event ID.
+        """
+        event_id = str(uuid.uuid4())
+        now = datetime.now(timezone.utc).isoformat()
+        content_json = json.dumps(content, ensure_ascii=False)
+
+        # Use BEGIN IMMEDIATE for atomic seq allocation
+        # This acquires a write lock immediately, ensuring sequential ordering
+        await self.db.conn.execute("BEGIN IMMEDIATE")
+        try:
+            # Get next seq atomically
+            async with self.db.conn.execute(
+                "SELECT COALESCE(MAX(seq), 0) + 1 FROM trace_events WHERE run_id = ?",
+                (run_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                seq = row[0]
+
+            # Insert with allocated seq
+            await self.db.conn.execute(
+                """
+                INSERT INTO trace_events (
+                    id, run_id, seq, created_at,
+                    event_type, event_status, actor,
+                    endpoint, attempt, content_json,
+                    parent_event_id, step_number,
+                    duration_ms, token_count, error_message
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    event_id, run_id, seq, now,
+                    event_type, event_status, actor,
+                    endpoint, attempt, content_json,
+                    parent_event_id, step_number,
+                    duration_ms, token_count, error_message
+                ),
+            )
+
+            await self.db.conn.execute("COMMIT")
+        except Exception:
+            await self.db.conn.execute("ROLLBACK")
+            raise
+
+        return event_id
+
+    async def update_trace_event(
+        self,
+        event_id: str,
+        event_status: Optional[str] = None,
+        duration_ms: Optional[int] = None,
+        token_count: Optional[int] = None,
+        error_message: Optional[str] = None,
+        content: Optional[dict] = None,
+    ) -> None:
+        """Update an existing trace event.
+
+        Useful for updating pending events when operation completes.
+        """
+        updates = []
+        values = []
+
+        if event_status is not None:
+            updates.append("event_status = ?")
+            values.append(event_status)
+        if duration_ms is not None:
+            updates.append("duration_ms = ?")
+            values.append(duration_ms)
+        if token_count is not None:
+            updates.append("token_count = ?")
+            values.append(token_count)
+        if error_message is not None:
+            updates.append("error_message = ?")
+            values.append(error_message)
+        if content is not None:
+            updates.append("content_json = ?")
+            values.append(json.dumps(content, ensure_ascii=False))
+
+        if updates:
+            values.append(event_id)
+            await self.db.conn.execute(
+                f"UPDATE trace_events SET {', '.join(updates)} WHERE id = ?",
+                values,
+            )
+            await self.db.conn.commit()
+
+    async def get_trace_events(
+        self,
+        run_id: str,
+        event_type: Optional[str] = None,
+        step_number: Optional[int] = None,
+    ) -> List[dict[str, Any]]:
+        """Get trace events for a run in sequential order.
+
+        Args:
+            run_id: The run ID.
+            event_type: Optional filter by event type.
+            step_number: Optional filter by step number.
+
+        Returns:
+            List of trace events in seq order.
+        """
+        query = "SELECT * FROM trace_events WHERE run_id = ?"
+        params: List[Any] = [run_id]
+
+        if event_type:
+            query += " AND event_type = ?"
+            params.append(event_type)
+        if step_number is not None:
+            query += " AND step_number = ?"
+            params.append(step_number)
+
+        query += " ORDER BY seq ASC"
+
+        async with self.db.conn.execute(query, params) as cursor:
+            rows = await cursor.fetchall()
+            events = []
+            for row in rows:
+                event = dict(row)
+                event["content"] = json.loads(event.pop("content_json", "{}"))
+                events.append(event)
+            return events
+
+    async def get_run_timeline(
+        self,
+        run_id: str,
+    ) -> dict[str, Any]:
+        """Get complete timeline for a run with all events.
+
+        Returns structured data suitable for UI display or debugging.
+        """
+        run = await self.get_run(run_id)
+        if not run:
+            return {"error": "Run not found"}
+
+        events = await self.get_trace_events(run_id)
+
+        # Group events by step_number if available
+        steps: dict[int, List[dict]] = {}
+        for event in events:
+            step = event.get("step_number") or 0
+            if step not in steps:
+                steps[step] = []
+            steps[step].append(event)
+
+        return {
+            "run_id": run_id,
+            "status": run.get("status"),
+            "created_at": run.get("created_at"),
+            "events": events,
+            "events_by_step": steps,
+            "total_events": len(events),
         }

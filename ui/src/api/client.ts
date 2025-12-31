@@ -65,6 +65,37 @@ export async function getRunEvents(runId: string, sinceSeq?: number): Promise<{ 
   return withRetry(() => fetchJson(`${API_BASE}/runs/${runId}/events${query}`));
 }
 
+// Trace Events (timeline)
+export interface TraceEvent {
+  id: string;
+  run_id: string;
+  seq: number;
+  created_at: string;
+  event_type: string;
+  event_status: string;
+  actor: string;
+  endpoint?: string;
+  attempt: number;
+  content: Record<string, unknown>;
+  parent_event_id?: string;
+  step_number?: number;
+  duration_ms?: number;
+  token_count?: number;
+  error_message?: string;
+}
+
+export interface RunTimeline {
+  run_id: string;
+  status: string;
+  created_at: string;
+  events: TraceEvent[];
+  total_events: number;
+}
+
+export async function getRunTimeline(runId: string): Promise<RunTimeline> {
+  return withRetry(() => fetchJson(`${API_BASE}/runs/${runId}/timeline`));
+}
+
 export async function getRunReport(runId: string): Promise<{ run_id: string; report: string; timeline: unknown[] }> {
   return withRetry(() => fetchJson(`${API_BASE}/runs/${runId}/report`));
 }

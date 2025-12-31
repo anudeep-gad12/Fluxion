@@ -5,6 +5,7 @@ must implement, plus the data classes for thinking results and stream parsing.
 """
 
 import re
+import sys
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Callable, List, Optional, Tuple
@@ -16,12 +17,14 @@ def strip_thinking_tags(content: str) -> str:
     This function handles the case where the model outputs:
     - [THINK]...thinking...[/THINK]answer -> returns "answer"
     - [THINK]...thinking... (no closing tag) -> returns "" (still thinking, no answer yet)
+    - Harmony format: ...thinking...<|channel|>final<|message|>answer -> returns "answer"
     - No tags at all -> returns original content
 
     Handles:
     - Case variations: [THINK], [think], [Think]
     - Whitespace around tags: [ THINK ], [THINK ]
     - Legacy <think>...</think> format
+    - Harmony format (gpt-oss) with <|channel|>final<|message|> marker
     - Unclosed thinking blocks (returns empty string)
 
     Args:
@@ -31,6 +34,18 @@ def strip_thinking_tags(content: str) -> str:
         Clean answer content only, or empty string if no answer found.
     """
     if not content:
+        return ""
+
+    # Check for Harmony format first (gpt-oss models)
+    # <|channel|>final<|message|> marks start of final answer
+    harmony_marker = "<|channel|>final<|message|>"
+    if harmony_marker in content:
+        parts = content.split(harmony_marker, 1)
+        if len(parts) > 1:
+            answer = parts[1].strip()
+            # Strip any remaining Harmony tokens from answer
+            answer = re.sub(r'<\|[^|]*\|>', '', answer)
+            return answer.strip()
         return ""
 
     # Check for [THINK] tag (case-insensitive)
@@ -101,20 +116,43 @@ class StreamParser:
                 on_answer(answer_token)
     """
 
-    # Tag constants for Mistral native format (uppercase for comparison)
-    START_TAG = "[THINK]"
-    END_TAG = "[/THINK]"
-    BUFFER_SIZE = 10  # Keep chars for partial tag detection
-    DIRECT_THRESHOLD = 50  # After this many chars without [THINK], treat as direct answer
+    # Tag constants - support multiple formats for maximum compatibility
+    # Mistral API reasoning models use <think> natively
+    # Ollama-served models often use [THINK] when prompted
+    # gpt-oss models use Harmony format with channels (analysis=thinking, final=answer)
+    START_TAGS = ["<think>", "[think]"]  # Check both formats
+    END_TAGS = ["</think>", "[/think]"]  # Check both formats
+    # Native reasoning marker - used when reasoning comes from API field (e.g., gpt-oss via LM Studio)
+    NATIVE_REASONING_MARKER = "[THINK_NATIVE]"
+    # Harmony format: <|channel|>final<|message|> marks start of final answer
+    # Everything before this (in analysis channel) is reasoning
+    HARMONY_ANSWER_MARKER = "<|channel|>final<|message|>"
+    HARMONY_END_TAG = "<|end|>"
+    BUFFER_SIZE = 50  # Increased for longer Harmony tokens
+    DIRECT_THRESHOLD = 50  # After this many chars without think tag, treat as direct answer
 
     def __init__(self):
         self.buffer = ""
         self.in_thinking = False
-        self.after_thinking = False  # Everything after [/THINK] is answer
+        self.after_thinking = False  # Everything after closing think tag is answer
         self.is_direct = False  # No thinking tags detected, treat as direct answer
+        self.is_harmony = False  # gpt-oss Harmony format detected
         self.thinking_content = ""
         self.answer_content = ""
         self.total_received = 0  # Track total chars received
+        self.detected_end_tag = None  # Remember which end tag format to look for
+
+    def _find_any_tag(self, text: str, tags: list) -> Tuple[int, str]:
+        """Find any of the tags in text (case-insensitive).
+
+        Returns (position, matched_tag) or (-1, None) if not found.
+        """
+        text_upper = text.upper()
+        for tag in tags:
+            pos = text_upper.find(tag.upper())
+            if pos >= 0:
+                return pos, tag
+        return -1, None
 
     def _find_tag(self, text: str, tag: str) -> int:
         """Find tag position in text (case-insensitive).
@@ -133,7 +171,20 @@ class StreamParser:
             return text, ""
         return text[:pos], text[pos + len(tag):]
 
-    def feed(self, token: str) -> Tuple[str, str]:
+    def _strip_harmony_tokens(self, text: str) -> str:
+        """Strip Harmony format tokens from text.
+
+        Removes tokens like <|end|>, <|start|>, <|channel|>analysis, etc.
+        keeping only the actual content.
+        """
+        import re
+        # Remove all <|...|> style tokens
+        cleaned = re.sub(r'<\|[^|]*\|>', '', text)
+        # Remove channel identifiers that may appear without proper tokens
+        cleaned = re.sub(r'\b(analysis|commentary|final)\b', '', cleaned, flags=re.IGNORECASE)
+        return cleaned.strip()
+
+    def feed(self, token: str, debug: bool = False) -> Tuple[str, str]:
         """Process a token and return (thinking_token, answer_token).
 
         One of the returned values will be empty string.
@@ -143,8 +194,54 @@ class StreamParser:
         thinking_out = ""
         answer_out = ""
 
+        if debug:
+            sys.stderr.write(f"[StreamParser] feed: token={repr(token[:20] if len(token) > 20 else token)}, in_thinking={self.in_thinking}, after_thinking={self.after_thinking}, is_direct={self.is_direct}, buffer_len={len(self.buffer)}\n")
+            sys.stderr.flush()
+
         # Check for tag transitions
         while True:
+            # Check for native reasoning marker first (gpt-oss via LM Studio API field)
+            # This marker is added by chat_engine when reasoning comes from a separate API field
+            native_pos = self.buffer.find(self.NATIVE_REASONING_MARKER)
+            if native_pos >= 0:
+                # Any content before the marker (shouldn't be any) goes to answer
+                if native_pos > 0:
+                    answer_out += self.buffer[:native_pos]
+                    self.answer_content += self.buffer[:native_pos]
+                # Content after the marker is reasoning - emit directly
+                reasoning_content = self.buffer[native_pos + len(self.NATIVE_REASONING_MARKER):]
+                if reasoning_content:
+                    thinking_out += reasoning_content
+                    self.thinking_content += reasoning_content
+                self.buffer = ""
+                self.in_thinking = True  # Mark that we're receiving thinking content
+                if debug:
+                    sys.stderr.write(f"[StreamParser] NATIVE REASONING: {len(reasoning_content)} chars\n")
+                    sys.stderr.flush()
+                break
+
+            # Check for Harmony format first (gpt-oss models)
+            # Look for <|channel|>final<|message|> which marks start of final answer
+            harmony_pos = self.buffer.find(self.HARMONY_ANSWER_MARKER)
+            if harmony_pos >= 0:
+                self.is_harmony = True
+                # Everything before the marker is thinking (analysis channel)
+                thinking_content = self.buffer[:harmony_pos]
+                # Strip any leading Harmony tokens from thinking content
+                thinking_content = self._strip_harmony_tokens(thinking_content)
+                if thinking_content:
+                    thinking_out += thinking_content
+                    self.thinking_content += thinking_content
+                # Everything after the marker is the final answer
+                answer_start = harmony_pos + len(self.HARMONY_ANSWER_MARKER)
+                self.buffer = self.buffer[answer_start:]
+                self.in_thinking = False
+                self.after_thinking = True
+                if debug:
+                    sys.stderr.write(f"[StreamParser] HARMONY FORMAT: Found final channel marker\n")
+                    sys.stderr.flush()
+                continue
+
             if self.is_direct:
                 # Direct answer mode - emit everything as answer
                 answer_out += self.buffer
@@ -153,42 +250,70 @@ class StreamParser:
                 break
 
             if not self.in_thinking and not self.after_thinking:
-                # Looking for [THINK] start tag (case-insensitive)
-                if self._find_tag(self.buffer, self.START_TAG) >= 0:
+                # Looking for any start tag (case-insensitive) - supports <think> and [THINK]
+                pos, matched_tag = self._find_any_tag(self.buffer, self.START_TAGS)
+                if pos >= 0:
                     self.in_thinking = True
-                    _, self.buffer = self._split_at_tag(self.buffer, self.START_TAG)
+                    # Remember which end tag format to look for based on start tag
+                    if matched_tag.startswith("<"):
+                        self.detected_end_tag = "</think>"
+                    else:
+                        self.detected_end_tag = "[/think]"
+                    if debug:
+                        sys.stderr.write(f"[StreamParser] THINKING MODE: Found {matched_tag} tag\n")
+                        sys.stderr.flush()
+                    # Any content BEFORE the [THINK] tag goes to answer (preamble)
+                    preamble = self.buffer[:pos].strip()
+                    if preamble:
+                        answer_out += preamble
+                        self.answer_content += preamble
+                    _, self.buffer = self._split_at_tag(self.buffer, matched_tag)
                     continue
                 elif self.total_received > self.DIRECT_THRESHOLD:
-                    # No [THINK] tag after threshold, treat as direct answer
+                    # No think tag after threshold, treat as direct answer
                     self.is_direct = True
+                    if debug:
+                        sys.stderr.write(f"[StreamParser] DIRECT MODE: No think tag found after {self.total_received} chars\n")
+                        sys.stderr.flush()
                     answer_out += self.buffer
                     self.answer_content += self.buffer
                     self.buffer = ""
                     break
                 else:
-                    # Still looking for tag, keep buffer for partial tag detection
-                    if len(self.buffer) > self.BUFFER_SIZE:
-                        # Emit older content as answer (likely direct)
-                        safe_content = self.buffer[:-self.BUFFER_SIZE]
-                        self.buffer = self.buffer[-self.BUFFER_SIZE:]
-                        answer_out += safe_content
-                        self.answer_content += safe_content
+                    # Still looking for tag - DO NOT emit anything yet
+                    # Buffer content until we've made a decision (found tag or passed threshold)
+                    # This prevents premature emission that causes UI confusion
                     break
 
             elif self.in_thinking:
-                # Looking for [/THINK] end tag (case-insensitive)
-                if self._find_tag(self.buffer, self.END_TAG) >= 0:
-                    content, self.buffer = self._split_at_tag(self.buffer, self.END_TAG)
+                # Looking for end tag (case-insensitive) - try detected format first, then any
+                end_tag = self.detected_end_tag or "</think>"
+                # Try detected end tag first
+                pos = self._find_tag(self.buffer, end_tag)
+                if pos < 0:
+                    # Try alternative end tag format
+                    for alt_tag in self.END_TAGS:
+                        pos = self._find_tag(self.buffer, alt_tag)
+                        if pos >= 0:
+                            end_tag = alt_tag
+                            break
+                if pos >= 0:
+                    content, self.buffer = self._split_at_tag(self.buffer, end_tag)
                     thinking_out += content
                     self.thinking_content += content
                     self.in_thinking = False
                     self.after_thinking = True  # Now in answer section
+                    if debug:
+                        sys.stderr.write(f"[StreamParser] END TAG FOUND: transitioning to answer mode\n")
+                        sys.stderr.flush()
                     continue
                 else:
-                    # Output everything except potential partial tag
-                    if len(self.buffer) > self.BUFFER_SIZE:
-                        safe_content = self.buffer[:-self.BUFFER_SIZE]
-                        self.buffer = self.buffer[-self.BUFFER_SIZE:]
+                    # We're IN thinking mode - emit content more aggressively
+                    # Only hold back enough for potential end tag (9 chars for "[/think]")
+                    END_TAG_MAX_LEN = 9
+                    if len(self.buffer) > END_TAG_MAX_LEN:
+                        safe_content = self.buffer[:-END_TAG_MAX_LEN]
+                        self.buffer = self.buffer[-END_TAG_MAX_LEN:]
                         thinking_out += safe_content
                         self.thinking_content += safe_content
                     break
@@ -199,6 +324,10 @@ class StreamParser:
                 self.answer_content += self.buffer
                 self.buffer = ""
                 break
+
+        if debug and (thinking_out or answer_out):
+            sys.stderr.write(f"[StreamParser] emit: thinking={repr(thinking_out[:50] if len(thinking_out) > 50 else thinking_out)}, answer={repr(answer_out[:50] if len(answer_out) > 50 else answer_out)}\n")
+            sys.stderr.flush()
 
         return thinking_out, answer_out
 
@@ -231,6 +360,7 @@ class StreamParser:
         self.in_thinking = False
         self.after_thinking = False
         self.is_direct = False
+        self.is_harmony = False
         self.thinking_content = ""
         self.answer_content = ""
         self.total_received = 0
