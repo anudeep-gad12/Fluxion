@@ -154,12 +154,29 @@ class TraceRepo:
         limit: int = 50,
         offset: int = 0,
     ) -> List[dict[str, Any]]:
-        """List runs for a conversation (for building message history).
+        """List runs for a conversation in chronological order.
 
         This is the canonical method for loading conversation history.
-        Use this instead of list_runs() when you need runs for a specific conversation.
+        Uses ASC ordering so messages display oldest-first (top to bottom).
+        Use list_runs() for paginated listings where newest-first is desired.
         """
-        return await self.list_runs(conversation_id=conversation_id, limit=limit, offset=offset)
+        query = """
+            SELECT * FROM runs
+            WHERE conversation_id = ?
+            ORDER BY created_at ASC
+            LIMIT ? OFFSET ?
+        """
+        params = [conversation_id, limit, offset]
+
+        async with self.db.conn.execute(query, params) as cursor:
+            rows = await cursor.fetchall()
+            runs = []
+            for row in rows:
+                r = dict(row)
+                r["model_config"] = json.loads(r.pop("model_config_snapshot", "{}"))
+                r["usage"] = json.loads(r.pop("usage_stats", "{}"))
+                runs.append(r)
+            return runs
 
     async def get_latest_response_id(
         self,
