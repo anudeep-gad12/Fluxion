@@ -277,6 +277,7 @@ class OpenAICompatProvider:
         tool_calls: List[Dict[str, Any]] = []
         finish_reason = "stop"
         usage: Dict[str, int] = {}
+        response_id: Optional[str] = None  # Capture response ID for stateful mode
 
         try:
             async with self._client.stream("POST", url, json=payload) as response:
@@ -302,6 +303,18 @@ class OpenAICompatProvider:
                         data = json.loads(data_str)
                     except json.JSONDecodeError:
                         continue
+
+                    # Capture response_id from streaming events (responses API)
+                    # OpenAI returns "id" in response.created or response.completed events
+                    # LM Studio may return it in the initial chunk
+                    if "/responses" in url and response_id is None:
+                        # Check various places where response_id might appear
+                        if "id" in data:
+                            response_id = data["id"]
+                        elif data.get("type") == "response.created":
+                            response_id = data.get("response", {}).get("id")
+                        elif data.get("type") == "response.completed":
+                            response_id = data.get("response", {}).get("id")
 
                     # Parse based on endpoint type
                     if "/responses" in url:
@@ -342,6 +355,7 @@ class OpenAICompatProvider:
             text="".join(full_content),
             tool_calls=tool_calls if tool_calls else None,
             reasoning="".join(full_reasoning) if full_reasoning else None,
+            response_id=response_id,  # Include captured response ID
             raw={},
             endpoint_used=url,
             usage=usage,

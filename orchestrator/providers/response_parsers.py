@@ -67,6 +67,7 @@ def parse_responses_result(raw: Dict[str, Any], endpoint: str) -> LLMResponse:
         text="".join(text_parts),
         tool_calls=tool_calls if tool_calls else None,
         reasoning=reasoning,
+        response_id=raw.get("id"),  # Extract response ID for stateful mode
         raw=raw,
         endpoint_used=endpoint,
         usage=raw.get("usage", {}),

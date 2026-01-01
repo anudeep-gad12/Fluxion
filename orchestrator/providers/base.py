@@ -43,6 +43,7 @@ class LLMResponse:
     text: str
     tool_calls: Optional[List[Dict[str, Any]]] = None
     reasoning: Optional[str] = None
+    response_id: Optional[str] = None  # ID from /v1/responses for stateful mode
     raw: Dict[str, Any] = field(default_factory=dict)
     endpoint_used: str = ""  # "/v1/responses" or "/v1/chat/completions"
     usage: Dict[str, int] = field(default_factory=dict)
