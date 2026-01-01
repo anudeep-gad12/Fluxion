@@ -1,6 +1,7 @@
 // Main application component with collapsible sidebar
 
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
+import { Routes, Route, Navigate, useParams } from 'react-router-dom';
 import { ConversationList } from '@/components/ConversationList';
 import { ConversationView } from '@/components/ConversationView';
 import { DetailPanel } from '@/components/DetailPanel';
@@ -9,7 +10,39 @@ import { cn } from '@/lib/utils';
 import { PanelLeftClose, PanelLeft, GripVertical } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
-function App() {
+// Component to sync URL params with store
+function ConversationSync() {
+  const { conversationId } = useParams<{ conversationId: string }>();
+  const selectedConversationId = useStore((s) => s.selectedConversationId);
+  const selectConversation = useStore((s) => s.selectConversation);
+
+  useEffect(() => {
+    // Sync URL → store when URL changes
+    if (conversationId && conversationId !== selectedConversationId) {
+      selectConversation(conversationId);
+    } else if (!conversationId && selectedConversationId) {
+      // URL has no conversation, but store does - navigate to it
+      // This is handled by the parent, just clear the store selection
+    }
+  }, [conversationId, selectedConversationId, selectConversation]);
+
+  return <ConversationView />;
+}
+
+// Component for /conversations route - shows "new conversation" empty state
+// This clears selection so user can type first message (lazy creation)
+function NewConversationView() {
+  const selectConversation = useStore((s) => s.selectConversation);
+
+  useEffect(() => {
+    // Clear any selected conversation when on this route
+    selectConversation(null);
+  }, [selectConversation]);
+
+  return <ConversationView />;
+}
+
+function AppLayout() {
   const detailPanelOpen = useStore((s) => s.detailPanelOpen);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(320); // default 320px
@@ -85,14 +118,18 @@ function App() {
         </div>
       )}
 
-      {/* Main content - Chat */}
+      {/* Main content - Chat with Routes */}
       <main
         className={cn(
           "flex-1 overflow-hidden transition-all duration-300",
           detailPanelOpen && "lg:mr-[400px]"
         )}
       >
-        <ConversationView />
+        <Routes>
+          <Route path="/" element={<Navigate to="/conversations" replace />} />
+          <Route path="/conversations" element={<NewConversationView />} />
+          <Route path="/conversations/:conversationId" element={<ConversationSync />} />
+        </Routes>
       </main>
 
       {/* Right Detail Panel - Trace JSON */}
@@ -101,4 +138,9 @@ function App() {
   );
 }
 
+function App() {
+  return <AppLayout />;
+}
+
 export default App;
+

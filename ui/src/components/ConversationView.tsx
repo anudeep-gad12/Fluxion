@@ -2,15 +2,16 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { AnswerMarkdown, extractAnswer } from '@/components/AnswerMarkdown';
 import { ThinkingPanel } from '@/components/ThinkingPanel';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { createConversation, createConversationRun, getConversation } from '@/api/client';
+import { createConversation, createConversationRun, getConversation, abortRun } from '@/api/client';
 import { useConversationRuns, useSelectedConversation, useStore } from '@/hooks/useStore';
 import { useSSE } from '@/hooks/useSSE';
 import { cn, formatRelativeTime } from '@/lib/utils';
-import { Eye, Loader2, Send } from 'lucide-react';
+import { Eye, Loader2, Send, Square } from 'lucide-react';
 import type { Run, Conversation, ReasoningEffort } from '@/types';
 
 function RunMessage({
@@ -109,12 +110,13 @@ function RunMessage({
 }
 
 export function ConversationView() {
+  const navigate = useNavigate();
   const selectedConversationId = useStore((s) => s.selectedConversationId);
   const setRuns = useStore((s) => s.setRuns);
   const updateConversation = useStore((s) => s.updateConversation);
   const addConversation = useStore((s) => s.addConversation);
-  const selectConversation = useStore((s) => s.selectConversation);
   const addRun = useStore((s) => s.addRun);
+  const removeRun = useStore((s) => s.removeRun);
   const setEvents = useStore((s) => s.setEvents);
   const selectRun = useStore((s) => s.selectRun);
   const setDetailPanelOpen = useStore((s) => s.setDetailPanelOpen);
@@ -125,6 +127,10 @@ export function ConversationView() {
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>('medium');
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // Stop generation state
+  const [pendingMessage, setPendingMessage] = useState('');
+  const [pendingRunId, setPendingRunId] = useState<string | null>(null);
+
   const activeRunId = useMemo(() => {
     for (let i = runs.length - 1; i >= 0; i -= 1) {
       if (runs[i].status === 'running') {
@@ -134,12 +140,21 @@ export function ConversationView() {
     return null;
   }, [runs]);
 
-  // Get subscribe function from useSSE - we'll call it manually on run creation
-  // to avoid race condition where events are emitted before React re-renders
-  const { subscribe } = useSSE(activeRunId);
+  // Get subscribe/unsubscribe functions from useSSE
+  const { subscribe, unsubscribe } = useSSE(activeRunId);
 
   useEffect(() => {
     if (!selectedConversationId) return;
+
+    // Check if conversation still exists (use getState to avoid dependency loop)
+    const currentConversations = useStore.getState().conversations;
+    const exists = currentConversations.some(
+      (c) => c.conversation_id === selectedConversationId
+    );
+    if (!exists) {
+      // Conversation was deleted, don't try to load it
+      return;
+    }
 
     async function loadConversation() {
       try {
@@ -167,7 +182,10 @@ export function ConversationView() {
   const handleSubmit = async () => {
     if (!message.trim() || isSubmitting) return;
 
+    const messageToSend = message.trim();
     setIsSubmitting(true);
+    setPendingMessage(messageToSend);
+    setMessage('');
     let conversationId = selectedConversationId;
 
     try {
@@ -177,24 +195,26 @@ export function ConversationView() {
         const newConversation: Conversation = {
           conversation_id: conversationId,
           created_at: new Date().toISOString(),
-          title: message.trim().slice(0, 64),
+          title: messageToSend.slice(0, 64),
           summary: '',
           status: 'active',
           metadata: {},
         };
         addConversation(newConversation);
-        selectConversation(conversationId);
         setRuns(conversationId, []);
+        // Navigate to the new conversation URL
+        navigate(`/conversations/${conversationId}`);
       }
 
       const response = await createConversationRun(conversationId!, {
-        message: message.trim(),
+        message: messageToSend,
         reasoning_effort: reasoningEffort,
       });
 
+      setPendingRunId(response.run_id);
+
       // CRITICAL: Subscribe to SSE IMMEDIATELY after getting run_id
       // This prevents race condition where events are emitted before frontend subscribes
-      // (Phase 1 thinking tokens were being lost while waiting for React re-render)
       subscribe(response.run_id);
 
       const run: Run = {
@@ -203,18 +223,60 @@ export function ConversationView() {
         status: 'running',
         mode: 'system',
         profile: 'lmstudio',
-        prompt: message.trim(),
-        user_message: message.trim(),
+        prompt: messageToSend,
+        user_message: messageToSend,
         conversation_id: conversationId!,
         conversation_summary: conversation?.summary || '',
       };
 
       addRun(conversationId!, run);
       setEvents(response.run_id, []);
-      setMessage('');
     } catch (error) {
       console.error('Failed to create run:', error);
-    } finally {
+      // Restore message on error
+      setMessage(messageToSend);
+      setPendingMessage('');
+      setPendingRunId(null);
+      setIsSubmitting(false);
+      return;
+    }
+  };
+
+  // Handle stream completion - clear pending state
+  useEffect(() => {
+    if (pendingRunId && activeRunId !== pendingRunId) {
+      // The run we started is no longer active (completed or failed)
+      setPendingMessage('');
+      setPendingRunId(null);
+      setIsSubmitting(false);
+    }
+  }, [activeRunId, pendingRunId]);
+
+  const handleStop = async () => {
+    if (!pendingRunId) return;
+
+    try {
+      // 1. Unsubscribe from the stream
+      unsubscribe();
+
+      // 2. Call backend abort endpoint
+      await abortRun(pendingRunId);
+
+      // 3. Remove the optimistic run from store
+      removeRun(pendingRunId);
+
+      // 4. Restore user message
+      setMessage(pendingMessage);
+
+      // 5. Reset state
+      setPendingRunId(null);
+      setPendingMessage('');
+      setIsSubmitting(false);
+    } catch (error) {
+      console.error('Failed to abort run:', error);
+      // Even if abort fails, clean up UI state
+      setPendingRunId(null);
+      setPendingMessage('');
       setIsSubmitting(false);
     }
   };
@@ -225,6 +287,9 @@ export function ConversationView() {
       handleSubmit();
     }
   };
+
+  // Determine if we should show Stop button
+  const isGenerating = isSubmitting && pendingRunId;
 
   if (!conversation && runs.length === 0) {
     return (
@@ -254,12 +319,18 @@ export function ConversationView() {
                 <option value="medium">🧠 Medium</option>
                 <option value="high">🔬 High</option>
               </select>
-              <Button
-                onClick={handleSubmit}
-                disabled={!message.trim() || isSubmitting}
-              >
-                {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-              </Button>
+              {isGenerating ? (
+                <Button onClick={handleStop} variant="destructive">
+                  <Square className="h-4 w-4 fill-current" />
+                </Button>
+              ) : (
+                <Button
+                  onClick={handleSubmit}
+                  disabled={!message.trim() || isSubmitting}
+                >
+                  {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                </Button>
+              )}
             </div>
           </div>
           <p className="text-xs text-slate-500 mt-2">
@@ -312,12 +383,18 @@ export function ConversationView() {
               <option value="medium">🧠 Medium</option>
               <option value="high">🔬 High</option>
             </select>
-            <Button
-              onClick={handleSubmit}
-              disabled={!message.trim() || isSubmitting}
-            >
-              {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-            </Button>
+            {isGenerating ? (
+              <Button onClick={handleStop} variant="destructive">
+                <Square className="h-4 w-4 fill-current" />
+              </Button>
+            ) : (
+              <Button
+                onClick={handleSubmit}
+                disabled={!message.trim() || isSubmitting}
+              >
+                {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              </Button>
+            )}
           </div>
         </div>
         <p className="text-xs text-slate-500 mt-2">

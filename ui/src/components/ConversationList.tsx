@@ -1,7 +1,8 @@
 // Conversation list - shows chats in the sidebar with multi-select
 
 import { useEffect, useState } from 'react';
-import { listConversations, createConversation, deleteConversation } from '@/api/client';
+import { useNavigate } from 'react-router-dom';
+import { listConversations, deleteConversation } from '@/api/client';
 import { useStore } from '@/hooks/useStore';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/dialog';
@@ -72,13 +73,11 @@ function ConversationCard({
 }
 
 export function ConversationList() {
+  const navigate = useNavigate();
   const conversations = useStore((s) => s.conversations);
   const selectedConversationId = useStore((s) => s.selectedConversationId);
   const setConversations = useStore((s) => s.setConversations);
-  const addConversation = useStore((s) => s.addConversation);
   const removeConversation = useStore((s) => s.removeConversation);
-  const selectConversation = useStore((s) => s.selectConversation);
-  const setRuns = useStore((s) => s.setRuns);
   const [isLoading, setIsLoading] = useState(false);
 
   // Delete modal state
@@ -106,23 +105,10 @@ export function ConversationList() {
     fetchConversations();
   }, [setConversations]);
 
-  const handleNewConversation = async () => {
-    try {
-      const response = await createConversation();
-      const conversation: Conversation = {
-        conversation_id: response.conversation_id,
-        created_at: new Date().toISOString(),
-        title: 'New conversation',
-        summary: '',
-        status: 'active',
-        metadata: {},
-      };
-      addConversation(conversation);
-      setRuns(response.conversation_id, []);
-      selectConversation(response.conversation_id);
-    } catch (error) {
-      console.error('Failed to create conversation:', error);
-    }
+  const handleNewConversation = () => {
+    // Just navigate to /conversations to show empty "new conversation" state
+    // The actual conversation will be created when user sends first message
+    navigate('/conversations');
   };
 
   const handleDeleteClick = (conversationId: string) => {
@@ -132,9 +118,14 @@ export function ConversationList() {
 
   const handleConfirmDelete = async () => {
     if (!conversationToDelete) return;
+    const wasSelected = conversationToDelete === selectedConversationId;
     try {
       await deleteConversation(conversationToDelete);
       removeConversation(conversationToDelete);
+      // If we deleted the currently selected conversation, navigate away
+      if (wasSelected) {
+        navigate('/conversations');
+      }
     } catch (error) {
       console.error('Failed to delete conversation:', error);
     }
@@ -238,7 +229,7 @@ export function ConversationList() {
               isSelected={conversation.conversation_id === selectedConversationId}
               isSelectMode={isSelectMode}
               isChecked={selectedIds.has(conversation.conversation_id)}
-              onClick={() => selectConversation(conversation.conversation_id)}
+              onClick={() => navigate(`/conversations/${conversation.conversation_id}`)}
               onDelete={() => handleDeleteClick(conversation.conversation_id)}
               onToggleCheck={() => toggleCheck(conversation.conversation_id)}
             />

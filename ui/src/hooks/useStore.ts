@@ -43,6 +43,7 @@ interface AppState {
   setRuns: (conversationId: string, runs: Run[]) => void;
   addRun: (conversationId: string, run: Run) => void;
   updateRun: (runId: string, updates: Partial<Run>) => void;
+  removeRun: (runId: string) => void;
   selectRun: (runId: string | null) => void;
 
   // Event actions
@@ -138,6 +139,28 @@ export const useStore = create<AppState>((set, get) => ({
       );
     }
     return { runsByConversation };
+  }),
+
+  removeRun: (runId) => set((state) => {
+    // Remove run from all conversations
+    const runsByConversation: Record<string, Run[]> = {};
+    for (const [conversationId, runs] of Object.entries(state.runsByConversation)) {
+      runsByConversation[conversationId] = runs.filter((run) => run.run_id !== runId);
+    }
+
+    // Clean up streaming state for this run
+    const { [runId]: _streamText, ...restStreamingText } = state.streamingText;
+    const { [runId]: _streamThink, ...restStreamingThinking } = state.streamingThinking;
+    const { [runId]: _events, ...restEventsByRun } = state.eventsByRun;
+
+    return {
+      runsByConversation,
+      streamingText: restStreamingText,
+      streamingThinking: restStreamingThinking,
+      eventsByRun: restEventsByRun,
+      selectedRunId: state.selectedRunId === runId ? null : state.selectedRunId,
+      streamingRunId: state.streamingRunId === runId ? null : state.streamingRunId,
+    };
   }),
 
   selectRun: (runId) => set({ selectedRunId: runId, selectedEventSeq: null }),

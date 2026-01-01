@@ -65,6 +65,12 @@ export async function getRunEvents(runId: string, sinceSeq?: number): Promise<{ 
   return withRetry(() => fetchJson(`${API_BASE}/runs/${runId}/events${query}`));
 }
 
+export async function abortRun(runId: string): Promise<{ status: string; run_id: string }> {
+  return fetchJson(`${API_BASE}/runs/${runId}/abort`, {
+    method: 'POST',
+  });
+}
+
 // Trace Events (timeline)
 export interface TraceEvent {
   id: string;
@@ -165,6 +171,7 @@ export function subscribeToRun(
   onEvent: (event: Event) => void,
   onComplete: (result: { run_id: string; status: string; final_answer?: string }) => void,
   onError: (error: string) => void,
+  onAbort?: () => void,
 ): () => void {
   const eventSource = new EventSource(`${API_BASE}/runs/${runId}/stream`);
 
@@ -183,6 +190,14 @@ export function subscribeToRun(
       onComplete(result);
     } catch (err) {
       console.error('Failed to parse complete:', err);
+    }
+    eventSource.close();
+  });
+
+  eventSource.addEventListener('aborted', () => {
+    // Stream was aborted by user
+    if (onAbort) {
+      onAbort();
     }
     eventSource.close();
   });
@@ -208,3 +223,4 @@ export function subscribeToRun(
 
   return () => eventSource.close();
 }
+
