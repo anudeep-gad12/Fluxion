@@ -133,7 +133,7 @@ class ChatEngine:
         strategy = self.thinking_orchestrator.get_strategy(
             thinking_strategy, **params
         )
-        run_id = run_id or str(uuid.uuid4())[:8]
+        run_id = run_id or str(uuid.uuid4())
         start_time = time.time()
         
         # Get database and repos
