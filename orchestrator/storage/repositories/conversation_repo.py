@@ -116,15 +116,35 @@ class ConversationRepo:
         Note: trace_events are automatically deleted via ON DELETE CASCADE
         when runs are deleted.
         """
-        # 1. Delete runs (trace_events cascade automatically)
-        await self.db.conn.execute(
-            "DELETE FROM runs WHERE conversation_id = ?",
-            (conversation_id,)
-        )
+        try:
+            # 1. Get all run_ids for this conversation
+            async with self.db.conn.execute(
+                "SELECT run_id FROM runs WHERE conversation_id = ?",
+                (conversation_id,)
+            ) as cursor:
+                run_rows = await cursor.fetchall()
+                run_ids = [row["run_id"] for row in run_rows]
 
-        # 2. Delete conversation
-        await self.db.conn.execute(
-            "DELETE FROM conversations WHERE conversation_id = ?",
-            (conversation_id,)
-        )
-        await self.db.conn.commit()
+            # 2. Delete eval_samples that reference these runs (if any)
+            if run_ids:
+                placeholders = ",".join(["?" for _ in run_ids])
+                await self.db.conn.execute(
+                    f"DELETE FROM eval_samples WHERE run_id IN ({placeholders})",
+                    run_ids
+                )
+
+            # 3. Delete runs (trace_events cascade automatically)
+            await self.db.conn.execute(
+                "DELETE FROM runs WHERE conversation_id = ?",
+                (conversation_id,)
+            )
+
+            # 4. Delete conversation
+            await self.db.conn.execute(
+                "DELETE FROM conversations WHERE conversation_id = ?",
+                (conversation_id,)
+            )
+            await self.db.conn.commit()
+        except Exception as e:
+            await self.db.conn.rollback()
+            raise e
