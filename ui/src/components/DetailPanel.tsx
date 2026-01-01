@@ -102,9 +102,9 @@ export function DetailPanel() {
     loadRun();
   }, [selectedRunId, updateRun]);
 
-  // Load conversation traces when showAllRuns is enabled
+  // Load conversation traces when panel opens or conversation changes
   useEffect(() => {
-    if (!showAllRuns || !selectedConversationId) {
+    if (!detailPanelOpen || !selectedConversationId) {
       return;
     }
 
@@ -149,7 +149,7 @@ export function DetailPanel() {
       }
     }
     loadConversationTraces();
-  }, [showAllRuns, selectedConversationId]);
+  }, [detailPanelOpen, selectedConversationId]);
 
   // Get active events based on mode (single run vs all runs)
   const activeEvents = showAllRuns ? conversationEvents : events;
@@ -162,6 +162,22 @@ export function DetailPanel() {
       return category !== 'internal';
     });
   }, [activeEvents, showInternal]);
+
+  // Group events by run_id for message-by-message display
+  const eventsByRun = useMemo(() => {
+    const groups: { runId: string; userMessage: string; events: Event[] }[] = [];
+    let currentGroup: { runId: string; userMessage: string; events: Event[] } | null = null;
+
+    for (const event of filteredEvents) {
+      if (!currentGroup || currentGroup.runId !== event.run_id) {
+        const userMessage = (event.payload as { user_message?: string })?.user_message || 'Unknown message';
+        currentGroup = { runId: event.run_id, userMessage, events: [] };
+        groups.push(currentGroup);
+      }
+      currentGroup.events.push(event);
+    }
+    return groups;
+  }, [filteredEvents]);
 
   const traceJson = useMemo(() => JSON.stringify(filteredEvents, null, 2), [filteredEvents]);
   const eventJson = useMemo(
@@ -321,13 +337,41 @@ export function DetailPanel() {
 
         <ScrollArea className="h-[calc(100%-200px)]">
           <div className="p-4">
-            {selectedRunId ? (
+            {viewMode === 'event' && selectedEvent ? (
               <pre className="text-xs whitespace-pre-wrap break-words bg-slate-50 border rounded-md p-3">
-                {viewMode === 'trace' ? traceJson : eventJson || 'Select an event to view details.'}
+                {eventJson}
+              </pre>
+            ) : showAllRuns && selectedConversationId ? (
+              loadingConvTraces ? (
+                <div className="text-sm text-slate-500">Loading traces...</div>
+              ) : eventsByRun.length > 0 ? (
+                <div className="space-y-4">
+                  {eventsByRun.map((group, idx) => (
+                    <div key={group.runId} className="border rounded-md overflow-hidden">
+                      <div className="bg-blue-50 px-3 py-2 border-b">
+                        <div className="text-xs font-medium text-blue-800">
+                          Message {idx + 1}
+                        </div>
+                        <div className="text-sm text-slate-700 truncate">
+                          {group.userMessage}
+                        </div>
+                      </div>
+                      <pre className="text-xs whitespace-pre-wrap break-words bg-slate-50 p-3 max-h-[300px] overflow-auto">
+                        {JSON.stringify(group.events, null, 2)}
+                      </pre>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-sm text-slate-500">No traces found.</div>
+              )
+            ) : selectedRunId ? (
+              <pre className="text-xs whitespace-pre-wrap break-words bg-slate-50 border rounded-md p-3">
+                {traceJson}
               </pre>
             ) : (
               <div className="text-sm text-slate-500">
-                Select a message to see raw trace data.
+                Select a message to see its trace data.
               </div>
             )}
           </div>
