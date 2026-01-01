@@ -153,11 +153,11 @@ class ChatEngine:
                 error=f"Conversation not found: {conversation_id}",
             )
         
-        # Load conversation history
-        prior_traces = await trace_repo.list_traces(conversation_id)
+        # Load conversation history from runs table
+        prior_runs = await trace_repo.list_runs_for_conversation(conversation_id)
         
         # Build messages
-        messages = self._build_messages(prior_traces, message)
+        messages = self._build_messages(prior_runs, message)
         
         # Log if debug
         if self.config.tracing.log_level == "debug":
@@ -506,48 +506,52 @@ class ChatEngine:
 
     def _build_messages(
         self,
-        prior_traces: list[dict],
+        prior_runs: list[dict],
         current_message: str,
     ) -> list[dict]:
-        """Build message list for model call.
-        
+        """Build message list for model call from conversation history.
+
+        Messages are built from the runs table (user_message + final_answer pairs),
+        NOT from trace_events. This ensures stateless operation where each request
+        contains the full conversation context.
+
         Args:
-            prior_traces: Previous conversation traces.
+            prior_runs: Previous conversation runs from runs table.
             current_message: Current user message.
-            
+
         Returns:
             List of message dicts for the API.
         """
         messages = []
-        
+
         # System message
         messages.append({
             "role": "system",
             "content": self.config.system_prompt,
         })
-        
+
         # Add conversation history (respecting max_messages limit)
         max_messages = self.config.context.max_messages
-        
+
         # Sort by created_at ascending (oldest first)
-        sorted_traces = sorted(prior_traces, key=lambda t: t.get("created_at", ""))
-        
+        sorted_runs = sorted(prior_runs, key=lambda r: r.get("created_at", ""))
+
         # Apply sliding window if needed
-        if len(sorted_traces) > max_messages:
-            sorted_traces = sorted_traces[-max_messages:]
-        
-        for trace in sorted_traces:
-            user_msg = trace.get("user_message")
-            assistant_msg = trace.get("final_answer")
-            
+        if len(sorted_runs) > max_messages:
+            sorted_runs = sorted_runs[-max_messages:]
+
+        for run in sorted_runs:
+            user_msg = run.get("user_message")
+            assistant_msg = run.get("final_answer")
+
             if user_msg:
                 messages.append({"role": "user", "content": user_msg})
             if assistant_msg:
                 messages.append({"role": "assistant", "content": assistant_msg})
-        
+
         # Add current message
         messages.append({"role": "user", "content": current_message})
-        
+
         return messages
 
     async def _call_model(self, messages: list[dict]) -> tuple[str, Optional[dict]]:
