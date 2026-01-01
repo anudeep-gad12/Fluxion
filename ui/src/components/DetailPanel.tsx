@@ -7,7 +7,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { useRunEvents, useSelectedRun, useStore } from '@/hooks/useStore';
 import { cn } from '@/lib/utils';
 import { Braces, Copy, X, Bug, Eye, EyeOff } from 'lucide-react';
-import { getRun, getRunTimeline, type TraceEvent } from '@/api/client';
+import { getRun, getRunTimeline, getConversationTraces, type TraceEvent, type ConversationTraceEvent } from '@/api/client';
 import type { Event } from '@/types';
 
 export function DetailPanel() {
@@ -22,12 +22,17 @@ export function DetailPanel() {
   const updateRun = useStore((s) => s.updateRun);
   const events = useRunEvents(selectedRunId);
   const selectedRun = useSelectedRun();
+  const selectedConversationId = useStore((s) => s.selectedConversationId);
   const selectedEvent = events.find((e) => e.seq === selectedEventSeq);
   const [viewMode, setViewMode] = useState<'trace' | 'event'>('trace');
   const [showInternal, setShowInternal] = useState(true); // Show all events by default in debug view
+  const [showAllRuns, setShowAllRuns] = useState(false); // Show all runs in conversation
+  const [conversationEvents, setConversationEvents] = useState<Event[]>([]);
+  const [loadingConvTraces, setLoadingConvTraces] = useState(false);
 
   // Track which runId we've loaded events for to prevent stale state
   const loadedRunIdRef = useRef<string | null>(null);
+  const loadedConvIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!selectedRunId) {
@@ -97,14 +102,66 @@ export function DetailPanel() {
     loadRun();
   }, [selectedRunId, updateRun]);
 
+  // Load conversation traces when showAllRuns is enabled
+  useEffect(() => {
+    if (!showAllRuns || !selectedConversationId) {
+      return;
+    }
+
+    // Skip if already loaded for this conversation
+    if (loadedConvIdRef.current === selectedConversationId && conversationEvents.length > 0) {
+      return;
+    }
+
+    async function loadConversationTraces() {
+      setLoadingConvTraces(true);
+      try {
+        const data = await getConversationTraces(selectedConversationId!);
+        const events: Event[] = data.events.map((te: ConversationTraceEvent) => ({
+          run_id: te.run_id,
+          seq: te.seq,
+          ts: te.created_at,
+          type: te.event_type,
+          display: {
+            title: te.event_type,
+            summary: te.error_message || `${te.actor} - ${te.event_status}`,
+            status: te.event_status,
+            result_preview: te.duration_ms ? `${te.duration_ms}ms` : undefined,
+          },
+          payload: {
+            ...te.content,
+            user_message: te.user_message,
+            actor: te.actor,
+            endpoint: te.endpoint,
+            attempt: te.attempt,
+            step_number: te.step_number,
+            duration_ms: te.duration_ms,
+            token_count: te.token_count,
+            error_message: te.error_message,
+          },
+        }));
+        setConversationEvents(events);
+        loadedConvIdRef.current = selectedConversationId;
+      } catch (error) {
+        console.error('Failed to load conversation traces:', error);
+      } finally {
+        setLoadingConvTraces(false);
+      }
+    }
+    loadConversationTraces();
+  }, [showAllRuns, selectedConversationId]);
+
+  // Get active events based on mode (single run vs all runs)
+  const activeEvents = showAllRuns ? conversationEvents : events;
+
   // Filter events based on showInternal toggle
   const filteredEvents = useMemo(() => {
-    if (showInternal) return events;
-    return events.filter((e: Event) => {
+    if (showInternal) return activeEvents;
+    return activeEvents.filter((e: Event) => {
       const category = (e.display as Record<string, unknown>)?.category;
       return category !== 'internal';
     });
-  }, [events, showInternal]);
+  }, [activeEvents, showInternal]);
 
   const traceJson = useMemo(() => JSON.stringify(filteredEvents, null, 2), [filteredEvents]);
   const eventJson = useMemo(
@@ -185,6 +242,22 @@ export function DetailPanel() {
               Selected Event
             </Button>
           </div>
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant={showAllRuns ? 'default' : 'outline'}
+              onClick={() => setShowAllRuns(!showAllRuns)}
+              disabled={!selectedConversationId || loadingConvTraces}
+              className="text-xs"
+            >
+              {loadingConvTraces ? 'Loading...' : showAllRuns ? 'All Runs' : 'Single Run'}
+            </Button>
+            {showAllRuns && (
+              <span className="text-xs text-slate-500">
+                {conversationEvents.length} events across all runs
+              </span>
+            )}
+          </div>
           {selectedRun && (
             <div className="text-xs text-slate-600 space-y-1">
               {selectedRun.user_message && (
@@ -214,7 +287,7 @@ export function DetailPanel() {
               {showInternal ? (
                 <>
                   <Eye className="h-3 w-3 mr-1" />
-                  All Events ({events.length})
+                  All Events ({activeEvents.length})
                 </>
               ) : (
                 <>

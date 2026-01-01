@@ -124,6 +124,20 @@ export async function getConversation(conversationId: string): Promise<Conversat
   return withRetry(() => fetchJson(`${API_BASE}/conversations/${conversationId}`));
 }
 
+export interface ConversationTraceEvent extends TraceEvent {
+  user_message?: string;
+}
+
+export interface ConversationTracesResponse {
+  conversation_id: string;
+  events: ConversationTraceEvent[];
+  total_events: number;
+}
+
+export async function getConversationTraces(conversationId: string): Promise<ConversationTracesResponse> {
+  return withRetry(() => fetchJson(`${API_BASE}/conversations/${conversationId}/traces`));
+}
+
 export async function deleteConversation(conversationId: string): Promise<{ status: string }> {
   return fetchJson(`${API_BASE}/conversations/${conversationId}`, {
     method: 'DELETE',
