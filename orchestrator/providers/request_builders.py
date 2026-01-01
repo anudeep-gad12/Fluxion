@@ -12,8 +12,7 @@ def build_responses_request(
     reasoning_effort: Optional[str] = None,
     max_output_tokens: Optional[int] = None,
     stream: bool = True,
-    # Stateless for now; add later:
-    # previous_response_id: Optional[str] = None,
+    previous_response_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Build /v1/responses request payload.
 
@@ -25,6 +24,7 @@ def build_responses_request(
         reasoning_effort: Native reasoning effort ("low", "medium", "high").
         max_output_tokens: Maximum tokens (responses API uses this, not max_tokens).
         stream: Whether to stream the response.
+        previous_response_id: Response ID from previous call for stateful mode.
 
     Returns:
         Request payload dict for /v1/responses.
@@ -52,8 +52,9 @@ def build_responses_request(
     if reasoning_effort:
         payload["reasoning"] = {"effort": reasoning_effort}
 
-    # Future: if previous_response_id:
-    #     payload["previous_response_id"] = previous_response_id
+    # Stateful mode: chain to previous response
+    if previous_response_id:
+        payload["previous_response_id"] = previous_response_id
 
     return payload
 

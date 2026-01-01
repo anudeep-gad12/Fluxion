@@ -98,6 +98,12 @@ class ProviderConfig(BaseModel):
     endpoint: Literal["responses", "chat_completions", "auto"] = "responses"
     fallback_on_404: bool = True
 
+    # Tool fallback policy
+    # If True (default), raises ToolFallbackError when tools are requested but
+    # /v1/responses is unavailable. gpt-oss models ALWAYS require /v1/responses
+    # for tools regardless of this setting.
+    fail_on_tool_fallback: bool = True
+
     # Reliability - exponential backoff with jitter
     timeout: float = 120.0
     max_retries: int = 3

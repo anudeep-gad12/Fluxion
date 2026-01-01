@@ -69,6 +69,7 @@ class OpenAICompatProvider:
         api_key: Optional[str] = None,
         endpoint: str = "responses",
         fallback_on_404: bool = True,
+        fail_on_tool_fallback: bool = True,
         timeout: float = 120.0,
         max_retries: int = 3,
         base_delay: float = 1.0,
@@ -83,6 +84,9 @@ class OpenAICompatProvider:
             api_key: API key for authentication (optional for local servers).
             endpoint: Endpoint preference ("responses", "chat_completions", "auto").
             fallback_on_404: If True, fall back to chat_completions on 404/405.
+            fail_on_tool_fallback: If True (default), raise ToolFallbackError when
+                tools are requested but /v1/responses is unavailable. gpt-oss models
+                ALWAYS require /v1/responses for tools regardless of this setting.
             timeout: Request timeout in seconds.
             max_retries: Maximum number of retry attempts.
             base_delay: Initial delay for exponential backoff.
@@ -94,6 +98,7 @@ class OpenAICompatProvider:
         self._api_key = api_key
         self._endpoint = endpoint
         self._fallback_on_404 = fallback_on_404
+        self._fail_on_tool_fallback = fail_on_tool_fallback
         self._timeout = timeout
         self._max_retries = max_retries
         self._base_delay = base_delay
@@ -141,6 +146,7 @@ class OpenAICompatProvider:
         temperature: Optional[float] = None,
         reasoning_effort: Optional[str] = None,
         stream: bool = False,
+        previous_response_id: Optional[str] = None,
         **kwargs: Any,
     ) -> LLMResponse:
         """Complete a conversation.
@@ -154,6 +160,7 @@ class OpenAICompatProvider:
             temperature: Sampling temperature.
             reasoning_effort: Native reasoning effort.
             stream: Whether to stream (False for this method).
+            previous_response_id: Response ID from previous call for stateful mode.
             **kwargs: Additional parameters.
 
         Returns:
@@ -171,6 +178,7 @@ class OpenAICompatProvider:
                 reasoning_effort=reasoning_effort,
                 max_output_tokens=max_tokens,
                 stream=False,
+                previous_response_id=previous_response_id,
             )
             url = f"{self._base_url}/v1/responses"
         else:
@@ -215,6 +223,7 @@ class OpenAICompatProvider:
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
         reasoning_effort: Optional[str] = None,
+        previous_response_id: Optional[str] = None,
         **kwargs: Any,
     ) -> LLMResponse:
         """Stream a completion.
@@ -229,6 +238,7 @@ class OpenAICompatProvider:
             max_tokens: Maximum tokens.
             temperature: Sampling temperature.
             reasoning_effort: Native reasoning effort.
+            previous_response_id: Response ID from previous call for stateful mode.
             **kwargs: Additional parameters.
 
         Returns:
@@ -246,6 +256,7 @@ class OpenAICompatProvider:
                 reasoning_effort=reasoning_effort,
                 max_output_tokens=max_tokens,
                 stream=True,
+                previous_response_id=previous_response_id,
             )
             url = f"{self._base_url}/v1/responses"
         else:
@@ -406,15 +417,20 @@ class OpenAICompatProvider:
         Raises:
             ToolFallbackError: If gpt-oss model with tools can't use responses.
         """
-        # Tool fallback policy: conditional on model
+        # Tool fallback policy
         if tools:
             if _is_gpt_oss_model(model):
-                # gpt-oss REQUIRES /v1/responses for tool use - hard fail
+                # gpt-oss REQUIRES /v1/responses for tool use - ALWAYS hard fail
                 raise ToolFallbackError(
                     f"Model {model} requires /v1/responses for tool use. "
                     f"Server does not support /v1/responses."
                 )
-            # Non-gpt-oss models: allow chat_completions + tools
+            # Non-gpt-oss models: check fail_on_tool_fallback config
+            if self._fail_on_tool_fallback:
+                raise ToolFallbackError(
+                    "Tools require /v1/responses endpoint but server does not support it. "
+                    "Set fail_on_tool_fallback=False to allow fallback to chat_completions."
+                )
 
         # Fall back to chat/completions
         payload = build_chat_completions_request(
@@ -461,11 +477,19 @@ class OpenAICompatProvider:
             Final LLMResponse.
         """
         # Check tool fallback policy
-        if tools and _is_gpt_oss_model(model):
-            raise ToolFallbackError(
-                f"Model {model} requires /v1/responses for tool use. "
-                f"Server does not support /v1/responses."
-            )
+        if tools:
+            if _is_gpt_oss_model(model):
+                # gpt-oss REQUIRES /v1/responses for tool use - ALWAYS hard fail
+                raise ToolFallbackError(
+                    f"Model {model} requires /v1/responses for tool use. "
+                    f"Server does not support /v1/responses."
+                )
+            # Non-gpt-oss models: check fail_on_tool_fallback config
+            if self._fail_on_tool_fallback:
+                raise ToolFallbackError(
+                    "Tools require /v1/responses endpoint but server does not support it. "
+                    "Set fail_on_tool_fallback=False to allow fallback to chat_completions."
+                )
 
         payload = build_chat_completions_request(
             messages=messages,
