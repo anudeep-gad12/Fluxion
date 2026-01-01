@@ -111,10 +111,13 @@ class ConversationRepo:
             await self.db.conn.commit()
 
     async def delete(self, conversation_id: str) -> None:
-        """Delete conversation and ALL associated runs.
+        """Delete conversation and ALL associated data.
 
-        Note: trace_events are automatically deleted via ON DELETE CASCADE
-        when runs are deleted.
+        Deletes in order to respect foreign key constraints:
+        1. trace_events (references runs)
+        2. eval_samples (references runs)
+        3. runs (references conversations)
+        4. conversations
         """
         try:
             # 1. Get all run_ids for this conversation
@@ -125,21 +128,28 @@ class ConversationRepo:
                 run_rows = await cursor.fetchall()
                 run_ids = [dict(row)["run_id"] for row in run_rows]
 
-            # 2. Delete eval_samples that reference these runs (if any)
             if run_ids:
                 placeholders = ",".join(["?" for _ in run_ids])
+
+                # 2. Delete trace_events for these runs
+                await self.db.conn.execute(
+                    f"DELETE FROM trace_events WHERE run_id IN ({placeholders})",
+                    tuple(run_ids)
+                )
+
+                # 3. Delete eval_samples that reference these runs
                 await self.db.conn.execute(
                     f"DELETE FROM eval_samples WHERE run_id IN ({placeholders})",
                     tuple(run_ids)
                 )
 
-            # 3. Delete runs (trace_events cascade automatically)
+            # 4. Delete runs
             await self.db.conn.execute(
                 "DELETE FROM runs WHERE conversation_id = ?",
                 (conversation_id,)
             )
 
-            # 4. Delete conversation
+            # 5. Delete conversation
             await self.db.conn.execute(
                 "DELETE FROM conversations WHERE conversation_id = ?",
                 (conversation_id,)
