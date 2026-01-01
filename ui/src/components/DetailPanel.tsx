@@ -33,6 +33,21 @@ export function DetailPanel() {
   // Track which runId we've loaded events for to prevent stale state
   const loadedRunIdRef = useRef<string | null>(null);
   const loadedConvIdRef = useRef<string | null>(null);
+  const prevSelectedRunIdRef = useRef<string | null>(null);
+
+  // Auto-switch view mode based on how the panel was opened:
+  // - Details button (selectedRunId set) -> single run view
+  // - Floating Trace button (no selectedRunId) -> all runs view
+  useEffect(() => {
+    if (selectedRunId && selectedRunId !== prevSelectedRunIdRef.current) {
+      // A specific run was just selected (Details button clicked)
+      setShowAllRuns(false);
+    } else if (!selectedRunId && prevSelectedRunIdRef.current) {
+      // Run was deselected, switch back to all runs
+      setShowAllRuns(true);
+    }
+    prevSelectedRunIdRef.current = selectedRunId;
+  }, [selectedRunId]);
 
   useEffect(() => {
     if (!selectedRunId) {
