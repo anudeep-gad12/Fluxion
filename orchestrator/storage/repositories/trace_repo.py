@@ -133,9 +133,18 @@ class TraceRepo:
                 runs.append(r)
             return runs
 
-    # Alias for backward compatibility
-    async def list_traces(self, *args, **kwargs):
-        return await self.list_runs(*args, **kwargs)
+    async def list_runs_for_conversation(
+        self,
+        conversation_id: str,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> List[dict[str, Any]]:
+        """List runs for a conversation (for building message history).
+
+        This is the canonical method for loading conversation history.
+        Use this instead of list_runs() when you need runs for a specific conversation.
+        """
+        return await self.list_runs(conversation_id=conversation_id, limit=limit, offset=offset)
 
     # --- Model Calls (formerly reasoning_traces) ---
 
