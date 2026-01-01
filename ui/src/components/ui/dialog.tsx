@@ -104,7 +104,7 @@ interface ConfirmDialogProps {
     description: string;
     confirmLabel?: string;
     cancelLabel?: string;
-    onConfirm: () => void;
+    onConfirm: () => void | Promise<void>;
     variant?: "default" | "destructive";
 }
 
@@ -118,6 +118,18 @@ export function ConfirmDialog({
     onConfirm,
     variant = "default",
 }: ConfirmDialogProps) {
+    const [isLoading, setIsLoading] = React.useState(false);
+
+    const handleConfirm = async () => {
+        setIsLoading(true);
+        try {
+            await onConfirm();
+        } finally {
+            setIsLoading(false);
+            onOpenChange(false);
+        }
+    };
+
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogHeader>
@@ -125,17 +137,15 @@ export function ConfirmDialog({
                 <DialogDescription>{description}</DialogDescription>
             </DialogHeader>
             <DialogFooter>
-                <Button variant="ghost" onClick={() => onOpenChange(false)}>
+                <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={isLoading}>
                     {cancelLabel}
                 </Button>
                 <Button
                     variant={variant === "destructive" ? "destructive" : "default"}
-                    onClick={() => {
-                        onConfirm();
-                        onOpenChange(false);
-                    }}
+                    onClick={handleConfirm}
+                    disabled={isLoading}
                 >
-                    {confirmLabel}
+                    {isLoading ? "Deleting..." : confirmLabel}
                 </Button>
             </DialogFooter>
         </Dialog>
