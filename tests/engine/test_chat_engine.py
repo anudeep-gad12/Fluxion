@@ -185,3 +185,175 @@ class TestBuildMessages:
         assert messages[2]["content"] == "Complete response"
         assert messages[3]["content"] == "Failed message"
         assert messages[4]["content"] == "current"
+
+
+class TestStatefulMode:
+    """Tests for stateful conversation chaining via previous_response_id."""
+
+    @pytest.mark.asyncio
+    async def test_get_latest_response_id_filters_succeeded_only(self):
+        """Verify only succeeded runs are considered for chaining."""
+        from orchestrator.storage.db import Database
+        from orchestrator.storage.repositories.trace_repo import TraceRepo
+
+        db = Database(":memory:")
+        await db.connect()
+        repo = TraceRepo(db)
+
+        # Create a conversation
+        await db.conn.execute(
+            "INSERT INTO conversations (conversation_id, title, created_at, status) VALUES (?, ?, ?, ?)",
+            ("conv-1", "Test", "2024-01-01T10:00:00Z", "active"),
+        )
+
+        # Create runs with different statuses
+        # Run 1: succeeded with response_id
+        await repo.create_run(
+            run_id="run-1",
+            conversation_id="conv-1",
+            profile_name="chat",
+            mode="chat",
+            model_config={},
+            user_message="First",
+        )
+        await repo.update_run("run-1", status="succeeded", last_response_id="resp-1")
+
+        # Run 2: failed (no response_id)
+        await repo.create_run(
+            run_id="run-2",
+            conversation_id="conv-1",
+            profile_name="chat",
+            mode="chat",
+            model_config={},
+            user_message="Second",
+        )
+        await repo.update_run("run-2", status="failed")
+
+        # Run 3: running (no response_id)
+        await repo.create_run(
+            run_id="run-3",
+            conversation_id="conv-1",
+            profile_name="chat",
+            mode="chat",
+            model_config={},
+            user_message="Third",
+        )
+        # Don't update - stays as "running"
+
+        # Get latest response_id - should be from run-1 (only succeeded)
+        latest = await repo.get_latest_response_id("conv-1")
+        assert latest == "resp-1"
+
+        await db.close()
+
+    @pytest.mark.asyncio
+    async def test_get_latest_response_id_returns_most_recent(self):
+        """Verify the most recent succeeded run's response_id is returned."""
+        from orchestrator.storage.db import Database
+        from orchestrator.storage.repositories.trace_repo import TraceRepo
+
+        db = Database(":memory:")
+        await db.connect()
+        repo = TraceRepo(db)
+
+        await db.conn.execute(
+            "INSERT INTO conversations (conversation_id, title, created_at, status) VALUES (?, ?, ?, ?)",
+            ("conv-1", "Test", "2024-01-01T10:00:00Z", "active"),
+        )
+
+        # Create multiple succeeded runs
+        await repo.create_run(
+            run_id="run-1",
+            conversation_id="conv-1",
+            profile_name="chat",
+            mode="chat",
+            model_config={},
+            user_message="First",
+        )
+        await repo.update_run("run-1", status="succeeded", last_response_id="resp-1")
+
+        await repo.create_run(
+            run_id="run-2",
+            conversation_id="conv-1",
+            profile_name="chat",
+            mode="chat",
+            model_config={},
+            user_message="Second",
+        )
+        await repo.update_run("run-2", status="succeeded", last_response_id="resp-2")
+
+        # Should return resp-2 (most recent)
+        latest = await repo.get_latest_response_id("conv-1")
+        assert latest == "resp-2"
+
+        await db.close()
+
+    @pytest.mark.asyncio
+    async def test_get_latest_response_id_returns_none_when_no_succeeded(self):
+        """Verify None is returned when no succeeded runs exist."""
+        from orchestrator.storage.db import Database
+        from orchestrator.storage.repositories.trace_repo import TraceRepo
+
+        db = Database(":memory:")
+        await db.connect()
+        repo = TraceRepo(db)
+
+        await db.conn.execute(
+            "INSERT INTO conversations (conversation_id, title, created_at, status) VALUES (?, ?, ?, ?)",
+            ("conv-1", "Test", "2024-01-01T10:00:00Z", "active"),
+        )
+
+        # Create only failed runs
+        await repo.create_run(
+            run_id="run-1",
+            conversation_id="conv-1",
+            profile_name="chat",
+            mode="chat",
+            model_config={},
+        )
+        await repo.update_run("run-1", status="failed")
+
+        latest = await repo.get_latest_response_id("conv-1")
+        assert latest is None
+
+        await db.close()
+
+    @pytest.mark.asyncio
+    async def test_update_run_stores_last_response_id(self):
+        """Verify last_response_id is stored correctly."""
+        from orchestrator.storage.db import Database
+        from orchestrator.storage.repositories.trace_repo import TraceRepo
+
+        db = Database(":memory:")
+        await db.connect()
+        repo = TraceRepo(db)
+
+        await db.conn.execute(
+            "INSERT INTO conversations (conversation_id, title, created_at, status) VALUES (?, ?, ?, ?)",
+            ("conv-1", "Test", "2024-01-01T10:00:00Z", "active"),
+        )
+
+        await repo.create_run(
+            run_id="run-1",
+            conversation_id="conv-1",
+            profile_name="chat",
+            mode="chat",
+            model_config={},
+        )
+
+        # Update with last_response_id
+        await repo.update_run(
+            "run-1",
+            status="succeeded",
+            final_answer="Test answer",
+            last_response_id="resp-abc-123",
+        )
+
+        # Verify it's stored
+        async with db.conn.execute(
+            "SELECT last_response_id FROM runs WHERE run_id = ?", ("run-1",)
+        ) as cursor:
+            row = await cursor.fetchone()
+            assert row[0] == "resp-abc-123"
+
+        await db.close()

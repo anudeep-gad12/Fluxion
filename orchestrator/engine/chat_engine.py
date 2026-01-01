@@ -186,6 +186,15 @@ class ChatEngine:
             # Track model call count for step_number in trace events
             model_call_count = 0
 
+            # For stateful mode: query previous response_id and track current run's last response_id
+            previous_response_id = None
+            last_response_id_from_run = None  # Track the last response_id we receive
+
+            if self.config.provider.state_mode == "stateful_opt_in":
+                previous_response_id = await trace_repo.get_latest_response_id(conversation_id)
+                if self.config.tracing.log_level == "debug" and previous_response_id:
+                    logger.debug(f"[ChatEngine] Stateful mode: using previous_response_id={previous_response_id}")
+
             # Create model_call wrapper that strategies will use
             async def model_call_wrapper(
                 msgs: list[dict],
@@ -326,10 +335,16 @@ class ChatEngine:
                                 "content": reasoning,
                             })
 
-                        response_text, usage, native_reasoning = await self._call_model_streaming(
+                        response_text, usage, native_reasoning, response_id = await self._call_model_streaming(
                             msgs, on_token, stop=stop, reasoning_effort=reasoning_effort,
-                            reasoning_callback=on_reasoning
+                            reasoning_callback=on_reasoning,
+                            previous_response_id=previous_response_id,
                         )
+
+                        # Track response_id for stateful mode
+                        nonlocal last_response_id_from_run
+                        if response_id:
+                            last_response_id_from_run = response_id
 
                         # Flush remaining buffer content from StreamParser
                         # This ensures the last ~10 chars (BUFFER_SIZE) are not lost
@@ -444,6 +459,7 @@ class ChatEngine:
                 final_answer=thinking_result.final_answer,
                 status="succeeded",
                 usage_stats=usage_stats,
+                last_response_id=last_response_id_from_run,  # Store for stateful mode
             )
 
             # Update thinking summary if enabled
@@ -685,7 +701,8 @@ class ChatEngine:
         stop: Optional[list[str]] = None,
         reasoning_effort: Optional[str] = None,  # Per-request override
         reasoning_callback: Optional[Callable[[str], None]] = None,  # Separate callback for native reasoning
-    ) -> tuple[str, Optional[dict], Optional[str]]:
+        previous_response_id: Optional[str] = None,  # For stateful mode
+    ) -> tuple[str, Optional[dict], Optional[str], Optional[str]]:
         """Call the model API with streaming, sending tokens via callback.
 
         Uses the LLM provider abstraction which supports:
@@ -693,6 +710,7 @@ class ChatEngine:
         - Automatic fallback on 404/405
         - Exponential backoff with jitter
         - Native reasoning (gpt-oss) via reasoning_effort
+        - Stateful mode via previous_response_id
 
         Args:
             messages: List of message dicts.
@@ -700,9 +718,10 @@ class ChatEngine:
             stop: Optional stop sequences.
             reasoning_effort: Optional per-request reasoning effort override.
             reasoning_callback: Called with each native reasoning chunk (gpt-oss).
+            previous_response_id: Optional response ID from previous call for stateful mode.
 
         Returns:
-            Tuple of (response_text, usage_stats, reasoning_text).
+            Tuple of (response_text, usage_stats, reasoning_text, response_id).
         """
         # Resolve reasoning effort (per-request override takes precedence)
         effort = reasoning_effort or self.config.model.reasoning_effort
@@ -717,6 +736,7 @@ class ChatEngine:
             max_tokens=self.config.model.max_tokens,
             temperature=self.config.model.temperature,
             reasoning_effort=effort,
+            previous_response_id=previous_response_id,
             # Pass optional params
             seed=self.config.model.seed,
             top_p=self.config.model.top_p,
@@ -749,7 +769,7 @@ class ChatEngine:
         if self.config.tracing.log_level == "debug":
             logger.debug(f"[ChatEngine] Streaming via {response.endpoint_used}")
 
-        return response_text, usage, response.reasoning
+        return response_text, usage, response.reasoning, response.response_id
 
     async def close(self):
         """Close the HTTP client and provider."""

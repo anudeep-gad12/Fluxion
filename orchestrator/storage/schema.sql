@@ -29,6 +29,9 @@ CREATE TABLE IF NOT EXISTS runs (
     error_message TEXT,
     status TEXT NOT NULL, -- running, succeeded, failed
 
+    -- Stateful mode support
+    last_response_id TEXT, -- Response ID from /v1/responses for stateful chaining
+
     -- Telemetry
     usage_stats TEXT, -- JSON: {"input_tokens": 100, "output_tokens": 50, "latency_ms": 1200}
 

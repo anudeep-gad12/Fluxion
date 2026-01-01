@@ -104,6 +104,11 @@ class ProviderConfig(BaseModel):
     # for tools regardless of this setting.
     fail_on_tool_fallback: bool = True
 
+    # Stateful mode for conversation chaining
+    # - "stateless" (default): Always send full message history
+    # - "stateful_opt_in": Use previous_response_id when available for efficiency
+    state_mode: Literal["stateless", "stateful_opt_in"] = "stateless"
+
     # Reliability - exponential backoff with jitter
     timeout: float = 120.0
     max_retries: int = 3
