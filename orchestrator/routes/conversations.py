@@ -65,7 +65,7 @@ async def get_conversation(conversation_id: str):
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
-    traces = await trace_repo.list_runs(conversation_id=conversation_id)
+    traces = await trace_repo.list_runs_for_conversation(conversation_id)
     runs = [trace_to_run(t) for t in traces]
 
     return ConversationDetailResponse(
