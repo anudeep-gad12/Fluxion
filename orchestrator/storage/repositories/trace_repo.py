@@ -484,6 +484,38 @@ class TraceRepo:
                 events.append(event)
             return events
 
+    async def get_trace_events_for_conversation(
+        self,
+        conversation_id: str,
+    ) -> List[dict[str, Any]]:
+        """Get all trace events for all runs in a conversation.
+
+        Joins trace_events with runs to include user_message for context.
+        Events are ordered chronologically across all runs.
+
+        Args:
+            conversation_id: The conversation ID.
+
+        Returns:
+            List of trace events with run context.
+        """
+        query = """
+            SELECT te.*, r.user_message
+            FROM trace_events te
+            JOIN runs r ON te.run_id = r.run_id
+            WHERE r.conversation_id = ?
+            ORDER BY te.created_at ASC, te.seq ASC
+        """
+
+        async with self.db.conn.execute(query, [conversation_id]) as cursor:
+            rows = await cursor.fetchall()
+            events = []
+            for row in rows:
+                event = dict(row)
+                event["content"] = json.loads(event.pop("content_json", "{}"))
+                events.append(event)
+            return events
+
     async def get_run_timeline(
         self,
         run_id: str,

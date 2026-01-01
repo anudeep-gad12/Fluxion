@@ -106,3 +106,27 @@ async def update_conversation(conversation_id: str, request: UpdateConversationR
 
     updated = await conv_repo.get(conversation_id)
     return ConversationResponse(**updated)
+
+
+@router.get("/{conversation_id}/traces")
+async def get_conversation_traces(conversation_id: str):
+    """Get all trace events for all runs in a conversation.
+
+    Returns trace events across all runs in chronological order,
+    useful for viewing the complete conversation trace history.
+    """
+    db = await get_db()
+    conv_repo = ConversationRepo(db)
+    trace_repo = TraceRepo(db)
+
+    conversation = await conv_repo.get(conversation_id)
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    events = await trace_repo.get_trace_events_for_conversation(conversation_id)
+
+    return {
+        "conversation_id": conversation_id,
+        "events": events,
+        "total_events": len(events),
+    }
