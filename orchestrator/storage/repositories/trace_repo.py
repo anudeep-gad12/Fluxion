@@ -60,6 +60,7 @@ class TraceRepo:
         status: Optional[str] = None,
         error_message: Optional[str] = None,
         usage_stats: Optional[dict] = None,
+        last_response_id: Optional[str] = None,
     ) -> None:
         """Update run with results."""
         updates = []
@@ -77,6 +78,9 @@ class TraceRepo:
         if usage_stats is not None:
             updates.append("usage_stats = ?")
             values.append(json.dumps(usage_stats))
+        if last_response_id is not None:
+            updates.append("last_response_id = ?")
+            values.append(last_response_id)
 
         if updates:
             values.append(run_id)
@@ -145,6 +149,35 @@ class TraceRepo:
         Use this instead of list_runs() when you need runs for a specific conversation.
         """
         return await self.list_runs(conversation_id=conversation_id, limit=limit, offset=offset)
+
+    async def get_latest_response_id(
+        self,
+        conversation_id: str,
+    ) -> Optional[str]:
+        """Get the last_response_id from the most recent succeeded run.
+
+        Used for stateful mode to chain conversations via previous_response_id.
+        Only considers runs with status='succeeded' to avoid chaining onto failed/partial runs.
+
+        Args:
+            conversation_id: The conversation to query.
+
+        Returns:
+            The last_response_id from the most recent succeeded run, or None.
+        """
+        async with self.db.conn.execute(
+            """
+            SELECT last_response_id FROM runs
+            WHERE conversation_id = ? AND status = 'succeeded' AND last_response_id IS NOT NULL
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (conversation_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            if row:
+                return row[0]
+        return None
 
     # --- Model Calls (formerly reasoning_traces) ---
 
