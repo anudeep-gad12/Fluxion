@@ -546,3 +546,32 @@ class TraceRepo:
             "events_by_step": steps,
             "total_events": len(events),
         }
+
+    async def delete_run(self, run_id: str) -> None:
+        """Delete a run and all associated trace events (void).
+
+        Used when a run is aborted before completion - no partial data saved.
+        Temporarily disables foreign key checks to handle cross-references.
+
+        Args:
+            run_id: The run ID to delete.
+        """
+        try:
+            await self.db.conn.execute("PRAGMA foreign_keys = OFF")
+
+            # Delete trace_events for this run
+            await self.db.conn.execute(
+                "DELETE FROM trace_events WHERE run_id = ?",
+                (run_id,)
+            )
+
+            # Delete the run itself
+            await self.db.conn.execute(
+                "DELETE FROM runs WHERE run_id = ?",
+                (run_id,)
+            )
+
+            await self.db.conn.commit()
+        finally:
+            await self.db.conn.execute("PRAGMA foreign_keys = ON")
+

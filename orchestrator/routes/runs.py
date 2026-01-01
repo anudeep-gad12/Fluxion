@@ -34,6 +34,10 @@ router = APIRouter(prefix="/api", tags=["runs"])
 # For multi-worker prod deployment, use Redis pub/sub or durable event bus.
 _active_runs: dict[str, asyncio.Queue] = {}
 
+# Abort signals for cancellation - maps run_id to asyncio.Event
+# When set, the background task should stop generating and clean up
+_abort_signals: dict[str, asyncio.Event] = {}
+
 
 def _append_turn_to_summary(existing_summary: str, user_msg: str, assistant_msg: str, max_chars: int = 2000) -> str:
     """Append a single turn to existing summary incrementally."""
@@ -228,6 +232,12 @@ async def stream_run_events(run_id: str):
                             "data": json.dumps({"error": event.get("error")}),
                         }
                         break
+                    elif event.get("type") == "_STREAM_ABORTED":
+                        yield {
+                            "event": "aborted",
+                            "data": json.dumps({"run_id": run_id}),
+                        }
+                        break
                     else:
                         yield {
                             "event": "event",
@@ -253,6 +263,46 @@ async def stream_run_events(run_id: str):
                     }
 
     return EventSourceResponse(event_generator())
+
+
+@router.post("/runs/{run_id}/abort")
+async def abort_run(run_id: str):
+    """Abort a running generation and void the run.
+
+    This immediately:
+    1. Signals the background task to stop
+    2. Closes the SSE stream by sending abort event
+    3. Removes the run from active tracking
+    4. Deletes the run from DB (no partial data saved)
+    """
+    if run_id not in _active_runs:
+        raise HTTPException(status_code=404, detail="Run not found or already completed")
+
+    # Signal abort if there's an abort signal registered
+    if run_id in _abort_signals:
+        _abort_signals[run_id].set()
+
+    # Get the queue and signal abort to SSE clients
+    queue = _active_runs.pop(run_id, None)
+    if queue:
+        # Drain queue first
+        while not queue.empty():
+            try:
+                queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+        # Signal abort to any listening SSE clients
+        queue.put_nowait({"type": "_STREAM_ABORTED"})
+
+    # Clean up abort signal
+    _abort_signals.pop(run_id, None)
+
+    # Delete the run from DB (void - no partial save)
+    db = await get_db()
+    trace_repo = TraceRepo(db)
+    await trace_repo.delete_run(run_id)
+
+    return {"status": "aborted", "run_id": run_id}
 
 
 @router.get("/runs", response_model=RunListResponse)

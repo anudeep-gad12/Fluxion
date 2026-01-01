@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useRunEvents, useSelectedRun, useStore } from '@/hooks/useStore';
 import { cn } from '@/lib/utils';
-import { Braces, Copy, X, Bug, Eye, EyeOff } from 'lucide-react';
+import { Copy, X, Bug, Eye, EyeOff } from 'lucide-react';
 import { getRun, getRunTimeline, getConversationTraces, type TraceEvent, type ConversationTraceEvent } from '@/api/client';
 import type { Event } from '@/types';
 
@@ -107,10 +107,11 @@ export function DetailPanel() {
 
   useEffect(() => {
     if (!selectedRunId) return;
+    const runId = selectedRunId; // Capture non-null value
     async function loadRun() {
       try {
-        const run = await getRun(selectedRunId);
-        updateRun(selectedRunId, run);
+        const run = await getRun(runId);
+        updateRun(runId, run);
       } catch (error) {
         console.error('Failed to load run metadata:', error);
       }
@@ -121,6 +122,16 @@ export function DetailPanel() {
   // Load conversation traces when panel opens or conversation changes
   useEffect(() => {
     if (!detailPanelOpen || !selectedConversationId) {
+      return;
+    }
+
+    // Check if conversation still exists (use getState to avoid dependency loop)
+    const currentConversations = useStore.getState().conversations;
+    const exists = currentConversations.some(
+      (c) => c.conversation_id === selectedConversationId
+    );
+    if (!exists) {
+      // Conversation was deleted, don't try to load traces
       return;
     }
 
