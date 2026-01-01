@@ -38,25 +38,9 @@ CREATE TABLE IF NOT EXISTS runs (
     FOREIGN KEY(conversation_id) REFERENCES conversations(conversation_id)
 );
 
--- Model Calls (detailed log of each LLM call)
-CREATE TABLE IF NOT EXISTS model_calls (
-    id TEXT PRIMARY KEY,
-    run_id TEXT NOT NULL,
-    seq INT NOT NULL,
-    created_at TEXT NOT NULL,
-    
-    -- Content
-    step_type TEXT NOT NULL, -- model_call
-    content TEXT,
-    metadata_json TEXT, -- JSON: messages, response, tokens, timing, config
-    
-    FOREIGN KEY(run_id) REFERENCES runs(run_id)
-);
-
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_conversations_created_at ON conversations(created_at);
 CREATE INDEX IF NOT EXISTS idx_runs_conversation_id ON runs(conversation_id);
-CREATE INDEX IF NOT EXISTS idx_model_calls_run_id ON model_calls(run_id);
 
 -- =============================================================================
 -- Evaluation Tables
@@ -103,7 +87,7 @@ CREATE TABLE IF NOT EXISTS eval_samples (
     model_answer TEXT,
     is_correct BOOLEAN,
 
-    -- Link to full trace (runs + model_calls)
+    -- Link to full trace (runs + trace_events)
     run_id TEXT,                      -- Links to runs table for full trace
 
     -- Metrics
@@ -159,8 +143,8 @@ CREATE TABLE IF NOT EXISTS trace_events (
 
     -- Constraints
     UNIQUE(run_id, seq),                -- Strict ordering guarantee
-    FOREIGN KEY(run_id) REFERENCES runs(run_id),
-    FOREIGN KEY(parent_event_id) REFERENCES trace_events(id)
+    FOREIGN KEY(run_id) REFERENCES runs(run_id) ON DELETE CASCADE,
+    FOREIGN KEY(parent_event_id) REFERENCES trace_events(id) ON DELETE CASCADE
 );
 
 -- Trace event indexes

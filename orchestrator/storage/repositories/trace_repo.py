@@ -179,87 +179,42 @@ class TraceRepo:
                 return row[0]
         return None
 
-    # --- Model Calls (formerly reasoning_traces) ---
-
-    async def add_model_call(
-        self,
-        run_id: str,
-        seq: int,
-        step_type: str,
-        content: str,
-        metadata: Optional[dict] = None,
-    ) -> None:
-        """Add a model call record."""
-        now = datetime.now(timezone.utc).isoformat()
-        id = str(uuid.uuid4())
-        
-        # Ensure metadata is valid JSON
-        meta_json = json.dumps(metadata or {}, ensure_ascii=False)
-        
-        await self.db.conn.execute(
-            """
-            INSERT INTO model_calls (id, run_id, seq, created_at, step_type, content, metadata_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (id, run_id, seq, now, step_type, content, meta_json),
-        )
-        await self.db.conn.commit()
-
-    # Alias for backward compatibility
-    async def add_reasoning_step(self, *args, **kwargs):
-        return await self.add_model_call(*args, **kwargs)
-
-    async def get_model_calls(self, run_id: str) -> List[dict[str, Any]]:
-        """Get all model calls for a run."""
-        async with self.db.conn.execute(
-            "SELECT * FROM model_calls WHERE run_id = ? ORDER BY seq ASC",
-            (run_id,)
-        ) as cursor:
-            rows = await cursor.fetchall()
-            calls = []
-            for row in rows:
-                call = dict(row)
-                call["metadata"] = json.loads(call.pop("metadata_json", "{}"))
-                calls.append(call)
-            return calls
-
-    # Alias for backward compatibility
-    async def get_reasoning_traces(self, run_id: str):
-        return await self.get_model_calls(run_id)
-
-    # --- Thinking Traces (dual-layer) ---
+    # --- Thinking Traces (via trace_events) ---
 
     async def add_thinking_step(
         self,
         run_id: str,
         step: "ThinkingStep",
-    ) -> None:
+    ) -> str:
         """Store both internal and UI trace for a thinking step.
+
+        Uses trace_events table with event_type="thinking".
 
         Args:
             run_id: The run ID to associate with.
             step: ThinkingStep with both internal and UI data.
+
+        Returns:
+            The created event ID.
         """
-        from orchestrator.thinking.base import ThinkingStep
-
-        now = datetime.now(timezone.utc).isoformat()
-        id = str(uuid.uuid4())
-
-        # Build metadata with both internal and UI sections
-        metadata = {
+        # Build content with both internal and UI sections
+        content = {
+            "step_type": step.step_type,
+            "summary": step.ui_summary,
             "internal": step.to_internal_dict(),
             "ui": step.to_ui_dict(),
         }
-        meta_json = json.dumps(metadata, ensure_ascii=False)
 
-        await self.db.conn.execute(
-            """
-            INSERT INTO model_calls (id, run_id, seq, created_at, step_type, content, metadata_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (id, run_id, step.seq, now, step.step_type, step.ui_summary, meta_json),
+        return await self.add_trace_event(
+            run_id=run_id,
+            event_type="thinking",
+            content=content,
+            actor="model",
+            event_status="success",
+            step_number=step.seq,
+            token_count=step.to_internal_dict().get("tokens", {}).get("total"),
+            duration_ms=step.to_internal_dict().get("timing_ms"),
         )
-        await self.db.conn.commit()
 
     async def update_thinking_summary(
         self,
@@ -280,6 +235,8 @@ class TraceRepo:
     ) -> dict[str, Any]:
         """Get thinking trace for a run.
 
+        Queries trace_events with event_type="thinking".
+
         Args:
             run_id: The run ID.
             detail: Level of detail - "user", "internal", or "full".
@@ -292,42 +249,42 @@ class TraceRepo:
         if not run:
             return {"error": "Run not found"}
 
-        # Get all model calls (thinking steps)
-        calls = await self.get_model_calls(run_id)
+        # Get thinking events from trace_events
+        events = await self.get_trace_events(run_id, event_type="thinking")
 
-        # Filter to thinking-related steps
+        # Build thinking steps from events
         thinking_steps = []
-        for call in calls:
-            meta = call.get("metadata", {})
-            step_type = call.get("step_type", "")
+        for event in events:
+            content = event.get("content", {})
+            step_type = content.get("step_type", "")
 
             if detail == "user":
                 # Return only UI-friendly data
-                ui_data = meta.get("ui", {})
+                ui_data = content.get("ui", {})
                 thinking_steps.append({
-                    "seq": call.get("seq"),
+                    "seq": event.get("step_number") or event.get("seq"),
                     "step_type": step_type,
-                    "summary": ui_data.get("summary", call.get("content", "")),
+                    "summary": ui_data.get("summary", content.get("summary", "")),
                     "status": ui_data.get("status", "done"),
                 })
             elif detail == "internal":
                 # Return full internal trace
-                internal_data = meta.get("internal", {})
+                internal_data = content.get("internal", {})
                 thinking_steps.append({
-                    "seq": call.get("seq"),
+                    "seq": event.get("step_number") or event.get("seq"),
                     "step_type": step_type,
-                    "raw_content": internal_data.get("raw_content", call.get("content", "")),
+                    "raw_content": internal_data.get("raw_content", ""),
                     "messages_sent": internal_data.get("messages_sent", []),
                     "tokens": internal_data.get("tokens", {}),
-                    "timing_ms": internal_data.get("timing_ms", 0),
+                    "timing_ms": event.get("duration_ms") or internal_data.get("timing_ms", 0),
                 })
             else:  # full
                 # Return everything
                 thinking_steps.append({
-                    "seq": call.get("seq"),
+                    "seq": event.get("step_number") or event.get("seq"),
                     "step_type": step_type,
-                    "internal": meta.get("internal", {}),
-                    "ui": meta.get("ui", {}),
+                    "internal": content.get("internal", {}),
+                    "ui": content.get("ui", {}),
                 })
 
         return {

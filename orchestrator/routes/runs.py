@@ -298,21 +298,21 @@ async def get_run_events(
     if not trace:
         raise HTTPException(status_code=404, detail="Run not found")
 
-    steps = await trace_repo.get_model_calls(run_id)
+    trace_events = await trace_repo.get_trace_events(run_id)
 
     events = []
-    for step in steps:
-        seq = step.get("seq", 0)
+    for event in trace_events:
+        seq = event.get("seq", 0)
         if since_seq is not None and seq <= since_seq:
             continue
-        metadata = step.get("metadata", {})
+        content = event.get("content", {})
         events.append(EventResponse(
             run_id=run_id,
             seq=seq,
-            ts=step.get("created_at", ""),
-            type=step.get("step_type", "unknown"),
-            display=metadata,
-            payload=metadata,
+            ts=event.get("created_at", ""),
+            type=event.get("event_type", "unknown"),
+            display=content,
+            payload=content,
         ))
 
     return {"events": [e.model_dump() for e in events]}
@@ -328,19 +328,18 @@ async def get_run_report(run_id: str):
     if not trace:
         raise HTTPException(status_code=404, detail="Run not found")
 
-    steps = await trace_repo.get_model_calls(run_id)
+    trace_events = await trace_repo.get_trace_events(run_id)
 
     # Build report
     builder = ReportBuilder(format="markdown")
     builder.add_summary(run_id=run_id, status=trace.get("status", "unknown"))
 
     timeline = []
-    for step in steps:
-        meta = step.get("metadata", {})
+    for event in trace_events:
         timeline.append({
-            "seq": step.get("seq"),
-            "type": step.get("step_type"),
-            "duration_ms": meta.get("timing_ms"),
+            "seq": event.get("seq"),
+            "type": event.get("event_type"),
+            "duration_ms": event.get("duration_ms"),
         })
 
     report = builder.build()

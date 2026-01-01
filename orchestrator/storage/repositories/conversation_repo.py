@@ -111,25 +111,18 @@ class ConversationRepo:
             await self.db.conn.commit()
 
     async def delete(self, conversation_id: str) -> None:
-        """Delete conversation and ALL associated runs."""
-        # Manual cleanup to be safe and explicit
-        
-        # 1. Model calls linked to this conversation's runs
-        await self.db.conn.execute(
-            """
-            DELETE FROM model_calls 
-            WHERE run_id IN (SELECT run_id FROM runs WHERE conversation_id = ?)
-            """,
-            (conversation_id,)
-        )
-        
-        # 2. Runs
+        """Delete conversation and ALL associated runs.
+
+        Note: trace_events are automatically deleted via ON DELETE CASCADE
+        when runs are deleted.
+        """
+        # 1. Delete runs (trace_events cascade automatically)
         await self.db.conn.execute(
             "DELETE FROM runs WHERE conversation_id = ?",
             (conversation_id,)
         )
-        
-        # 3. Conversation itself
+
+        # 2. Delete conversation
         await self.db.conn.execute(
             "DELETE FROM conversations WHERE conversation_id = ?",
             (conversation_id,)
