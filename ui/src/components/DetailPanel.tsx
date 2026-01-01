@@ -15,6 +15,7 @@ export function DetailPanel() {
   const selectedEventSeq = useStore((s) => s.selectedEventSeq);
   const selectedRunId = useStore((s) => s.selectedRunId);
   const setDetailPanelOpen = useStore((s) => s.setDetailPanelOpen);
+  const selectRun = useStore((s) => s.selectRun);
   const selectEvent = useStore((s) => s.selectEvent);
   const setEvents = useStore((s) => s.setEvents);
   const setFetching = useStore((s) => s.setFetching);
@@ -224,8 +225,13 @@ export function DetailPanel() {
       {!detailPanelOpen && (
         <button
           className="fixed right-4 top-1/2 -translate-y-1/2 bg-slate-900 text-white px-3 py-2 rounded-md shadow-lg text-sm"
-          onClick={() => setDetailPanelOpen(true)}
-          title="Show raw trace"
+          onClick={() => {
+            // Clear run selection so we show all conversation traces
+            selectRun(null);
+            setShowAllRuns(true);
+            setDetailPanelOpen(true);
+          }}
+          title="Show all conversation traces"
         >
           Trace
         </button>
