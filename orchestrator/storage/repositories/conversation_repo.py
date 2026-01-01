@@ -131,13 +131,19 @@ class ConversationRepo:
             if run_ids:
                 placeholders = ",".join(["?" for _ in run_ids])
 
-                # 2. Delete trace_events for these runs
+                # 2. Clear self-referential parent_event_id to avoid FK issues
+                await self.db.conn.execute(
+                    f"UPDATE trace_events SET parent_event_id = NULL WHERE run_id IN ({placeholders})",
+                    tuple(run_ids)
+                )
+
+                # 3. Delete trace_events for these runs
                 await self.db.conn.execute(
                     f"DELETE FROM trace_events WHERE run_id IN ({placeholders})",
                     tuple(run_ids)
                 )
 
-                # 3. Delete eval_samples that reference these runs
+                # 4. Delete eval_samples that reference these runs
                 await self.db.conn.execute(
                     f"DELETE FROM eval_samples WHERE run_id IN ({placeholders})",
                     tuple(run_ids)
