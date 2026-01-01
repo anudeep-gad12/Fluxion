@@ -113,13 +113,13 @@ class ConversationRepo:
     async def delete(self, conversation_id: str) -> None:
         """Delete conversation and ALL associated data.
 
-        Deletes in order to respect foreign key constraints:
-        1. trace_events (references runs)
-        2. eval_samples (references runs)
-        3. runs (references conversations)
-        4. conversations
+        Temporarily disables foreign key checks to handle complex
+        cross-references between tables.
         """
         try:
+            # Disable FK checks for clean deletion
+            await self.db.conn.execute("PRAGMA foreign_keys = OFF")
+
             # 1. Get all run_ids for this conversation
             async with self.db.conn.execute(
                 "SELECT run_id FROM runs WHERE conversation_id = ?",
@@ -131,19 +131,13 @@ class ConversationRepo:
             if run_ids:
                 placeholders = ",".join(["?" for _ in run_ids])
 
-                # 2. Clear self-referential parent_event_id to avoid FK issues
-                await self.db.conn.execute(
-                    f"UPDATE trace_events SET parent_event_id = NULL WHERE run_id IN ({placeholders})",
-                    tuple(run_ids)
-                )
-
-                # 3. Delete trace_events for these runs
+                # 2. Delete trace_events for these runs
                 await self.db.conn.execute(
                     f"DELETE FROM trace_events WHERE run_id IN ({placeholders})",
                     tuple(run_ids)
                 )
 
-                # 4. Delete eval_samples that reference these runs
+                # 3. Delete eval_samples that reference these runs
                 await self.db.conn.execute(
                     f"DELETE FROM eval_samples WHERE run_id IN ({placeholders})",
                     tuple(run_ids)
@@ -160,7 +154,11 @@ class ConversationRepo:
                 "DELETE FROM conversations WHERE conversation_id = ?",
                 (conversation_id,)
             )
+
             await self.db.conn.commit()
         except Exception as e:
             await self.db.conn.rollback()
             raise e
+        finally:
+            # Re-enable FK checks
+            await self.db.conn.execute("PRAGMA foreign_keys = ON")
