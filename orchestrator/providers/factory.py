@@ -26,6 +26,7 @@ def create_provider(config: "ProviderConfig") -> LLMProvider:
         api_key=config.api_key,
         endpoint=config.endpoint,
         fallback_on_404=config.fallback_on_404,
+        fail_on_tool_fallback=config.fail_on_tool_fallback,
         timeout=config.timeout,
         max_retries=config.max_retries,
         base_delay=config.base_delay,

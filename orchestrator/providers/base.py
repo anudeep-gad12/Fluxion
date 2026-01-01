@@ -72,6 +72,7 @@ class LLMProvider(Protocol):
         temperature: Optional[float] = None,
         reasoning_effort: Optional[str] = None,
         stream: bool = False,
+        previous_response_id: Optional[str] = None,
         **kwargs: Any,
     ) -> LLMResponse:
         """Complete a conversation.
@@ -85,6 +86,7 @@ class LLMProvider(Protocol):
             temperature: Sampling temperature.
             reasoning_effort: Native reasoning effort for gpt-oss ("low", "medium", "high").
             stream: Whether to stream the response.
+            previous_response_id: Response ID from previous call for stateful mode.
             **kwargs: Additional provider-specific parameters.
 
         Returns:
@@ -103,6 +105,7 @@ class LLMProvider(Protocol):
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
         reasoning_effort: Optional[str] = None,
+        previous_response_id: Optional[str] = None,
         **kwargs: Any,
     ) -> LLMResponse:
         """Stream a completion, calling callbacks for each token.
@@ -117,6 +120,7 @@ class LLMProvider(Protocol):
             max_tokens: Maximum tokens.
             temperature: Sampling temperature.
             reasoning_effort: Native reasoning effort.
+            previous_response_id: Response ID from previous call for stateful mode.
             **kwargs: Additional parameters.
 
         Returns:
