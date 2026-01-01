@@ -153,16 +153,15 @@ All LLM interactions go through the provider layer (`orchestrator/providers/`):
 
 ## Data & Tracing
 
-SQLite stores four core entities:
+SQLite stores three core entities:
 
 | Table | Description |
 |-------|-------------|
 | `conversations` | Chat sessions with title, summary, status |
 | `runs` | One run per user message, stores final answer + thinking summary |
-| `model_calls` | Detailed thinking steps and model call logs |
-| `trace_events` | Granular timeline of LLM requests/responses/errors |
+| `trace_events` | Granular timeline of LLM requests/responses/errors/thinking steps |
 
-The UI uses `thinking_summary` for display. Detailed traces are available via `/api/runs/{id}/timeline`.
+Thinking steps are stored as trace_events with `event_type="thinking"`. The UI uses `thinking_summary` for display. Detailed traces are available via `/api/runs/{id}/timeline`.
 
 ## API Summary
 

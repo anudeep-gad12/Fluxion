@@ -136,6 +136,7 @@ class LLMResponse:
     endpoint_used: str = ""                   # /v1/responses or /v1/chat/completions
     usage: Dict[str, int] = field(default_factory=dict)
     finish_reason: str = "stop"
+    response_id: Optional[str] = None        # For stateful mode chaining
 
 class LLMProvider(Protocol):
     """Protocol for LLM providers."""
@@ -668,27 +669,15 @@ CREATE TABLE runs (
     thinking_summary TEXT,
     error_message TEXT,
     status TEXT NOT NULL,  -- running, succeeded, failed
+    last_response_id TEXT,  -- Response ID from /v1/responses for stateful chaining
     usage_stats TEXT,
     FOREIGN KEY(conversation_id) REFERENCES conversations(conversation_id)
 );
 ```
 
-#### model_calls
-
-```sql
-CREATE TABLE model_calls (
-    id TEXT PRIMARY KEY,
-    run_id TEXT NOT NULL,
-    seq INT NOT NULL,
-    created_at TEXT NOT NULL,
-    step_type TEXT NOT NULL,
-    content TEXT,
-    metadata_json TEXT,
-    FOREIGN KEY(run_id) REFERENCES runs(run_id)
-);
-```
-
 #### trace_events
+
+Stores all trace events including thinking steps (with `event_type="thinking"`).
 
 ```sql
 CREATE TABLE trace_events (
@@ -696,9 +685,9 @@ CREATE TABLE trace_events (
     run_id TEXT NOT NULL,
     seq INTEGER NOT NULL,
     created_at TEXT NOT NULL,
-    event_type TEXT NOT NULL,     -- llm_request | llm_response | error | retry
+    event_type TEXT NOT NULL,     -- llm_request | llm_response | thinking | error | retry
     event_status TEXT NOT NULL,   -- pending | success | error | skipped
-    actor TEXT NOT NULL,          -- model | system
+    actor TEXT NOT NULL,          -- model | system | tool:<name>
     endpoint TEXT,                -- /v1/responses | /v1/chat/completions
     attempt INTEGER DEFAULT 1,
     content_json TEXT NOT NULL,
@@ -707,7 +696,9 @@ CREATE TABLE trace_events (
     duration_ms INTEGER,
     token_count INTEGER,
     error_message TEXT,
-    FOREIGN KEY(run_id) REFERENCES runs(run_id)
+    UNIQUE(run_id, seq),
+    FOREIGN KEY(run_id) REFERENCES runs(run_id) ON DELETE CASCADE,
+    FOREIGN KEY(parent_event_id) REFERENCES trace_events(id) ON DELETE CASCADE
 );
 ```
 
@@ -743,6 +734,7 @@ CREATE TABLE eval_samples (
 | POST | `/api/conversations` | Create conversation |
 | GET | `/api/conversations` | List conversations |
 | GET | `/api/conversations/{id}` | Get conversation + runs |
+| GET | `/api/conversations/{id}/traces` | Get all trace events for all runs |
 | PATCH | `/api/conversations/{id}` | Update (title, summary, status) |
 | DELETE | `/api/conversations/{id}` | Delete conversation |
 
