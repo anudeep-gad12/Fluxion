@@ -26,7 +26,7 @@ export function DetailPanel() {
   const selectedEvent = events.find((e) => e.seq === selectedEventSeq);
   const [viewMode, setViewMode] = useState<'trace' | 'event'>('trace');
   const [showInternal, setShowInternal] = useState(true); // Show all events by default in debug view
-  const [showAllRuns, setShowAllRuns] = useState(false); // Show all runs in conversation
+  const [showAllRuns, setShowAllRuns] = useState(true); // Show all runs in conversation by default
   const [conversationEvents, setConversationEvents] = useState<Event[]>([]);
   const [loadingConvTraces, setLoadingConvTraces] = useState(false);
 
