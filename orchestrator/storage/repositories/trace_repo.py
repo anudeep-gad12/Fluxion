@@ -1,12 +1,23 @@
-"""Repository for runs, model calls, and trace events."""
+"""Repository for runs and trace events."""
 
+import asyncio
 import json
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional, List
 from orchestrator.storage.db import Database
 
+
 class TraceRepo:
+    """Repository for runs and trace events.
+
+    Provides atomic operations for trace events with proper concurrency handling.
+    """
+
+    # Class-level lock for atomic seq allocation
+    # This ensures only one add_trace_event transaction runs at a time
+    _seq_lock = asyncio.Lock()
+
     def __init__(self, db: Database):
         self.db = db
 
@@ -337,43 +348,45 @@ class TraceRepo:
         now = datetime.now(timezone.utc).isoformat()
         content_json = json.dumps(content, ensure_ascii=False)
 
-        # Use BEGIN IMMEDIATE for atomic seq allocation
-        # This acquires a write lock immediately, ensuring sequential ordering
-        await self.db.conn.execute("BEGIN IMMEDIATE")
-        try:
-            # Get next seq atomically
-            async with self.db.conn.execute(
-                "SELECT COALESCE(MAX(seq), 0) + 1 FROM trace_events WHERE run_id = ?",
-                (run_id,)
-            ) as cursor:
-                row = await cursor.fetchone()
-                seq = row[0]
+        # Use lock + BEGIN IMMEDIATE for atomic seq allocation
+        # The lock ensures single-threaded access within this process
+        # BEGIN IMMEDIATE handles cross-process coordination in production
+        async with self._seq_lock:
+            await self.db.conn.execute("BEGIN IMMEDIATE")
+            try:
+                # Get next seq atomically
+                async with self.db.conn.execute(
+                    "SELECT COALESCE(MAX(seq), 0) + 1 FROM trace_events WHERE run_id = ?",
+                    (run_id,)
+                ) as cursor:
+                    row = await cursor.fetchone()
+                    seq = row[0]
 
-            # Insert with allocated seq
-            await self.db.conn.execute(
-                """
-                INSERT INTO trace_events (
-                    id, run_id, seq, created_at,
-                    event_type, event_status, actor,
-                    endpoint, attempt, content_json,
-                    parent_event_id, step_number,
-                    duration_ms, token_count, error_message
+                # Insert with allocated seq
+                await self.db.conn.execute(
+                    """
+                    INSERT INTO trace_events (
+                        id, run_id, seq, created_at,
+                        event_type, event_status, actor,
+                        endpoint, attempt, content_json,
+                        parent_event_id, step_number,
+                        duration_ms, token_count, error_message
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        event_id, run_id, seq, now,
+                        event_type, event_status, actor,
+                        endpoint, attempt, content_json,
+                        parent_event_id, step_number,
+                        duration_ms, token_count, error_message
+                    ),
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    event_id, run_id, seq, now,
-                    event_type, event_status, actor,
-                    endpoint, attempt, content_json,
-                    parent_event_id, step_number,
-                    duration_ms, token_count, error_message
-                ),
-            )
 
-            await self.db.conn.execute("COMMIT")
-        except Exception:
-            await self.db.conn.execute("ROLLBACK")
-            raise
+                await self.db.conn.execute("COMMIT")
+            except Exception:
+                await self.db.conn.execute("ROLLBACK")
+                raise
 
         return event_id
 
