@@ -123,14 +123,14 @@ class ConversationRepo:
                 (conversation_id,)
             ) as cursor:
                 run_rows = await cursor.fetchall()
-                run_ids = [row["run_id"] for row in run_rows]
+                run_ids = [dict(row)["run_id"] for row in run_rows]
 
             # 2. Delete eval_samples that reference these runs (if any)
             if run_ids:
                 placeholders = ",".join(["?" for _ in run_ids])
                 await self.db.conn.execute(
                     f"DELETE FROM eval_samples WHERE run_id IN ({placeholders})",
-                    run_ids
+                    tuple(run_ids)
                 )
 
             # 3. Delete runs (trace_events cascade automatically)

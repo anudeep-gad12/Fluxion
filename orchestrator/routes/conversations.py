@@ -77,15 +77,23 @@ async def get_conversation(conversation_id: str):
 @router.delete("/{conversation_id}")
 async def delete_conversation(conversation_id: str):
     """Delete a conversation and all its runs."""
-    db = await get_db()
-    conv_repo = ConversationRepo(db)
+    try:
+        db = await get_db()
+        conv_repo = ConversationRepo(db)
 
-    conversation = await conv_repo.get(conversation_id)
-    if not conversation:
-        raise HTTPException(status_code=404, detail="Conversation not found")
+        conversation = await conv_repo.get(conversation_id)
+        if not conversation:
+            raise HTTPException(status_code=404, detail="Conversation not found")
 
-    await conv_repo.delete(conversation_id)
-    return {"status": "deleted", "conversation_id": conversation_id}
+        await conv_repo.delete(conversation_id)
+        return {"status": "deleted", "conversation_id": conversation_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        print(f"Delete error for {conversation_id}: {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.patch("/{conversation_id}", response_model=ConversationResponse)
