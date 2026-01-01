@@ -177,6 +177,22 @@ export function ConversationList() {
           <h2 className="font-semibold text-sm">Conversations</h2>
         </div>
         <div className="flex items-center gap-1">
+          {isSelectMode && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                if (selectedIds.size === conversations.length) {
+                  setSelectedIds(new Set());
+                } else {
+                  setSelectedIds(new Set(conversations.map(c => c.conversation_id)));
+                }
+              }}
+              title={selectedIds.size === conversations.length ? "Deselect all" : "Select all"}
+            >
+              {selectedIds.size === conversations.length ? 'None' : 'All'}
+            </Button>
+          )}
           <Button
             size="sm"
             variant={isSelectMode ? "secondary" : "ghost"}
