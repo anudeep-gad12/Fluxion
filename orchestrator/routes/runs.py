@@ -30,6 +30,8 @@ from orchestrator.storage.repositories.trace_repo import TraceRepo
 router = APIRouter(prefix="/api", tags=["runs"])
 
 # Background task tracking - shared state
+# WARNING: _active_runs is in-memory, single-process only.
+# For multi-worker prod deployment, use Redis pub/sub or durable event bus.
 _active_runs: dict[str, asyncio.Queue] = {}
 
 
@@ -68,7 +70,7 @@ async def create_conversation_run(conversation_id: str, request: CreateConversat
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
-    run_id = str(uuid.uuid4())[:8]
+    run_id = str(uuid.uuid4())
     event_queue: asyncio.Queue = asyncio.Queue(maxsize=100)
     _active_runs[run_id] = event_queue
 
@@ -123,9 +125,12 @@ async def create_conversation_run(conversation_id: str, request: CreateConversat
             })
         except Exception as e:
             event_queue.put_nowait({"type": "_STREAM_ERROR", "error": str(e)})
-        finally:
-            await asyncio.sleep(5)
+            # Immediate cleanup on error
             _active_runs.pop(run_id, None)
+            return
+        # Delay cleanup on success for late joiners
+        await asyncio.sleep(2)
+        _active_runs.pop(run_id, None)
 
     asyncio.create_task(run_chat())
 
@@ -152,7 +157,7 @@ async def create_run(request: CreateRunRequest):
         title=_conversation_title_from_message(request.prompt),
     )
 
-    run_id = str(uuid.uuid4())[:8]
+    run_id = str(uuid.uuid4())
     event_queue: asyncio.Queue = asyncio.Queue(maxsize=100)
     _active_runs[run_id] = event_queue
 
@@ -186,9 +191,12 @@ async def create_run(request: CreateRunRequest):
             })
         except Exception as e:
             event_queue.put_nowait({"type": "_STREAM_ERROR", "error": str(e)})
-        finally:
-            await asyncio.sleep(5)
+            # Immediate cleanup on error
             _active_runs.pop(run_id, None)
+            return
+        # Delay cleanup on success for late joiners
+        await asyncio.sleep(2)
+        _active_runs.pop(run_id, None)
 
     asyncio.create_task(run_chat())
 
