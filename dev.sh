@@ -14,7 +14,7 @@ set -e
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 LOG_DIR="$PROJECT_DIR/logs"
 PID_DIR="$PROJECT_DIR/.pids"
-DB_PATH="$PROJECT_DIR/data/runs.db"
+DB_PATH="$PROJECT_DIR/var/traces.sqlite"
 
 # Colors
 RED='\033[0;31m'
@@ -157,8 +157,8 @@ view_traces() {
             run_id,
             status,
             mode,
-            profile,
-            substr(prompt, 1, 40) as prompt,
+            profile_name,
+            substr(user_message, 1, 40) as message,
             datetime(created_at) as created
         FROM runs
         ORDER BY created_at DESC
@@ -174,10 +174,11 @@ view_traces() {
         sqlite3 -header -column "$DB_PATH" "
             SELECT
                 seq,
-                type,
-                json_extract(display, '$.title') as title,
-                substr(json_extract(display, '$.summary'), 1, 60) as summary
-            FROM events
+                event_type as type,
+                event_status as status,
+                actor,
+                substr(content_json, 1, 60) as content
+            FROM trace_events
             WHERE run_id = '$latest_run'
             ORDER BY seq;
         "
@@ -191,18 +192,18 @@ explore_trace() {
         echo "Usage: ./dev.sh explore <run_id>"
         echo ""
         echo "Recent runs:"
-        sqlite3 -header -column "$DB_PATH" "SELECT run_id, status, substr(prompt, 1, 50) as prompt FROM runs ORDER BY created_at DESC LIMIT 5;"
+        sqlite3 -header -column "$DB_PATH" "SELECT run_id, status, substr(user_message, 1, 50) as message FROM runs ORDER BY created_at DESC LIMIT 5;"
         exit 1
     fi
 
     echo -e "${BLUE}=== Run Details ===${NC}"
-    sqlite3 -header -column "$DB_PATH" "SELECT * FROM runs WHERE run_id = '$run_id';"
+    sqlite3 -header -column "$DB_PATH" "SELECT run_id, conversation_id, status, mode, profile_name, substr(user_message, 1, 60) as message, created_at FROM runs WHERE run_id = '$run_id';"
 
     echo ""
     echo -e "${BLUE}=== Events ===${NC}"
     sqlite3 -header -column "$DB_PATH" "
-        SELECT seq, type, display, substr(payload, 1, 100) as payload_preview
-        FROM events WHERE run_id = '$run_id' ORDER BY seq;
+        SELECT seq, event_type as type, event_status as status, actor, substr(content_json, 1, 80) as content
+        FROM trace_events WHERE run_id = '$run_id' ORDER BY seq;
     "
 
     echo ""

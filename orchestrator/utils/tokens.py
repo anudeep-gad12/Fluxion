@@ -4,12 +4,9 @@ Uses cl100k_base encoding which works ~95% accurately for most models
 including OpenAI GPT-4, Mistral, and similar architectures.
 """
 
-from typing import TYPE_CHECKING, Optional
+from typing import Optional
 
 import tiktoken
-
-if TYPE_CHECKING:
-    from orchestrator.models.base import Message
 
 # Lazy-load encoder for performance
 _encoder: Optional[tiktoken.Encoding] = None
@@ -55,20 +52,6 @@ class TokenCounter:
         """Alias for count_tokens (backward compatibility)."""
         return self.count_tokens(text)
 
-    def count_messages(self, messages: list["Message"]) -> int:
-        """Count total tokens in a list of messages.
-
-        Args:
-            messages: List of Message objects.
-
-        Returns:
-            Total token count including role overhead.
-        """
-        total = 0
-        for msg in messages:
-            total += self.count_tokens(msg.content) + self.ROLE_OVERHEAD
-        return total
-
     def count_message_dicts(self, messages: list[dict]) -> int:
         """Count total tokens in a list of message dicts.
 
@@ -83,25 +66,6 @@ class TokenCounter:
             content = msg.get("content", "")
             total += self.count_tokens(content) + self.ROLE_OVERHEAD
         return total
-
-    def fits_in_context(
-        self,
-        messages: list["Message"],
-        max_tokens: int,
-        reserve: int = 0,
-    ) -> bool:
-        """Check if messages fit within context limit.
-
-        Args:
-            messages: List of Message objects.
-            max_tokens: Maximum context tokens allowed.
-            reserve: Tokens to reserve (e.g., for response).
-
-        Returns:
-            True if messages fit, False otherwise.
-        """
-        used = self.count_messages(messages)
-        return used <= (max_tokens - reserve)
 
 
 # Singleton instance for convenience

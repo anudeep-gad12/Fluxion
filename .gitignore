@@ -58,3 +58,4 @@ ui/dist/
 
 # Agent outputs
 .pids/
+.claude/
