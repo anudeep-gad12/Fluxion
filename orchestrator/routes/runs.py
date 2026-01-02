@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import time
 import uuid
 from typing import Optional
 
@@ -9,6 +10,9 @@ from fastapi import APIRouter, HTTPException, Query
 from sse_starlette.sse import EventSourceResponse
 
 from orchestrator.config import get_chat_config
+from orchestrator.logging_config import get_logger, get_request_id, set_request_id, set_component
+
+logger = get_logger(__name__)
 from orchestrator.engine.chat_engine import ChatEngine
 from orchestrator.reporting.report_builder import ReportBuilder
 from orchestrator.schemas import (
@@ -213,54 +217,105 @@ async def create_run(request: CreateRunRequest):
 @router.get("/runs/{run_id}/stream")
 async def stream_run_events(run_id: str):
     """Stream events for a run using Server-Sent Events."""
+    # Capture parent request ID for SSE context
+    parent_request_id = get_request_id()
 
     async def event_generator():
-        if run_id in _active_runs:
-            queue = _active_runs[run_id]
-            while True:
-                try:
-                    event = await asyncio.wait_for(queue.get(), timeout=30.0)
-                    if event.get("type") == "_STREAM_END":
+        # Restore request ID in generator context
+        if parent_request_id:
+            set_request_id(parent_request_id)
+        set_component("sse")
+
+        chunk_count = 0
+        stream_start = time.time()
+
+        logger.info(f"SSE stream opened", extra={"run_id": run_id})
+
+        try:
+            if run_id in _active_runs:
+                queue = _active_runs[run_id]
+                while True:
+                    try:
+                        event = await asyncio.wait_for(queue.get(), timeout=30.0)
+                        chunk_count += 1
+
+                        if event.get("type") == "_STREAM_END":
+                            duration_ms = int((time.time() - stream_start) * 1000)
+                            logger.info(
+                                "SSE stream completed",
+                                extra={
+                                    "run_id": run_id,
+                                    "chunk_count": chunk_count,
+                                    "duration_ms": duration_ms,
+                                }
+                            )
+                            yield {
+                                "event": "complete",
+                                "data": json.dumps(event.get("result", {})),
+                            }
+                            break
+                        elif event.get("type") == "_STREAM_ERROR":
+                            logger.error(
+                                "SSE stream error",
+                                extra={
+                                    "run_id": run_id,
+                                    "error": event.get("error"),
+                                    "chunk_count": chunk_count,
+                                }
+                            )
+                            yield {
+                                "event": "error",
+                                "data": json.dumps({"error": event.get("error")}),
+                            }
+                            break
+                        elif event.get("type") == "_STREAM_ABORTED":
+                            logger.warning(
+                                "SSE stream aborted",
+                                extra={
+                                    "run_id": run_id,
+                                    "chunk_count": chunk_count,
+                                }
+                            )
+                            yield {
+                                "event": "aborted",
+                                "data": json.dumps({"run_id": run_id}),
+                            }
+                            break
+                        else:
+                            yield {
+                                "event": "event",
+                                "data": json.dumps(event),
+                            }
+                    except asyncio.TimeoutError:
+                        yield {"event": "ping", "data": "{}"}
+            else:
+                # Run not active, check DB
+                logger.debug(f"SSE stream fallback to DB", extra={"run_id": run_id})
+                db = await get_db()
+                trace_repo = TraceRepo(db)
+                trace = await trace_repo.get_run(run_id)
+                if trace:
+                    if trace.get("status") in ("succeeded", "failed"):
                         yield {
                             "event": "complete",
-                            "data": json.dumps(event.get("result", {})),
+                            "data": json.dumps({
+                                "run_id": run_id,
+                                "status": trace.get("status"),
+                                "final_answer": trace.get("final_answer"),
+                                "thinking_summary": trace.get("thinking_summary"),
+                            }),
                         }
-                        break
-                    elif event.get("type") == "_STREAM_ERROR":
-                        yield {
-                            "event": "error",
-                            "data": json.dumps({"error": event.get("error")}),
-                        }
-                        break
-                    elif event.get("type") == "_STREAM_ABORTED":
-                        yield {
-                            "event": "aborted",
-                            "data": json.dumps({"run_id": run_id}),
-                        }
-                        break
-                    else:
-                        yield {
-                            "event": "event",
-                            "data": json.dumps(event),
-                        }
-                except asyncio.TimeoutError:
-                    yield {"event": "ping", "data": "{}"}
-        else:
-            # Run not active, check DB
-            db = await get_db()
-            trace_repo = TraceRepo(db)
-            trace = await trace_repo.get_run(run_id)
-            if trace:
-                if trace.get("status") in ("succeeded", "failed"):
-                    yield {
-                        "event": "complete",
-                        "data": json.dumps({
-                            "run_id": run_id,
-                            "status": trace.get("status"),
-                            "final_answer": trace.get("final_answer"),
-                            "thinking_summary": trace.get("thinking_summary"),
-                        }),
-                    }
+        except asyncio.CancelledError:
+            duration_ms = int((time.time() - stream_start) * 1000)
+            logger.warning(
+                "SSE stream client disconnected",
+                extra={
+                    "run_id": run_id,
+                    "chunk_count": chunk_count,
+                    "duration_ms": duration_ms,
+                }
+            )
+            raise
 
     return EventSourceResponse(event_generator())
 
