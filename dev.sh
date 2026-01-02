@@ -91,10 +91,55 @@ stop_all() {
     log "All services stopped"
 }
 
-# View logs
+# View logs (combined view)
 view_logs() {
-    log "Tailing API logs (Ctrl+C to exit)..."
-    tail -f "$LOG_DIR/api.log"
+    log "Showing recent logs then tailing app.log (Ctrl+C to exit)..."
+    echo ""
+    echo -e "${BLUE}=== Recent API Access Logs (api.log) ===${NC}"
+    tail -10 "$LOG_DIR/api.log" 2>/dev/null || echo "No api.log yet"
+    echo ""
+    echo -e "${BLUE}=== Application Logs (app.log) ===${NC}"
+    if [ -f "$LOG_DIR/app.log" ] && [ -s "$LOG_DIR/app.log" ]; then
+        tail -f "$LOG_DIR/app.log" | while read line; do
+            # Pretty print JSON if jq is available
+            if command -v jq >/dev/null 2>&1; then
+                echo "$line" | jq -c '{ts: .timestamp[-12:], lvl: .level, msg: .message[:60]}' 2>/dev/null || echo "$line"
+            else
+                echo "$line"
+            fi
+        done
+    else
+        echo "No app.log yet - start the server to generate logs"
+    fi
+}
+
+# View structured application logs (JSON)
+view_app_logs() {
+    log "Tailing structured app logs (Ctrl+C to exit)..."
+    if command -v jq >/dev/null 2>&1; then
+        tail -f "$LOG_DIR/app.log" | jq .
+    else
+        tail -f "$LOG_DIR/app.log"
+    fi
+}
+
+# Debug: show recent errors
+show_debug() {
+    echo -e "${BLUE}=== Recent Errors from app.log ===${NC}"
+    if [ -f "$LOG_DIR/app.log" ]; then
+        if command -v jq >/dev/null 2>&1; then
+            grep '"level":"ERROR"\|"level":"WARNING"' "$LOG_DIR/app.log" 2>/dev/null | tail -20 | jq . || echo "No errors found"
+        else
+            grep '"level":"ERROR"\|"level":"WARNING"' "$LOG_DIR/app.log" 2>/dev/null | tail -20 || echo "No errors found"
+        fi
+    else
+        echo "No app.log found"
+    fi
+    echo ""
+    echo -e "${BLUE}=== Quick Commands ===${NC}"
+    echo "  Find request ID:  grep -o '\"request_id\":\"[^\"]*\"' $LOG_DIR/app.log | sort -u"
+    echo "  Trace request:    grep '<request_id>' $LOG_DIR/app.log | jq ."
+    echo "  All errors:       grep '\"level\":\"ERROR\"' $LOG_DIR/app.log | jq ."
 }
 
 # View traces from SQLite
@@ -228,6 +273,12 @@ case "${1:-start}" in
     logs)
         view_logs
         ;;
+    applogs)
+        view_app_logs
+        ;;
+    debug)
+        show_debug
+        ;;
     traces)
         view_traces
         ;;
@@ -246,7 +297,9 @@ case "${1:-start}" in
         echo "  restart   Restart all services"
         echo "  api       Start only the API"
         echo "  ui        Start only the UI"
-        echo "  logs      Tail API logs"
+        echo "  logs      Tail combined logs (api.log summary + app.log live)"
+        echo "  applogs   Tail structured app logs (JSON, pretty-printed)"
+        echo "  debug     Show recent errors and debugging commands"
         echo "  traces    View recent traces from database"
         echo "  explore   Explore a specific run: ./dev.sh explore <run_id>"
         echo "  status    Show service status"

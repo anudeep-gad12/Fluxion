@@ -1,17 +1,119 @@
 #!/bin/bash
 # Comprehensive sanity flow for Reasoner
-# Run: ./scripts/sanity_test.sh
+# Run: ./scripts/sanity_test.sh [--debug]
 # Requires: API server running on port 9000 (or override API_URL)
+#
+# Options:
+#   --debug    Tail structured logs in background during test
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 API_URL="${API_URL:-http://127.0.0.1:9000}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+LOG_DIR="$PROJECT_DIR/logs"
+APP_LOG="$LOG_DIR/app.log"
+
 PASSED=0
 FAILED=0
 LAST_RUN_PAYLOAD=""
+TAIL_PID=""
+DEBUG_MODE=false
+
+# Parse --debug flag
+if [ "$1" = "--debug" ]; then
+    DEBUG_MODE=true
+    shift
+fi
+
+# ============================================================
+# LOG INTEGRATION FUNCTIONS
+# ============================================================
+
+clear_logs() {
+    mkdir -p "$LOG_DIR"
+    : > "$APP_LOG"
+    echo -e "${YELLOW}Cleared app.log for fresh run${NC}"
+}
+
+show_failure_logs() {
+    local run_id="$1"
+    echo ""
+    echo -e "${BLUE}=== Relevant Log Entries ===${NC}"
+    if [ -f "$APP_LOG" ] && [ -s "$APP_LOG" ]; then
+        if [ -n "$run_id" ]; then
+            # Show logs for specific run
+            grep "$run_id" "$APP_LOG" 2>/dev/null | \
+                python3 -c "
+import sys, json
+for line in sys.stdin:
+    try:
+        e = json.loads(line)
+        lvl = e.get('level', '')
+        msg = e.get('message', '')[:60]
+        err = e.get('error', {})
+        print(f'{lvl}: {msg}')
+        if err.get('type'):
+            print(f'       Error: {err.get(\"type\")}: {err.get(\"message\", \"\")[:50]}')
+    except: pass
+" 2>/dev/null || grep "$run_id" "$APP_LOG"
+        else
+            # Show all errors
+            grep '"level":"ERROR"\|"level":"WARNING"' "$APP_LOG" 2>/dev/null | tail -20 | \
+                python3 -c "
+import sys, json
+for line in sys.stdin:
+    try:
+        e = json.loads(line)
+        lvl = e.get('level', '')
+        msg = e.get('message', '')[:60]
+        req_id = e.get('request_id', '-')[:8]
+        print(f'[{req_id}] {lvl}: {msg}')
+    except: print(line.strip())
+" 2>/dev/null || grep '"level":"ERROR"\|"level":"WARNING"' "$APP_LOG" | tail -20
+        fi
+    else
+        echo "No logs found"
+    fi
+}
+
+start_debug_tail() {
+    if [ "$DEBUG_MODE" = true ]; then
+        echo -e "${YELLOW}Starting log tail in background...${NC}"
+        # Use a subshell with exec to ensure we can kill the entire process group
+        (
+            exec tail -f "$APP_LOG" 2>/dev/null | while read line; do
+                echo "$line" | python3 -c "
+import sys, json
+for line in sys.stdin:
+    try:
+        e = json.loads(line)
+        ts = e.get('timestamp', '')[-12:-7]
+        lvl = e.get('level', '')[:4]
+        msg = e.get('message', '')[:50]
+        print(f'  [{ts}] {lvl}: {msg}')
+    except: pass
+" 2>/dev/null
+            done
+        ) &
+        TAIL_PID=$!
+    fi
+}
+
+stop_debug_tail() {
+    if [ -n "$TAIL_PID" ]; then
+        # Kill the process group to ensure tail and all children are killed
+        kill -- -$TAIL_PID 2>/dev/null || kill $TAIL_PID 2>/dev/null || true
+        # Also kill any orphaned tail processes for this log file
+        pkill -f "tail -f $APP_LOG" 2>/dev/null || true
+    fi
+}
+
+trap stop_debug_tail EXIT
 
 print_header() {
     echo ""
@@ -298,11 +400,17 @@ check_think_tags() {
 }
 
 # ============================================================
+# 0. SETUP
+# ============================================================
+clear_logs
+start_debug_tail
+
+# ============================================================
 # 1. IMPORT TESTS (No server needed)
 # ============================================================
 print_header "1. Import Tests"
 
-cd "$(dirname "$0")/.."
+cd "$PROJECT_DIR"
 
 # Activate venv if exists
 if [ -f ".venv/bin/activate" ]; then
@@ -479,5 +587,14 @@ if [ $FAILED -eq 0 ]; then
     exit 0
 else
     echo -e "\n${RED}Some tests failed!${NC}"
+
+    # Show relevant logs for debugging
+    show_failure_logs ""
+
+    echo ""
+    echo -e "${YELLOW}Debugging commands:${NC}"
+    echo "  View full log:     cat $APP_LOG"
+    echo "  Find errors:       grep '\"level\":\"ERROR\"' $APP_LOG | jq ."
+    echo "  Run with debug:    ./scripts/sanity_test.sh --debug"
     exit 1
 fi
