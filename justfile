@@ -22,14 +22,6 @@ api:
 ui:
     cd ui && pnpm dev --port 3000
 
-# Start model servers (requires llama.cpp)
-models:
-    ./scripts/start_models.sh
-
-# Start model servers in single-model mode
-models-single:
-    SINGLE_MODEL=true ./scripts/start_models.sh
-
 # Build UI for production
 build:
     cd ui && pnpm build
