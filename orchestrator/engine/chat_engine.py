@@ -12,7 +12,6 @@ All settings come from chat_config.yaml.
 """
 
 import asyncio
-import logging
 import sys
 import time
 import uuid
@@ -23,14 +22,15 @@ from typing import Any, Callable, Optional
 import httpx
 
 from orchestrator.config import ChatConfig, get_chat_config
+from orchestrator.logging_config import get_logger, set_component
+
+logger = get_logger(__name__)
 from orchestrator.providers import create_provider, LLMProvider
 from orchestrator.storage.db import get_db
 from orchestrator.storage.repositories.conversation_repo import ConversationRepo
 from orchestrator.storage.repositories.trace_repo import TraceRepo
 from orchestrator.thinking import ThinkingOrchestrator, StreamParser
 from orchestrator.utils.tokens import get_token_counter
-
-logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -118,6 +118,8 @@ class ChatEngine:
         Returns:
             ChatResult with the response.
         """
+        set_component("chat_engine")
+
         # Get the thinking strategy (validates name, allows future extensibility)
         # Inject config-based params for specific strategies
         params = dict(thinking_params or {})
@@ -192,8 +194,11 @@ class ChatEngine:
 
             if self.config.provider.state_mode == "stateful_opt_in":
                 previous_response_id = await trace_repo.get_latest_response_id(conversation_id)
-                if self.config.tracing.log_level == "debug" and previous_response_id:
-                    logger.debug(f"[ChatEngine] Stateful mode: using previous_response_id={previous_response_id}")
+                if previous_response_id:
+                    logger.debug(
+                        "Stateful mode enabled",
+                        extra={"previous_response_id": previous_response_id}
+                    )
 
             # Create model_call wrapper that strategies will use
             async def model_call_wrapper(
@@ -243,7 +248,7 @@ class ChatEngine:
                             step_number=model_call_count,
                         )
                     except Exception as trace_err:
-                        logger.warning(f"Failed to record llm_request trace: {trace_err}")
+                        logger.warning("Failed to record llm_request trace", extra={"error": str(trace_err)})
 
                 try:
                     if logprobs:
@@ -276,7 +281,7 @@ class ChatEngine:
                                     duration_ms=call_duration_ms,
                                 )
                             except Exception as trace_err:
-                                logger.warning(f"Failed to record llm_response trace: {trace_err}")
+                                logger.warning("Failed to record llm_response trace", extra={"error": str(trace_err)})
 
                         return response_text, usage or {}, logprobs_data
                     else:
@@ -388,7 +393,7 @@ class ChatEngine:
                                     duration_ms=call_duration_ms,
                                 )
                             except Exception as trace_err:
-                                logger.warning(f"Failed to record llm_response trace: {trace_err}")
+                                logger.warning("Failed to record llm_response trace", extra={"error": str(trace_err)})
 
                         # Return response with reasoning (third value for native reasoning support)
                         return response_text, usage or {}, native_reasoning
@@ -416,7 +421,7 @@ class ChatEngine:
                                 error_message=str(e),
                             )
                         except Exception as trace_err:
-                            logger.warning(f"Failed to record error trace: {trace_err}")
+                            logger.warning("Failed to record error trace", extra={"error": str(trace_err)})
 
                     # Emit error event so UI knows to stop waiting
                     if event_callback:
@@ -765,9 +770,8 @@ class ChatEngine:
                 "total_tokens": prompt_tokens + completion_tokens,
             }
 
-        # Log endpoint used if debug
-        if self.config.tracing.log_level == "debug":
-            logger.debug(f"[ChatEngine] Streaming via {response.endpoint_used}")
+        # Log endpoint used
+        logger.debug("Streaming completed", extra={"endpoint": response.endpoint_used})
 
         return response_text, usage, response.reasoning, response.response_id
 

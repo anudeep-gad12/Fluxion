@@ -6,18 +6,19 @@ with automatic fallback and endpoint caching.
 
 import asyncio
 import json
-import logging
 import random
 import time
 from typing import Any, Callable, ClassVar, Dict, List, Optional
 
 import httpx
 
+from orchestrator.logging_config import get_logger, set_component
+
 from .base import LLMResponse, ProviderError, RetryExhaustedError, ToolFallbackError
 from .request_builders import build_chat_completions_request, build_responses_request
 from .response_parsers import parse_chat_result, parse_responses_result, parse_streaming_delta
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def normalize_base_url(url: str) -> str:
@@ -401,7 +402,10 @@ class OpenAICompatProvider:
             supports = False
 
         self._endpoint_cache[self._base_url] = supports
-        logger.debug(f"Endpoint detection for {self._base_url}: supports_responses={supports}")
+        logger.info(
+            "Endpoint detection complete",
+            extra={"base_url": self._base_url, "supports_responses": supports}
+        )
         return "responses" if supports else "chat_completions"
 
     async def _handle_fallback(
@@ -597,17 +601,29 @@ class OpenAICompatProvider:
                     return response
 
                 last_error = f"HTTP {response.status_code}"
-                logger.debug(f"Retryable status {response.status_code} on attempt {attempt}")
+                logger.warning(
+                    "Retryable HTTP status",
+                    extra={"status_code": response.status_code, "attempt": attempt, "max_retries": self._max_retries}
+                )
 
             except httpx.TimeoutException as e:
                 last_error = f"Timeout: {e}"
-                logger.debug(f"Timeout on attempt {attempt}: {e}")
+                logger.warning(
+                    "Request timeout",
+                    extra={"attempt": attempt, "error": str(e)}
+                )
             except httpx.ConnectError as e:
                 last_error = f"Connect error: {e}"
-                logger.debug(f"Connect error on attempt {attempt}: {e}")
+                logger.warning(
+                    "Connection error",
+                    extra={"attempt": attempt, "error": str(e)}
+                )
             except httpx.ReadError as e:
                 last_error = f"Read error: {e}"
-                logger.debug(f"Read error on attempt {attempt}: {e}")
+                logger.warning(
+                    "Read error",
+                    extra={"attempt": attempt, "error": str(e)}
+                )
 
             # Calculate delay with exponential backoff + jitter
             if attempt < self._max_retries:
@@ -617,7 +633,14 @@ class OpenAICompatProvider:
                 )
                 jitter = delay * random.uniform(0.1, 0.3)
                 total_delay = delay + jitter
-                logger.debug(f"Retrying in {total_delay:.2f}s (attempt {attempt}/{self._max_retries})")
+                logger.info(
+                    "Retrying request",
+                    extra={
+                        "delay_seconds": round(total_delay, 2),
+                        "attempt": attempt,
+                        "max_retries": self._max_retries,
+                    }
+                )
                 await asyncio.sleep(total_delay)
 
         raise RetryExhaustedError(
