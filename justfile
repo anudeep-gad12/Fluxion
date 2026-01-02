@@ -46,6 +46,18 @@ fmt:
 test:
     uv run pytest
 
+# Run test loop with log analysis (clears logs, runs tests, shows errors)
+test-loop *ARGS:
+    ./scripts/test_loop.sh {{ARGS}}
+
+# Run sanity tests with log analysis
+sanity:
+    ./scripts/sanity_test.sh
+
+# Run sanity tests with live log tailing
+sanity-debug:
+    ./scripts/sanity_test.sh --debug
+
 # Clean generated files
 clean:
     rm -rf var/
