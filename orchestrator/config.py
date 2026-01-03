@@ -169,13 +169,6 @@ class ChatTracingConfig(BaseModel):
 # =============================================================================
 
 
-class CoTConfig(BaseModel):
-    """Chain-of-Thought strategy settings."""
-
-    thinking_budget: int = 512  # Max tokens for thinking phase
-    answer_budget: int = 256  # Max tokens for answer phase
-
-
 class ThinkingTracingConfig(BaseModel):
     """Thinking tracing settings."""
 
@@ -193,8 +186,7 @@ class ThinkingUIConfig(BaseModel):
 class ThinkingConfig(BaseModel):
     """Complete thinking/reasoning configuration."""
 
-    mode_mapping: Dict[str, str] = {"default": "direct", "thinking": "cot"}
-    cot: CoTConfig = CoTConfig()
+    mode_mapping: Dict[str, str] = {"default": "direct", "thinking": "direct"}
     tracing: ThinkingTracingConfig = ThinkingTracingConfig()
     ui: ThinkingUIConfig = ThinkingUIConfig()
 

@@ -19,8 +19,6 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
-import httpx
-
 from orchestrator.config import ChatConfig, get_chat_config
 from orchestrator.logging_config import get_logger, set_component
 
@@ -50,13 +48,8 @@ class ChatResult:
 class ChatEngine:
     """Chat engine with pluggable thinking strategies.
 
-    Supports different reasoning approaches via ThinkingOrchestrator:
-    - direct: No explicit thinking, just generate answer (fastest)
-    - cot: Chain-of-Thought with <think>/<answer> tags (+17% on reasoning)
-    - auto: Auto-detect complexity and route to appropriate strategy
-    - self_consistency: Multiple paths + voting (coming soon)
-    - self_reflection: Critique and revise loop (coming soon)
-    - chain_of_draft: Minimal drafts per step (coming soon)
+    Supports reasoning via ThinkingOrchestrator:
+    - direct: Uses model's native reasoning (fastest, works with gpt-oss models)
     """
 
     def __init__(self, config: Optional[ChatConfig] = None):
@@ -70,27 +63,8 @@ class ChatEngine:
         # Initialize LLM provider (uses provider config for endpoint selection, retries, etc.)
         self._provider = create_provider(self.config.provider)
 
-        # Legacy client for methods that need direct HTTP access (logprobs, etc.)
-        self._client: Optional[httpx.AsyncClient] = None
-
         # Initialize thinking orchestrator (default to "direct", actual strategy chosen per-request via mode_mapping)
         self.thinking_orchestrator = ThinkingOrchestrator(default_strategy="direct")
-
-    async def _get_client(self) -> httpx.AsyncClient:
-        """Get or create HTTP client for legacy methods.
-
-        Note: Prefer using self._provider for new code.
-        """
-        if self._client is None:
-            # Use provider's base_url and auth for legacy client
-            headers = {"Content-Type": "application/json"}
-            if self.config.provider.api_key:
-                headers["Authorization"] = f"Bearer {self.config.provider.api_key}"
-            self._client = httpx.AsyncClient(
-                timeout=self.config.provider.timeout,
-                headers=headers,
-            )
-        return self._client
 
     async def chat(
         self,
@@ -121,16 +95,7 @@ class ChatEngine:
         set_component("chat_engine")
 
         # Get the thinking strategy (validates name, allows future extensibility)
-        # Inject config-based params for specific strategies
         params = dict(thinking_params or {})
-
-        # CoT strategy params
-        if thinking_strategy == "cot":
-            cot_config = self.config.thinking.cot
-            if "thinking_budget" not in params:
-                params["thinking_budget"] = cot_config.thinking_budget
-            if "answer_budget" not in params:
-                params["answer_budget"] = cot_config.answer_budget
 
         strategy = self.thinking_orchestrator.get_strategy(
             thinking_strategy, **params
@@ -205,15 +170,13 @@ class ChatEngine:
                 msgs: list[dict],
                 temperature: Optional[float] = None,
                 max_tokens: Optional[int] = None,
-                logprobs: bool = False,
                 stop: Optional[list[str]] = None,  # Stop sequences for thinking control
                 **kwargs,
             ) -> tuple:
                 """Model call function passed to thinking strategies.
 
                 Returns:
-                    If logprobs=False: (response_text, usage_dict)
-                    If logprobs=True: (response_text, usage_dict, logprobs_list)
+                    Tuple of (response_text, usage_dict, native_reasoning).
                 """
                 nonlocal model_call_count
                 model_call_count += 1
@@ -241,7 +204,6 @@ class ChatEngine:
                                 "messages_count": len(msgs),
                                 "temperature": temp_override,
                                 "max_tokens": max_tokens_override,
-                                "logprobs": logprobs,
                             },
                             actor="system",
                             event_status="pending",
@@ -251,152 +213,118 @@ class ChatEngine:
                         logger.warning("Failed to record llm_request trace", extra={"error": str(trace_err)})
 
                 try:
-                    if logprobs:
-                        # Use non-streaming call with logprobs for CAR
-                        response_text, usage, logprobs_data = await self._call_model_with_logprobs(msgs)
+                    # Create stream parser to route thinking vs answer tokens
+                    stream_parser = StreamParser()
+                    debug_streaming = self.config.tracing.log_level == "debug"
 
-                        # Record llm_response trace event for logprobs call
-                        if self.config.tracing.log_model_calls and request_event_id:
-                            call_duration_ms = int((time.time() - call_start_time) * 1000)
-                            try:
-                                await trace_repo.add_trace_event(
-                                    run_id=run_id,
-                                    event_type="llm_response",
-                                    content={
-                                        "response_length": len(response_text),
-                                        "usage": usage or {},
-                                        "has_logprobs": logprobs_data is not None,
-                                    },
-                                    actor="model",
-                                    event_status="success",
-                                    parent_event_id=request_event_id,
-                                    step_number=model_call_count,
-                                    duration_ms=call_duration_ms,
-                                    token_count=(usage or {}).get("total_tokens"),
-                                )
-                                # Update request event to success
-                                await trace_repo.update_trace_event(
-                                    request_event_id,
-                                    event_status="success",
-                                    duration_ms=call_duration_ms,
-                                )
-                            except Exception as trace_err:
-                                logger.warning("Failed to record llm_response trace", extra={"error": str(trace_err)})
+                    # Log which call is creating the parser
+                    if debug_streaming:
+                        # Get a snippet of the last user message to identify the call
+                        last_user = [m for m in msgs if m.get("role") == "user"][-1]["content"][:50] if any(m.get("role") == "user" for m in msgs) else "no-user-msg"
+                        sys.stderr.write(f"[ChatEngine] Creating NEW StreamParser for model_call, last_user_msg={repr(last_user)}...\n")
+                        sys.stderr.flush()
 
-                        return response_text, usage or {}, logprobs_data
-                    else:
-                        # Create stream parser to route thinking vs answer tokens
-                        stream_parser = StreamParser()
-                        debug_streaming = self.config.tracing.log_level == "debug"
+                    # Token callback for streaming - routes to THINKING_TOKEN or TOKEN
+                    def on_token(token: str):
+                        if not event_callback:
+                            return
 
-                        # Log which call is creating the parser
-                        if debug_streaming:
-                            # Get a snippet of the last user message to identify the call
-                            last_user = [m for m in msgs if m.get("role") == "user"][-1]["content"][:50] if any(m.get("role") == "user" for m in msgs) else "no-user-msg"
-                            sys.stderr.write(f"[ChatEngine] Creating NEW StreamParser for model_call, last_user_msg={repr(last_user)}...\n")
-                            sys.stderr.flush()
+                        # Feed token to parser to detect thinking vs answer sections
+                        thinking_token, answer_token = stream_parser.feed(token, debug=debug_streaming)
 
-                        # Token callback for streaming - routes to THINKING_TOKEN or TOKEN
-                        def on_token(token: str):
-                            if not event_callback:
-                                return
-
-                            # Feed token to parser to detect thinking vs answer sections
-                            thinking_token, answer_token = stream_parser.feed(token, debug=debug_streaming)
-
-                            # Emit thinking token if in thinking section
-                            if thinking_token:
-                                if debug_streaming:
-                                    sys.stderr.write(f"[ChatEngine] Emitting THINKING_TOKEN: {repr(thinking_token[:30])}...\n")
-                                    sys.stderr.flush()
-                                event_callback({
-                                    "type": "THINKING_TOKEN",
-                                    "run_id": run_id,
-                                    "content": thinking_token,
-                                })
-
-                            # Emit answer token if in answer section
-                            if answer_token:
-                                if debug_streaming:
-                                    sys.stderr.write(f"[ChatEngine] Emitting TOKEN: {repr(answer_token[:30])}...\n")
-                                    sys.stderr.flush()
-                                event_callback({
-                                    "type": "TOKEN",
-                                    "run_id": run_id,
-                                    "content": answer_token,
-                                })
-
-                        # Separate callback for native reasoning (gpt-oss via LM Studio)
-                        # This bypasses StreamParser entirely for native reasoning content
-                        def on_reasoning(reasoning: str):
-                            if not event_callback:
-                                return
+                        # Emit thinking token if in thinking section
+                        if thinking_token:
                             if debug_streaming:
-                                sys.stderr.write(f"[ChatEngine] Emitting THINKING_TOKEN (native): {repr(reasoning[:30])}...\n")
+                                sys.stderr.write(f"[ChatEngine] Emitting THINKING_TOKEN: {repr(thinking_token[:30])}...\n")
                                 sys.stderr.flush()
                             event_callback({
                                 "type": "THINKING_TOKEN",
                                 "run_id": run_id,
-                                "content": reasoning,
+                                "content": thinking_token,
                             })
 
-                        response_text, usage, native_reasoning, response_id = await self._call_model_streaming(
-                            msgs, on_token, stop=stop, reasoning_effort=reasoning_effort,
-                            reasoning_callback=on_reasoning,
-                            previous_response_id=previous_response_id,
-                        )
-
-                        # Track response_id for stateful mode
-                        nonlocal last_response_id_from_run
-                        if response_id:
-                            last_response_id_from_run = response_id
-
-                        # Flush remaining buffer content from StreamParser
-                        # This ensures the last ~10 chars (BUFFER_SIZE) are not lost
-                        thinking_remaining, answer_remaining = stream_parser.flush()
-                        if thinking_remaining and event_callback:
-                            event_callback({
-                                "type": "THINKING_TOKEN",
-                                "run_id": run_id,
-                                "content": thinking_remaining,
-                            })
-                        if answer_remaining and event_callback:
+                        # Emit answer token if in answer section
+                        if answer_token:
+                            if debug_streaming:
+                                sys.stderr.write(f"[ChatEngine] Emitting TOKEN: {repr(answer_token[:30])}...\n")
+                                sys.stderr.flush()
                             event_callback({
                                 "type": "TOKEN",
                                 "run_id": run_id,
-                                "content": answer_remaining,
+                                "content": answer_token,
                             })
 
-                        # Record llm_response trace event for streaming call
-                        if self.config.tracing.log_model_calls and request_event_id:
-                            call_duration_ms = int((time.time() - call_start_time) * 1000)
-                            try:
-                                await trace_repo.add_trace_event(
-                                    run_id=run_id,
-                                    event_type="llm_response",
-                                    content={
-                                        "response_length": len(response_text),
-                                        "usage": usage or {},
-                                        "has_reasoning": bool(native_reasoning),
-                                    },
-                                    actor="model",
-                                    event_status="success",
-                                    parent_event_id=request_event_id,
-                                    step_number=model_call_count,
-                                    duration_ms=call_duration_ms,
-                                    token_count=(usage or {}).get("total_tokens"),
-                                )
-                                # Update request event to success
-                                await trace_repo.update_trace_event(
-                                    request_event_id,
-                                    event_status="success",
-                                    duration_ms=call_duration_ms,
-                                )
-                            except Exception as trace_err:
-                                logger.warning("Failed to record llm_response trace", extra={"error": str(trace_err)})
+                    # Separate callback for native reasoning (gpt-oss via LM Studio)
+                    # This bypasses StreamParser entirely for native reasoning content
+                    def on_reasoning(reasoning: str):
+                        if not event_callback:
+                            return
+                        if debug_streaming:
+                            sys.stderr.write(f"[ChatEngine] Emitting THINKING_TOKEN (native): {repr(reasoning[:30])}...\n")
+                            sys.stderr.flush()
+                        event_callback({
+                            "type": "THINKING_TOKEN",
+                            "run_id": run_id,
+                            "content": reasoning,
+                        })
 
-                        # Return response with reasoning (third value for native reasoning support)
-                        return response_text, usage or {}, native_reasoning
+                    response_text, usage, native_reasoning, response_id = await self._call_model_streaming(
+                        msgs, on_token, stop=stop, reasoning_effort=reasoning_effort,
+                        reasoning_callback=on_reasoning,
+                        previous_response_id=previous_response_id,
+                    )
+
+                    # Track response_id for stateful mode
+                    nonlocal last_response_id_from_run
+                    if response_id:
+                        last_response_id_from_run = response_id
+
+                    # Flush remaining buffer content from StreamParser
+                    # This ensures the last ~10 chars (BUFFER_SIZE) are not lost
+                    thinking_remaining, answer_remaining = stream_parser.flush()
+                    if thinking_remaining and event_callback:
+                        event_callback({
+                            "type": "THINKING_TOKEN",
+                            "run_id": run_id,
+                            "content": thinking_remaining,
+                        })
+                    if answer_remaining and event_callback:
+                        event_callback({
+                            "type": "TOKEN",
+                            "run_id": run_id,
+                            "content": answer_remaining,
+                        })
+
+                    # Record llm_response trace event for streaming call
+                    if self.config.tracing.log_model_calls and request_event_id:
+                        call_duration_ms = int((time.time() - call_start_time) * 1000)
+                        try:
+                            await trace_repo.add_trace_event(
+                                run_id=run_id,
+                                event_type="llm_response",
+                                content={
+                                    "response_length": len(response_text),
+                                    "usage": usage or {},
+                                    "has_reasoning": bool(native_reasoning),
+                                },
+                                actor="model",
+                                event_status="success",
+                                parent_event_id=request_event_id,
+                                step_number=model_call_count,
+                                duration_ms=call_duration_ms,
+                                token_count=(usage or {}).get("total_tokens"),
+                            )
+                            # Update request event to success
+                            await trace_repo.update_trace_event(
+                                request_event_id,
+                                event_status="success",
+                                duration_ms=call_duration_ms,
+                            )
+                        except Exception as trace_err:
+                            logger.warning("Failed to record llm_response trace", extra={"error": str(trace_err)})
+
+                    # Return response with reasoning (third value for native reasoning support)
+                    return response_text, usage or {}, native_reasoning
                 except Exception as e:
                     # Record error trace event
                     if self.config.tracing.log_model_calls and request_event_id:
@@ -575,130 +503,6 @@ class ChatEngine:
 
         return messages
 
-    async def _call_model(self, messages: list[dict]) -> tuple[str, Optional[dict]]:
-        """Call the model API (non-streaming).
-
-        Uses the LLM provider abstraction.
-
-        Args:
-            messages: List of message dicts.
-
-        Returns:
-            Tuple of (response_text, usage_stats).
-        """
-        response = await self._provider.complete(
-            messages=messages,
-            model=self.config.model.name,
-            instructions=self.config.system_prompt,
-            max_tokens=self.config.model.max_tokens,
-            temperature=self.config.model.temperature,
-            reasoning_effort=self.config.model.reasoning_effort,
-            stream=False,
-            seed=self.config.model.seed,
-            top_p=self.config.model.top_p,
-            frequency_penalty=self.config.model.frequency_penalty,
-            presence_penalty=self.config.model.presence_penalty,
-        )
-
-        return response.text, response.usage or None
-
-    async def _call_model_with_logprobs(
-        self, messages: list[dict]
-    ) -> tuple[str, Optional[dict], Optional[list]]:
-        """Call the model API with logprobs enabled.
-        
-        Args:
-            messages: List of message dicts.
-            
-        Returns:
-            Tuple of (response_text, usage_stats, logprobs_list).
-        """
-        client = await self._get_client()
-        
-        # Build request payload with logprobs enabled
-        payload = {
-            "model": self.config.model.name,
-            "messages": messages,
-            "temperature": self.config.model.temperature,
-            "max_tokens": self.config.model.max_tokens,
-            "stream": False,
-            "logprobs": True,  # Enable logprobs
-            "top_logprobs": 1,  # Get top 1 logprob per token
-        }
-        
-        # Add optional parameters
-        if self.config.model.seed is not None:
-            payload["seed"] = self.config.model.seed
-        if self.config.model.top_p is not None:
-            payload["top_p"] = self.config.model.top_p
-        if self.config.model.frequency_penalty is not None:
-            payload["frequency_penalty"] = self.config.model.frequency_penalty
-        if self.config.model.presence_penalty is not None:
-            payload["presence_penalty"] = self.config.model.presence_penalty
-        
-        # Make request
-        endpoint = self.config.endpoint.rstrip("/")
-        response = await client.post(
-            f"{endpoint}/v1/chat/completions",
-            json=payload,
-        )
-        response.raise_for_status()
-        
-        data = response.json()
-        
-        # Extract response
-        response_text = ""
-        logprobs_data = None
-
-        if data.get("choices"):
-            choice = data["choices"][0]
-            response_text = choice.get("message", {}).get("content", "")
-
-            # Extract logprobs if available
-            logprobs_raw = choice.get("logprobs")
-
-            # Debug logging to see what Ollama returns
-            if self.config.tracing.log_level == "debug":
-                print(f"[ChatEngine] Raw logprobs from Ollama: {logprobs_raw}")
-
-            # Normalize logprobs from various formats
-            logprobs_data = self._normalize_logprobs(logprobs_raw)
-
-        # Extract usage
-        usage = data.get("usage")
-
-        return response_text, usage, logprobs_data
-
-    def _normalize_logprobs(self, logprobs_raw) -> list:
-        """Normalize logprobs from various formats (OpenAI/Ollama).
-
-        Args:
-            logprobs_raw: Raw logprobs from API response.
-
-        Returns:
-            List of dicts with 'logprob' key, or empty list if unavailable.
-        """
-        if not logprobs_raw:
-            return []
-
-        # OpenAI format: {"content": [{"token": "...", "logprob": -0.5}, ...]}
-        if isinstance(logprobs_raw, dict):
-            content = logprobs_raw.get("content", [])
-            if content:
-                return content
-
-        # Direct list format (some Ollama versions)
-        if isinstance(logprobs_raw, list):
-            normalized = []
-            for item in logprobs_raw:
-                if isinstance(item, dict) and "logprob" in item:
-                    normalized.append(item)
-                elif isinstance(item, (int, float)):
-                    normalized.append({"logprob": item})
-            return normalized
-
-        return []
-
     async def _call_model_streaming(
         self,
         messages: list[dict],
@@ -776,10 +580,7 @@ class ChatEngine:
         return response_text, usage, response.reasoning, response.response_id
 
     async def close(self):
-        """Close the HTTP client and provider."""
-        if self._client:
-            await self._client.aclose()
-            self._client = None
+        """Close the provider."""
         if self._provider:
             await self._provider.close()
 
