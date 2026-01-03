@@ -90,15 +90,10 @@ tracing:
 
 thinking:
   # Mode to strategy mapping (UI mode -> strategy name)
-  # For gpt-oss models: Use "direct" for both - native reasoning comes via API field
+  # gpt-oss models have native reasoning via reasoning_effort parameter
   mode_mapping:
-    default: "direct"     # Fast - no thinking prompts
+    default: "direct"     # Uses model's native reasoning
     thinking: "direct"    # gpt-oss has native reasoning via reasoning_effort
-
-  # Chain-of-Thought settings (for non-gpt-oss models)
-  cot:
-    thinking_budget: 512  # Max tokens for thinking phase
-    answer_budget: 256    # Max tokens for answer phase
 
   # Tracing settings for thinking
   tracing:

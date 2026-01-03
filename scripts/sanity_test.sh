@@ -423,7 +423,6 @@ python -c "from orchestrator.config import get_chat_config" 2>/dev/null && pass 
 python -c "from orchestrator.thinking import ThinkingOrchestrator, StreamParser" 2>/dev/null && pass "thinking module imports" || fail "thinking module imports"
 python -c "from orchestrator.engine.chat_engine import ChatEngine" 2>/dev/null && pass "chat_engine imports" || fail "chat_engine imports"
 python -c "from orchestrator.thinking.strategies.direct import DirectStrategy" 2>/dev/null && pass "direct strategy imports" || fail "direct strategy imports"
-python -c "from orchestrator.thinking.strategies.cot import ChainOfThoughtStrategy" 2>/dev/null && pass "CoT strategy imports" || fail "CoT strategy imports"
 
 # ============================================================
 # 2. API HEALTH CHECK
@@ -516,58 +515,19 @@ if [ -n "$DIRECT_RUN_ID" ]; then
 fi
 
 # ============================================================
-# 4. CoT FLOW (thinking mode)
+# 4. LIST + HOUSEKEEPING CHECKS
 # ============================================================
-print_header "4. CoT Flow (thinking mode)"
-
-COT_CONV=$(curl -s -X POST "$API_URL/api/conversations" \
-    -H "Content-Type: application/json" \
-    -d '{"title": "Sanity CoT"}')
-COT_CONV_ID=$(json_get "$COT_CONV" ".conversation_id")
-
-if [ -n "$COT_CONV_ID" ]; then
-    pass "Created conversation for CoT flow ($COT_CONV_ID)"
-else
-    fail "Failed to create conversation for CoT flow"
-fi
-
-COT_RUN_RESP=$(curl -s -X POST "$API_URL/api/conversations/$COT_CONV_ID/runs" \
-    -H "Content-Type: application/json" \
-    -d '{"message": "Explain how the Pythagorean theorem works.", "thinking_mode": "thinking"}')
-COT_RUN_ID=$(json_get "$COT_RUN_RESP" ".run_id")
-
-if [ -n "$COT_RUN_ID" ]; then
-    pass "Created CoT run ($COT_RUN_ID)"
-else
-    fail "Failed to create CoT run"
-fi
-
-if [ -n "$COT_RUN_ID" ]; then
-    wait_for_run "$COT_RUN_ID" "CoT run" 75
-    check_stream_complete "$COT_RUN_ID" "CoT run"
-    check_events "$COT_RUN_ID" "CoT run"
-    check_thinking_tokens "$COT_RUN_ID" "CoT run"
-    check_think_tags "$COT_RUN_ID" "CoT run"
-    check_thinking "$COT_RUN_ID" "CoT run" "user"
-    check_thinking "$COT_RUN_ID" "CoT run" "internal"
-    check_report "$COT_RUN_ID" "CoT run"
-    check_conversation_detail "$COT_CONV_ID" "$COT_RUN_ID" "CoT"
-fi
-
-# ============================================================
-# 5. LIST + HOUSEKEEPING CHECKS
-# ============================================================
-print_header "5. Listing & housekeeping"
+print_header "4. Listing & housekeeping"
 
 RUN_LIST=$(curl -s "$API_URL/api/runs?limit=5")
-if echo "$RUN_LIST" | grep -q "$DIRECT_RUN_ID" && echo "$RUN_LIST" | grep -q "$COT_RUN_ID"; then
+if echo "$RUN_LIST" | grep -q "$DIRECT_RUN_ID"; then
     pass "Run listing returns recent runs"
 else
     warn "Run listing missing recent runs"
 fi
 
 CONV_LIST=$(curl -s "$API_URL/api/conversations?limit=5")
-if echo "$CONV_LIST" | grep -q "$DIRECT_CONV_ID" && echo "$CONV_LIST" | grep -q "$COT_CONV_ID"; then
+if echo "$CONV_LIST" | grep -q "$DIRECT_CONV_ID"; then
     pass "Conversation listing returns created conversations"
 else
     warn "Conversation listing missing created conversations"

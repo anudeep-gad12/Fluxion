@@ -3,11 +3,8 @@
 This module provides a flexible architecture for different thinking/reasoning
 strategies that can be swapped in and out without changing the chat engine.
 
-Uses [THINK]/[/THINK] token format for thinking separation.
-
 Available strategies:
-- DirectStrategy: No explicit thinking, just generate answer directly
-- ChainOfThoughtStrategy: Step-by-step reasoning with [THINK]/[/THINK] tags
+- DirectStrategy: Uses model's native reasoning (works with gpt-oss models)
 """
 
 from orchestrator.thinking.base import (
@@ -15,11 +12,9 @@ from orchestrator.thinking.base import (
     ThinkingResult,
     ThinkingStep,
     ThinkingStrategy,
-    strip_thinking_tags,
 )
 from orchestrator.thinking.orchestrator import ThinkingOrchestrator
 from orchestrator.thinking.strategies.direct import DirectStrategy
-from orchestrator.thinking.strategies.cot import ChainOfThoughtStrategy
 
 __all__ = [
     # Base classes
@@ -27,10 +22,8 @@ __all__ = [
     "ThinkingResult",
     "ThinkingStep",
     "ThinkingStrategy",
-    "strip_thinking_tags",
     # Orchestrator
     "ThinkingOrchestrator",
     # Strategies
     "DirectStrategy",
-    "ChainOfThoughtStrategy",
 ]

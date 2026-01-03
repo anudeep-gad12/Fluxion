@@ -8,7 +8,6 @@ from typing import Dict, Optional, Type
 
 from orchestrator.thinking.base import ThinkingStrategy
 from orchestrator.thinking.strategies.direct import DirectStrategy
-from orchestrator.thinking.strategies.cot import ChainOfThoughtStrategy
 
 
 class ThinkingOrchestrator:
@@ -18,21 +17,17 @@ class ThinkingOrchestrator:
     can instantiate them with the appropriate configuration.
 
     Available strategies:
-        - direct: No thinking, just generate answer (fastest)
-        - cot: Chain-of-Thought with [THINK]/[/THINK] tags (+17% on reasoning)
+        - direct: Uses model's native reasoning (works with gpt-oss models)
 
     Example:
         orchestrator = ThinkingOrchestrator(default_strategy="direct")
-        strategy = orchestrator.get_strategy("cot")
+        strategy = orchestrator.get_strategy("direct")
         result = await strategy.think(messages, model_call)
     """
 
     # Default strategies registry
     _default_strategies: Dict[str, Type[ThinkingStrategy]] = {
         "direct": DirectStrategy,
-        "cot": ChainOfThoughtStrategy,
-        # Aliases
-        "chain_of_thought": ChainOfThoughtStrategy,
     }
 
     def __init__(self, default_strategy: str = "direct"):
