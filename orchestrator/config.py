@@ -129,6 +129,66 @@ class ProviderConfig(BaseModel):
 
 
 # =============================================================================
+# Provider Chain Configuration
+# =============================================================================
+
+
+class CircuitBreakerConfig(BaseModel):
+    """Circuit breaker configuration for provider resilience.
+
+    The circuit breaker prevents cascading failures by fast-failing
+    requests to unhealthy providers.
+    """
+
+    failure_threshold: int = 5  # Failures before opening circuit
+    recovery_timeout_seconds: float = 30.0  # Seconds before trying half-open
+    success_threshold: int = 2  # Successes in half-open before closing
+
+
+class ChainedProviderConfig(BaseModel):
+    """Configuration for a single provider in a chain.
+
+    Attributes:
+        name: Identifier for logging (e.g., "deepinfra", "together_ai")
+        provider: The provider configuration
+        priority: Lower number = higher priority (tried first)
+        circuit_breaker: Optional circuit breaker config (uses default if None)
+    """
+
+    name: str
+    provider: ProviderConfig
+    priority: int = 0
+    circuit_breaker: Optional[CircuitBreakerConfig] = None
+
+
+class ProviderChainConfig(BaseModel):
+    """Configuration for provider chain with failover.
+
+    When enabled, requests are routed through multiple providers
+    with automatic failover on failure.
+
+    Example:
+        provider_chain:
+          enabled: true
+          providers:
+            - name: deepinfra
+              priority: 0
+              provider:
+                base_url: "https://api.deepinfra.com/v1/openai"
+                api_key: ${DEEPINFRA_API_KEY:-}
+            - name: together_ai
+              priority: 1
+              provider:
+                base_url: "https://api.together.xyz/v1"
+                api_key: ${TOGETHER_API_KEY:-}
+    """
+
+    enabled: bool = False  # If False, use single provider mode
+    providers: List[ChainedProviderConfig] = []
+    default_circuit_breaker: CircuitBreakerConfig = CircuitBreakerConfig()
+
+
+# =============================================================================
 # Chat Configuration Classes
 # =============================================================================
 
@@ -203,6 +263,7 @@ class ChatConfig(BaseModel):
     """
 
     provider: ProviderConfig = ProviderConfig()
+    provider_chain: Optional[ProviderChainConfig] = None  # Optional chain with failover
     model: ChatModelConfig = ChatModelConfig()
     context: ChatContextConfig = ChatContextConfig()
     system_prompt: str = "You are a helpful AI assistant. Answer directly and clearly."
@@ -220,7 +281,7 @@ class ChatConfig(BaseModel):
         import hashlib
 
         prompt_hash = hashlib.md5(self.system_prompt.encode()).hexdigest()[:8]
-        return {
+        snapshot = {
             "provider": self.provider.model_dump(),
             "model": self.model.model_dump(),
             "context": self.context.model_dump(),
@@ -228,6 +289,9 @@ class ChatConfig(BaseModel):
             "tracing": self.tracing.model_dump(),
             "thinking": self.thinking.model_dump(),
         }
+        if self.provider_chain:
+            snapshot["provider_chain"] = self.provider_chain.model_dump()
+        return snapshot
 
 
 # =============================================================================
