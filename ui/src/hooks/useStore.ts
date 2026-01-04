@@ -2,6 +2,7 @@
 
 import { create } from 'zustand';
 import type { Run, Event, Conversation } from '@/types';
+import type { AgentUIState, AgentStep, AgentToolCall, AgentCitation } from '@/types/agent';
 
 interface AppState {
   // Conversations
@@ -31,6 +32,9 @@ interface AppState {
 
   // Fetch tracking to prevent duplicate requests
   fetchingRuns: Set<string>;
+
+  // Agent run state (per run_id)
+  agentRunState: Record<string, AgentUIState>;
 
   // Conversation actions
   setConversations: (conversations: Conversation[]) => void;
@@ -68,6 +72,17 @@ interface AppState {
   // Fetch tracking actions
   setFetching: (runId: string, fetching: boolean) => void;
   isFetchingRun: (runId: string) => boolean;
+
+  // Agent run actions
+  initAgentRun: (runId: string, maxSteps: number) => void;
+  updateAgentState: (runId: string, updates: Partial<AgentUIState>) => void;
+  appendAgentThinking: (runId: string, content: string) => void;
+  appendAgentAnswer: (runId: string, content: string) => void;
+  addAgentStep: (runId: string, step: AgentStep) => void;
+  addAgentToolCall: (runId: string, toolCall: AgentToolCall) => void;
+  updateAgentToolCall: (runId: string, toolCallId: string, updates: Partial<AgentToolCall>) => void;
+  setAgentCitations: (runId: string, citations: AgentCitation[]) => void;
+  clearAgentRun: (runId: string) => void;
 }
 
 export const useStore = create<AppState>((set, get) => ({
@@ -86,6 +101,7 @@ export const useStore = create<AppState>((set, get) => ({
   isLoading: false,
   error: null,
   fetchingRuns: new Set<string>(),
+  agentRunState: {},
 
   // Conversation actions
   setConversations: (conversations) => set({ conversations }),
@@ -245,6 +261,140 @@ export const useStore = create<AppState>((set, get) => ({
     return { fetchingRuns: newSet };
   }),
   isFetchingRun: (runId) => get().fetchingRuns.has(runId),
+
+  // Agent run actions
+  initAgentRun: (runId, maxSteps) =>
+    set((state) => ({
+      agentRunState: {
+        ...state.agentRunState,
+        [runId]: {
+          isActive: true,
+          currentStep: 0,
+          maxSteps,
+          agentState: 'initializing',
+          thinkingBuffer: '',
+          answerBuffer: '',
+          steps: [],
+          toolCalls: [],
+          citations: [],
+          lastSeq: 0,
+        },
+      },
+    })),
+
+  updateAgentState: (runId, updates) =>
+    set((state) => {
+      const current = state.agentRunState[runId];
+      if (!current) return state;
+      return {
+        agentRunState: {
+          ...state.agentRunState,
+          [runId]: { ...current, ...updates },
+        },
+      };
+    }),
+
+  appendAgentThinking: (runId, content) =>
+    set((state) => {
+      const current = state.agentRunState[runId];
+      if (!current) return state;
+      return {
+        agentRunState: {
+          ...state.agentRunState,
+          [runId]: {
+            ...current,
+            thinkingBuffer: current.thinkingBuffer + content,
+          },
+        },
+      };
+    }),
+
+  appendAgentAnswer: (runId, content) =>
+    set((state) => {
+      const current = state.agentRunState[runId];
+      if (!current) return state;
+      return {
+        agentRunState: {
+          ...state.agentRunState,
+          [runId]: {
+            ...current,
+            answerBuffer: current.answerBuffer + content,
+          },
+        },
+      };
+    }),
+
+  addAgentStep: (runId, step) =>
+    set((state) => {
+      const current = state.agentRunState[runId];
+      if (!current) return state;
+      // Avoid duplicates by step_number
+      const exists = current.steps.some((s) => s.step_number === step.step_number);
+      if (exists) return state;
+      return {
+        agentRunState: {
+          ...state.agentRunState,
+          [runId]: {
+            ...current,
+            steps: [...current.steps, step],
+            currentStep: step.step_number,
+          },
+        },
+      };
+    }),
+
+  addAgentToolCall: (runId, toolCall) =>
+    set((state) => {
+      const current = state.agentRunState[runId];
+      if (!current) return state;
+      // Avoid duplicates by id
+      const exists = current.toolCalls.some((tc) => tc.id === toolCall.id);
+      if (exists) return state;
+      return {
+        agentRunState: {
+          ...state.agentRunState,
+          [runId]: {
+            ...current,
+            toolCalls: [...current.toolCalls, toolCall],
+          },
+        },
+      };
+    }),
+
+  updateAgentToolCall: (runId, toolCallId, updates) =>
+    set((state) => {
+      const current = state.agentRunState[runId];
+      if (!current) return state;
+      return {
+        agentRunState: {
+          ...state.agentRunState,
+          [runId]: {
+            ...current,
+            toolCalls: current.toolCalls.map((tc) =>
+              tc.id === toolCallId ? { ...tc, ...updates } : tc
+            ),
+          },
+        },
+      };
+    }),
+
+  setAgentCitations: (runId, citations) =>
+    set((state) => {
+      const current = state.agentRunState[runId];
+      if (!current) return state;
+      return {
+        agentRunState: {
+          ...state.agentRunState,
+          [runId]: { ...current, citations },
+        },
+      };
+    }),
+
+  clearAgentRun: (runId) =>
+    set((state) => {
+      const { [runId]: _, ...rest } = state.agentRunState;
+      return { agentRunState: rest };
+    }),
 }));
 
 // Selectors
@@ -273,4 +423,9 @@ export const useSelectedRun = () => {
 export const useRunEvents = (runId: string | null) => {
   const eventsByRun = useStore((s) => s.eventsByRun);
   return runId ? eventsByRun[runId] || [] : [];
+};
+
+export const useAgentRunState = (runId: string | null) => {
+  const agentRunState = useStore((s) => s.agentRunState);
+  return runId ? agentRunState[runId] : undefined;
 };

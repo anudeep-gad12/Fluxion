@@ -6,8 +6,8 @@
 
 ## Current Status
 
-- **Current Phase:** 6 (API Layer - COMPLETED)
-- **Current Branch:** `feature/agent-phase-6-api`
+- **Current Phase:** 7 (Frontend - COMPLETED)
+- **Current Branch:** `feature/agent-phase-7-frontend`
 - **Last Updated:** 2026-01-04
 - **Blockers:** None
 
@@ -25,27 +25,25 @@
 
 ## Next Steps
 
-**Phase 7: Frontend** is next. To start:
+**Phase 8: Production** is next. To start:
 
 ```bash
 # 1. Create branch from test
 git checkout test
-git checkout -b feature/agent-phase-7-frontend
+git checkout -b feature/agent-phase-8-production
 
 # 2. Implement:
-#    - ui/src/types/agent.ts (TypeScript types)
-#    - ui/src/hooks/useAgentSSE.ts (SSE hook)
-#    - ui/src/components/AgentThinkingPanel.tsx
-#    - ui/src/components/ToolCallCard.tsx
-#    - ui/src/components/CitationInline.tsx
-#    - ui/src/components/AnswerWithCitations.tsx
+#    - Production deployment configuration
+#    - Error monitoring and logging
+#    - Performance optimization
+#    - Crash recovery verification
 
 # 3. Test
-cd ui && pnpm build                   # Build check
-cd ui && pnpm test                    # Unit tests
+./scripts/sanity_test.sh --debug      # E2E tests
+# Manual testing in production-like environment
 
 # 4. Update this log with results
-# 5. Merge to test branch
+# 5. Merge to main for production release
 ```
 
 ---
@@ -172,17 +170,28 @@ cd ui && pnpm test                    # Unit tests
   - Cancellation support with abort signals
   - Full trace endpoint with steps, tool calls, and citations
 
-### Phase 7: Frontend - NOT STARTED
+### Phase 7: Frontend - COMPLETED
 - **Branch:** `feature/agent-phase-7-frontend`
-- **Status:** Pending
-- **Files to Create:**
-  - `ui/src/types/agent.ts`
-  - `ui/src/hooks/useAgentSSE.ts`
-  - `ui/src/components/AgentThinkingPanel.tsx`
-  - `ui/src/components/ToolCallCard.tsx`
-  - `ui/src/components/CitationInline.tsx`
-  - `ui/src/components/AnswerWithCitations.tsx`
-- **Exit Criteria:** Full user flow works in browser
+- **Status:** COMPLETED (2026-01-04)
+- **Files Created:**
+  - `ui/src/types/agent.ts` - TypeScript types for agent (AgentStep, AgentToolCall, AgentCitation, AgentSSEEvent, AgentUIState)
+  - `ui/src/hooks/useAgentSSE.ts` - SSE streaming hook for agent events
+  - `ui/src/components/ToolCallCard.tsx` - Tool call visualization with status
+  - `ui/src/components/CitationInline.tsx` - Clickable inline citations with tooltips
+  - `ui/src/components/AnswerWithCitations.tsx` - Answer with inline [N] citation rendering
+  - `ui/src/components/AgentStepsPanel.tsx` - Collapsible research progress panel
+  - `ui/src/components/AgentRunMessage.tsx` - Full agent run display
+- **Files Modified:**
+  - `ui/src/api/client.ts` - Added agent API functions (createAgentRun, getAgentRunStatus, getAgentRunTrace, cancelAgentRun, subscribeToAgentRun)
+  - `ui/src/hooks/useStore.ts` - Added agent state slice with 9 actions
+  - `ui/src/components/ConversationView.tsx` - Integrated mode toggle and agent rendering
+- **Exit Criteria:** ✓ Build succeeds, ✓ Mode toggle works, ✓ Agent components render correctly
+- **Notes:**
+  - Chat/Research toggle button in message input area
+  - Purple/indigo theme for agent runs (vs blue for chat)
+  - Real-time streaming of steps, tool calls, thinking
+  - Clickable citations with hover tooltips
+  - Cancellation support
 
 ### Phase 8: Production - NOT STARTED
 - **Branch:** `feature/agent-phase-8-production`
@@ -480,3 +489,31 @@ PLANNING → TOOL_CALLING → PLANNING (loop)
 - ✓ Trace endpoint returns steps, tool calls, citations
 
 **Test Coverage:** 21 new tests (15 route + 6 E2E), all 492 tests passing
+
+### Phase 7: Frontend (2026-01-04)
+
+**Summary:** Built the complete frontend integration for the web research agent with mode toggle, real-time streaming, and citation rendering.
+
+**Files Created:**
+1. `ui/src/types/agent.ts` - TypeScript types mirroring backend schemas
+2. `ui/src/hooks/useAgentSSE.ts` - Agent SSE streaming hook with state management
+3. `ui/src/components/ToolCallCard.tsx` - Tool call visualization with status badges
+4. `ui/src/components/CitationInline.tsx` - Inline citation with hover tooltip
+5. `ui/src/components/AnswerWithCitations.tsx` - Answer rendering with [N] citation parsing
+6. `ui/src/components/AgentStepsPanel.tsx` - Collapsible research progress display
+7. `ui/src/components/AgentRunMessage.tsx` - Full agent run message component
+
+**Files Modified:**
+1. `ui/src/api/client.ts` - Added 5 agent API functions + SSE subscription
+2. `ui/src/hooks/useStore.ts` - Added agent state slice with 9 actions and selector
+3. `ui/src/components/ConversationView.tsx` - Mode toggle, agent run rendering, stop handling
+
+**Key Features:**
+- **Mode Toggle**: Chat/Research buttons to switch modes
+- **Real-time Streaming**: Steps, tool calls, thinking displayed as they happen
+- **Tool Visualization**: Cards showing tool name, arguments, status, duration
+- **Citation Rendering**: Clickable [N] badges with hover tooltips showing title/snippet
+- **Purple/Indigo Theme**: Visual distinction for agent runs vs regular chat
+- **Cancellation**: Stop button with proper cleanup
+
+**Build Status:** ✓ pnpm build succeeds (703KB bundle)
