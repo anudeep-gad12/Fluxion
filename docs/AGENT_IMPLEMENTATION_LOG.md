@@ -6,8 +6,8 @@
 
 ## Current Status
 
-- **Current Phase:** 2 (Provider Chain - COMPLETED)
-- **Current Branch:** `feature/agent-phase-2-provider-chain`
+- **Current Phase:** 3 (Tool Layer - COMPLETED)
+- **Current Branch:** `feature/agent-phase-3-tools`
 - **Last Updated:** 2026-01-04
 - **Blockers:** None
 
@@ -25,23 +25,20 @@
 
 ## Next Steps
 
-**Phase 3: Tool Layer** is next. To start:
+**Phase 4: Context Pruner + State Machine** is next. To start:
 
 ```bash
 # 1. Create branch from test
 git checkout test
-git checkout -b feature/agent-phase-3-tools
+git checkout -b feature/agent-phase-4-pruner-state
 
 # 2. Implement:
-#    - orchestrator/agent/tools/base.py (BaseTool protocol)
-#    - orchestrator/agent/tools/registry.py (ToolRegistry)
-#    - orchestrator/agent/tools/web_search.py (Parallel.ai Search API)
-#    - orchestrator/agent/tools/web_extract.py (Parallel.ai Extract API)
-#    - orchestrator/agent/tools/python_sandbox.py (E2B sandbox)
-#    - Write tests for each tool
+#    - orchestrator/agent/context_pruner.py
+#    - orchestrator/agent/state_machine.py
+#    - Write tests for each component
 
 # 3. Test
-uv run pytest tests/agent/tools/ -v  # Unit tests
+uv run pytest tests/agent/ -v       # Unit tests
 uv run pytest                        # Full suite
 ./scripts/sanity_test.sh --debug     # E2E tests
 
@@ -89,16 +86,31 @@ uv run pytest                        # Full suite
   - Failover at connection time only (no mid-stream)
   - Chain disabled by default for backward compatibility
 
-### Phase 3: Tool Layer - NOT STARTED
+### Phase 3: Tool Layer - COMPLETED
 - **Branch:** `feature/agent-phase-3-tools`
-- **Status:** Pending
-- **Files to Create:**
-  - `orchestrator/agent/tools/base.py`
-  - `orchestrator/agent/tools/registry.py`
-  - `orchestrator/agent/tools/web_search.py`
-  - `orchestrator/agent/tools/web_extract.py`
-  - `orchestrator/agent/tools/python_sandbox.py`
-- **Exit Criteria:** Each tool works in isolation
+- **Status:** COMPLETED (2026-01-04)
+- **Files Created:**
+  - `orchestrator/agent/tools/base.py` - BaseTool protocol, ToolResult, ToolSchema dataclasses
+  - `orchestrator/agent/tools/registry.py` - ToolRegistry with OpenAI schema generation
+  - `orchestrator/agent/tools/web_search.py` - Parallel.ai Search API integration
+  - `orchestrator/agent/tools/web_extract.py` - Parallel.ai Extract API integration
+  - `orchestrator/agent/tools/python_sandbox.py` - E2B sandbox with session cleanup
+  - `orchestrator/agent/__init__.py` - Package exports
+  - `tests/agent/tools/test_base.py` - 15 unit tests
+  - `tests/agent/tools/test_registry.py` - 16 unit tests
+  - `tests/agent/tools/test_web_search.py` - 26 unit tests
+  - `tests/agent/tools/test_web_extract.py` - 23 unit tests
+  - `tests/agent/tools/test_python_sandbox.py` - 19 unit tests
+- **Files Modified:**
+  - `orchestrator/config.py` - Added ParallelConfig, E2BConfig, SandboxConfig
+  - `orchestrator/chat_config.yaml` - Added parallel and sandbox sections
+  - `pyproject.toml` - Added e2b-code-interpreter dependency
+- **Exit Criteria:** ✓ All 340 tests pass (99 new + 241 existing), ✓ Each tool works in isolation
+- **Notes:**
+  - Protocol-based design following LLMProvider pattern
+  - result_summary (1-line) stored in DB, result_data in-memory only
+  - is_idempotent flag for crash recovery (web_search/web_extract: True, python_execute: False)
+  - E2B session cleanup on startup for zombie sessions
 
 ### Phase 4: Context Pruner + State Machine - NOT STARTED
 - **Branch:** `feature/agent-phase-4-pruner-state`
@@ -270,3 +282,38 @@ git merge feature/agent-phase-X-xxx
 - Chain disabled by default for backward compatibility
 
 **Test Coverage:** 35 new tests (16 circuit breaker + 19 provider chain), all 241 tests passing
+
+### Phase 3: Tool Layer (2026-01-04)
+
+**Summary:** Built the complete tool layer for the web research agent with three tools (web_search, web_extract, python_execute), a tool registry, and comprehensive test coverage.
+
+**Files Created:**
+1. `orchestrator/agent/tools/base.py` - BaseTool protocol, ToolResult, ToolSchema, exception classes
+2. `orchestrator/agent/tools/registry.py` - ToolRegistry with OpenAI function schema generation
+3. `orchestrator/agent/tools/web_search.py` - Parallel.ai Search API with retry logic
+4. `orchestrator/agent/tools/web_extract.py` - Parallel.ai Extract API with partial success handling
+5. `orchestrator/agent/tools/python_sandbox.py` - E2B sandbox with session cleanup
+6. `orchestrator/agent/__init__.py` - Package exports
+7. `tests/agent/tools/test_*.py` - 99 comprehensive unit tests
+
+**Files Modified:**
+1. `orchestrator/config.py` - Added ParallelSearchConfig, ParallelExtractConfig, ParallelConfig, E2BConfig, SandboxConfig
+2. `orchestrator/chat_config.yaml` - Added parallel and sandbox configuration sections
+3. `pyproject.toml` - Added e2b-code-interpreter dependency
+
+**Key Features:**
+- Protocol-based design following LLMProvider pattern
+- `result_summary` (1-line) for DB storage, `result_data` for in-memory use (prevents WAL bloat)
+- `is_idempotent` flag for crash recovery logic
+- E2B session cleanup on startup for zombie sessions
+- Exponential backoff with jitter for HTTP retries
+- Partial success handling for web_extract (some URLs may fail)
+
+**Tool Specifications:**
+| Tool | Idempotent | API | Timeout |
+|------|------------|-----|---------|
+| web_search | Yes | Parallel.ai /search | 15s |
+| web_extract | Yes | Parallel.ai /extract | 30s |
+| python_execute | **No** | E2B sandbox | 30s |
+
+**Test Coverage:** 99 new tests, all 340 tests passing
