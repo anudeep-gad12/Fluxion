@@ -339,6 +339,14 @@ class OpenAICompatProvider:
                         full_reasoning.append(delta["reasoning"])
                         on_reasoning(delta["reasoning"])
 
+                    # Collect completed tool calls (LM Studio format)
+                    if delta.get("tool_call_complete"):
+                        tool_calls.append(delta["tool_call_complete"])
+                        logger.debug(
+                            "Streaming tool call complete",
+                            extra={"tool_name": delta["tool_call_complete"]["function"]["name"]}
+                        )
+
                     # Track usage if present
                     if "usage" in data:
                         usage = data["usage"]

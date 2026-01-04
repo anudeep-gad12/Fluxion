@@ -4,6 +4,62 @@ import json
 from typing import Any, Dict, List, Optional
 
 
+def _transform_messages_for_responses_api(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Transform chat-format messages to responses API format.
+
+    The responses API uses a different format for input items:
+    - User messages: {"role": "user", "content": "..."}
+    - Assistant messages without tools: {"role": "assistant", "content": "..."}
+    - Assistant messages with tool calls: Split into content + function_call items
+    - Tool results: {"type": "function_call_output", "call_id": "...", "output": "..."}
+
+    Args:
+        messages: List of message dicts in chat format.
+
+    Returns:
+        List of message dicts in responses API format.
+    """
+    result = []
+
+    for msg in messages:
+        role = msg.get("role")
+
+        if role == "tool":
+            # Transform tool result to function_call_output format
+            result.append({
+                "type": "function_call_output",
+                "call_id": msg.get("tool_call_id"),
+                "output": msg.get("content", ""),
+            })
+
+        elif role == "assistant" and msg.get("tool_calls"):
+            # Assistant message with tool calls needs special handling
+            # First add the text content (if any) as assistant message
+            content = msg.get("content")
+            if content:
+                result.append({"role": "assistant", "content": content})
+
+            # Then add each tool call as a function_call item
+            for tool_call in msg.get("tool_calls", []):
+                func = tool_call.get("function", {})
+                arguments = func.get("arguments", "{}")
+                # arguments might be a dict or string
+                if isinstance(arguments, dict):
+                    arguments = json.dumps(arguments)
+                result.append({
+                    "type": "function_call",
+                    "call_id": tool_call.get("id"),
+                    "name": func.get("name"),
+                    "arguments": arguments,
+                })
+
+        else:
+            # User/assistant messages (without tools) stay the same
+            result.append(msg)
+
+    return result
+
+
 def build_responses_request(
     messages: List[Dict[str, Any]],
     model: str,
@@ -29,9 +85,12 @@ def build_responses_request(
     Returns:
         Request payload dict for /v1/responses.
     """
+    # Transform messages to responses API format
+    transformed_messages = _transform_messages_for_responses_api(messages)
+
     payload: Dict[str, Any] = {
         "model": model,
-        "input": messages,  # responses API uses 'input' not 'messages'
+        "input": transformed_messages,  # responses API uses 'input' not 'messages'
         "stream": stream,
     }
 
@@ -43,11 +102,18 @@ def build_responses_request(
         payload["max_output_tokens"] = max_output_tokens
 
     if tools:
-        # Transform tools to responses API format
-        payload["tools"] = [
-            {"type": "function", "function": t.get("function", t)}
-            for t in tools
-        ]
+        # Transform tools to responses API format (flat structure, not nested under "function")
+        # OpenAI format: {"type": "function", "name": "...", "description": "...", "parameters": {...}}
+        transformed_tools = []
+        for t in tools:
+            func = t.get("function", t)
+            transformed_tools.append({
+                "type": "function",
+                "name": func.get("name"),
+                "description": func.get("description", ""),
+                "parameters": func.get("parameters", {}),
+            })
+        payload["tools"] = transformed_tools
 
     if reasoning_effort:
         payload["reasoning"] = {"effort": reasoning_effort}

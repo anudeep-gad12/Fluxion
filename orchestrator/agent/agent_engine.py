@@ -275,14 +275,35 @@ Include citations in your response using [1], [2], etc."""
                 # Extract thinking if present (Harmony format)
                 thinking_text = self._extract_thinking(llm_response.text)
 
-                # Check for tool calls
-                if llm_response.tool_calls:
+                # Check for tool calls - try API response first, then text fallback
+                tool_calls = llm_response.tool_calls
+                logger.debug(
+                    "LLM response received",
+                    extra={
+                        "api_tool_calls": len(tool_calls) if tool_calls else 0,
+                        "text_length": len(llm_response.text) if llm_response.text else 0,
+                        "text_preview": (llm_response.text[:200] if llm_response.text else "")[:200],
+                    },
+                )
+                if not tool_calls:
+                    # Fallback: parse tool calls from text (Harmony format)
+                    text_tool_calls = self._parse_text_tool_calls(llm_response.text)
+                    if text_tool_calls:
+                        tool_calls = text_tool_calls
+                        logger.info(
+                            "Parsed tool calls from text",
+                            extra={"count": len(text_tool_calls), "tools": [tc["function"]["name"] for tc in text_tool_calls]},
+                        )
+                    else:
+                        logger.debug("No tool calls found in text", extra={"text": llm_response.text[:300] if llm_response.text else ""})
+
+                if tool_calls:
                     # Tool calling step
                     await state_machine.transition_to(AgentStepState.TOOL_CALLING)
 
                     # Parse and execute tools
                     tool_results = await self._execute_tool_calls(
-                        llm_response=llm_response,
+                        tool_calls=tool_calls,
                         state_machine=state_machine,
                         step_number=step_number,
                         event_callback=event_callback,
@@ -295,7 +316,7 @@ Include citations in your response using [1], [2], etc."""
                         {
                             "role": "assistant",
                             "content": llm_response.text or None,
-                            "tool_calls": llm_response.tool_calls,
+                            "tool_calls": tool_calls,
                         }
                     )
 
@@ -480,13 +501,37 @@ Include citations in your response using [1], [2], etc."""
         """
         tool_schemas = self._registry.get_openai_schemas()
 
+        def sanitize_token(token: str) -> str:
+            """Strip protocol tokens from thinking content.
+
+            Removes Harmony format tokens and tool-call protocol markers that
+            should not be displayed to users.
+            """
+            # Remove <|...|> style tokens (opening Harmony format)
+            cleaned = re.sub(r'<\|[^|]*\|>', '', token)
+            # Remove </...|> style tokens (closing variants)
+            cleaned = re.sub(r'</[^|]*\|>', '', cleaned)
+            # Remove channel/constraint annotations like "commentary to=web_search"
+            cleaned = re.sub(r'\b(commentary|analysis|final)\s+to=\w+', '', cleaned, flags=re.IGNORECASE)
+            # Remove standalone channel identifiers
+            cleaned = re.sub(r'\b(commentary|analysis|final)\b', '', cleaned, flags=re.IGNORECASE)
+            # Remove constraint markers before JSON (e.g., "json{" -> "{")
+            cleaned = re.sub(r'\b(json|xml)\b(?=\s*[\{\[])', '', cleaned, flags=re.IGNORECASE)
+            # Remove raw JSON tool calls that leak through
+            cleaned = re.sub(r'\{"query":[^}]+\}', '', cleaned)
+            return cleaned
+
         def on_token(token: str) -> None:
-            """Handle content tokens - emit as thinking."""
-            self._emit(event_callback, "thinking", run_id=run_id, content=token)
+            """Handle content tokens - sanitize before emitting."""
+            cleaned = sanitize_token(token)
+            if cleaned and cleaned.strip():
+                self._emit(event_callback, "thinking", run_id=run_id, content=cleaned)
 
         def on_reasoning(reasoning: str) -> None:
-            """Handle native reasoning tokens."""
-            self._emit(event_callback, "thinking", run_id=run_id, content=reasoning)
+            """Handle native reasoning tokens - sanitize before emitting."""
+            cleaned = sanitize_token(reasoning)
+            if cleaned and cleaned.strip():
+                self._emit(event_callback, "thinking", run_id=run_id, content=cleaned)
 
         response = await self._provider.complete_streaming(
             messages=messages,
@@ -499,6 +544,54 @@ Include citations in your response using [1], [2], etc."""
         )
 
         return response
+
+    def _parse_text_tool_calls(self, text: str) -> Optional[List[Dict[str, Any]]]:
+        """Parse tool calls from text using Harmony format.
+
+        Handles models that output tool calls in text format rather than
+        using the OpenAI tool_calls API. Handles various format variants:
+        - <|channel|>commentary to=TOOL_NAME <|constrain|>json<|message|>{args}
+        - <|channel|>commentary to=TOOL_NAME code<|message|>{args}
+        - <|channel|>commentary to=TOOL_NAME json{args}
+
+        Args:
+            text: Response text that may contain embedded tool calls.
+
+        Returns:
+            List of tool call dicts in OpenAI format, or None if no tool calls found.
+        """
+        import uuid
+
+        # Pattern: commentary to=TOOL_NAME followed by optional markers then JSON
+        # Handles various format variants from gpt-oss models
+        pattern = r'(?:<\|channel\|>)?commentary\s+to=(\w+)\s*(?:<\|constrain\|>)?(?:json|code)?(?:<\|message\|>)?(\{[^}]+\})'
+
+        matches = re.findall(pattern, text, re.IGNORECASE)
+
+        if not matches:
+            return None
+
+        tool_calls = []
+        for tool_name, args_json in matches:
+            try:
+                # Validate JSON
+                json.loads(args_json)
+                tool_calls.append({
+                    "id": f"call_{uuid.uuid4().hex[:8]}",
+                    "type": "function",
+                    "function": {
+                        "name": tool_name,
+                        "arguments": args_json,
+                    },
+                })
+            except json.JSONDecodeError:
+                logger.warning(
+                    "Failed to parse tool call JSON from text",
+                    extra={"tool_name": tool_name, "args": args_json},
+                )
+                continue
+
+        return tool_calls if tool_calls else None
 
     def _parse_tool_calls(
         self,
@@ -544,17 +637,17 @@ Include citations in your response using [1], [2], etc."""
 
     async def _execute_tool_calls(
         self,
-        llm_response: "LLMResponse",
+        tool_calls: List[Dict[str, Any]],
         state_machine: AgentStateMachine,
         step_number: int,
         event_callback: Optional[Callable[[Dict[str, Any]], None]],
         run_id: str,
         step_metadata: Dict[str, int],
     ) -> List[tuple["ParsedToolCall", "ToolResult"]]:
-        """Execute tool calls from LLM response.
+        """Execute tool calls.
 
         Args:
-            llm_response: LLM response with tool_calls.
+            tool_calls: List of tool call dicts in OpenAI format.
             state_machine: State machine for recording.
             step_number: Current step number.
             event_callback: SSE callback.
@@ -568,7 +661,7 @@ Include citations in your response using [1], [2], etc."""
 
         results: List[tuple[ParsedToolCall, ToolResult]] = []
 
-        parsed_calls = self._parse_tool_calls(llm_response.tool_calls or [])
+        parsed_calls = self._parse_tool_calls(tool_calls)
 
         for tool_call in parsed_calls:
             # Create idempotency key
