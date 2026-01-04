@@ -6,8 +6,8 @@
 
 ## Current Status
 
-- **Current Phase:** 1 (Data Layer - COMPLETED)
-- **Current Branch:** `feature/agent-phase-1-data-layer`
+- **Current Phase:** 2 (Provider Chain - COMPLETED)
+- **Current Branch:** `feature/agent-phase-2-provider-chain`
 - **Last Updated:** 2026-01-04
 - **Blockers:** None
 
@@ -25,23 +25,28 @@
 
 ## Next Steps
 
-**Phase 2: Provider Chain** is next. To start:
+**Phase 3: Tool Layer** is next. To start:
 
 ```bash
-# 1. Create branch from current work
-git checkout -b feature/agent-phase-2-provider-chain
+# 1. Create branch from test
+git checkout test
+git checkout -b feature/agent-phase-3-tools
 
 # 2. Implement:
-#    - orchestrator/providers/circuit_breaker.py
-#    - orchestrator/providers/chain.py
-#    - Update factory.py to handle chain config
-#    - Update chat_config.yaml with provider chain settings
-#    - Write tests
+#    - orchestrator/agent/tools/base.py (BaseTool protocol)
+#    - orchestrator/agent/tools/registry.py (ToolRegistry)
+#    - orchestrator/agent/tools/web_search.py (Parallel.ai Search API)
+#    - orchestrator/agent/tools/web_extract.py (Parallel.ai Extract API)
+#    - orchestrator/agent/tools/python_sandbox.py (E2B sandbox)
+#    - Write tests for each tool
 
 # 3. Test
-uv run pytest tests/providers/ -v
+uv run pytest tests/agent/tools/ -v  # Unit tests
+uv run pytest                        # Full suite
+./scripts/sanity_test.sh --debug     # E2E tests
 
 # 4. Update this log with results
+# 5. Merge to test branch
 ```
 
 ---
@@ -64,15 +69,25 @@ uv run pytest tests/providers/ -v
   - Agent tables use ON DELETE CASCADE for foreign keys
   - idempotency_key enables crash recovery for tool calls
 
-### Phase 2: Provider Chain - NOT STARTED
+### Phase 2: Provider Chain - COMPLETED
 - **Branch:** `feature/agent-phase-2-provider-chain`
-- **Status:** Pending
-- **Files to Create:**
-  - `orchestrator/providers/circuit_breaker.py`
-  - `orchestrator/providers/chain.py`
-  - `tests/providers/test_circuit_breaker.py`
-  - `tests/providers/test_provider_chain.py`
-- **Exit Criteria:** DeepInfra works, failover to Together works
+- **Status:** COMPLETED (2026-01-04)
+- **Files Created:**
+  - `orchestrator/providers/circuit_breaker.py` - CircuitBreaker state machine (closed/open/half-open)
+  - `orchestrator/providers/chain.py` - ProviderChain with failover support
+  - `tests/providers/test_circuit_breaker.py` - 16 unit tests
+  - `tests/providers/test_provider_chain.py` - 19 unit tests
+- **Files Modified:**
+  - `orchestrator/config.py` - Added CircuitBreakerConfig, ChainedProviderConfig, ProviderChainConfig
+  - `orchestrator/chat_config.yaml` - Added provider_chain section (disabled by default)
+  - `orchestrator/providers/factory.py` - Updated create_provider() for chain support
+  - `orchestrator/providers/__init__.py` - Added new exports
+  - `orchestrator/engine/chat_engine.py` - Pass chain_config to create_provider()
+- **Exit Criteria:** ✓ All 241 tests pass (35 new + 206 existing), ✓ Chain disabled by default (backward compat)
+- **Notes:**
+  - Circuit breaker per provider for independent health tracking
+  - Failover at connection time only (no mid-stream)
+  - Chain disabled by default for backward compatibility
 
 ### Phase 3: Tool Layer - NOT STARTED
 - **Branch:** `feature/agent-phase-3-tools`
@@ -139,6 +154,57 @@ uv run pytest tests/providers/ -v
 
 ---
 
+## Git Workflow
+
+### Branch Strategy
+```
+main (production-ready)
+  └── test (integration branch - all phases merge here first)
+        └── feature/agent-phase-X-xxx (feature branches)
+```
+
+### Workflow Steps
+```bash
+# 1. Start from test branch
+git checkout test
+
+# 2. Create feature branch
+git checkout -b feature/agent-phase-X-xxx
+
+# 3. Implement + test (iterative)
+uv run pytest tests/xxx/ -v       # Unit tests
+uv run pytest                      # Full suite
+./scripts/sanity_test.sh --debug   # E2E tests (if server running)
+
+# 4. Commit when tests pass
+git add .
+git commit -m "feat(agent): Phase X - [Component Name] complete"
+
+# 5. Merge to test branch
+git checkout test
+git merge feature/agent-phase-X-xxx
+
+# 6. Run E2E tests on test branch
+./scripts/sanity_test.sh --debug
+
+# 7. Update this implementation log
+```
+
+---
+
+## Testing Workflow (MANDATORY)
+
+### For Every Phase:
+1. Write unit tests for each new component
+2. Run unit tests after each file
+3. Fix any failures before moving to next file
+4. Run full test suite: `uv run pytest`
+5. Run E2E tests: `./scripts/sanity_test.sh --debug` (requires server)
+6. Fix any E2E failures before considering phase complete
+7. Update this log with test results
+
+---
+
 ## Critical Fixes to Remember
 
 1. **E2B not Docker** - Railway/Fly.io can't run Docker
@@ -179,3 +245,28 @@ uv run pytest tests/providers/ -v
 - Cascade delete support
 
 **Test Coverage:** 19 new tests, all passing
+
+### Phase 2: Provider Chain (2026-01-04)
+
+**Summary:** Implemented resilient provider chain with circuit breaker pattern for automatic failover between LLM providers.
+
+**Files Created:**
+1. `orchestrator/providers/circuit_breaker.py` - State machine (closed/open/half-open) for provider health
+2. `orchestrator/providers/chain.py` - ProviderChain implementing LLMProvider protocol with failover
+3. `tests/providers/test_circuit_breaker.py` - 16 comprehensive unit tests
+4. `tests/providers/test_provider_chain.py` - 19 comprehensive unit tests
+
+**Files Modified:**
+1. `orchestrator/config.py` - Added CircuitBreakerConfig, ChainedProviderConfig, ProviderChainConfig
+2. `orchestrator/chat_config.yaml` - Added provider_chain section (disabled by default)
+3. `orchestrator/providers/factory.py` - Updated create_provider() to support chain config
+4. `orchestrator/providers/__init__.py` - Exported new types
+5. `orchestrator/engine/chat_engine.py` - Pass chain_config to factory
+
+**Key Design Decisions:**
+- Circuit breaker per provider (not per chain) for independent health tracking
+- Keep existing retry logic + add circuit breaker on top
+- Failover at connection time only (no mid-stream failover)
+- Chain disabled by default for backward compatibility
+
+**Test Coverage:** 35 new tests (16 circuit breaker + 19 provider chain), all 241 tests passing

@@ -43,6 +43,54 @@ provider:
   extra_headers: {}
 
 # =============================================================================
+# Provider Chain Configuration (Optional)
+# =============================================================================
+# When enabled, overrides single provider mode with failover chain.
+# Each provider has its own circuit breaker for independent health tracking.
+#
+# Failover Strategy:
+#   Request -> DeepInfra (primary)
+#     -> if 5xx or timeout: Together AI (fallback)
+#     -> if also fails: Error with retry option
+
+provider_chain:
+  enabled: false  # Set to true to enable chain mode
+
+  # Default circuit breaker settings (used if not specified per-provider)
+  default_circuit_breaker:
+    failure_threshold: 5        # Failures before opening circuit
+    recovery_timeout_seconds: 30.0  # Seconds before half-open test
+    success_threshold: 2        # Successes in half-open before closing
+
+  # Providers in priority order (lower priority = tried first)
+  providers:
+    - name: deepinfra
+      priority: 0  # Primary (tried first)
+      provider:
+        base_url: "https://api.deepinfra.com/v1/openai"
+        api_key: ${DEEPINFRA_API_KEY:-}
+        endpoint: "chat_completions"
+        timeout: 60.0
+        max_retries: 2
+        retryable_statuses: [429, 500, 502, 503, 504]
+      circuit_breaker:
+        failure_threshold: 5
+        recovery_timeout_seconds: 30.0
+
+    - name: together_ai
+      priority: 1  # Fallback
+      provider:
+        base_url: "https://api.together.xyz/v1"
+        api_key: ${TOGETHER_API_KEY:-}
+        endpoint: "chat_completions"
+        timeout: 60.0
+        max_retries: 2
+        retryable_statuses: [429, 500, 502, 503, 504]
+      circuit_breaker:
+        failure_threshold: 5
+        recovery_timeout_seconds: 30.0
+
+# =============================================================================
 # Model Configuration
 # =============================================================================
 
