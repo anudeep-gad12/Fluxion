@@ -189,6 +189,68 @@ class ProviderChainConfig(BaseModel):
 
 
 # =============================================================================
+# Tool Configuration
+# =============================================================================
+
+
+class ParallelSearchConfig(BaseModel):
+    """Parallel.ai search settings."""
+
+    max_results: int = 10
+    timeout_ms: int = 15000
+
+
+class ParallelExtractConfig(BaseModel):
+    """Parallel.ai extract settings."""
+
+    timeout_ms: int = 30000
+    max_urls_per_request: int = 5
+
+
+class ParallelConfig(BaseModel):
+    """Parallel.ai API configuration for web search and extraction."""
+
+    base_url: str = "https://api.parallel.ai/v1beta"
+    api_key: Optional[str] = None
+    search: ParallelSearchConfig = ParallelSearchConfig()
+    extract: ParallelExtractConfig = ParallelExtractConfig()
+
+    @field_validator("api_key", mode="before")
+    @classmethod
+    def empty_string_to_none(cls, v: Any) -> Optional[str]:
+        """Convert empty string to None for api_key."""
+        if v == "" or v is None:
+            return None
+        return v
+
+
+class E2BConfig(BaseModel):
+    """E2B sandbox settings for Python code execution."""
+
+    api_key: Optional[str] = None
+    template: str = "base"
+    timeout_seconds: int = 30
+    cleanup_on_startup: bool = True
+    stale_session_minutes: int = 10
+    metadata: Dict[str, str] = {"app": "reasoner"}
+
+    @field_validator("api_key", mode="before")
+    @classmethod
+    def empty_string_to_none(cls, v: Any) -> Optional[str]:
+        """Convert empty string to None for api_key."""
+        if v == "" or v is None:
+            return None
+        return v
+
+
+class SandboxConfig(BaseModel):
+    """Sandbox configuration."""
+
+    provider: Literal["e2b"] = "e2b"
+    e2b: E2BConfig = E2BConfig()
+
+
+# =============================================================================
 # Chat Configuration Classes
 # =============================================================================
 
@@ -270,6 +332,10 @@ class ChatConfig(BaseModel):
     tracing: ChatTracingConfig = ChatTracingConfig()
     thinking: ThinkingConfig = ThinkingConfig()
 
+    # Tool configurations
+    parallel: Optional[ParallelConfig] = None  # Parallel.ai for web search/extract
+    sandbox: Optional[SandboxConfig] = None  # E2B for Python execution
+
     # Backward compatibility alias
     @property
     def endpoint(self) -> str:
@@ -291,6 +357,10 @@ class ChatConfig(BaseModel):
         }
         if self.provider_chain:
             snapshot["provider_chain"] = self.provider_chain.model_dump()
+        if self.parallel:
+            snapshot["parallel"] = self.parallel.model_dump()
+        if self.sandbox:
+            snapshot["sandbox"] = self.sandbox.model_dump()
         return snapshot
 
 

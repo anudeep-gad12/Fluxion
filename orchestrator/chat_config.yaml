@@ -152,3 +152,39 @@ thinking:
   ui:
     show_thinking: false      # Hidden by default
     collapsible: true         # Allow expansion
+
+# =============================================================================
+# Parallel.ai Configuration (Web Search & Extract)
+# =============================================================================
+# Used by web_search and web_extract tools for web research.
+# Get API key from: https://parallel.ai
+
+parallel:
+  base_url: "https://api.parallel.ai/v1beta"
+  api_key: ${PARALLEL_API_KEY:-}
+
+  search:
+    max_results: 10
+    timeout_ms: 15000
+
+  extract:
+    timeout_ms: 30000
+    max_urls_per_request: 5
+
+# =============================================================================
+# Sandbox Configuration (E2B)
+# =============================================================================
+# Used by python_execute tool for secure code execution.
+# Get API key from: https://e2b.dev
+
+sandbox:
+  provider: e2b
+
+  e2b:
+    api_key: ${E2B_API_KEY:-}
+    template: "base"
+    timeout_seconds: 30
+    cleanup_on_startup: true      # Clean zombie sessions on startup
+    stale_session_minutes: 10     # Age threshold for stale sessions
+    metadata:
+      app: "reasoner"
