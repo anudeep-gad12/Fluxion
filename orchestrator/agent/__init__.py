@@ -45,6 +45,7 @@ from orchestrator.agent.agent_engine import (
     AgentResult,
     ParsedToolCall,
 )
+from orchestrator.agent.factory import create_agent_engine
 
 __all__ = [
     # Base types
@@ -82,4 +83,6 @@ __all__ = [
     "AgentEngine",
     "AgentResult",
     "ParsedToolCall",
+    # Factory
+    "create_agent_engine",
 ]
