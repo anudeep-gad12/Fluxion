@@ -95,7 +95,7 @@ provider_chain:
 # =============================================================================
 
 model:
-  name: "openai/gpt-oss-20b"  # Model name as expected by the provider
+  name: "openai/gpt-oss-120b"  # Model name as expected by the provider
   temperature: 1.0            # Recommended for reasoning models
   max_tokens: 4096
   seed: null                  # Set to integer for reproducible outputs

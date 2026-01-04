@@ -34,7 +34,7 @@ def parse_responses_result(raw: Dict[str, Any], endpoint: str) -> LLMResponse:
                 if block_type in ("text", "output_text"):
                     text_parts.append(block.get("text", ""))
                 elif block_type == "tool_use":
-                    # Convert to OpenAI tool_calls format for consistency
+                    # OpenAI format: Convert to tool_calls format for consistency
                     tool_calls.append({
                         "id": block.get("id"),
                         "type": "function",
@@ -43,6 +43,24 @@ def parse_responses_result(raw: Dict[str, Any], endpoint: str) -> LLMResponse:
                             "arguments": json.dumps(block.get("input", {})),
                         },
                     })
+
+        elif item_type == "function_call":
+            # LM Studio format: function_call as top-level output item
+            # Format: {"id": "fc_...", "type": "function_call", "name": "...",
+            #          "arguments": "{...}", "call_id": "call_..."}
+            call_id = item.get("call_id") or item.get("id")
+            arguments = item.get("arguments", "{}")
+            # arguments is already a JSON string in LM Studio format
+            if isinstance(arguments, dict):
+                arguments = json.dumps(arguments)
+            tool_calls.append({
+                "id": call_id,
+                "type": "function",
+                "function": {
+                    "name": item.get("name"),
+                    "arguments": arguments,
+                },
+            })
 
         elif item_type == "reasoning":
             # Extract reasoning from different formats:
@@ -113,7 +131,7 @@ def parse_chat_result(raw: Dict[str, Any], endpoint: str) -> LLMResponse:
 
 def parse_streaming_delta(
     delta: Dict[str, Any], endpoint_type: str
-) -> Dict[str, Optional[str]]:
+) -> Dict[str, Any]:
     """Parse a streaming delta chunk.
 
     Args:
@@ -121,12 +139,13 @@ def parse_streaming_delta(
         endpoint_type: "responses" or "chat_completions".
 
     Returns:
-        Dict with 'content', 'reasoning', and 'tool_call' keys.
+        Dict with 'content', 'reasoning', 'tool_call', and 'tool_call_complete' keys.
     """
-    result: Dict[str, Optional[str]] = {
+    result: Dict[str, Any] = {
         "content": None,
         "reasoning": None,
         "tool_call": None,
+        "tool_call_complete": None,  # Completed function call object
     }
 
     if endpoint_type == "responses":
@@ -146,6 +165,29 @@ def parse_streaming_delta(
             result["content"] = delta.get("delta")
         elif delta_type == "response.reasoning_text.delta":
             result["reasoning"] = delta.get("delta")
+
+        # LM Studio format: response.function_call_arguments.delta (streaming args)
+        elif delta_type == "response.function_call_arguments.delta":
+            # Returns partial arguments as they stream
+            result["tool_call"] = delta.get("delta", "")
+
+        # LM Studio format: response.output_item.done (completed function call)
+        elif delta_type == "response.output_item.done":
+            item = delta.get("item", {})
+            if item.get("type") == "function_call":
+                # Complete function call - extract and convert to standard format
+                call_id = item.get("call_id") or item.get("id")
+                arguments = item.get("arguments", "{}")
+                if isinstance(arguments, dict):
+                    arguments = json.dumps(arguments)
+                result["tool_call_complete"] = {
+                    "id": call_id,
+                    "type": "function",
+                    "function": {
+                        "name": item.get("name"),
+                        "arguments": arguments,
+                    },
+                }
 
     else:
         # Chat completions streaming format

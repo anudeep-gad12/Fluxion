@@ -52,7 +52,10 @@ class WebSearchTool:
         self._max_retries = max_retries
         self._base_delay = base_delay
 
-        headers = {"Content-Type": "application/json"}
+        headers = {
+            "Content-Type": "application/json",
+            "parallel-beta": "search-extract-2025-10-10",  # Required for search API
+        }
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
 
@@ -190,11 +193,12 @@ class WebSearchTool:
 
         for attempt in range(1, self._max_retries + 1):
             try:
+                # Parallel.ai API requires 'objective' or 'search_queries', not 'query'
                 response = await self._client.post(
                     f"{self._base_url}/search",
                     json={
-                        "query": query,
-                        "num_results": num_results,
+                        "objective": query,
+                        "max_results": num_results,
                     },
                 )
 
@@ -243,7 +247,7 @@ class WebSearchTool:
             # Try a simple search to verify API is working
             response = await self._client.post(
                 f"{self._base_url}/search",
-                json={"query": "test", "num_results": 1},
+                json={"objective": "test", "max_results": 1},
                 timeout=5.0,
             )
             return response.status_code == 200
