@@ -6,8 +6,8 @@
 
 ## Current Status
 
-- **Current Phase:** 4 (Context Pruner + State Machine - COMPLETED)
-- **Current Branch:** `feature/agent-phase-4-pruner-state`
+- **Current Phase:** 5 (Agent Engine - COMPLETED)
+- **Current Branch:** `feature/agent-phase-5-engine`
 - **Last Updated:** 2026-01-04
 - **Blockers:** None
 
@@ -16,7 +16,7 @@
 ## Quick Resume for New Chat
 
 1. Read this log first
-2. Read the plan file: `.claude/plans/serialized-baking-starfish.md`
+2. Read the plan file: `.claude/plans/curried-munching-thunder.md`
 3. Checkout the current branch (see above)
 4. Look at "Next Steps" below
 5. After work, update this log with what you built
@@ -25,22 +25,23 @@
 
 ## Next Steps
 
-**Phase 5: Agent Engine** is next. To start:
+**Phase 6: API Layer** is next. To start:
 
 ```bash
 # 1. Create branch from test
 git checkout test
-git checkout -b feature/agent-phase-5-engine
+git checkout -b feature/agent-phase-6-api
 
 # 2. Implement:
-#    - orchestrator/agent/recovery.py
-#    - orchestrator/agent/agent_engine.py
-#    - Write tests for each component
+#    - orchestrator/routes/agent.py (FastAPI routes)
+#    - Update orchestrator/app.py to include agent routes
+#    - SSE streaming endpoint
+#    - Write tests for API endpoints
 
 # 3. Test
-uv run pytest tests/agent/ -v       # Unit tests
-uv run pytest                        # Full suite
-./scripts/sanity_test.sh --debug     # E2E tests
+uv run pytest tests/routes/ -v       # Unit tests
+uv run pytest                         # Full suite
+./scripts/sanity_test.sh --debug      # E2E tests
 
 # 4. Update this log with results
 # 5. Merge to test branch
@@ -129,13 +130,26 @@ uv run pytest                        # Full suite
   - Recovery hints injected for non-idempotent tools (python_execute) on crash
   - Idempotency key support for crash recovery
 
-### Phase 5: Agent Engine - NOT STARTED
+### Phase 5: Agent Engine - COMPLETED
 - **Branch:** `feature/agent-phase-5-engine`
-- **Status:** Pending
-- **Files to Create:**
-  - `orchestrator/agent/recovery.py`
-  - `orchestrator/agent/agent_engine.py`
-- **Exit Criteria:** Agent answers "What is the population of Tokyo?"
+- **Status:** COMPLETED (2026-01-04)
+- **Files Created:**
+  - `orchestrator/agent/recovery.py` - Recovery helpers (should_retry_tool, build_recovery_messages, create_idempotency_key)
+  - `orchestrator/agent/agent_engine.py` - AgentEngine class with full orchestration loop
+  - `tests/agent/test_recovery.py` - 31 unit tests
+  - `tests/agent/test_agent_engine.py` - 36 unit tests
+  - `tests/agent/test_agent_integration.py` - 5 integration tests (including exit criteria)
+- **Files Modified:**
+  - `orchestrator/agent/__init__.py` - Added exports for new modules
+- **Exit Criteria:** ✓ All 471 tests pass (72 new + 399 existing), ✓ Agent answers "What is the population of Tokyo?"
+- **Notes:**
+  - AgentEngine orchestrates: state machine, tool registry, context pruner, LLM provider
+  - SSE event emission (agent_started, step_started, thinking, tool_start, tool_result, synthesizing, agent_complete, agent_error)
+  - Recovery helper functions for crash scenarios
+  - Idempotency key creation for tool call deduplication
+  - Harmony format thinking extraction (<think>...</think>)
+  - Citation storage from web_search and web_extract results
+  - Force synthesis when max_steps reached
 
 ### Phase 6: API Layer - NOT STARTED
 - **Branch:** `feature/agent-phase-6-api`
@@ -364,3 +378,47 @@ PLANNING → TOOL_CALLING → PLANNING (loop)
 ```
 
 **Test Coverage:** 59 new tests (23 context pruner + 36 state machine), all 399 tests passing
+
+### Phase 5: Agent Engine (2026-01-04)
+
+**Summary:** Built the core agent orchestration engine that ties together all Phase 1-4 components to execute web research queries with tool calling.
+
+**Files Created:**
+1. `orchestrator/agent/recovery.py` - Recovery helpers for crash scenarios
+2. `orchestrator/agent/agent_engine.py` - AgentEngine class with full orchestration loop
+3. `tests/agent/test_recovery.py` - 31 comprehensive unit tests
+4. `tests/agent/test_agent_engine.py` - 36 comprehensive unit tests
+5. `tests/agent/test_agent_integration.py` - 5 integration tests (including exit criteria)
+
+**Files Modified:**
+1. `orchestrator/agent/__init__.py` - Added exports for recovery and agent_engine modules
+
+**Key Features:**
+- **AgentEngine**: Main orchestration class
+  - Executes agent loop: LLM call → tool parsing → tool execution → state recording
+  - Integrates with AgentStateMachine, ToolRegistry, ContextPruner, and LLMProvider
+  - SSE event emission for UI streaming
+  - Crash recovery with hint injection
+  - Force synthesis when max_steps reached
+
+- **Recovery Module**: Helper functions
+  - `should_retry_tool()` - Determines if tool call can be safely retried
+  - `build_recovery_messages()` - Injects recovery hints into message context
+  - `create_idempotency_key()` - Creates unique keys for tool call deduplication
+  - `determine_recovery_actions()` - Analyzes interrupted tool calls
+
+- **SSE Event Types:**
+  - `agent_started`, `step_started`, `thinking`, `tool_start`, `tool_result`
+  - `synthesizing`, `answer_token`, `agent_complete`, `agent_error`
+
+- **AgentResult Dataclass:**
+  - `success`, `final_answer`, `citations`, `total_steps`, `timing_ms`, `error_message`
+
+**Exit Criteria Verified:**
+- ✓ Agent answers "What is the population of Tokyo?" (integration test)
+- ✓ Tool execution with search and synthesis
+- ✓ Multi-step agent behavior (search → extract → synthesize)
+- ✓ Crash recovery with hint injection
+- ✓ Error handling for tool failures
+
+**Test Coverage:** 72 new tests (31 recovery + 36 agent_engine + 5 integration), all 471 tests passing

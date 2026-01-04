@@ -5,6 +5,8 @@ This module provides:
 - Tool registry for management
 - Context pruning for token management
 - State machine for agent execution flow
+- Recovery helpers for crash recovery
+- Agent engine for orchestration
 - Factory functions for setup
 """
 
@@ -29,6 +31,19 @@ from orchestrator.agent.state_machine import (
     RecoveryContext,
     StateTransitionError,
     StepResult,
+)
+from orchestrator.agent.recovery import (
+    RecoveryAction,
+    build_recovery_messages,
+    create_idempotency_key,
+    determine_recovery_actions,
+    get_cached_tool_result,
+    should_retry_tool,
+)
+from orchestrator.agent.agent_engine import (
+    AgentEngine,
+    AgentResult,
+    ParsedToolCall,
 )
 
 __all__ = [
@@ -56,4 +71,15 @@ __all__ = [
     "RecoveryContext",
     "StateTransitionError",
     "StepResult",
+    # Recovery
+    "RecoveryAction",
+    "build_recovery_messages",
+    "create_idempotency_key",
+    "determine_recovery_actions",
+    "get_cached_tool_result",
+    "should_retry_tool",
+    # Agent Engine
+    "AgentEngine",
+    "AgentResult",
+    "ParsedToolCall",
 ]
