@@ -3,6 +3,8 @@
 This module provides:
 - Tool protocol and implementations
 - Tool registry for management
+- Context pruning for token management
+- State machine for agent execution flow
 - Factory functions for setup
 """
 
@@ -18,6 +20,15 @@ from orchestrator.agent.tools import (
     WebExtractTool,
     WebSearchTool,
     create_tool_registry,
+)
+from orchestrator.agent.context_pruner import ContextPruner, PruneStats
+from orchestrator.agent.state_machine import (
+    AgentState,
+    AgentStateMachine,
+    MaxStepsExceededError,
+    RecoveryContext,
+    StateTransitionError,
+    StepResult,
 )
 
 __all__ = [
@@ -35,4 +46,14 @@ __all__ = [
     "WebSearchTool",
     "WebExtractTool",
     "PythonSandboxTool",
+    # Context Pruner
+    "ContextPruner",
+    "PruneStats",
+    # State Machine
+    "AgentState",
+    "AgentStateMachine",
+    "MaxStepsExceededError",
+    "RecoveryContext",
+    "StateTransitionError",
+    "StepResult",
 ]

@@ -6,8 +6,8 @@
 
 ## Current Status
 
-- **Current Phase:** 3 (Tool Layer - COMPLETED)
-- **Current Branch:** `feature/agent-phase-3-tools`
+- **Current Phase:** 4 (Context Pruner + State Machine - COMPLETED)
+- **Current Branch:** `feature/agent-phase-4-pruner-state`
 - **Last Updated:** 2026-01-04
 - **Blockers:** None
 
@@ -25,16 +25,16 @@
 
 ## Next Steps
 
-**Phase 4: Context Pruner + State Machine** is next. To start:
+**Phase 5: Agent Engine** is next. To start:
 
 ```bash
 # 1. Create branch from test
 git checkout test
-git checkout -b feature/agent-phase-4-pruner-state
+git checkout -b feature/agent-phase-5-engine
 
 # 2. Implement:
-#    - orchestrator/agent/context_pruner.py
-#    - orchestrator/agent/state_machine.py
+#    - orchestrator/agent/recovery.py
+#    - orchestrator/agent/agent_engine.py
 #    - Write tests for each component
 
 # 3. Test
@@ -112,13 +112,22 @@ uv run pytest                        # Full suite
   - is_idempotent flag for crash recovery (web_search/web_extract: True, python_execute: False)
   - E2B session cleanup on startup for zombie sessions
 
-### Phase 4: Context Pruner + State Machine - NOT STARTED
+### Phase 4: Context Pruner + State Machine - COMPLETED
 - **Branch:** `feature/agent-phase-4-pruner-state`
-- **Status:** Pending
-- **Files to Create:**
-  - `orchestrator/agent/context_pruner.py`
-  - `orchestrator/agent/state_machine.py`
-- **Exit Criteria:** Pruner reduces token count, state transitions work
+- **Status:** COMPLETED (2026-01-04)
+- **Files Created:**
+  - `orchestrator/agent/context_pruner.py` - ContextPruner with step-aware message pruning
+  - `orchestrator/agent/state_machine.py` - AgentStateMachine with crash recovery
+  - `tests/agent/test_context_pruner.py` - 23 unit tests
+  - `tests/agent/test_state_machine.py` - 36 unit tests
+- **Files Modified:**
+  - `orchestrator/agent/__init__.py` - Added exports for new modules
+- **Exit Criteria:** ✓ All 399 tests pass (59 new + 340 existing), ✓ Pruner summarizes old tool results, ✓ State transitions validated
+- **Notes:**
+  - ContextPruner keeps last 2 steps detailed, summarizes older ones to 1-line
+  - AgentStateMachine validates state transitions (PLANNING → TOOL_CALLING → SYNTHESIZING → COMPLETE)
+  - Recovery hints injected for non-idempotent tools (python_execute) on crash
+  - Idempotency key support for crash recovery
 
 ### Phase 5: Agent Engine - NOT STARTED
 - **Branch:** `feature/agent-phase-5-engine`
@@ -317,3 +326,41 @@ git merge feature/agent-phase-X-xxx
 | python_execute | **No** | E2B sandbox | 30s |
 
 **Test Coverage:** 99 new tests, all 340 tests passing
+
+### Phase 4: Context Pruner + State Machine (2026-01-04)
+
+**Summary:** Built context management and state machine for the web research agent with token blowout prevention and crash recovery support.
+
+**Files Created:**
+1. `orchestrator/agent/context_pruner.py` - ContextPruner class with step-aware message pruning
+2. `orchestrator/agent/state_machine.py` - AgentStateMachine with state transition validation and crash recovery
+3. `tests/agent/test_context_pruner.py` - 23 comprehensive unit tests
+4. `tests/agent/test_state_machine.py` - 36 comprehensive unit tests
+
+**Files Modified:**
+1. `orchestrator/agent/__init__.py` - Added exports for ContextPruner, PruneStats, AgentState, AgentStateMachine, RecoveryContext, StepResult, and exceptions
+
+**Key Features:**
+- **ContextPruner**: Prevents 128k token context blowout by summarizing old tool results
+  - Keeps last 2 steps detailed (configurable)
+  - Summarizes `web_search` as `[Search results - X chars]`
+  - Summarizes `web_extract` as `[Extracted content - X chars]`
+  - Keeps first/last 200 chars for long `python_execute` output
+  - Provides token estimation and pruning statistics
+
+- **AgentStateMachine**: Manages agent execution state and transitions
+  - State transitions: PLANNING → TOOL_CALLING → SYNTHESIZING → COMPLETE
+  - Validates transitions (prevents invalid state changes)
+  - Enforces max_steps limit
+  - Crash recovery with hint injection for non-idempotent tools
+  - Idempotency key support for tool call deduplication
+
+**State Diagram:**
+```
+PLANNING → TOOL_CALLING → PLANNING (loop)
+                       → SYNTHESIZING → COMPLETE
+         → SYNTHESIZING → COMPLETE
+         → ERROR
+```
+
+**Test Coverage:** 59 new tests (23 context pruner + 36 state machine), all 399 tests passing
