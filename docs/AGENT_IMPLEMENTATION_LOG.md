@@ -6,8 +6,8 @@
 
 ## Current Status
 
-- **Current Phase:** 5 (Agent Engine - COMPLETED)
-- **Current Branch:** `feature/agent-phase-5-engine`
+- **Current Phase:** 6 (API Layer - COMPLETED)
+- **Current Branch:** `feature/agent-phase-6-api`
 - **Last Updated:** 2026-01-04
 - **Blockers:** None
 
@@ -25,23 +25,24 @@
 
 ## Next Steps
 
-**Phase 6: API Layer** is next. To start:
+**Phase 7: Frontend** is next. To start:
 
 ```bash
 # 1. Create branch from test
 git checkout test
-git checkout -b feature/agent-phase-6-api
+git checkout -b feature/agent-phase-7-frontend
 
 # 2. Implement:
-#    - orchestrator/routes/agent.py (FastAPI routes)
-#    - Update orchestrator/app.py to include agent routes
-#    - SSE streaming endpoint
-#    - Write tests for API endpoints
+#    - ui/src/types/agent.ts (TypeScript types)
+#    - ui/src/hooks/useAgentSSE.ts (SSE hook)
+#    - ui/src/components/AgentThinkingPanel.tsx
+#    - ui/src/components/ToolCallCard.tsx
+#    - ui/src/components/CitationInline.tsx
+#    - ui/src/components/AnswerWithCitations.tsx
 
 # 3. Test
-uv run pytest tests/routes/ -v       # Unit tests
-uv run pytest                         # Full suite
-./scripts/sanity_test.sh --debug      # E2E tests
+cd ui && pnpm build                   # Build check
+cd ui && pnpm test                    # Unit tests
 
 # 4. Update this log with results
 # 5. Merge to test branch
@@ -151,13 +152,25 @@ uv run pytest                         # Full suite
   - Citation storage from web_search and web_extract results
   - Force synthesis when max_steps reached
 
-### Phase 6: API Layer - NOT STARTED
+### Phase 6: API Layer - COMPLETED
 - **Branch:** `feature/agent-phase-6-api`
-- **Status:** Pending
-- **Files to Create:**
-  - `orchestrator/routes/agent.py`
-  - Update `orchestrator/app.py`
-- **Exit Criteria:** curl can start run and stream SSE events
+- **Status:** COMPLETED (2026-01-04)
+- **Files Created:**
+  - `orchestrator/agent/factory.py` - AgentEngine factory function
+  - `orchestrator/routes/agent_runs.py` - 5 REST endpoints with SSE streaming
+  - `tests/routes/__init__.py` - Routes test package
+  - `tests/routes/test_agent_runs.py` - 15 unit tests
+  - `tests/integration/test_agent_e2e.py` - 6 E2E tests
+- **Files Modified:**
+  - `orchestrator/app.py` - Added agent_runs router
+  - `orchestrator/agent/__init__.py` - Added create_agent_engine export
+- **Exit Criteria:** ✓ All 492 tests pass (21 new + 471 existing)
+- **Notes:**
+  - SSE streaming with resumption support (since_seq parameter)
+  - Event translation layer (engine events → SSE events)
+  - Ephemeral conversation creation for standalone agent runs
+  - Cancellation support with abort signals
+  - Full trace endpoint with steps, tool calls, and citations
 
 ### Phase 7: Frontend - NOT STARTED
 - **Branch:** `feature/agent-phase-7-frontend`
@@ -422,3 +435,48 @@ PLANNING → TOOL_CALLING → PLANNING (loop)
 - ✓ Error handling for tool failures
 
 **Test Coverage:** 72 new tests (31 recovery + 36 agent_engine + 5 integration), all 471 tests passing
+
+### Phase 6: API Layer (2026-01-04)
+
+**Summary:** Built the REST API layer for the web research agent with 5 endpoints, SSE streaming with resumption support, and comprehensive tests.
+
+**Files Created:**
+1. `orchestrator/agent/factory.py` - Factory function for creating configured AgentEngine instances
+2. `orchestrator/routes/agent_runs.py` - 5 REST endpoints with SSE streaming
+3. `tests/routes/__init__.py` - Routes test package
+4. `tests/routes/test_agent_runs.py` - 15 comprehensive unit tests
+5. `tests/integration/test_agent_e2e.py` - 6 E2E tests
+
+**Files Modified:**
+1. `orchestrator/app.py` - Added agent_runs router import and registration
+2. `orchestrator/agent/__init__.py` - Added create_agent_engine export
+
+**Key Features:**
+- **REST Endpoints:**
+  - `POST /api/agent/runs` - Start new agent run
+  - `GET /api/agent/runs/{id}` - Get run status
+  - `GET /api/agent/runs/{id}/stream` - SSE event stream
+  - `POST /api/agent/runs/{id}/cancel` - Cancel active run
+  - `GET /api/agent/runs/{id}/trace` - Full execution trace
+
+- **SSE Streaming:**
+  - Event translation layer (engine events → SSE events)
+  - Stream resumption via `since_seq` parameter
+  - Event history storage for reconnection
+  - 30-second heartbeat keep-alive
+  - Proper client disconnect handling
+
+- **Factory Function:**
+  - Creates AgentEngine with all dependencies
+  - Provider chain integration
+  - Tool registry with configured tools
+  - Configuration overrides support
+
+**Exit Criteria Verified:**
+- ✓ curl can start run and stream SSE events
+- ✓ All 5 endpoints functional
+- ✓ SSE streaming with event types
+- ✓ Cancellation support
+- ✓ Trace endpoint returns steps, tool calls, citations
+
+**Test Coverage:** 21 new tests (15 route + 6 E2E), all 492 tests passing

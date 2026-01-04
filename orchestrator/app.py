@@ -16,7 +16,7 @@ from orchestrator.logging_config import (
     set_component,
 )
 from orchestrator.storage.db import get_db
-from orchestrator.routes import conversations, runs
+from orchestrator.routes import conversations, runs, agent_runs
 
 
 logger = get_logger(__name__)
@@ -131,6 +131,7 @@ app.add_middleware(RequestLoggingMiddleware)
 # Include routers
 app.include_router(conversations.router)
 app.include_router(runs.router)
+app.include_router(agent_runs.router)
 
 
 @app.get("/api/health")
