@@ -6,8 +6,8 @@
 
 ## Current Status
 
-- **Current Phase:** 0 (Not Started)
-- **Current Branch:** `main`
+- **Current Phase:** 1 (Data Layer - COMPLETED)
+- **Current Branch:** `feature/agent-phase-1-data-layer`
 - **Last Updated:** 2026-01-04
 - **Blockers:** None
 
@@ -16,7 +16,7 @@
 ## Quick Resume for New Chat
 
 1. Read this log first
-2. Read the plan file: `.claude/plans/lazy-purring-nygaard.md`
+2. Read the plan file: `.claude/plans/serialized-baking-starfish.md`
 3. Checkout the current branch (see above)
 4. Look at "Next Steps" below
 5. After work, update this log with what you built
@@ -25,20 +25,21 @@
 
 ## Next Steps
 
-**Phase 1: Data Layer** is next. To start:
+**Phase 2: Provider Chain** is next. To start:
 
 ```bash
-# 1. Create branch
-git checkout -b feature/agent-phase-1-data-layer
+# 1. Create branch from current work
+git checkout -b feature/agent-phase-2-provider-chain
 
-# 2. Implement (see plan file for details):
-#    - Add agent tables to schema.sql
-#    - Add Pydantic models to schemas.py
-#    - Create agent_repo.py
+# 2. Implement:
+#    - orchestrator/providers/circuit_breaker.py
+#    - orchestrator/providers/chain.py
+#    - Update factory.py to handle chain config
+#    - Update chat_config.yaml with provider chain settings
 #    - Write tests
 
 # 3. Test
-just test tests/storage/test_agent_repo.py -v
+uv run pytest tests/providers/ -v
 
 # 4. Update this log with results
 ```
@@ -47,15 +48,21 @@ just test tests/storage/test_agent_repo.py -v
 
 ## Phase Progress
 
-### Phase 1: Data Layer - NOT STARTED
+### Phase 1: Data Layer - COMPLETED
 - **Branch:** `feature/agent-phase-1-data-layer`
-- **Status:** Pending
-- **Files to Create:**
-  - `orchestrator/storage/schema.sql` (add agent tables)
-  - `orchestrator/schemas.py` (add AgentStep, AgentToolCall, AgentCitation)
-  - `orchestrator/storage/repositories/agent_repo.py`
-  - `tests/storage/test_agent_repo.py`
-- **Exit Criteria:** Can CRUD agent_steps, agent_tool_calls, agent_citations
+- **Status:** COMPLETED (2026-01-04)
+- **Files Created/Modified:**
+  - `orchestrator/storage/schema.sql` - Added 3 agent tables (agent_steps, agent_tool_calls, agent_citations)
+  - `orchestrator/storage/db.py` - Added migrations for runs table (agent_state, current_step, max_steps, updated_at)
+  - `orchestrator/schemas.py` - Added 9 Pydantic models (AgentStepState, AgentToolCallStatus, AgentStepResponse, AgentToolCallResponse, AgentCitationResponse, CreateAgentRunRequest, CreateAgentRunResponse, AgentRunStatusResponse, AgentRunTraceResponse)
+  - `orchestrator/storage/repositories/agent_repo.py` - Full CRUD operations for all agent tables
+  - `tests/storage/test_agent_repo.py` - 19 comprehensive unit tests
+  - `.env` - Created with PARALLEL_API_KEY and E2B_API_KEY
+- **Exit Criteria:** ✓ All 206 tests pass (19 new agent tests + 187 existing)
+- **Notes:**
+  - SQLite BOOLEAN returns 1/0, tests use `== True` not `is True`
+  - Agent tables use ON DELETE CASCADE for foreign keys
+  - idempotency_key enables crash recovery for tool calls
 
 ### Phase 2: Provider Chain - NOT STARTED
 - **Branch:** `feature/agent-phase-2-provider-chain`
@@ -145,4 +152,30 @@ just test tests/storage/test_agent_repo.py -v
 
 ## Completed Work
 
-(Nothing yet - implementation not started)
+### Phase 1: Data Layer (2026-01-04)
+
+**Summary:** Built the database foundation for the web research agent with full CRUD operations, crash recovery support, and comprehensive tests.
+
+**Files Created:**
+1. `orchestrator/storage/repositories/agent_repo.py` - 450+ lines of async CRUD operations
+2. `tests/storage/test_agent_repo.py` - 19 comprehensive unit tests
+
+**Files Modified:**
+1. `orchestrator/storage/schema.sql` - Added agent_steps, agent_tool_calls, agent_citations tables
+2. `orchestrator/storage/db.py` - Added migrations for runs table agent columns
+3. `orchestrator/schemas.py` - Added 9 Pydantic models for agent API
+
+**Database Schema Added:**
+```sql
+-- agent_steps: state machine steps (planning, tool_calling, synthesizing, complete, error)
+-- agent_tool_calls: tool executions with idempotency_key for crash recovery
+-- agent_citations: evidence sources with used_in_answer tracking
+```
+
+**Key Features:**
+- Idempotency keys for crash recovery
+- Full JSON serialization for complex tool arguments
+- Status tracking (pending, running, success, error, timeout, interrupted)
+- Cascade delete support
+
+**Test Coverage:** 19 new tests, all passing

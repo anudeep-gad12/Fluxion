@@ -42,6 +42,11 @@ class Database:
         await self._add_column_if_not_exists("runs", "thinking_summary", "TEXT")
         # Migration 2: Add last_response_id for stateful mode
         await self._add_column_if_not_exists("runs", "last_response_id", "TEXT")
+        # Migration 3: Agent columns on runs table
+        await self._add_column_if_not_exists("runs", "agent_state", "TEXT")
+        await self._add_column_if_not_exists("runs", "current_step", "INTEGER DEFAULT 0")
+        await self._add_column_if_not_exists("runs", "max_steps", "INTEGER DEFAULT 10")
+        await self._add_column_if_not_exists("runs", "updated_at", "TEXT")
 
     async def _add_column_if_not_exists(
         self, table: str, column: str, column_type: str
