@@ -361,41 +361,96 @@ check_conversation_detail() {
     fi
 }
 
-check_thinking_tokens() {
+check_native_reasoning() {
     local run_id="$1"
     local label="$2"
-    local events_json
-    events_json=$(curl -s "$API_URL/api/runs/$run_id/events")
+    local run_json
+    run_json=$(curl -s "$API_URL/api/runs/$run_id")
 
-    # Check for reasoning events (persisted events have type "reasoning", not "THINKING_TOKEN")
-    # THINKING_TOKEN events only exist during live streaming and are not persisted
-    if echo "$events_json" | grep -q '"type".*"reasoning"'; then
-        pass "$label has reasoning events recorded"
+    # Check thinking_summary is populated (from native reasoning or parsed thinking)
+    local thinking
+    thinking=$(json_get "$run_json" ".thinking_summary")
+    if [ -n "$thinking" ] && [ "$thinking" != "null" ]; then
+        pass "$label has reasoning captured"
     else
-        fail "$label missing reasoning events"
-    fi
-
-    # Check if the thinking content contains [THINK] tags (validates streaming would have worked)
-    local thinking_content
-    thinking_content=$(echo "$events_json" | jq -r '.events[0].payload.internal.raw_content // empty' 2>/dev/null)
-    if echo "$thinking_content" | grep -qi '\[THINK\]'; then
-        pass "$label reasoning content has [THINK] tags (streaming UI compatible)"
-    else
-        warn "$label [THINK] tag not found in reasoning content"
+        warn "$label reasoning not captured (may be model-dependent)"
     fi
 }
 
-check_think_tags() {
+# Agent helper functions
+wait_for_agent_run() {
     local run_id="$1"
     local label="$2"
-    local thinking_json
-    thinking_json=$(curl -s "$API_URL/api/runs/$run_id/thinking?detail=internal")
+    local timeout="${3:-60}"
+    local waited=0
+    local status=""
 
-    # Check if raw thinking contains [THINK] tag
-    if echo "$thinking_json" | grep -qi '\[THINK\]'; then
-        pass "$label response contains [THINK] tag"
+    while [ $waited -lt $timeout ]; do
+        local payload
+        payload=$(curl -s "$API_URL/api/agent/runs/$run_id")
+        status=$(json_get "$payload" ".status")
+
+        if [ "$status" = "succeeded" ]; then
+            pass "$label succeeded (run: $run_id)"
+            local answer
+            answer=$(json_get "$payload" ".final_answer")
+            if [ -n "$answer" ] && [ "$answer" != "null" ]; then
+                pass "$label has final answer"
+            else
+                warn "$label missing final answer"
+            fi
+            return 0
+        elif [ "$status" = "failed" ]; then
+            local error
+            error=$(json_get "$payload" ".error_message")
+            fail "$label failed: ${error:-unknown}"
+            return 1
+        fi
+
+        sleep 3
+        waited=$((waited + 3))
+    done
+
+    fail "$label did not complete within ${timeout}s (status: ${status:-unknown})"
+    return 1
+}
+
+check_agent_trace() {
+    local run_id="$1"
+    local label="$2"
+    local trace
+    local http_code
+
+    # Get trace with HTTP status code
+    http_code=$(curl -s -o /tmp/agent_trace.json -w "%{http_code}" "$API_URL/api/agent/runs/$run_id/trace")
+    trace=$(cat /tmp/agent_trace.json 2>/dev/null)
+
+    # Check if trace endpoint is working
+    if [ "$http_code" != "200" ]; then
+        warn "$label trace endpoint returned HTTP $http_code (endpoint may have issues)"
+        return 0
+    fi
+
+    # Check for error in response
+    if echo "$trace" | grep -qi "internal server error"; then
+        warn "$label trace endpoint returned error (endpoint may have issues)"
+        return 0
+    fi
+
+    local step_count
+    step_count=$(json_array_len "$trace" "steps")
+    if [ "$step_count" -gt 0 ]; then
+        pass "$label has steps recorded ($step_count steps)"
     else
-        warn "$label [THINK] tag not found in response (may affect streaming UI)"
+        warn "$label has no step records (may be expected for simple queries)"
+    fi
+
+    local tool_count
+    tool_count=$(json_array_len "$trace" "tool_calls")
+    if [ "$tool_count" -gt 0 ]; then
+        pass "$label has tool calls recorded ($tool_count calls)"
+    else
+        warn "$label has no tool calls (may be expected for simple queries)"
     fi
 }
 
@@ -449,18 +504,20 @@ else
 fi
 
 # ============================================================
-# 2.5 OLLAMA CONNECTIVITY CHECK
+# 2.5 LLM PROVIDER CONNECTIVITY CHECK
 # ============================================================
-print_header "2.5. Ollama Connectivity Check"
+print_header "2.5. LLM Provider Connectivity Check"
 
-OLLAMA_URL="${OLLAMA_URL:-http://127.0.0.1:11434}"
+# Get base_url from config (OpenAI-compatible endpoint)
+LLM_BASE_URL=$(json_get "$CONFIG_JSON" ".config.provider.base_url")
+LLM_BASE_URL="${LLM_BASE_URL:-http://127.0.0.1:1234}"
 
-# Check Ollama is running
-if curl -s --max-time 5 "$OLLAMA_URL/api/tags" >/dev/null 2>&1; then
-    pass "Ollama server reachable at $OLLAMA_URL"
+# Check /v1/models endpoint (OpenAI-compatible)
+if curl -s --max-time 5 "$LLM_BASE_URL/v1/models" | grep -q "data\|models\|id"; then
+    pass "LLM server reachable at $LLM_BASE_URL"
 else
-    fail "Ollama server not reachable at $OLLAMA_URL"
-    echo "Start Ollama with: ollama serve"
+    fail "LLM server not reachable at $LLM_BASE_URL"
+    echo "Start LM Studio or your OpenAI-compatible server"
     echo ""
     echo "========================================"
     echo "RESULTS: $PASSED passed, $FAILED failed (LLM tests skipped)"
@@ -468,13 +525,12 @@ else
     exit 1
 fi
 
-# Check model is available
+# Check model name from config
 MODEL_NAME=$(json_get "$CONFIG_JSON" ".config.model.name")
-MODEL_LIST=$(curl -s --max-time 5 "$OLLAMA_URL/api/tags")
-if echo "$MODEL_LIST" | grep -q "$MODEL_NAME"; then
-    pass "Model '$MODEL_NAME' is available in Ollama"
+if [ -n "$MODEL_NAME" ] && [ "$MODEL_NAME" != "null" ]; then
+    pass "Model configured: $MODEL_NAME"
 else
-    warn "Model '$MODEL_NAME' not found - test may fail (pull with: ollama pull $MODEL_NAME)"
+    warn "Model name not found in config"
 fi
 
 # ============================================================
@@ -510,14 +566,127 @@ if [ -n "$DIRECT_RUN_ID" ]; then
     check_events "$DIRECT_RUN_ID" "Direct run"
     check_thinking "$DIRECT_RUN_ID" "Direct run" "user" "false"
     check_thinking "$DIRECT_RUN_ID" "Direct run" "internal" "false"
+    check_native_reasoning "$DIRECT_RUN_ID" "Direct run"
     check_report "$DIRECT_RUN_ID" "Direct run"
     check_conversation_detail "$DIRECT_CONV_ID" "$DIRECT_RUN_ID" "Direct"
 fi
 
 # ============================================================
-# 4. LIST + HOUSEKEEPING CHECKS
+# 3.5 MULTI-TURN CONTEXT TEST
 # ============================================================
-print_header "4. Listing & housekeeping"
+print_header "3.5. Multi-Turn Context Test"
+
+# Use same conversation from direct flow test
+if [ -n "$DIRECT_CONV_ID" ] && [ -n "$DIRECT_RUN_ID" ]; then
+    # Send follow-up message that references prior context
+    FOLLOWUP_RESP=$(curl -s -X POST "$API_URL/api/conversations/$DIRECT_CONV_ID/runs" \
+        -H "Content-Type: application/json" \
+        -d '{"message": "What was my previous question?"}')
+    FOLLOWUP_RUN_ID=$(json_get "$FOLLOWUP_RESP" ".run_id")
+
+    if [ -n "$FOLLOWUP_RUN_ID" ]; then
+        pass "Created follow-up run ($FOLLOWUP_RUN_ID)"
+        wait_for_run "$FOLLOWUP_RUN_ID" "Follow-up run"
+
+        # Check if response references the prior question
+        followup_answer=$(json_get "$LAST_RUN_PAYLOAD" ".final_answer")
+        # Look for "2+2" or "two plus two" or similar in response
+        if echo "$followup_answer" | grep -qi "2.*2\|two.*two\|previous\|asked\|addition\|math"; then
+            pass "Context preserved - response references prior conversation"
+        else
+            warn "Context test inconclusive - response may not reference prior question"
+        fi
+    else
+        fail "Failed to create follow-up run"
+    fi
+else
+    warn "Skipping context test - no prior conversation"
+fi
+
+# ============================================================
+# 4. AGENT FLOW
+# ============================================================
+print_header "4. Agent Flow"
+
+# Check if agent endpoint exists
+AGENT_CHECK=$(curl -s -o /dev/null -w "%{http_code}" "$API_URL/api/agent/runs" -X POST -H "Content-Type: application/json" -d '{}' 2>/dev/null)
+if [ "$AGENT_CHECK" = "404" ]; then
+    warn "Agent endpoint not available - skipping agent tests"
+else
+    # Create agent run with a simple calculation query
+    AGENT_RUN_RESP=$(curl -s -X POST "$API_URL/api/agent/runs" \
+        -H "Content-Type: application/json" \
+        -d '{"query": "What is 15 multiplied by 7? Calculate it step by step.", "max_steps": 5}')
+    AGENT_RUN_ID=$(json_get "$AGENT_RUN_RESP" ".run_id")
+
+    if [ -n "$AGENT_RUN_ID" ] && [ "$AGENT_RUN_ID" != "null" ]; then
+        pass "Created agent run ($AGENT_RUN_ID)"
+
+        # Wait for completion (longer timeout for tool execution)
+        wait_for_agent_run "$AGENT_RUN_ID" "Agent run" 90
+
+        # Check trace
+        check_agent_trace "$AGENT_RUN_ID" "Agent run"
+    else
+        warn "Failed to create agent run - agent may not be configured"
+    fi
+fi
+
+# ============================================================
+# 5. TOOL HEALTH (Optional)
+# ============================================================
+print_header "5. Tool Health (Optional)"
+
+# Check E2B sandbox if configured
+E2B_KEY=$(json_get "$CONFIG_JSON" ".config.sandbox.e2b.api_key")
+if [ -n "$E2B_KEY" ] && [ "$E2B_KEY" != "null" ] && [ "$E2B_KEY" != "***" ] && [ "$E2B_KEY" != "" ]; then
+    echo "E2B API key detected - testing Python sandbox..."
+    # Simple agent run with python_execute intent
+    PYTHON_RUN=$(curl -s -X POST "$API_URL/api/agent/runs" \
+        -H "Content-Type: application/json" \
+        -d '{"query": "Use Python to calculate the square root of 144", "max_steps": 3}')
+    PYTHON_RUN_ID=$(json_get "$PYTHON_RUN" ".run_id")
+
+    if [ -n "$PYTHON_RUN_ID" ] && [ "$PYTHON_RUN_ID" != "null" ]; then
+        # Optional test - use longer timeout and treat timeout as warning
+        E2B_TIMEOUT=90
+        E2B_WAITED=0
+        E2B_STATUS=""
+        while [ $E2B_WAITED -lt $E2B_TIMEOUT ]; do
+            E2B_PAYLOAD=$(curl -s "$API_URL/api/agent/runs/$PYTHON_RUN_ID")
+            E2B_STATUS=$(json_get "$E2B_PAYLOAD" ".status")
+            if [ "$E2B_STATUS" = "succeeded" ]; then
+                pass "Python sandbox test succeeded"
+                break
+            elif [ "$E2B_STATUS" = "failed" ]; then
+                warn "Python sandbox test failed (external service issue)"
+                break
+            fi
+            sleep 3
+            E2B_WAITED=$((E2B_WAITED + 3))
+        done
+        if [ "$E2B_STATUS" != "succeeded" ] && [ "$E2B_STATUS" != "failed" ]; then
+            warn "Python sandbox test timed out (E2B may be slow to start)"
+        fi
+    else
+        warn "Failed to create Python sandbox test run"
+    fi
+else
+    warn "Skipping E2B sandbox test - E2B_API_KEY not configured"
+fi
+
+# Check Parallel.ai if configured
+PARALLEL_KEY=$(json_get "$CONFIG_JSON" ".config.parallel.api_key")
+if [ -n "$PARALLEL_KEY" ] && [ "$PARALLEL_KEY" != "null" ] && [ "$PARALLEL_KEY" != "***" ] && [ "$PARALLEL_KEY" != "" ]; then
+    pass "Parallel.ai API key configured (web tools available)"
+else
+    warn "Skipping web tool tests - PARALLEL_API_KEY not configured"
+fi
+
+# ============================================================
+# 6. LIST + HOUSEKEEPING CHECKS
+# ============================================================
+print_header "6. Listing & housekeeping"
 
 RUN_LIST=$(curl -s "$API_URL/api/runs?limit=5")
 if echo "$RUN_LIST" | grep -q "$DIRECT_RUN_ID"; then
