@@ -706,3 +706,44 @@ To verify:
 3. Submit a query
 4. Click "Details" button on the response
 5. Debug Trace panel should show events with step numbers and thinking content
+
+---
+
+## Bug Fix: Streaming Retry for Network Errors (2026-01-05)
+
+### Summary
+
+Fixed agent requests breaking mid-stream due to network-level errors from upstream LLM providers (e.g., Parallel.ai). Error: `"peer closed connection without sending complete message body (incomplete chunked read)"`.
+
+### Branch: `fix/agent-streaming-retry`
+
+### Problem
+
+- Traces showed `llm_request (pending)` with no `llm_response` - stream died mid-request
+- `complete_streaming()` caught `httpx.HTTPStatusError` but not `httpx.RemoteProtocolError`
+- When provider closed connection mid-stream, exception bubbled up uncaught
+- Provider chain couldn't failover after streaming started (by design)
+
+### Root Cause
+
+Network errors during streaming (`response.aiter_lines()`) raised `httpx.RemoteProtocolError` which wasn't handled, causing immediate run failure.
+
+### Solution
+
+Added retry logic to `complete_streaming()` for transient network errors:
+1. Extracted streaming body to `_do_streaming()` method
+2. Wrapped in retry loop catching `httpx.RemoteProtocolError` and `httpx.ReadError`
+3. Uses existing backoff config (`_max_retries`, `_base_delay`, `_max_delay`)
+
+### Files Modified
+
+| File | Changes |
+|------|---------|
+| `orchestrator/providers/openai_compat.py` | Extract `_do_streaming()`, add retry loop in `complete_streaming()` |
+
+### Test Results
+
+- ✓ All 502 tests pass
+- ✓ Provider-specific tests pass: `tests/providers/test_openai_compat.py` (6 tests)
+
+### Fix Commit: `00f6626`
