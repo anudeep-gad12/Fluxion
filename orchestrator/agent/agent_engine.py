@@ -30,6 +30,7 @@ from orchestrator.agent.recovery import (
 if TYPE_CHECKING:
     from orchestrator.providers.base import LLMProvider, LLMResponse
     from orchestrator.storage.repositories.agent_repo import AgentRepo
+    from orchestrator.storage.repositories.trace_repo import TraceRepo
     from orchestrator.agent.tools.registry import ToolRegistry
     from orchestrator.agent.tools.base import ToolResult
 
@@ -152,6 +153,7 @@ Include citations in your response."""
         provider: "LLMProvider",
         repo: "AgentRepo",
         registry: "ToolRegistry",
+        trace_repo: Optional["TraceRepo"] = None,
         model_name: str = "qwen3-32b",
         max_steps: int = 10,
         max_tokens: int = 4096,
@@ -165,6 +167,7 @@ Include citations in your response."""
             provider: LLM provider (can be ProviderChain for failover).
             repo: AgentRepo for persistence.
             registry: ToolRegistry with registered tools.
+            trace_repo: Optional TraceRepo for trace events (Debug Trace panel).
             model_name: Model to use for LLM calls.
             max_steps: Maximum steps before forcing synthesis.
             max_tokens: Max tokens for LLM response.
@@ -175,6 +178,7 @@ Include citations in your response."""
         self._provider = provider
         self._repo = repo
         self._registry = registry
+        self._trace_repo = trace_repo
         self._model_name = model_name
         self._max_steps = max_steps
         self._max_tokens = max_tokens
@@ -204,6 +208,14 @@ Include citations in your response."""
 
         # Emit start event
         self._emit(event_callback, "agent_started", run_id=run_id, query=query)
+
+        # Trace: agent_start
+        await self._add_trace_event(
+            run_id=run_id,
+            event_type="agent_start",
+            content={"query": query[:500], "max_steps": self._max_steps},
+            actor="system",
+        )
 
         # Initialize state machine
         state_machine = AgentStateMachine(
@@ -247,6 +259,17 @@ Include citations in your response."""
                     steps_remaining=state_machine.steps_remaining,
                 )
 
+                # Trace: step_start
+                await self._add_trace_event(
+                    run_id=run_id,
+                    event_type="step_start",
+                    content={
+                        "step_number": step_number,
+                        "steps_remaining": state_machine.steps_remaining,
+                    },
+                    step_number=step_number,
+                )
+
                 # Prune context before LLM call
                 pruned_messages = self._pruner.prune(
                     messages,
@@ -255,6 +278,22 @@ Include citations in your response."""
                 )
 
                 # Call LLM with tools
+                tool_schemas = self._registry.get_openai_schemas()
+
+                # Trace: llm_request
+                llm_request_event_id = await self._add_trace_event(
+                    run_id=run_id,
+                    event_type="llm_request",
+                    content={
+                        "model": self._model_name,
+                        "messages_count": len(pruned_messages),
+                        "tools_count": len(tool_schemas) if tool_schemas else 0,
+                    },
+                    event_status="pending",
+                    step_number=step_number,
+                )
+
+                llm_start_time = time.perf_counter()
                 try:
                     llm_response = await self._call_llm_with_tools(
                         messages=pruned_messages,
@@ -297,6 +336,23 @@ Include citations in your response."""
                         )
                     else:
                         logger.debug("No tool calls found in text", extra={"text": llm_response.text[:300] if llm_response.text else ""})
+
+                # Trace: llm_response (with thinking)
+                llm_duration_ms = int((time.perf_counter() - llm_start_time) * 1000)
+                await self._add_trace_event(
+                    run_id=run_id,
+                    event_type="llm_response",
+                    content={
+                        "text_length": len(llm_response.text) if llm_response.text else 0,
+                        "has_tool_calls": bool(tool_calls),
+                        "tool_calls_count": len(tool_calls) if tool_calls else 0,
+                        "thinking_text": thinking_text,
+                    },
+                    actor="model",
+                    step_number=step_number,
+                    duration_ms=llm_duration_ms,
+                    parent_event_id=llm_request_event_id,
+                )
 
                 if tool_calls:
                     # Tool calling step
@@ -350,6 +406,14 @@ Include citations in your response."""
                         step_number=step_number,
                     )
 
+                    # Trace: synthesis
+                    await self._add_trace_event(
+                        run_id=run_id,
+                        event_type="synthesis",
+                        content={"step_number": step_number},
+                        step_number=step_number,
+                    )
+
                     final_answer = self._clean_answer(llm_response.text)
 
                     # Extract and store citations
@@ -373,13 +437,27 @@ Include citations in your response."""
                         total_steps=step_number,
                     )
 
+                    # Trace: agent_complete
+                    total_timing_ms = int((time.perf_counter() - start_time) * 1000)
+                    await self._add_trace_event(
+                        run_id=run_id,
+                        event_type="agent_complete",
+                        content={
+                            "success": True,
+                            "total_steps": step_number,
+                            "answer_length": len(final_answer) if final_answer else 0,
+                            "citations_count": len(citations),
+                        },
+                        duration_ms=total_timing_ms,
+                    )
+
                     return AgentResult(
                         run_id=run_id,
                         success=True,
                         final_answer=final_answer,
                         citations=citations,
                         total_steps=step_number,
-                        timing_ms=int((time.perf_counter() - start_time) * 1000),
+                        timing_ms=total_timing_ms,
                     )
 
             # Max steps reached - force synthesis
@@ -405,13 +483,28 @@ Include citations in your response."""
                 total_steps=state_machine.current_step,
             )
 
+            # Trace: agent_complete (max steps)
+            total_timing_ms = int((time.perf_counter() - start_time) * 1000)
+            await self._add_trace_event(
+                run_id=run_id,
+                event_type="agent_complete",
+                content={
+                    "success": True,
+                    "total_steps": state_machine.current_step,
+                    "answer_length": len(final_answer) if final_answer else 0,
+                    "citations_count": len(citations),
+                    "forced_synthesis": True,
+                },
+                duration_ms=total_timing_ms,
+            )
+
             return AgentResult(
                 run_id=run_id,
                 success=True,
                 final_answer=final_answer,
                 citations=citations,
                 total_steps=state_machine.current_step,
-                timing_ms=int((time.perf_counter() - start_time) * 1000),
+                timing_ms=total_timing_ms,
             )
 
         except MaxStepsExceededError:
@@ -442,12 +535,25 @@ Include citations in your response."""
                 error=str(e),
             )
 
+            # Trace: agent_error
+            total_timing_ms = int((time.perf_counter() - start_time) * 1000)
+            await self._add_trace_event(
+                run_id=run_id,
+                event_type="agent_error",
+                content={
+                    "error_message": str(e),
+                    "total_steps": state_machine.current_step,
+                },
+                event_status="error",
+                duration_ms=total_timing_ms,
+            )
+
             return AgentResult(
                 run_id=run_id,
                 success=False,
                 error_message=str(e),
                 total_steps=state_machine.current_step,
-                timing_ms=int((time.perf_counter() - start_time) * 1000),
+                timing_ms=total_timing_ms,
             )
 
     # =========================================================================
@@ -469,6 +575,49 @@ Include citations in your response."""
         """
         if callback:
             callback({"type": event_type, **kwargs})
+
+    async def _add_trace_event(
+        self,
+        run_id: str,
+        event_type: str,
+        content: dict,
+        actor: str = "system",
+        event_status: str = "success",
+        step_number: Optional[int] = None,
+        duration_ms: Optional[int] = None,
+        parent_event_id: Optional[str] = None,
+    ) -> Optional[str]:
+        """Write trace event if trace_repo is configured.
+
+        Args:
+            run_id: Run ID to associate with.
+            event_type: Type of event (agent_start, step_start, llm_request, etc).
+            content: Event payload dict.
+            actor: Who created event (system, model, tool:<name>).
+            event_status: Status (pending, success, error).
+            step_number: Agent step number.
+            duration_ms: Operation duration.
+            parent_event_id: Parent event for linking.
+
+        Returns:
+            Event ID if written, None if trace_repo not configured.
+        """
+        if not self._trace_repo:
+            return None
+        try:
+            return await self._trace_repo.add_trace_event(
+                run_id=run_id,
+                event_type=event_type,
+                content=content,
+                actor=actor,
+                event_status=event_status,
+                step_number=step_number,
+                duration_ms=duration_ms,
+                parent_event_id=parent_event_id,
+            )
+        except Exception as e:
+            logger.warning("Failed to write trace event", extra={"error": str(e)})
+            return None
 
     def _build_initial_messages(self, query: str) -> List[Dict[str, Any]]:
         """Build initial message list with system prompt and query.
@@ -711,6 +860,20 @@ Include citations in your response."""
                 arguments=tool_call.arguments,
             )
 
+            # Trace: tool_call
+            tool_call_event_id = await self._add_trace_event(
+                run_id=run_id,
+                event_type="tool_call",
+                content={
+                    "tool_name": tool_call.name,
+                    "arguments": tool_call.arguments,
+                    "tool_call_id": tool_call.id,
+                },
+                actor=f"tool:{tool_call.name}",
+                event_status="pending",
+                step_number=step_number,
+            )
+
             # Mark as running
             await state_machine.start_tool_execution(tc_record["id"])
 
@@ -769,6 +932,23 @@ Include citations in your response."""
                 success=result.success,
                 result_summary=result.result_summary,
                 duration_ms=result.duration_ms,
+            )
+
+            # Trace: tool_result
+            await self._add_trace_event(
+                run_id=run_id,
+                event_type="tool_result",
+                content={
+                    "tool_name": tool_call.name,
+                    "success": result.success,
+                    "result_summary": result.result_summary,
+                    "error_message": result.error_message,
+                },
+                actor=f"tool:{tool_call.name}",
+                event_status="success" if result.success else "error",
+                step_number=step_number,
+                duration_ms=result.duration_ms or 0,
+                parent_event_id=tool_call_event_id,
             )
 
             results.append((tool_call, result))

@@ -651,3 +651,58 @@ After all fixes:
 3. ✓ `web_extract` parses content correctly from API
 4. ✓ Failed tool results not cached (re-executed on retry)
 5. ✓ System prompt encourages tool use
+
+---
+
+## Feature Enhancement: Agent Trace Events (2026-01-05)
+
+### Summary
+
+Added trace event recording to agent mode so the Debug Trace panel shows agent execution details. Previously, clicking "Details" on agent runs showed "No traces found" because agent mode wrote to separate tables (`agent_steps`, `agent_tool_calls`) but not to the `trace_events` table that the UI reads from.
+
+### Branch: `feature/agent-traces`
+
+### Problem
+
+- Chat mode writes to `trace_events` table → DetailPanel reads via `/api/runs/{run_id}/timeline`
+- Agent mode wrote to `agent_steps`, `agent_tool_calls`, `agent_citations` but NOT to `trace_events`
+- Result: Debug Trace panel showed empty for agent runs
+
+### Solution
+
+Added trace event instrumentation to `agent_engine.py` at 8 key execution points, writing to the existing `trace_events` table. No UI changes needed.
+
+### Files Modified
+
+| File | Changes |
+|------|---------|
+| `orchestrator/agent/factory.py` | Create TraceRepo instance, pass to AgentEngine |
+| `orchestrator/agent/agent_engine.py` | Add trace_repo parameter, `_add_trace_event()` helper, 8 instrumentation points |
+
+### Events Recorded
+
+| Event Type | When | Content |
+|------------|------|---------|
+| `agent_start` | Run begins | query (truncated), max_steps |
+| `step_start` | Step begins | step_number, steps_remaining |
+| `llm_request` | Before LLM call | model, messages_count, tools_count |
+| `llm_response` | After LLM response | text_length, tool_calls_count, thinking_text |
+| `tool_call` | Before tool execution | tool_name, arguments, tool_call_id |
+| `tool_result` | After tool completes | tool_name, success, result_summary, duration_ms |
+| `synthesis` | When synthesizing | step_number |
+| `agent_complete` | Run finishes | success, total_steps, answer_length, citations_count |
+| `agent_error` | On failure | error_message, total_steps |
+
+### Test Results
+
+- ✓ All 502 tests pass (230 agent tests + others)
+- ✓ No breaking changes - trace_repo is optional parameter
+
+### Verification
+
+To verify:
+1. Start server: `just dev`
+2. Switch to Research mode in UI
+3. Submit a query
+4. Click "Details" button on the response
+5. Debug Trace panel should show events with step numbers and thinking content
