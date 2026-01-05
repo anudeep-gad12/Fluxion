@@ -181,94 +181,135 @@ class PythonSandboxTool:
             )
 
         start_time = time.perf_counter()
-        sandbox = None
+        max_retries = 2
+        last_error: Optional[Exception] = None
 
-        try:
-            # Create sandbox using Sandbox.create() - the constructor doesn't accept api_key
-            sandbox = await asyncio.to_thread(
-                Sandbox.create,
-                template=self._template,
-                timeout=self._timeout,
-                metadata=self._metadata,
-                api_key=self._api_key,
-            )
+        for attempt in range(max_retries + 1):
+            sandbox = None
+            try:
+                # Create sandbox using Sandbox.create() - the constructor doesn't accept api_key
+                sandbox = await asyncio.to_thread(
+                    Sandbox.create,
+                    template=self._template,
+                    timeout=self._timeout,
+                    metadata=self._metadata,
+                    api_key=self._api_key,
+                )
 
-            # Execute code with timeout
-            execution = await asyncio.wait_for(
-                asyncio.to_thread(sandbox.run_code, code),
-                timeout=self._timeout,
-            )
+                # Execute code with timeout
+                execution = await asyncio.wait_for(
+                    asyncio.to_thread(sandbox.run_code, code),
+                    timeout=self._timeout,
+                )
 
-            duration_ms = int((time.perf_counter() - start_time) * 1000)
+                duration_ms = int((time.perf_counter() - start_time) * 1000)
 
-            # Extract output from execution results
-            stdout_parts = []
-            stderr_parts = []
-            has_error = False
+                # Extract output from execution results
+                stdout_parts = []
+                stderr_parts = []
+                has_error = False
 
-            # Process execution results
-            if hasattr(execution, "logs"):
-                if hasattr(execution.logs, "stdout"):
-                    stdout_parts.extend(execution.logs.stdout)
-                if hasattr(execution.logs, "stderr"):
-                    stderr_parts.extend(execution.logs.stderr)
+                # Process execution results
+                if hasattr(execution, "logs"):
+                    if hasattr(execution.logs, "stdout"):
+                        stdout_parts.extend(execution.logs.stdout)
+                    if hasattr(execution.logs, "stderr"):
+                        stderr_parts.extend(execution.logs.stderr)
 
-            # Check for execution error
-            if hasattr(execution, "error") and execution.error:
-                has_error = True
-                stderr_parts.append(str(execution.error))
+                # Check for execution error
+                if hasattr(execution, "error") and execution.error:
+                    has_error = True
+                    stderr_parts.append(str(execution.error))
 
-            stdout = "".join(stdout_parts) if stdout_parts else ""
-            stderr = "".join(stderr_parts) if stderr_parts else ""
+                stdout = "".join(stdout_parts) if stdout_parts else ""
+                stderr = "".join(stderr_parts) if stderr_parts else ""
 
-            # Also check results for output
-            if hasattr(execution, "results"):
-                for result in execution.results:
-                    if hasattr(result, "text") and result.text:
-                        stdout += result.text + "\n"
+                # Also check results for output
+                if hasattr(execution, "results"):
+                    for result in execution.results:
+                        if hasattr(result, "text") and result.text:
+                            stdout += result.text + "\n"
 
-            # 1-line summary
-            if has_error or stderr:
-                result_summary = f"Execution completed with errors ({len(stderr)} chars stderr)"
-            else:
-                result_summary = f"Execution successful ({len(stdout)} chars output)"
+                # 1-line summary
+                if has_error or stderr:
+                    result_summary = f"Execution completed with errors ({len(stderr)} chars stderr)"
+                else:
+                    result_summary = f"Execution successful ({len(stdout)} chars output)"
 
-            return ToolResult(
-                success=not has_error,
-                result_summary=result_summary,
-                result_data={
-                    "stdout": stdout,
-                    "stderr": stderr,
-                    "error": str(execution.error) if hasattr(execution, "error") and execution.error else None,
-                },
-                error_message=stderr if has_error else None,
-                duration_ms=duration_ms,
-            )
+                return ToolResult(
+                    success=not has_error,
+                    result_summary=result_summary,
+                    result_data={
+                        "stdout": stdout,
+                        "stderr": stderr,
+                        "error": str(execution.error) if hasattr(execution, "error") and execution.error else None,
+                    },
+                    error_message=stderr if has_error else None,
+                    duration_ms=duration_ms,
+                )
 
-        except asyncio.TimeoutError:
-            duration_ms = int((time.perf_counter() - start_time) * 1000)
-            return ToolResult(
-                success=False,
-                result_summary=f"Execution timed out after {self._timeout}s",
-                error_message="Execution timed out",
-                duration_ms=duration_ms,
-            )
-        except Exception as e:
-            duration_ms = int((time.perf_counter() - start_time) * 1000)
-            logger.error("Python execution failed", extra={"error": str(e)})
-            return ToolResult(
-                success=False,
-                result_summary="Execution failed with error",
-                error_message=str(e),
-                duration_ms=duration_ms,
-            )
-        finally:
-            # CRITICAL: Always clean up sandbox
-            if sandbox:
-                try:
-                    await asyncio.to_thread(sandbox.kill)
-                except Exception as e:
-                    logger.warning(f"Failed to kill sandbox: {e}")
+            except asyncio.TimeoutError:
+                duration_ms = int((time.perf_counter() - start_time) * 1000)
+                return ToolResult(
+                    success=False,
+                    result_summary=f"Execution timed out after {self._timeout}s",
+                    error_message="Execution timed out",
+                    duration_ms=duration_ms,
+                )
+            except Exception as e:
+                last_error = e
+                error_str = str(e)
+
+                # Check if this is a transient E2B error that can be retried
+                is_retryable = (
+                    "port is not open" in error_str
+                    or '"code":502' in error_str
+                    or "502" in error_str
+                )
+
+                if is_retryable and attempt < max_retries:
+                    logger.warning(
+                        "E2B sandbox transient error, retrying",
+                        extra={
+                            "attempt": attempt + 1,
+                            "max_retries": max_retries,
+                            "error": error_str[:200],
+                        },
+                    )
+                    # Clean up failed sandbox before retry
+                    if sandbox:
+                        try:
+                            await asyncio.to_thread(sandbox.kill)
+                        except Exception:
+                            pass
+                    await asyncio.sleep(1)  # Brief delay before retry
+                    continue
+
+                # Non-retryable error or retries exhausted
+                duration_ms = int((time.perf_counter() - start_time) * 1000)
+                logger.error("Python execution failed", extra={"error": error_str})
+                return ToolResult(
+                    success=False,
+                    result_summary="Execution failed with error",
+                    error_message=error_str,
+                    duration_ms=duration_ms,
+                )
+            finally:
+                # CRITICAL: Always clean up sandbox after successful execution
+                if sandbox:
+                    try:
+                        await asyncio.to_thread(sandbox.kill)
+                    except Exception as e:
+                        logger.warning(f"Failed to kill sandbox: {e}")
+
+        # Should not reach here, but handle edge case
+        duration_ms = int((time.perf_counter() - start_time) * 1000)
+        return ToolResult(
+            success=False,
+            result_summary="Execution failed after retries",
+            error_message=str(last_error) if last_error else "Unknown error",
+            duration_ms=duration_ms,
+        )
 
     async def health_check(self) -> bool:
         """Check if E2B API is reachable.

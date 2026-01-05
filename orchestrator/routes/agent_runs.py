@@ -543,14 +543,15 @@ async def get_agent_run_trace(run_id: str):
     steps_raw = await agent_repo.get_steps_for_run(run_id)
     steps = [
         AgentStepResponse(
-            step_id=s["step_id"],
+            id=s["step_id"],
             run_id=s["run_id"],
             step_number=s["step_number"],
             state=s["state"],
-            model_response=s.get("model_response"),
-            thinking_content=s.get("thinking_content"),
-            synthesis_content=s.get("synthesis_content"),
+            thinking_text=s.get("thinking_content"),
+            decision=s.get("decision"),
             created_at=s["created_at"],
+            completed_at=s.get("completed_at"),
+            error_message=s.get("error_message"),
         )
         for s in steps_raw
     ]
@@ -559,16 +560,20 @@ async def get_agent_run_trace(run_id: str):
     tool_calls_raw = await agent_repo.get_tool_calls_for_run(run_id)
     tool_calls = [
         AgentToolCallResponse(
-            tool_call_id=tc["tool_call_id"],
+            id=tc["tool_call_id"],
             run_id=tc["run_id"],
             step_id=tc["step_id"],
             tool_name=tc["tool_name"],
-            arguments=tc.get("arguments", "{}"),
+            arguments=json.loads(tc.get("arguments", "{}")),
             status=tc["status"],
             result_summary=tc.get("result_summary"),
             error_message=tc.get("error_message"),
             duration_ms=tc.get("duration_ms"),
             created_at=tc["created_at"],
+            started_at=tc.get("started_at"),
+            completed_at=tc.get("completed_at"),
+            idempotency_key=tc.get("idempotency_key", ""),
+            execution_attempt=tc.get("execution_attempt", 1),
         )
         for tc in tool_calls_raw
     ]
@@ -577,8 +582,9 @@ async def get_agent_run_trace(run_id: str):
     citations_raw = await agent_repo.get_citations_for_run(run_id)
     citations = [
         AgentCitationResponse(
-            citation_id=c["citation_id"],
+            id=c["citation_id"],
             run_id=c["run_id"],
+            tool_call_id=c.get("tool_call_id", ""),
             source_url=c["source_url"],
             title=c.get("title"),
             snippet=c.get("snippet", ""),
