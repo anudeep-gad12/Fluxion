@@ -817,3 +817,54 @@ Fixed agent thinking/steps UI not displaying after page refresh. Previously only
 
 - ✓ All 502 tests pass
 - ✓ TypeScript compiles clean
+
+---
+
+## Bug Fix: E2B Sandbox Secured Access Error (2026-01-05)
+
+### Summary
+
+Fixed `python_execute` failing with "Template is not compatible with secured access" error.
+
+### Problem
+
+- E2B SDK v2.0.0+ enables secured access by default
+- `code-interpreter` template uses older envd version that doesn't support secured access
+- Error: `400: Template is not compatible with secured access`
+
+### Solution
+
+Added `secure=False` to `Sandbox.create()` call to disable secured access for the legacy template.
+
+### Files Modified
+
+| File | Changes |
+|------|---------|
+| `orchestrator/agent/tools/python_sandbox.py` | Add `secure=False` to Sandbox.create() |
+
+---
+
+## Bug Fix: Agent Conversation Context Missing (2026-01-05)
+
+### Summary
+
+Fixed agent losing context between follow-up questions. The agent would say "I don't have context on previous questions" even within the same conversation.
+
+### Problem
+
+- `conversation_id` passed to `AgentEngine.run()` but never used
+- `_build_initial_messages()` only built `[system, current_query]` - no history
+- ChatEngine correctly loads history but AgentEngine didn't follow this pattern
+
+### Solution
+
+1. Made `_build_initial_messages()` async and added `conversation_id` parameter
+2. Load prior runs using `self._trace_repo.list_runs_for_conversation(conversation_id)`
+3. Build message history (user/assistant pairs) before current query
+4. Limit to last 10 runs to prevent context overflow
+
+### Files Modified
+
+| File | Changes |
+|------|---------|
+| `orchestrator/agent/agent_engine.py` | Load conversation history in `_build_initial_messages()` |

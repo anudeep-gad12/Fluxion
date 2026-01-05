@@ -187,13 +187,15 @@ class PythonSandboxTool:
         for attempt in range(max_retries + 1):
             sandbox = None
             try:
-                # Create sandbox using Sandbox.create() - the constructor doesn't accept api_key
+                # Create sandbox using Sandbox.create()
+                # secure=False because code-interpreter template doesn't support secured access
                 sandbox = await asyncio.to_thread(
                     Sandbox.create,
                     template=self._template,
                     timeout=self._timeout,
                     metadata=self._metadata,
                     api_key=self._api_key,
+                    secure=False,
                 )
 
                 # Execute code with timeout
