@@ -63,14 +63,15 @@ class TestWebExtractToolExecution:
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.json.return_value = {
-            "extractions": [
+            "results": [
                 {
                     "url": "https://example.com",
                     "title": "Example",
-                    "content": "Page content here",
-                    "success": True,
+                    "excerpts": ["Page content here"],
+                    "full_content": None,
                 },
-            ]
+            ],
+            "errors": [],
         }
 
         with patch.object(tool._client, "post", return_value=mock_response):
@@ -89,19 +90,20 @@ class TestWebExtractToolExecution:
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.json.return_value = {
-            "extractions": [
+            "results": [
                 {
                     "url": "https://example.com",
                     "title": "Example",
-                    "content": "Content",
-                    "success": True,
+                    "excerpts": ["Content"],
+                    "full_content": None,
                 },
+            ],
+            "errors": [
                 {
                     "url": "https://bad-url.com",
-                    "success": False,
                     "error": "URL not found",
                 },
-            ]
+            ],
         }
 
         with patch.object(tool._client, "post", return_value=mock_response):
@@ -121,18 +123,17 @@ class TestWebExtractToolExecution:
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.json.return_value = {
-            "extractions": [
+            "results": [],
+            "errors": [
                 {
                     "url": "https://bad1.com",
-                    "success": False,
                     "error": "Failed",
                 },
                 {
                     "url": "https://bad2.com",
-                    "success": False,
                     "error": "Failed",
                 },
-            ]
+            ],
         }
 
         with patch.object(tool._client, "post", return_value=mock_response):
@@ -157,7 +158,7 @@ class TestWebExtractToolExecution:
         """URLs are capped to max_urls."""
         mock_response = MagicMock()
         mock_response.status_code = 200
-        mock_response.json.return_value = {"extractions": []}
+        mock_response.json.return_value = {"results": [], "errors": []}
 
         urls = [f"https://example{i}.com" for i in range(10)]
 
@@ -193,14 +194,15 @@ class TestWebExtractToolExecution:
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.json.return_value = {
-            "extractions": [
+            "results": [
                 {
                     "url": "https://test.com",
                     "title": "Test Page",
-                    "content": "Content here",
-                    "success": True,
+                    "excerpts": ["Content here"],
+                    "full_content": None,
                 },
-            ]
+            ],
+            "errors": [],
         }
 
         with patch.object(tool._client, "post", return_value=mock_response):
@@ -227,14 +229,14 @@ class TestWebExtractToolRetry:
             MagicMock(status_code=500),
             MagicMock(status_code=500),
             MagicMock(
-                status_code=200, json=MagicMock(return_value={"extractions": []})
+                status_code=200, json=MagicMock(return_value={"results": [], "errors": []})
             ),
         ]
 
         with patch.object(tool._client, "post", side_effect=responses):
             result = await tool.execute(urls=["https://example.com"])
 
-        # Even with empty extractions, the request succeeded
+        # Even with empty results, the request succeeded
         assert result.success is False  # No successful extractions
         assert "Extracted 0/1" in result.result_summary
         await tool.close()
@@ -250,7 +252,8 @@ class TestWebExtractToolRetry:
                 status_code=200,
                 json=MagicMock(
                     return_value={
-                        "extractions": [{"url": "test", "success": True, "content": "x"}]
+                        "results": [{"url": "test", "title": "Test", "excerpts": ["x"]}],
+                        "errors": [],
                     }
                 ),
             ),
