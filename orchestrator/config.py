@@ -228,7 +228,7 @@ class E2BConfig(BaseModel):
     """E2B sandbox settings for Python code execution."""
 
     api_key: Optional[str] = None
-    template: str = "base"
+    template: str = "code-interpreter"  # Must use code-interpreter for port 49999
     timeout_seconds: int = 30
     cleanup_on_startup: bool = True
     stale_session_minutes: int = 10
