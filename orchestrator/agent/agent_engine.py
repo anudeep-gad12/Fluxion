@@ -228,8 +228,8 @@ Include citations in your response."""
         try:
             recovery_context = await state_machine.initialize()
 
-            # Build initial messages
-            messages = self._build_initial_messages(query)
+            # Build initial messages (includes conversation history if available)
+            messages = await self._build_initial_messages(query, conversation_id)
 
             # Handle recovery if needed
             if recovery_context.needs_recovery:
@@ -619,19 +619,48 @@ Include citations in your response."""
             logger.warning("Failed to write trace event", extra={"error": str(e)})
             return None
 
-    def _build_initial_messages(self, query: str) -> List[Dict[str, Any]]:
-        """Build initial message list with system prompt and query.
+    async def _build_initial_messages(
+        self,
+        query: str,
+        conversation_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Build initial message list with system prompt, history, and query.
 
         Args:
             query: User's research query.
+            conversation_id: Optional conversation ID to load history from.
 
         Returns:
-            Message list with system and user messages.
+            Message list with system, history, and user messages.
         """
-        return [
+        messages: List[Dict[str, Any]] = [
             {"role": "system", "content": self._system_prompt},
-            {"role": "user", "content": query},
         ]
+
+        # Load conversation history if conversation_id provided
+        if conversation_id and self._trace_repo:
+            prior_runs = await self._trace_repo.list_runs_for_conversation(
+                conversation_id
+            )
+            # Sort by created_at ascending (oldest first)
+            sorted_runs = sorted(prior_runs, key=lambda r: r.get("created_at", ""))
+
+            # Limit to last N runs to prevent context overflow
+            max_history = 10
+            if len(sorted_runs) > max_history:
+                sorted_runs = sorted_runs[-max_history:]
+
+            for run in sorted_runs:
+                user_msg = run.get("user_message")
+                assistant_msg = run.get("final_answer")
+                if user_msg:
+                    messages.append({"role": "user", "content": user_msg})
+                if assistant_msg:
+                    messages.append({"role": "assistant", "content": assistant_msg})
+
+        # Add current query
+        messages.append({"role": "user", "content": query})
+        return messages
 
     async def _call_llm_with_tools(
         self,

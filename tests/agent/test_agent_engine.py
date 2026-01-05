@@ -227,7 +227,7 @@ class TestAgentEngineHelpers:
         # Should not raise
         engine._emit(None, "test_event", foo="bar")
 
-    def test_build_initial_messages(self):
+    async def test_build_initial_messages(self):
         """Build initial messages with system and user."""
         engine = AgentEngine(
             provider=create_mock_provider(),
@@ -236,7 +236,7 @@ class TestAgentEngineHelpers:
             system_prompt="You are helpful.",
         )
 
-        messages = engine._build_initial_messages("What is 2+2?")
+        messages = await engine._build_initial_messages("What is 2+2?")
 
         assert len(messages) == 2
         assert messages[0]["role"] == "system"
