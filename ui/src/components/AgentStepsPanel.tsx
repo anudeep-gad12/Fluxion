@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ToolCallCard } from '@/components/ToolCallCard';
+import { AnswerMarkdown } from '@/components/AnswerMarkdown';
 import type { AgentStep, AgentToolCall, AgentUIState } from '@/types/agent';
 
 interface AgentStepsPanelProps {
@@ -153,8 +154,8 @@ export function AgentStepsPanel({
                   <div className="ml-6 space-y-2 pb-2">
                     {/* Thinking content for current step */}
                     {isCurrentStep && thinkingBuffer && (
-                      <div className="text-xs text-slate-600 bg-white/50 rounded p-2 italic">
-                        {thinkingBuffer}
+                      <div className="text-xs text-slate-600 bg-white/50 rounded p-2 thinking-markdown">
+                        <AnswerMarkdown content={thinkingBuffer} />
                         {isActive && (
                           <span className="inline-block w-1.5 h-3 bg-indigo-400 animate-pulse ml-0.5" />
                         )}
@@ -163,8 +164,8 @@ export function AgentStepsPanel({
 
                     {/* Historical thinking */}
                     {!isCurrentStep && step.thinking_text && (
-                      <div className="text-xs text-slate-600 bg-white/50 rounded p-2 italic">
-                        {step.thinking_text}
+                      <div className="text-xs text-slate-600 bg-white/50 rounded p-2 thinking-markdown">
+                        <AnswerMarkdown content={step.thinking_text} />
                       </div>
                     )}
 

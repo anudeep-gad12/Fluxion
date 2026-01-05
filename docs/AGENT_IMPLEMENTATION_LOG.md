@@ -868,3 +868,54 @@ Fixed agent losing context between follow-up questions. The agent would say "I d
 | File | Changes |
 |------|---------|
 | `orchestrator/agent/agent_engine.py` | Load conversation history in `_build_initial_messages()` |
+
+---
+
+## Bug Fix: E2B Sandbox Port Not Ready (2026-01-05)
+
+### Summary
+
+Fixed `python_execute` timing out because port 49999 (Jupyter kernel) wasn't ready after sandbox creation.
+
+### Problem
+
+- Sandbox created successfully but `run_code` fails with "port is not open" (code 502)
+- Previous retry logic recreated entire sandbox on each retry, hitting same cold-start issue
+- Jupyter kernel in `code-interpreter` template needs warmup time
+
+### Solution
+
+1. Added 2-second warmup delay after sandbox creation
+2. Retry `run_code` on the SAME sandbox instead of recreating (3 retries with 2s, 4s, 6s delays)
+3. Only recreate sandbox if kernel completely fails (2 sandbox retries with 3s, 6s delays)
+4. Separated sandbox creation retries from code execution retries
+
+### Files Modified
+
+| File | Changes |
+|------|---------|
+| `orchestrator/agent/tools/python_sandbox.py` | Two-tier retry: run_code retries on same sandbox, then sandbox recreation |
+
+---
+
+## Enhancement: Thinking Text Markdown Rendering (2026-01-05)
+
+### Summary
+
+Added markdown + LaTeX rendering to agent thinking text in the steps panel.
+
+### Problem
+
+- Thinking text displayed as raw text
+- LaTeX formulas like `\(E = mc^2\)` not rendered
+- Markdown formatting (bold, lists, code) not processed
+
+### Solution
+
+Reused existing `AnswerMarkdown` component (which handles ReactMarkdown + KaTeX + remark-math) for thinking text in `AgentStepsPanel.tsx`.
+
+### Files Modified
+
+| File | Changes |
+|------|---------|
+| `ui/src/components/AgentStepsPanel.tsx` | Render thinking text with `AnswerMarkdown` component |
