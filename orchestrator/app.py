@@ -1,5 +1,9 @@
 """FastAPI application - minimal entry point with routers."""
 
+# Load .env FIRST, before any other imports that might read config
+from dotenv import load_dotenv
+load_dotenv()
+
 import time
 import uuid
 from contextlib import asynccontextmanager
