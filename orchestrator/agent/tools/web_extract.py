@@ -118,25 +118,27 @@ class WebExtractTool:
 
             duration_ms = int((time.perf_counter() - start_time) * 1000)
 
-            # Parse results
-            extractions = response_data.get("extractions", [])
-            successful = [e for e in extractions if e.get("success", False)]
-            failed = [e for e in extractions if not e.get("success", False)]
+            # Parse results - API returns "results" with extracted content
+            results = response_data.get("results", [])
+            errors = response_data.get("errors", [])
+
+            # Results are successful extractions, errors are failures
+            successful = results
+            failed = errors
 
             # 1-line summary for DB
             result_summary = f"Extracted {len(successful)}/{len(urls)} URLs successfully"
 
-            # Full data for in-memory use
+            # Full data for in-memory use - combine excerpts into content
             result_data = {
                 "extractions": [
                     {
-                        "url": e.get("url", ""),
-                        "title": e.get("title", ""),
-                        "content": e.get("content", ""),
-                        "success": e.get("success", False),
-                        "error": e.get("error"),
+                        "url": r.get("url", ""),
+                        "title": r.get("title", ""),
+                        "content": r.get("full_content") or "\n\n".join(r.get("excerpts", [])),
+                        "success": True,
                     }
-                    for e in extractions
+                    for r in results
                 ],
             }
 
