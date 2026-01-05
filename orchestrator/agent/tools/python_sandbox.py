@@ -38,7 +38,7 @@ class PythonSandboxTool:
     def __init__(
         self,
         api_key: Optional[str] = None,
-        template: str = "base",
+        template: str = "code-interpreter",  # Must use code-interpreter for port 49999
         timeout_seconds: int = 30,
         metadata: Optional[Dict[str, str]] = None,
         cleanup_on_init: bool = True,
@@ -181,7 +181,7 @@ class PythonSandboxTool:
             )
 
         start_time = time.perf_counter()
-        max_retries = 2
+        max_retries = 3  # Increased from 2 - E2B can be flaky
         last_error: Optional[Exception] = None
 
         for attempt in range(max_retries + 1):
@@ -268,11 +268,14 @@ class PythonSandboxTool:
                 )
 
                 if is_retryable and attempt < max_retries:
+                    # Exponential backoff: 2s, 4s, 8s
+                    delay = 2 * (2 ** attempt)
                     logger.warning(
                         "E2B sandbox transient error, retrying",
                         extra={
                             "attempt": attempt + 1,
                             "max_retries": max_retries,
+                            "delay_seconds": delay,
                             "error": error_str[:200],
                         },
                     )
@@ -282,7 +285,7 @@ class PythonSandboxTool:
                             await asyncio.to_thread(sandbox.kill)
                         except Exception:
                             pass
-                    await asyncio.sleep(1)  # Brief delay before retry
+                    await asyncio.sleep(delay)  # Exponential backoff
                     continue
 
                 # Non-retryable error or retries exhausted

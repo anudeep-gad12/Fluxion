@@ -182,7 +182,7 @@ sandbox:
 
   e2b:
     api_key: ${E2B_API_KEY:-}
-    template: "base"
+    template: "code-interpreter"  # Must use code-interpreter, not "base" (port 49999 issue)
     timeout_seconds: 30
     cleanup_on_startup: true      # Clean zombie sessions on startup
     stale_session_minutes: 10     # Age threshold for stale sessions

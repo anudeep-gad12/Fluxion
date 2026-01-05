@@ -763,15 +763,24 @@ Fixed `python_execute` tool failures caused by transient E2B sandbox errors ("sa
 - `python_execute` failing with E2B error: `{"message":"The sandbox is running but port is not open","port":49999,"code":502}`
 - This is a transient error - sandbox created but port connectivity not established in time
 
+### Root Cause
+
+Per [E2B docs](https://e2b.dev/docs/troubleshooting/templates/49999-port-not-open):
+- The `base` template doesn't start the Jupyter kernel on port 49999
+- Must use `code-interpreter` template which runs `/root/.jupyter/start-up.sh`
+
 ### Solution
 
-Added retry logic in `execute()` method for transient sandbox errors (port not open, 502). Retries up to 2 times with 1 second delay between attempts.
+1. Changed E2B template from `"base"` to `"code-interpreter"`
+2. Added retry logic in `execute()` method with exponential backoff (3 retries: 2s, 4s, 8s)
 
 ### Files Modified
 
 | File | Changes |
 |------|---------|
-| `orchestrator/agent/tools/python_sandbox.py` | Add retry loop for transient E2B errors |
+| `orchestrator/chat_config.yaml` | Change template from "base" to "code-interpreter" |
+| `orchestrator/config.py` | Update default template to "code-interpreter" |
+| `orchestrator/agent/tools/python_sandbox.py` | Add retry loop with exponential backoff |
 
 ---
 
