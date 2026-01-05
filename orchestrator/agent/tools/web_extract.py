@@ -52,7 +52,10 @@ class WebExtractTool:
         self._max_retries = max_retries
         self._base_delay = base_delay
 
-        headers = {"Content-Type": "application/json"}
+        headers = {
+            "Content-Type": "application/json",
+            "parallel-beta": "search-extract-2025-10-10",  # Required for extract API
+        }
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
 

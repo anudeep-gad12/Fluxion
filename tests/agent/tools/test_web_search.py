@@ -137,9 +137,9 @@ class TestWebSearchToolExecution:
         with patch.object(tool._client, "post", return_value=mock_response) as mock_post:
             await tool.execute(query="test", num_results=100)
 
-            # Check the actual call
+            # Check the actual call (Parallel.ai API uses 'max_results' not 'num_results')
             call_args = mock_post.call_args
-            assert call_args[1]["json"]["num_results"] == 10  # Capped to max
+            assert call_args[1]["json"]["max_results"] == 10  # Capped to max
 
         await tool.close()
 
