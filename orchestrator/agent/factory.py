@@ -11,6 +11,7 @@ from orchestrator.logging_config import get_logger
 from orchestrator.providers.factory import create_provider
 from orchestrator.storage.db import get_db
 from orchestrator.storage.repositories.agent_repo import AgentRepo
+from orchestrator.storage.repositories.trace_repo import TraceRepo
 
 from .agent_engine import AgentEngine
 from .tools import create_tool_registry
@@ -56,15 +57,17 @@ async def create_agent_engine(
     # Create tool registry with configured tools
     registry = create_tool_registry(config)
 
-    # Create repository
+    # Create repositories
     db = await get_db()
     repo = AgentRepo(db)
+    trace_repo = TraceRepo(db)
 
     # Build engine with overrides
     engine = AgentEngine(
         provider=provider,
         repo=repo,
         registry=registry,
+        trace_repo=trace_repo,
         model_name=model_name or config.model.name,
         max_steps=max_steps or 10,
         max_tokens=max_tokens or config.model.max_tokens,
