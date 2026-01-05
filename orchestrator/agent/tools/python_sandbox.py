@@ -184,12 +184,13 @@ class PythonSandboxTool:
         sandbox = None
 
         try:
-            # Create sandbox
+            # Create sandbox using Sandbox.create() - the constructor doesn't accept api_key
             sandbox = await asyncio.to_thread(
-                Sandbox,
-                api_key=self._api_key,
+                Sandbox.create,
+                template=self._template,
                 timeout=self._timeout,
                 metadata=self._metadata,
+                api_key=self._api_key,
             )
 
             # Execute code with timeout
@@ -281,10 +282,10 @@ class PythonSandboxTool:
         try:
             # Quick sandbox creation/teardown test
             sandbox = await asyncio.to_thread(
-                Sandbox,
-                api_key=self._api_key,
+                Sandbox.create,
                 timeout=10,
                 metadata={"app": "health_check"},
+                api_key=self._api_key,
             )
             await asyncio.to_thread(sandbox.kill)
             return True
