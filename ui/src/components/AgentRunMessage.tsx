@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { cn, formatRelativeTime } from '@/lib/utils';
 import { AgentStepsPanel } from '@/components/AgentStepsPanel';
 import { AnswerWithCitations } from '@/components/AnswerWithCitations';
-import { useAgentRunState } from '@/hooks/useStore';
+import { useAgentRunDetails } from '@/hooks/useAgentRunDetails';
 import { cancelAgentRun } from '@/api/client';
 import type { Run } from '@/types';
 
@@ -19,9 +19,10 @@ interface AgentRunMessageProps {
 }
 
 export function AgentRunMessage({ run, onShowTrace }: AgentRunMessageProps) {
-  const agentState = useAgentRunState(run.run_id);
+  const isRunning = run.status === 'running';
+  const agentState = useAgentRunDetails(run.run_id, isRunning);
 
-  const isRunning = run.status === 'running' && agentState?.isActive;
+  const isActive = isRunning && agentState?.isActive;
   const finalAnswer = run.final_answer || agentState?.answerBuffer || '';
   const citations = agentState?.citations || [];
 
@@ -76,7 +77,7 @@ export function AgentRunMessage({ run, onShowTrace }: AgentRunMessageProps) {
           {agentState && (
             <AgentStepsPanel
               agentState={agentState}
-              defaultExpanded={isRunning}
+              defaultExpanded={isActive}
             />
           )}
 
@@ -85,9 +86,9 @@ export function AgentRunMessage({ run, onShowTrace }: AgentRunMessageProps) {
             <AnswerWithCitations
               content={finalAnswer}
               citations={citations}
-              isStreaming={isRunning}
+              isStreaming={isActive}
             />
-          ) : isRunning ? (
+          ) : isActive ? (
             <div className="text-sm text-slate-500">
               Researching your query...
             </div>
@@ -99,7 +100,7 @@ export function AgentRunMessage({ run, onShowTrace }: AgentRunMessageProps) {
 
           {/* Actions */}
           <div className="mt-3 flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100">
-            {isRunning ? (
+            {isActive ? (
               <Button size="sm" variant="destructive" onClick={handleCancel}>
                 <Square className="h-4 w-4 fill-current mr-1" />
                 Stop

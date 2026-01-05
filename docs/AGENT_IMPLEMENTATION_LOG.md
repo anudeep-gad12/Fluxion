@@ -747,3 +747,64 @@ Added retry logic to `complete_streaming()` for transient network errors:
 - ✓ Provider-specific tests pass: `tests/providers/test_openai_compat.py` (6 tests)
 
 ### Fix Commit: `00f6626`
+
+---
+
+## Bug Fix: E2B Sandbox Retry for Port Errors (2026-01-05)
+
+### Summary
+
+Fixed `python_execute` tool failures caused by transient E2B sandbox errors ("sandbox is running but port is not open", code 502).
+
+### Branch: `fix/agent-python-retry-and-thinking-ui`
+
+### Problem
+
+- `python_execute` failing with E2B error: `{"message":"The sandbox is running but port is not open","port":49999,"code":502}`
+- This is a transient error - sandbox created but port connectivity not established in time
+
+### Solution
+
+Added retry logic in `execute()` method for transient sandbox errors (port not open, 502). Retries up to 2 times with 1 second delay between attempts.
+
+### Files Modified
+
+| File | Changes |
+|------|---------|
+| `orchestrator/agent/tools/python_sandbox.py` | Add retry loop for transient E2B errors |
+
+---
+
+## Bug Fix: Thinking UI Persistence After Refresh (2026-01-05)
+
+### Summary
+
+Fixed agent thinking/steps UI not displaying after page refresh. Previously only showed during streaming because state was in-memory only.
+
+### Branch: `fix/agent-python-retry-and-thinking-ui`
+
+### Problem
+
+- `AgentRunMessage` uses `useAgentRunState()` which reads from Zustand (in-memory)
+- After refresh, Zustand store empty → `agentState` undefined → no AgentStepsPanel rendered
+- Backend stores data in `/api/agent/runs/{id}/trace` but UI didn't load it for historical runs
+- Also found: Backend schema mismatch (route used wrong field names)
+
+### Solution
+
+1. Created `useAgentRunDetails` hook to load historical state from API
+2. Fixed backend schema mismatch (`step_id` → `id`, `thinking_content` → `thinking_text`, `tool_call_id` → `id`, `citation_id` → `id`)
+3. Updated `AgentRunMessage` to use new hook
+
+### Files Modified
+
+| File | Changes |
+|------|---------|
+| `orchestrator/routes/agent_runs.py` | Fix schema field name mismatches in trace endpoint |
+| `ui/src/hooks/useAgentRunDetails.ts` | NEW: Load historical agent state from API |
+| `ui/src/components/AgentRunMessage.tsx` | Use useAgentRunDetails hook |
+
+### Test Results
+
+- ✓ All 502 tests pass
+- ✓ TypeScript compiles clean
