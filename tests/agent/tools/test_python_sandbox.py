@@ -122,10 +122,13 @@ class TestPythonSandboxToolExecution:
         mock_sandbox.run_code.return_value = mock_execution
         mock_sandbox.kill = MagicMock()
 
+        mock_sandbox_class = MagicMock()
+        mock_sandbox_class.create.return_value = mock_sandbox
+
         with patch("orchestrator.agent.tools.python_sandbox.E2B_AVAILABLE", True):
             with patch(
                 "orchestrator.agent.tools.python_sandbox.Sandbox",
-                return_value=mock_sandbox,
+                mock_sandbox_class,
             ):
                 from orchestrator.agent.tools.python_sandbox import PythonSandboxTool
 
@@ -151,10 +154,13 @@ class TestPythonSandboxToolExecution:
         mock_sandbox.run_code.return_value = mock_execution
         mock_sandbox.kill = MagicMock()
 
+        mock_sandbox_class = MagicMock()
+        mock_sandbox_class.create.return_value = mock_sandbox
+
         with patch("orchestrator.agent.tools.python_sandbox.E2B_AVAILABLE", True):
             with patch(
                 "orchestrator.agent.tools.python_sandbox.Sandbox",
-                return_value=mock_sandbox,
+                mock_sandbox_class,
             ):
                 from orchestrator.agent.tools.python_sandbox import PythonSandboxTool
 
@@ -170,13 +176,13 @@ class TestPythonSandboxToolExecution:
         """Timeout returns failure result."""
         mock_sandbox = MagicMock()
 
-        async def slow_run(*args, **kwargs):
-            await asyncio.sleep(10)
+        mock_sandbox_class = MagicMock()
+        mock_sandbox_class.create.return_value = mock_sandbox
 
         with patch("orchestrator.agent.tools.python_sandbox.E2B_AVAILABLE", True):
             with patch(
                 "orchestrator.agent.tools.python_sandbox.Sandbox",
-                return_value=mock_sandbox,
+                mock_sandbox_class,
             ):
                 with patch("asyncio.to_thread", side_effect=asyncio.TimeoutError()):
                     from orchestrator.agent.tools.python_sandbox import PythonSandboxTool
@@ -203,10 +209,13 @@ class TestPythonSandboxToolExecution:
         mock_sandbox.run_code.return_value = mock_execution
         mock_sandbox.kill = MagicMock()
 
+        mock_sandbox_class = MagicMock()
+        mock_sandbox_class.create.return_value = mock_sandbox
+
         with patch("orchestrator.agent.tools.python_sandbox.E2B_AVAILABLE", True):
             with patch(
                 "orchestrator.agent.tools.python_sandbox.Sandbox",
-                return_value=mock_sandbox,
+                mock_sandbox_class,
             ):
                 from orchestrator.agent.tools.python_sandbox import PythonSandboxTool
 
@@ -288,10 +297,13 @@ class TestPythonSandboxToolHealthCheck:
         mock_sandbox = MagicMock()
         mock_sandbox.kill = MagicMock()
 
+        mock_sandbox_class = MagicMock()
+        mock_sandbox_class.create.return_value = mock_sandbox
+
         with patch("orchestrator.agent.tools.python_sandbox.E2B_AVAILABLE", True):
             with patch(
                 "orchestrator.agent.tools.python_sandbox.Sandbox",
-                return_value=mock_sandbox,
+                mock_sandbox_class,
             ):
                 from orchestrator.agent.tools.python_sandbox import PythonSandboxTool
 
@@ -303,10 +315,13 @@ class TestPythonSandboxToolHealthCheck:
     @pytest.mark.asyncio
     async def test_health_check_failure(self):
         """Health check returns False when sandbox creation fails."""
+        mock_sandbox_class = MagicMock()
+        mock_sandbox_class.create.side_effect = Exception("API error")
+
         with patch("orchestrator.agent.tools.python_sandbox.E2B_AVAILABLE", True):
             with patch(
                 "orchestrator.agent.tools.python_sandbox.Sandbox",
-                side_effect=Exception("API error"),
+                mock_sandbox_class,
             ):
                 from orchestrator.agent.tools.python_sandbox import PythonSandboxTool
 

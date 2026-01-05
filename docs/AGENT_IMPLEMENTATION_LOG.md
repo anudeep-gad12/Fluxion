@@ -607,6 +607,30 @@ After Phase 7 completion, several integration issues were discovered when testin
 
 ---
 
+### Error 5: E2B Sandbox API Key Parameter Error
+
+**Symptom:** `python_execute` tool failing with error:
+```
+SandboxBase.__init__() got an unexpected keyword argument 'api_key'
+```
+
+**Root Cause:** E2B SDK v2.9.0 changed the API. The `Sandbox()` constructor no longer accepts `api_key` directly - it must be passed via `Sandbox.create()`:
+
+| Wrong (constructor) | Correct (factory method) |
+|---------------------|--------------------------|
+| `Sandbox(api_key=...)` | `Sandbox.create(api_key=...)` |
+
+The `Sandbox.__init__()` accepts only `**opts: Unpack[SandboxOpts]` which doesn't include `api_key`.
+The `Sandbox.create()` accepts `**opts: Unpack[ApiParams]` which does include `api_key`.
+
+**Files Modified:**
+- `orchestrator/agent/tools/python_sandbox.py` - Changed `Sandbox(...)` to `Sandbox.create(...)` in `execute()` and `health_check()` methods
+- `tests/agent/tools/test_python_sandbox.py` - Updated mocks to use `mock_sandbox_class.create.return_value` instead of `return_value=mock_sandbox`
+
+**Fix Commit:** `202d1d5`
+
+---
+
 ### Summary of All Fix Commits
 
 | Commit | Description |
@@ -615,6 +639,7 @@ After Phase 7 completion, several integration issues were discovered when testin
 | `4a9e969` | Don't cache failed tool results + improve system prompt |
 | `6649bcc` | Load `.env` file on startup for API keys |
 | `7f84a23` | Parse Parallel.ai extract API response correctly |
+| `202d1d5` | Fix E2B Sandbox.create() API for SDK v2.9.0 |
 
 ---
 
