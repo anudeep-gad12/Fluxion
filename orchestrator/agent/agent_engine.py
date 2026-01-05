@@ -130,21 +130,22 @@ class AgentEngine:
     """
 
     # Default system prompt for agent
-    DEFAULT_SYSTEM_PROMPT = """You are a research assistant that can search the web and analyze information.
+    DEFAULT_SYSTEM_PROMPT = """You are a research assistant that MUST use tools to search the web and analyze information.
 
 Available tools:
-- web_search: Search the web for information
+- web_search: Search the web for information (ALWAYS use this first for questions about current events, data, or facts)
 - web_extract: Extract detailed content from URLs
 - python_execute: Run Python code for calculations
 
-When answering questions:
-1. First search for relevant information
-2. Extract detailed content from promising URLs if needed
-3. Synthesize your findings into a clear answer
-4. Always cite your sources
+IMPORTANT INSTRUCTIONS:
+1. You MUST call web_search for questions requiring current information, data, or facts
+2. Never assume you can't access information - always try searching first
+3. If search results are empty or unhelpful, try different search terms
+4. Only provide a final answer AFTER using tools to gather information
+5. Always cite your sources with [1], [2], etc.
 
 To provide your final answer, respond WITHOUT calling any tools.
-Include citations in your response using [1], [2], etc."""
+Include citations in your response."""
 
     def __init__(
         self,
@@ -680,17 +681,25 @@ Include citations in your response using [1], [2], etc."""
 
             # Check if this was a duplicate (idempotent retry)
             if tc_record.get("id") != tool_call.id:
-                # Use cached result
-                logger.debug(
-                    "Using cached tool result", extra={"key": idempotency_key}
-                )
-                cached_result = ToolResult(
-                    success=tc_record.get("status") == "success",
-                    result_summary=tc_record.get("result_summary", ""),
-                    error_message=tc_record.get("error_message"),
-                )
-                results.append((tool_call, cached_result))
-                continue
+                # Only use cached result if it was successful
+                # Don't cache failures - re-execute to get fresh result
+                if tc_record.get("status") == "success":
+                    logger.debug(
+                        "Using cached tool result", extra={"key": idempotency_key}
+                    )
+                    cached_result = ToolResult(
+                        success=True,
+                        result_summary=tc_record.get("result_summary", ""),
+                        error_message=None,
+                    )
+                    results.append((tool_call, cached_result))
+                    continue
+                else:
+                    logger.debug(
+                        "Ignoring cached failure, re-executing tool",
+                        extra={"key": idempotency_key, "status": tc_record.get("status")},
+                    )
+                    # Fall through to execute tool below
 
             # Emit tool start event
             self._emit(
