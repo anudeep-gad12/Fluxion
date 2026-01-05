@@ -26,6 +26,7 @@ from orchestrator.agent.recovery import (
     build_recovery_messages,
     create_idempotency_key,
 )
+from orchestrator.utils.sanitize import sanitize_harmony_tokens
 
 if TYPE_CHECKING:
     from orchestrator.providers.base import LLMProvider, LLMResponse
@@ -732,6 +733,7 @@ Include citations in your response."""
         - <|channel|>commentary to=TOOL_NAME <|constrain|>json<|message|>{args}
         - <|channel|>commentary to=TOOL_NAME code<|message|>{args}
         - <|channel|>commentary to=TOOL_NAME json{args}
+        - <|channel|>commentary <|constrain|>{args}  (missing to=, infer from args)
 
         Args:
             text: Response text that may contain embedded tool calls.
@@ -741,19 +743,14 @@ Include citations in your response."""
         """
         import uuid
 
-        # Pattern: commentary to=TOOL_NAME followed by optional markers then JSON
-        # Handles various format variants from gpt-oss models
-        pattern = r'(?:<\|channel\|>)?commentary\s+to=(\w+)\s*(?:<\|constrain\|>)?(?:json|code)?(?:<\|message\|>)?(\{[^}]+\})'
-
-        matches = re.findall(pattern, text, re.IGNORECASE)
-
-        if not matches:
-            return None
-
         tool_calls = []
+
+        # Pattern 1: With explicit to=TOOL_NAME
+        pattern_with_target = r'(?:<\|channel\|>)?commentary\s+to=(\w+)\s*(?:<\|constrain\|>)?(?:json|code)?(?:<\|message\|>)?(\{[^}]+\})'
+        matches = re.findall(pattern_with_target, text, re.IGNORECASE)
+
         for tool_name, args_json in matches:
             try:
-                # Validate JSON
                 json.loads(args_json)
                 tool_calls.append({
                     "id": f"call_{uuid.uuid4().hex[:8]}",
@@ -768,7 +765,43 @@ Include citations in your response."""
                     "Failed to parse tool call JSON from text",
                     extra={"tool_name": tool_name, "args": args_json},
                 )
-                continue
+
+        # Pattern 2: Without to=TOOL_NAME - infer tool from JSON content
+        # Matches: <|channel|>commentary <|constrain|>{ "code": "..." }
+        if not tool_calls:
+            pattern_no_target = r'(?:<\|channel\|>)?commentary\s*(?:<\|constrain\|>)?(?:json|code)?\s*(?:<\|message\|>)?(\{[\s\S]*?\})'
+            matches_no_target = re.findall(pattern_no_target, text, re.IGNORECASE)
+
+            for args_json in matches_no_target:
+                try:
+                    args = json.loads(args_json)
+                    # Infer tool name from JSON keys
+                    if "code" in args:
+                        tool_name = "python_execute"
+                    elif "query" in args:
+                        tool_name = "web_search"
+                    elif "url" in args or "urls" in args:
+                        tool_name = "web_extract"
+                    else:
+                        logger.warning(
+                            "Could not infer tool name from JSON",
+                            extra={"args": args_json[:100]},
+                        )
+                        continue
+
+                    tool_calls.append({
+                        "id": f"call_{uuid.uuid4().hex[:8]}",
+                        "type": "function",
+                        "function": {
+                            "name": tool_name,
+                            "arguments": args_json,
+                        },
+                    })
+                except json.JSONDecodeError:
+                    logger.warning(
+                        "Failed to parse inferred tool call JSON",
+                        extra={"args": args_json[:100] if args_json else ""},
+                    )
 
         return tool_calls if tool_calls else None
 
@@ -1024,7 +1057,10 @@ Include citations in your response."""
         return None
 
     def _clean_answer(self, text: str) -> str:
-        """Remove thinking tags from answer.
+        """Remove thinking tags and Harmony format tokens from answer.
+
+        Uses shared sanitization utility to handle all gpt-oss Harmony
+        format control tokens that should not be displayed to users.
 
         Args:
             text: Raw LLM response.
@@ -1032,12 +1068,7 @@ Include citations in your response."""
         Returns:
             Cleaned answer text.
         """
-        if not text:
-            return ""
-
-        # Remove <think>...</think> blocks
-        cleaned = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
-        return cleaned.strip()
+        return sanitize_harmony_tokens(text)
 
     async def _store_citations_from_tool(
         self,
@@ -1160,12 +1191,15 @@ Include citations in your response."""
 
         def on_token(token: str) -> None:
             answer_tokens.append(token)
-            self._emit(
-                event_callback,
-                "answer_token",
-                run_id=run_id,
-                content=token,
-            )
+            # Sanitize token before emitting to UI
+            cleaned = sanitize_harmony_tokens(token)
+            if cleaned:
+                self._emit(
+                    event_callback,
+                    "answer_token",
+                    run_id=run_id,
+                    content=cleaned,
+                )
 
         response = await self._provider.complete_streaming(
             messages=messages,
