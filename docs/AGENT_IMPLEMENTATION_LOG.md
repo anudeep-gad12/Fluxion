@@ -517,3 +517,112 @@ PLANNING → TOOL_CALLING → PLANNING (loop)
 - **Cancellation**: Stop button with proper cleanup
 
 **Build Status:** ✓ pnpm build succeeds (703KB bundle)
+
+---
+
+## Post-Phase 7: Bug Fixes (2026-01-05)
+
+### Summary
+
+After Phase 7 completion, several integration issues were discovered when testing the agent with LM Studio and the Parallel.ai API. This section documents the errors encountered and their fixes.
+
+### Branch: `fix/lm-studio-tool-call-format`
+
+---
+
+### Error 1: LM Studio Responses API Format Mismatch
+
+**Symptom:** Tool calls not being parsed from LM Studio responses. Raw protocol tokens like `<|channel|>commentary to=web_search` appearing in UI.
+
+**Root Cause:** LM Studio's `/v1/responses` endpoint uses a different format than OpenAI:
+- LM Studio returns `function_call` as top-level output item (not nested `tool_use`)
+- Tool results need `function_call_output` format
+- Tool schema needs flat structure (not nested under `"function"`)
+
+**Files Modified:**
+- `orchestrator/providers/response_parsers.py` - Handle `function_call` type in output items
+- `orchestrator/providers/request_builders.py` - Transform messages/tools for responses API
+- `orchestrator/providers/openai_compat.py` - Collect streaming tool calls
+
+**Fix Commit:** `91d8932`
+
+---
+
+### Error 2: Parallel.ai API Parameter Changes
+
+**Symptom:** Web search returning 422 error: `"Either 'objective' or 'search_queries' must be provided"`
+
+**Root Cause:** Parallel.ai API updated their `/v1beta/search` endpoint:
+- Changed `query` parameter to `objective`
+- Changed `num_results` to `max_results`
+- Requires `parallel-beta: search-extract-2025-10-10` header
+
+**Files Modified:**
+- `orchestrator/agent/tools/web_search.py` - Updated parameters and added header
+- `tests/agent/tools/test_web_search.py` - Updated test assertions
+
+**Fix Commit:** `91d8932`
+
+---
+
+### Error 3: `.env` File Not Loading (Tools Not Registering)
+
+**Symptom:** Agent returning "Unknown tool: web_search" even though tool was called. Logs showed `"AgentEngine created", "tools": []` (empty array).
+
+**Root Cause:** `python-dotenv`'s `load_dotenv()` was never called in `app.py`. The `PARALLEL_API_KEY` environment variable wasn't loaded from `.env`, so `parallel_config.api_key` was `None`, and tools weren't registered.
+
+**Evidence from logs:**
+```json
+// Before fix (bad):
+{"AgentEngine created", "tools": []}
+
+// After fix (good):
+{"AgentEngine created", "tools": ["web_search", "web_extract", "python_execute"]}
+```
+
+**Files Modified:**
+- `orchestrator/app.py` - Added `from dotenv import load_dotenv` and `load_dotenv()` at top
+
+**Fix Commit:** `6649bcc`
+
+---
+
+### Error 4: web_extract API Response Parsing Wrong
+
+**Symptom:** All `web_extract` calls returning `"Extracted 0/1 URLs successfully"` even though API returned 200 OK with valid data.
+
+**Root Cause:** Code expected `{"extractions": [...]}` but Parallel.ai API returns `{"results": [...], "errors": [...]}`:
+
+| Expected (wrong) | Actual API Response |
+|------------------|---------------------|
+| `extractions` | `results` |
+| `success: true/false` | Success in `results`, failures in `errors` |
+| `content` | `excerpts` array or `full_content` |
+
+**Files Modified:**
+- `orchestrator/agent/tools/web_extract.py` - Parse `results`/`errors` instead of `extractions`
+- `tests/agent/tools/test_web_extract.py` - Updated all mock responses to match API format
+
+**Fix Commit:** `7f84a23`
+
+---
+
+### Summary of All Fix Commits
+
+| Commit | Description |
+|--------|-------------|
+| `91d8932` | LM Studio responses API format + Parallel.ai API param updates |
+| `4a9e969` | Don't cache failed tool results + improve system prompt |
+| `6649bcc` | Load `.env` file on startup for API keys |
+| `7f84a23` | Parse Parallel.ai extract API response correctly |
+
+---
+
+### Verification
+
+After all fixes:
+1. ✓ Tools register on startup: `["web_search", "web_extract", "python_execute"]`
+2. ✓ `web_search` returns real results: `"Found 4 results for 'current weather in Japan'"`
+3. ✓ `web_extract` parses content correctly from API
+4. ✓ Failed tool results not cached (re-executed on retry)
+5. ✓ System prompt encourages tool use
