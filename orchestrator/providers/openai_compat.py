@@ -227,7 +227,10 @@ class OpenAICompatProvider:
         previous_response_id: Optional[str] = None,
         **kwargs: Any,
     ) -> LLMResponse:
-        """Stream a completion.
+        """Stream a completion with retry on network errors.
+
+        Retries on transient network errors (RemoteProtocolError, ReadError)
+        with exponential backoff. HTTP errors are handled separately.
 
         Args:
             messages: List of message dicts.
@@ -244,10 +247,13 @@ class OpenAICompatProvider:
 
         Returns:
             Final LLMResponse after streaming.
+
+        Raises:
+            RetryExhaustedError: If streaming fails after all retry attempts.
         """
         endpoint_type = await self._resolve_endpoint()
 
-        # Build request
+        # Build request (done once, outside retry loop)
         if endpoint_type == "responses":
             payload = build_responses_request(
                 messages=messages,
@@ -272,20 +278,105 @@ class OpenAICompatProvider:
             )
             url = f"{self._base_url}/v1/chat/completions"
 
-        # Stream the response
+        # Retry loop for network errors (RemoteProtocolError, ReadError)
+        last_error: Optional[Exception] = None
+        for attempt in range(self._max_retries + 1):
+            try:
+                return await self._do_streaming(
+                    url=url,
+                    payload=payload,
+                    endpoint_type=endpoint_type,
+                    on_token=on_token,
+                    on_reasoning=on_reasoning,
+                    messages=messages,
+                    model=model,
+                    tools=tools,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    **kwargs,
+                )
+            except (httpx.RemoteProtocolError, httpx.ReadError) as e:
+                last_error = e
+                if attempt < self._max_retries:
+                    delay = min(self._base_delay * (2 ** attempt), self._max_delay)
+                    jitter = delay * random.uniform(0.1, 0.3)
+                    total_delay = delay + jitter
+                    logger.warning(
+                        "Streaming failed due to network error, retrying",
+                        extra={
+                            "attempt": attempt + 1,
+                            "max_retries": self._max_retries,
+                            "delay_seconds": round(total_delay, 2),
+                            "error": str(e),
+                        },
+                    )
+                    await asyncio.sleep(total_delay)
+                else:
+                    logger.error(
+                        "Streaming failed after all retries",
+                        extra={
+                            "attempts": attempt + 1,
+                            "error": str(e),
+                        },
+                    )
+
+        raise RetryExhaustedError(
+            f"Streaming failed after {self._max_retries} retries: {last_error}"
+        )
+
+    async def _do_streaming(
+        self,
+        url: str,
+        payload: Dict[str, Any],
+        endpoint_type: str,
+        on_token: Callable[[str], None],
+        on_reasoning: Optional[Callable[[str], None]],
+        messages: List[Dict[str, Any]],
+        model: str,
+        tools: Optional[List[Dict[str, Any]]],
+        max_tokens: Optional[int],
+        temperature: Optional[float],
+        **kwargs: Any,
+    ) -> LLMResponse:
+        """Execute the actual streaming request.
+
+        This method contains the streaming logic extracted from complete_streaming
+        to enable retry wrapping in the parent method.
+
+        Args:
+            url: Request URL.
+            payload: Request payload.
+            endpoint_type: "responses" or "chat_completions".
+            on_token: Callback for content tokens.
+            on_reasoning: Callback for reasoning tokens.
+            messages: Original messages (for fallback).
+            model: Model name (for fallback).
+            tools: Tool definitions (for fallback).
+            max_tokens: Maximum tokens (for fallback).
+            temperature: Sampling temperature (for fallback).
+            **kwargs: Additional parameters (for fallback).
+
+        Returns:
+            LLMResponse after streaming completes.
+
+        Raises:
+            httpx.RemoteProtocolError: On network-level streaming errors.
+            httpx.ReadError: On read errors during streaming.
+            httpx.HTTPStatusError: On HTTP errors (except 404/405 with fallback).
+        """
         full_content: List[str] = []
         full_reasoning: List[str] = []
         tool_calls: List[Dict[str, Any]] = []
         finish_reason = "stop"
         usage: Dict[str, int] = {}
-        response_id: Optional[str] = None  # Capture response ID for stateful mode
+        response_id: Optional[str] = None
 
         try:
             async with self._client.stream("POST", url, json=payload) as response:
                 # Check for fallback needed
                 if response.status_code in (404, 405) and self._fallback_on_404:
                     if endpoint_type == "responses":
-                        # Need to close this stream and retry
+                        # Need to close this stream and retry with fallback
                         pass
                     else:
                         response.raise_for_status()
@@ -306,10 +397,7 @@ class OpenAICompatProvider:
                         continue
 
                     # Capture response_id from streaming events (responses API)
-                    # OpenAI returns "id" in response.created or response.completed events
-                    # LM Studio may return it in the initial chunk
                     if "/responses" in url and response_id is None:
-                        # Check various places where response_id might appear
                         if "id" in data:
                             response_id = data["id"]
                         elif data.get("type") == "response.created":
@@ -321,7 +409,6 @@ class OpenAICompatProvider:
                     if "/responses" in url:
                         delta = parse_streaming_delta(data, "responses")
                     else:
-                        # Chat completions format
                         choices = data.get("choices", [{}])
                         if choices:
                             choice_delta = choices[0].get("delta", {})
@@ -364,7 +451,7 @@ class OpenAICompatProvider:
             text="".join(full_content),
             tool_calls=tool_calls if tool_calls else None,
             reasoning="".join(full_reasoning) if full_reasoning else None,
-            response_id=response_id,  # Include captured response ID
+            response_id=response_id,
             raw={},
             endpoint_used=url,
             usage=usage,
