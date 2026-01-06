@@ -179,8 +179,8 @@ async def _run_agent_task(
             logger.warning("Event queue full", extra={"run_id": run_id})
 
     try:
-        # Create engine and run
-        engine = await create_agent_engine(max_steps=max_steps)
+        # Create engine and run (pass query for classification)
+        engine = await create_agent_engine(max_steps=max_steps, query=query)
         result = await engine.run(
             run_id=run_id,
             query=query,
@@ -543,11 +543,11 @@ async def get_agent_run_trace(run_id: str):
     steps_raw = await agent_repo.get_steps_for_run(run_id)
     steps = [
         AgentStepResponse(
-            id=s["step_id"],
+            id=s["id"],  # DB column is 'id', not 'step_id'
             run_id=s["run_id"],
             step_number=s["step_number"],
             state=s["state"],
-            thinking_text=s.get("thinking_content"),
+            thinking_text=s.get("thinking_text"),  # DB column is 'thinking_text'
             decision=s.get("decision"),
             created_at=s["created_at"],
             completed_at=s.get("completed_at"),
@@ -560,11 +560,11 @@ async def get_agent_run_trace(run_id: str):
     tool_calls_raw = await agent_repo.get_tool_calls_for_run(run_id)
     tool_calls = [
         AgentToolCallResponse(
-            id=tc["tool_call_id"],
+            id=tc["id"],  # DB column is 'id', not 'tool_call_id'
             run_id=tc["run_id"],
             step_id=tc["step_id"],
             tool_name=tc["tool_name"],
-            arguments=json.loads(tc.get("arguments", "{}")),
+            arguments=tc.get("arguments", {}) if isinstance(tc.get("arguments"), dict) else json.loads(tc.get("arguments", "{}")),
             status=tc["status"],
             result_summary=tc.get("result_summary"),
             error_message=tc.get("error_message"),
@@ -582,7 +582,7 @@ async def get_agent_run_trace(run_id: str):
     citations_raw = await agent_repo.get_citations_for_run(run_id)
     citations = [
         AgentCitationResponse(
-            id=c["citation_id"],
+            id=c["id"],  # DB column is 'id', not 'citation_id'
             run_id=c["run_id"],
             tool_call_id=c.get("tool_call_id", ""),
             source_url=c["source_url"],

@@ -52,6 +52,15 @@ start_api() {
     log "Starting API server on port 9000..."
     kill_port 9000
     cd "$PROJECT_DIR"
+
+    # Load provider env if set
+    if [ -f "$PROJECT_DIR/.env.provider" ]; then
+        set -a
+        source "$PROJECT_DIR/.env.provider"
+        set +a
+        log "Using provider: $(grep '^# Provider:' "$PROJECT_DIR/.env.provider" | cut -d: -f2)"
+    fi
+
     nohup uv run uvicorn orchestrator.app:app --reload --port 9000 --host 0.0.0.0 > "$LOG_DIR/api.log" 2>&1 &
     echo $! > "$PID_DIR/api.pid"
     sleep 2
@@ -211,6 +220,57 @@ explore_trace() {
     sqlite3 "$DB_PATH" "SELECT final_answer FROM runs WHERE run_id = '$run_id';"
 }
 
+# Switch provider (local or deepinfra)
+switch_provider() {
+    local provider=$1
+
+    case "$provider" in
+        local|lm|lmstudio)
+            # Set for LM Studio
+            cat > "$PROJECT_DIR/.env.provider" << 'EOF'
+# Provider: LM Studio (local)
+LLM_BASE_URL=http://127.0.0.1:1234
+LLM_ENDPOINT=responses
+EOF
+            provider="local (LM Studio)"
+            ;;
+        deepinfra|cloud|di)
+            # Set for DeepInfra
+            cat > "$PROJECT_DIR/.env.provider" << 'EOF'
+# Provider: DeepInfra (cloud)
+LLM_BASE_URL=https://api.deepinfra.com/v1/openai
+LLM_ENDPOINT=chat_completions
+EOF
+            provider="deepinfra (cloud)"
+            ;;
+        "")
+            # Show current provider
+            echo -e "${BLUE}=== Current Provider ===${NC}"
+            if [ -f "$PROJECT_DIR/.env.provider" ]; then
+                cat "$PROJECT_DIR/.env.provider"
+            else
+                echo "No provider set. Using config defaults (DeepInfra)."
+            fi
+            echo ""
+            echo "Usage: ./dev.sh provider [local|deepinfra]"
+            echo ""
+            echo "  local     - LM Studio @ localhost:1234"
+            echo "  deepinfra - DeepInfra cloud API"
+            return
+            ;;
+        *)
+            error "Unknown provider: $provider"
+            echo "Use: local, deepinfra"
+            exit 1
+            ;;
+    esac
+
+    log "Switched to ${BLUE}$provider${NC}"
+    cat "$PROJECT_DIR/.env.provider"
+    echo ""
+    warn "Restart required: ./dev.sh restart"
+}
+
 # Show status
 show_status() {
     echo -e "${BLUE}=== Service Status ===${NC}"
@@ -289,6 +349,9 @@ case "${1:-start}" in
     status)
         show_status
         ;;
+    provider)
+        switch_provider "$2"
+        ;;
     *)
         echo "Usage: ./dev.sh [command]"
         echo ""
@@ -304,5 +367,6 @@ case "${1:-start}" in
         echo "  traces    View recent traces from database"
         echo "  explore   Explore a specific run: ./dev.sh explore <run_id>"
         echo "  status    Show service status"
+        echo "  provider  Switch LLM provider: ./dev.sh provider [local|deepinfra]"
         ;;
 esac

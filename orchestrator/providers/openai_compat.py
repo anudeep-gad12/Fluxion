@@ -118,6 +118,26 @@ class OpenAICompatProvider:
             headers=headers,
         )
 
+    def _build_url(self, endpoint: str) -> str:
+        """Build full URL for an endpoint.
+
+        Handles base URLs that already contain /v1/openai (e.g., DeepInfra).
+        For such URLs, we append /chat/completions instead of /v1/chat/completions.
+
+        Args:
+            endpoint: Endpoint path (e.g., "chat/completions", "responses", "models")
+
+        Returns:
+            Full URL for the endpoint.
+        """
+        base = self._base_url.rstrip("/")
+
+        # If base_url ends with /v1/openai or /openai, don't add /v1 prefix
+        if base.endswith("/v1/openai") or base.endswith("/openai"):
+            return f"{base}/{endpoint}"
+        else:
+            return f"{base}/v1/{endpoint}"
+
     async def close(self) -> None:
         """Clean up provider resources."""
         await self._client.aclose()
@@ -130,7 +150,7 @@ class OpenAICompatProvider:
         """
         try:
             response = await self._client.get(
-                f"{self._base_url}/v1/models",
+                self._build_url("models"),
                 timeout=5.0,
             )
             return response.status_code == 200
@@ -181,7 +201,7 @@ class OpenAICompatProvider:
                 stream=False,
                 previous_response_id=previous_response_id,
             )
-            url = f"{self._base_url}/v1/responses"
+            url = self._build_url("responses")
         else:
             payload = build_chat_completions_request(
                 messages=messages,
@@ -192,7 +212,7 @@ class OpenAICompatProvider:
                 stream=False,
                 **kwargs,
             )
-            url = f"{self._base_url}/v1/chat/completions"
+            url = self._build_url("chat/completions")
 
         # Make request with retry
         response = await self._request_with_retry(url, payload)
@@ -221,6 +241,7 @@ class OpenAICompatProvider:
         on_reasoning: Optional[Callable[[str], None]] = None,
         instructions: Optional[str] = None,
         tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: Optional[str] = None,
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
         reasoning_effort: Optional[str] = None,
@@ -239,6 +260,7 @@ class OpenAICompatProvider:
             on_reasoning: Callback for reasoning tokens.
             instructions: System prompt.
             tools: Tool definitions.
+            tool_choice: Tool selection behavior (auto, required, or tool_name).
             max_tokens: Maximum tokens.
             temperature: Sampling temperature.
             reasoning_effort: Native reasoning effort.
@@ -253,6 +275,10 @@ class OpenAICompatProvider:
         """
         endpoint_type = await self._resolve_endpoint()
 
+        # Note: responses API doesn't support tool_choice parameter
+        # We pass it to build_responses_request but it will be ignored there
+        # The system prompt handles tool guidance instead
+
         # Build request (done once, outside retry loop)
         if endpoint_type == "responses":
             payload = build_responses_request(
@@ -260,23 +286,25 @@ class OpenAICompatProvider:
                 model=model,
                 instructions=instructions,
                 tools=tools,
+                tool_choice=tool_choice,
                 reasoning_effort=reasoning_effort,
                 max_output_tokens=max_tokens,
                 stream=True,
                 previous_response_id=previous_response_id,
             )
-            url = f"{self._base_url}/v1/responses"
+            url = self._build_url("responses")
         else:
             payload = build_chat_completions_request(
                 messages=messages,
                 model=model,
                 tools=tools,
+                tool_choice=tool_choice,
                 max_tokens=max_tokens,
                 temperature=temperature,
                 stream=True,
                 **kwargs,
             )
-            url = f"{self._base_url}/v1/chat/completions"
+            url = self._build_url("chat/completions")
 
         # Retry loop for network errors (RemoteProtocolError, ReadError)
         last_error: Optional[Exception] = None
@@ -426,13 +454,21 @@ class OpenAICompatProvider:
                         full_reasoning.append(delta["reasoning"])
                         on_reasoning(delta["reasoning"])
 
-                    # Collect completed tool calls (LM Studio format)
+                    # Collect completed tool calls (LM Studio or DeepInfra format)
                     if delta.get("tool_call_complete"):
                         tool_calls.append(delta["tool_call_complete"])
                         logger.debug(
                             "Streaming tool call complete",
                             extra={"tool_name": delta["tool_call_complete"]["function"]["name"]}
                         )
+                    # Handle multiple complete tool calls (e.g., DeepInfra)
+                    if delta.get("tool_calls_complete"):
+                        for tc in delta["tool_calls_complete"]:
+                            tool_calls.append(tc)
+                            logger.debug(
+                                "Streaming tool call complete (batch)",
+                                extra={"tool_name": tc["function"]["name"]}
+                            )
 
                     # Track usage if present
                     if "usage" in data:
@@ -486,7 +522,7 @@ class OpenAICompatProvider:
         # Probe with minimal request
         try:
             response = await self._client.post(
-                f"{self._base_url}/v1/responses",
+                self._build_url("responses"),
                 json={"model": "probe", "input": []},
                 timeout=5.0,
             )
@@ -555,7 +591,7 @@ class OpenAICompatProvider:
             stream=stream,
             **kwargs,
         )
-        url = f"{self._base_url}/v1/chat/completions"
+        url = self._build_url("chat/completions")
         response = await self._request_with_retry(url, payload)
 
         # Cache that this base_url doesn't support responses
@@ -613,7 +649,7 @@ class OpenAICompatProvider:
             stream=True,
             **kwargs,
         )
-        url = f"{self._base_url}/v1/chat/completions"
+        url = self._build_url("chat/completions")
 
         # Cache that this base_url doesn't support responses
         self._endpoint_cache[self._base_url] = False

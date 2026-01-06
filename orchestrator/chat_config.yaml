@@ -15,16 +15,21 @@
 
 provider:
   # Base URL - supports env vars for deployment flexibility
-  base_url: ${LLM_BASE_URL:-http://127.0.0.1:1234}
+  # DeepInfra: https://api.deepinfra.com/v1/openai
+  # LM Studio: http://127.0.0.1:1234
+  # Note: Code appends /v1/chat/completions or /v1/responses, so base_url should NOT include /v1
+  base_url: ${LLM_BASE_URL:-https://api.deepinfra.com/v1/openai}
 
   # API key - use env var for secrets (empty = no auth for local servers)
-  api_key: ${LLM_API_KEY:-}
+  # Note: Nested ${} not supported. Use DEEPINFRA_API_KEY directly.
+  api_key: ${DEEPINFRA_API_KEY:-}
 
   # Endpoint selection: responses | chat_completions | auto
-  # - responses: Primary endpoint for agents/tool use (recommended)
-  # - chat_completions: Fallback for compatibility
+  # - responses: Primary endpoint for agents/tool use (recommended for LM Studio)
+  # - chat_completions: Standard OpenAI format (recommended for DeepInfra)
   # - auto: Probe and cache result
-  endpoint: "responses"
+  # Set via: ./dev.sh provider [local|deepinfra]
+  endpoint: ${LLM_ENDPOINT:-chat_completions}
 
   # If /v1/responses returns 404/405, try /v1/chat/completions
   fallback_on_404: true
@@ -188,3 +193,16 @@ sandbox:
     stale_session_minutes: 10     # Age threshold for stale sessions
     metadata:
       app: "reasoner"
+
+# =============================================================================
+# Query Classification (Tool Usage Policy)
+# =============================================================================
+# Controls when python_execute is required vs. optional for calculations.
+# Uses keyword-based detection (not LLM-based).
+
+query_classification:
+  enabled: true
+  # Minimum pattern matches to enforce tool_choice=python_execute
+  # Lower = more aggressive (enforces tool use more often)
+  # Higher = more conservative (allows direct answers more often)
+  min_confidence_for_enforcement: 2

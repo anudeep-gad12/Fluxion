@@ -132,14 +132,20 @@ class ToolRegistry:
                 )
 
 
-def create_tool_registry(config: "ChatConfig") -> ToolRegistry:
+def create_tool_registry(
+    config: "ChatConfig",
+    calculation_only: bool = False,
+) -> ToolRegistry:
     """Factory function to create registry with configured tools.
 
     Args:
         config: Chat configuration with tool settings.
+        calculation_only: If True, only register python_execute tool.
+            Used for calculation queries where we want to force code execution
+            without web search distraction.
 
     Returns:
-        Configured ToolRegistry with all tools.
+        Configured ToolRegistry with tools.
     """
     from .python_sandbox import PythonSandboxTool
     from .web_extract import WebExtractTool
@@ -151,8 +157,23 @@ def create_tool_registry(config: "ChatConfig") -> ToolRegistry:
     parallel_config = getattr(config, "parallel", None)
     sandbox_config = getattr(config, "sandbox", None)
 
-    # Register web tools if Parallel.ai is configured
-    if parallel_config and parallel_config.api_key:
+    # Register sandbox FIRST (important for tool ordering)
+    # If calculation_only, this will be the ONLY tool - model MUST use it
+    if sandbox_config and sandbox_config.provider == "e2b" and sandbox_config.e2b.api_key:
+        registry.register(
+            PythonSandboxTool(
+                api_key=sandbox_config.e2b.api_key,
+                template=sandbox_config.e2b.template,
+                timeout_seconds=sandbox_config.e2b.timeout_seconds,
+                metadata=sandbox_config.e2b.metadata,
+                cleanup_on_init=sandbox_config.e2b.cleanup_on_startup,
+                stale_session_minutes=sandbox_config.e2b.stale_session_minutes,
+            )
+        )
+        logger.info("Registered python_execute tool")
+
+    # Register web tools if Parallel.ai is configured AND not calculation_only
+    if not calculation_only and parallel_config and parallel_config.api_key:
         registry.register(
             WebSearchTool(
                 base_url=parallel_config.base_url,
@@ -170,19 +191,5 @@ def create_tool_registry(config: "ChatConfig") -> ToolRegistry:
             )
         )
         logger.info("Registered web tools (web_search, web_extract)")
-
-    # Register sandbox if E2B is configured
-    if sandbox_config and sandbox_config.provider == "e2b" and sandbox_config.e2b.api_key:
-        registry.register(
-            PythonSandboxTool(
-                api_key=sandbox_config.e2b.api_key,
-                template=sandbox_config.e2b.template,
-                timeout_seconds=sandbox_config.e2b.timeout_seconds,
-                metadata=sandbox_config.e2b.metadata,
-                cleanup_on_init=sandbox_config.e2b.cleanup_on_startup,
-                stale_session_minutes=sandbox_config.e2b.stale_session_minutes,
-            )
-        )
-        logger.info("Registered python_execute tool")
 
     return registry

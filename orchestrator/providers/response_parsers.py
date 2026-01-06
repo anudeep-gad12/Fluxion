@@ -200,9 +200,31 @@ def parse_streaming_delta(
         if reasoning:
             result["reasoning"] = reasoning
 
-        # Tool call deltas (accumulated separately)
+        # Tool calls - check if complete or delta
         tool_calls = delta.get("tool_calls")
         if tool_calls:
-            result["tool_call"] = json.dumps(tool_calls)
+            # Complete tool calls have id, function.name, and function.arguments
+            # (e.g., DeepInfra sends complete tool calls in final chunk)
+            complete_calls = []
+            for tc in tool_calls:
+                if tc.get("id") and tc.get("function", {}).get("name"):
+                    # This is a complete tool call
+                    arguments = tc.get("function", {}).get("arguments", "{}")
+                    if isinstance(arguments, dict):
+                        arguments = json.dumps(arguments)
+                    complete_calls.append({
+                        "id": tc["id"],
+                        "type": "function",
+                        "function": {
+                            "name": tc["function"]["name"],
+                            "arguments": arguments,
+                        },
+                    })
+            if complete_calls:
+                # Return all complete tool calls
+                result["tool_calls_complete"] = complete_calls
+            else:
+                # Partial tool call delta for accumulation
+                result["tool_call"] = json.dumps(tool_calls)
 
     return result
