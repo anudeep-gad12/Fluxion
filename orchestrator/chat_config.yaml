@@ -11,13 +11,13 @@
 # Provider Configuration
 # =============================================================================
 # All providers are OpenAI-compatible - same code works with:
-# LM Studio, vLLM, Ollama, OpenAI, Azure OpenAI, etc.
+# vLLM, Ollama, OpenAI, Azure OpenAI, DeepInfra, etc.
 
 provider:
   # Base URL - supports env vars for deployment flexibility
-  # DeepInfra: https://api.deepinfra.com/v1/openai
-  # LM Studio: http://127.0.0.1:1234
-  # Note: Code appends /v1/chat/completions or /v1/responses, so base_url should NOT include /v1
+  # DeepInfra (cloud): https://api.deepinfra.com/v1/openai
+  # vLLM (local): http://localhost:8000/v1
+  # Note: For DeepInfra, code appends /chat/completions. For vLLM, use full /v1 path.
   base_url: ${LLM_BASE_URL:-https://api.deepinfra.com/v1/openai}
 
   # API key - use env var for secrets (empty = no auth for local servers)
@@ -25,8 +25,8 @@ provider:
   api_key: ${DEEPINFRA_API_KEY:-}
 
   # Endpoint selection: responses | chat_completions | auto
-  # - responses: Primary endpoint for agents/tool use (recommended for LM Studio)
-  # - chat_completions: Standard OpenAI format (recommended for DeepInfra)
+  # - chat_completions: Standard OpenAI format (recommended for vLLM, DeepInfra)
+  # - responses: Custom format (gpt-oss models only)
   # - auto: Probe and cache result
   # Set via: ./dev.sh provider [local|deepinfra]
   endpoint: ${LLM_ENDPOINT:-chat_completions}
@@ -100,7 +100,10 @@ provider_chain:
 # =============================================================================
 
 model:
-  name: "openai/gpt-oss-120b"  # Model name as expected by the provider
+  # Model name - override via LLM_MODEL env var for different providers
+  # DeepInfra: openai/gpt-oss-120b (supports reasoning_effort)
+  # vLLM local: Qwen/Qwen2.5-14B-Instruct (or whatever you're serving)
+  name: ${LLM_MODEL:-openai/gpt-oss-120b}
   temperature: 1.0            # Recommended for reasoning models
   max_tokens: 4096
   seed: null                  # Set to integer for reproducible outputs
@@ -109,6 +112,7 @@ model:
   presence_penalty: null
   # Native reasoning effort for gpt-oss models (low, medium, high)
   # Higher = deeper reasoning, more tokens, better for complex tasks
+  # Note: Only works with gpt-oss models on DeepInfra, ignored for vLLM
   reasoning_effort: "medium"
 
 # =============================================================================
