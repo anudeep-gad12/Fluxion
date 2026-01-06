@@ -234,11 +234,11 @@ switch_provider() {
 
     case "$provider" in
         local|lm|lmstudio)
-            # Set for LM Studio
+            # Set for LM Studio - use chat_completions for tool_choice support
             cat > "$PROJECT_DIR/.env.provider" << 'EOF'
 # Provider: LM Studio (local)
 LLM_BASE_URL=http://127.0.0.1:1234
-LLM_ENDPOINT=responses
+LLM_ENDPOINT=chat_completions
 EOF
             provider="local (LM Studio)"
             ;;
