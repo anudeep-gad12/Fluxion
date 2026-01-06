@@ -189,15 +189,16 @@ class PythonSandboxTool:
             )
 
         start_time = time.perf_counter()
-        max_sandbox_retries = 2  # Retry sandbox creation if it fails
-        max_run_retries = 3  # Retry run_code on same sandbox for port issues
+        max_sandbox_retries = 1  # One retry for sandbox creation
+        max_run_retries = 2  # Quick retries for port issues
         last_error: Optional[Exception] = None
 
         for sandbox_attempt in range(max_sandbox_retries + 1):
             sandbox = None
             try:
                 # Create sandbox using native AsyncSandbox.create()
-                # secure=False because code-interpreter template doesn't support secured access
+                # IMPORTANT: secure=False required - code-interpreter template
+                # doesn't support E2B secured access feature
                 logger.debug(
                     "Creating E2B sandbox (async)",
                     extra={"template": self._template, "attempt": sandbox_attempt + 1},
@@ -207,14 +208,10 @@ class PythonSandboxTool:
                     timeout=self._timeout,
                     metadata=self._metadata,
                     api_key=self._api_key,
+                    secure=False,
                 )
 
-                # Wait for Jupyter kernel to start (code-interpreter needs warmup)
-                # Initial delay helps reduce port-not-open errors
-                # 5 seconds gives more time for the FastAPI server on port 49999 to initialize
-                await asyncio.sleep(5)
-
-                # Retry run_code on same sandbox for transient port errors
+                # Run the actual code - retries handle kernel startup delays
                 for run_attempt in range(max_run_retries + 1):
                     try:
                         # Execute code with timeout using native async run_code
@@ -285,15 +282,11 @@ class PythonSandboxTool:
                         )
 
                         if is_port_error and run_attempt < max_run_retries:
-                            # Wait and retry on same sandbox - kernel may still be starting
-                            delay = 3 * (run_attempt + 1)  # 3s, 6s, 9s
+                            # Quick retry - kernel should start fast
+                            delay = 2
                             logger.warning(
-                                "E2B port not ready, waiting for kernel",
-                                extra={
-                                    "run_attempt": run_attempt + 1,
-                                    "max_run_retries": max_run_retries,
-                                    "delay_seconds": delay,
-                                },
+                                "E2B port not ready, retrying",
+                                extra={"run_attempt": run_attempt + 1},
                             )
                             await asyncio.sleep(delay)
                             continue
@@ -335,17 +328,11 @@ class PythonSandboxTool:
                 )
 
                 if is_retryable and sandbox_attempt < max_sandbox_retries:
-                    delay = 4 * (sandbox_attempt + 1)  # 4s, 8s
                     logger.warning(
-                        "E2B sandbox error, creating new sandbox",
-                        extra={
-                            "sandbox_attempt": sandbox_attempt + 1,
-                            "max_sandbox_retries": max_sandbox_retries,
-                            "delay_seconds": delay,
-                            "error": error_str[:200],
-                        },
+                        "E2B sandbox error, retrying",
+                        extra={"error": error_str[:100]},
                     )
-                    await asyncio.sleep(delay)
+                    await asyncio.sleep(2)
                     continue
 
                 # Non-retryable error or retries exhausted
@@ -382,6 +369,7 @@ class PythonSandboxTool:
                 timeout=10,
                 metadata={"app": "health_check"},
                 api_key=self._api_key,
+                secure=False,
             )
             await sandbox.kill()
             return True

@@ -40,7 +40,7 @@ def _transform_messages_for_responses_api(messages: List[Dict[str, Any]]) -> Lis
                 result.append({"role": "assistant", "content": content})
 
             # Then add each tool call as a function_call item
-            for tool_call in msg.get("tool_calls", []):
+            for tool_call in (msg.get("tool_calls") or []):
                 func = tool_call.get("function", {})
                 arguments = func.get("arguments", "{}")
                 # arguments might be a dict or string
