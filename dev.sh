@@ -228,20 +228,21 @@ explore_trace() {
     sqlite3 "$DB_PATH" "SELECT final_answer FROM runs WHERE run_id = '$run_id';"
 }
 
-# Switch provider (local vLLM or cloud DeepInfra)
+# Switch provider (local llama-server or cloud DeepInfra)
 switch_provider() {
     local provider=$1
 
     case "$provider" in
-        local|vllm)
-            # Set for vLLM (local)
+        local|llama)
+            # Set for llama-server (local gpt-oss)
+            # Start server first: llama-server -m ~/.lmstudio/models/lmstudio-community/gpt-oss-20b-GGUF/gpt-oss-20b-MXFP4.gguf --jinja --ctx-size 4096 -ub 512 -b 512 --port 8080
             cat > "$PROJECT_DIR/.env.provider" << 'EOF'
-# Provider: vLLM (local)
-LLM_BASE_URL=http://localhost:8000/v1
+# Provider: llama-server (local gpt-oss)
+LLM_BASE_URL=http://localhost:8080/v1
 LLM_ENDPOINT=chat_completions
-LLM_MODEL=Qwen/Qwen2.5-14B-Instruct
+LLM_MODEL=gpt-oss-20b
 EOF
-            provider="local (vLLM)"
+            provider="local (llama-server + gpt-oss-20b)"
             ;;
         deepinfra|cloud|di)
             # Set for DeepInfra (cloud)
@@ -264,8 +265,8 @@ EOF
             echo ""
             echo "Usage: ./dev.sh provider [local|deepinfra]"
             echo ""
-            echo "  local     - vLLM @ localhost:8000"
-            echo "  deepinfra - DeepInfra cloud API"
+            echo "  local     - llama-server @ localhost:8080 (gpt-oss-20b)"
+            echo "  deepinfra - DeepInfra cloud API (gpt-oss-120b)"
             return
             ;;
         *)

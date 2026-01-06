@@ -16,8 +16,8 @@
 provider:
   # Base URL - supports env vars for deployment flexibility
   # DeepInfra (cloud): https://api.deepinfra.com/v1/openai
-  # vLLM (local): http://localhost:8000/v1
-  # Note: For DeepInfra, code appends /chat/completions. For vLLM, use full /v1 path.
+  # llama-server (local): http://localhost:8080/v1
+  # Note: For DeepInfra, code appends /chat/completions.
   base_url: ${LLM_BASE_URL:-https://api.deepinfra.com/v1/openai}
 
   # API key - use env var for secrets (empty = no auth for local servers)
@@ -25,7 +25,7 @@ provider:
   api_key: ${DEEPINFRA_API_KEY:-}
 
   # Endpoint selection: responses | chat_completions | auto
-  # - chat_completions: Standard OpenAI format (recommended for vLLM, DeepInfra)
+  # - chat_completions: Standard OpenAI format (recommended for llama-server, DeepInfra)
   # - responses: Custom format (gpt-oss models only)
   # - auto: Probe and cache result
   # Set via: ./dev.sh provider [local|deepinfra]
@@ -102,7 +102,7 @@ provider_chain:
 model:
   # Model name - override via LLM_MODEL env var for different providers
   # DeepInfra: openai/gpt-oss-120b (supports reasoning_effort)
-  # vLLM local: Qwen/Qwen2.5-14B-Instruct (or whatever you're serving)
+  # llama-server local: gpt-oss-20b (or whatever you're serving)
   name: ${LLM_MODEL:-openai/gpt-oss-120b}
   temperature: 1.0            # Recommended for reasoning models
   max_tokens: 4096
@@ -112,7 +112,7 @@ model:
   presence_penalty: null
   # Native reasoning effort for gpt-oss models (low, medium, high)
   # Higher = deeper reasoning, more tokens, better for complex tasks
-  # Note: Only works with gpt-oss models on DeepInfra, ignored for vLLM
+  # Note: Only works with gpt-oss models on DeepInfra
   reasoning_effort: "medium"
 
 # =============================================================================
@@ -196,8 +196,6 @@ python:
 # Uses keyword-based detection (not LLM-based).
 
 query_classification:
-  enabled: true
-  # Minimum pattern matches to enforce tool_choice=python_execute
-  # Lower = more aggressive (enforces tool use more often)
-  # Higher = more conservative (allows direct answers more often)
+  enabled: false  # Disabled - let the model decide when to use tools
+  # CALCULATION_SYSTEM_PROMPT provides guidance without forcing tool_choice
   min_confidence_for_enforcement: 2
