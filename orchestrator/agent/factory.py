@@ -56,9 +56,13 @@ async def create_agent_engine(
     config = get_chat_config()
 
     # Classify query if provided (and system_prompt not explicitly set)
+    # Check if classification is enabled in config
     tool_choice = None
     calculation_only = False
-    if query and not system_prompt:
+    qc_config = getattr(config, "query_classification", None)
+    classification_enabled = qc_config.enabled if qc_config else True
+
+    if query and not system_prompt and classification_enabled:
         classifier = QueryClassifier()
         classification = classifier.classify(query)
 
@@ -81,6 +85,9 @@ async def create_agent_engine(
                 "matched_patterns": classification.matched_patterns[:5],  # Limit for logging
             },
         )
+    elif query and not system_prompt:
+        # Classification disabled - use default prompt, no tool forcing
+        logger.debug("Query classification disabled, using default system prompt")
 
     # Create provider (with chain if configured)
     provider = create_provider(

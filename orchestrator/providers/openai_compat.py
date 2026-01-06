@@ -395,6 +395,8 @@ class OpenAICompatProvider:
         full_content: List[str] = []
         full_reasoning: List[str] = []
         tool_calls: List[Dict[str, Any]] = []
+        # Accumulator for streaming tool calls (index -> {id, name, arguments_parts})
+        tool_call_accumulators: Dict[int, Dict[str, Any]] = {}
         finish_reason = "stop"
         usage: Dict[str, int] = {}
         response_id: Optional[str] = None
@@ -441,7 +443,30 @@ class OpenAICompatProvider:
                         if choices:
                             choice_delta = choices[0].get("delta", {})
                             delta = parse_streaming_delta(choice_delta, "chat_completions")
-                            finish_reason = choices[0].get("finish_reason") or finish_reason
+                            new_finish = choices[0].get("finish_reason")
+                            if new_finish:
+                                finish_reason = new_finish
+
+                            # Accumulate streaming tool calls (llama-server format)
+                            # Use `or []` to handle None values (key exists with null)
+                            streaming_tool_calls = choice_delta.get("tool_calls") or []
+                            for tc in streaming_tool_calls:
+                                idx = tc.get("index", 0)
+                                if idx not in tool_call_accumulators:
+                                    tool_call_accumulators[idx] = {
+                                        "id": None,
+                                        "name": None,
+                                        "arguments_parts": [],
+                                    }
+                                acc = tool_call_accumulators[idx]
+                                # Capture id and name from first chunk
+                                if tc.get("id"):
+                                    acc["id"] = tc["id"]
+                                func = tc.get("function", {})
+                                if func.get("name"):
+                                    acc["name"] = func["name"]
+                                if func.get("arguments"):
+                                    acc["arguments_parts"].append(func["arguments"])
                         else:
                             delta = {"content": None, "reasoning": None, "tool_call": None}
 
@@ -482,6 +507,27 @@ class OpenAICompatProvider:
                     tools, max_tokens, temperature, **kwargs
                 )
             raise
+
+        # Finalize accumulated streaming tool calls (for llama-server format)
+        if tool_call_accumulators:
+            for idx in sorted(tool_call_accumulators.keys()):
+                acc = tool_call_accumulators[idx]
+                if acc["id"] and acc["name"]:
+                    tool_calls.append({
+                        "id": acc["id"],
+                        "type": "function",
+                        "function": {
+                            "name": acc["name"],
+                            "arguments": "".join(acc["arguments_parts"]),
+                        },
+                    })
+                    logger.debug(
+                        "Finalized streaming tool call",
+                        extra={
+                            "tool_name": acc["name"],
+                            "arguments_length": len("".join(acc["arguments_parts"])),
+                        }
+                    )
 
         return LLMResponse(
             text="".join(full_content),

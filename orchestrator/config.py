@@ -313,6 +313,19 @@ class ThinkingConfig(BaseModel):
     ui: ThinkingUIConfig = ThinkingUIConfig()
 
 
+class QueryClassificationConfig(BaseModel):
+    """Query classification settings for tool selection."""
+
+    enabled: bool = True  # If False, skip classification and let model decide
+    min_confidence_for_enforcement: int = 2
+
+
+class PythonConfig(BaseModel):
+    """Python execution settings."""
+
+    timeout_seconds: int = 30
+
+
 # =============================================================================
 # Main Chat Configuration
 # =============================================================================
@@ -335,6 +348,10 @@ class ChatConfig(BaseModel):
     # Tool configurations
     parallel: Optional[ParallelConfig] = None  # Parallel.ai for web search/extract
     sandbox: Optional[SandboxConfig] = None  # E2B for Python execution
+
+    # Query classification (disabled by default - let model decide when to use tools)
+    query_classification: Optional[QueryClassificationConfig] = None
+    python: Optional[PythonConfig] = None
 
     # Backward compatibility alias
     @property
@@ -361,6 +378,10 @@ class ChatConfig(BaseModel):
             snapshot["parallel"] = self.parallel.model_dump()
         if self.sandbox:
             snapshot["sandbox"] = self.sandbox.model_dump()
+        if self.query_classification:
+            snapshot["query_classification"] = self.query_classification.model_dump()
+        if self.python:
+            snapshot["python"] = self.python.model_dump()
         return snapshot
 
 

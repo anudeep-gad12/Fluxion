@@ -165,10 +165,14 @@ IMPORTANT INSTRUCTIONS:
 2. Never assume you can't access information - always try searching first
 3. If search results are empty or unhelpful, try different search terms
 4. Only provide a final answer AFTER using tools to gather information
-5. Always cite your sources with [1], [2], etc.
+5. Use inline citations [1], [2], etc. when referencing sources
 
-To provide your final answer, respond WITHOUT calling any tools.
-Include citations in your response."""
+CITATION FORMAT:
+- Use [1], [2], etc. INLINE within your answer text where you reference information
+- Do NOT add a separate "Citations" or "Sources" section at the end
+- The UI will automatically display a formatted sources list
+
+To provide your final answer, respond WITHOUT calling any tools."""
 
     # Calculation-focused system prompt for physics/math queries
     CALCULATION_SYSTEM_PROMPT = """You are a research assistant specializing in physics and mathematical calculations.
@@ -191,16 +195,19 @@ CALCULATION WORKFLOW:
 3. If you need reference data (constants, material properties), use web_search first
 4. Present the final answer with the computation result
 
-Example - For "What is the kinetic energy of a 5kg object at 10m/s?":
-DO: Use python_execute with code like:
+Example calculation pattern:
 ```python
-mass = 5  # kg
-velocity = 10  # m/s
-kinetic_energy = 0.5 * mass * velocity**2
-print(f"Kinetic Energy: {kinetic_energy} Joules")
+# Always use python_execute for physics/math
+value = formula_calculation
+print(f"Result: {value} units")
 ```
 
-DO NOT: Answer "KE = 0.5 * 5 * 100 = 250 J" without using python_execute
+NEVER answer with mental math like "KE = 0.5 * 5 * 100 = 250 J" - always use python_execute.
+
+CITATION FORMAT (if referencing sources):
+- Use [1], [2], etc. INLINE within your answer text
+- Do NOT add a separate "Citations" or "Sources" section at the end
+- The UI will automatically display a formatted sources list
 
 To provide your final answer, respond WITHOUT calling any tools."""
 
@@ -399,6 +406,18 @@ To provide your final answer, respond WITHOUT calling any tools."""
                             "Parsed tool calls from text",
                             extra={"count": len(text_tool_calls), "tools": [tc["function"]["name"] for tc in text_tool_calls]},
                         )
+                    # Also try parsing from reasoning if text is empty
+                    # (Some models output tool calls in reasoning_content field)
+                    elif not llm_response.text and llm_response.reasoning:
+                        reasoning_tool_calls = self._parse_json_tool_calls(llm_response.reasoning)
+                        if reasoning_tool_calls:
+                            tool_calls = reasoning_tool_calls
+                            logger.info(
+                                "Parsed tool calls from reasoning",
+                                extra={"count": len(reasoning_tool_calls), "tools": [tc["function"]["name"] for tc in reasoning_tool_calls]},
+                            )
+                        else:
+                            logger.debug("No tool calls found in reasoning", extra={"reasoning_preview": llm_response.reasoning[:300] if llm_response.reasoning else ""})
                     else:
                         logger.debug("No tool calls found in text", extra={"text": llm_response.text[:300] if llm_response.text else ""})
 
@@ -434,10 +453,21 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     )
 
                     # Add assistant message with tool calls
+                    # Include truncated reasoning for context so model doesn't re-analyze
+                    # each step. Limit to ~500 chars to avoid 400 errors with some providers.
+                    assistant_content = llm_response.text
+                    if not assistant_content and llm_response.reasoning:
+                        # Use last portion of reasoning (most relevant to decision)
+                        reasoning = llm_response.reasoning.strip()
+                        if len(reasoning) > 500:
+                            # Take last 500 chars to preserve the conclusion/decision
+                            assistant_content = "..." + reasoning[-500:]
+                        else:
+                            assistant_content = reasoning
                     messages.append(
                         {
                             "role": "assistant",
-                            "content": llm_response.text or None,
+                            "content": assistant_content or None,
                             "tool_calls": tool_calls,
                         }
                     )
@@ -480,6 +510,22 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     )
 
                     final_answer = self._clean_answer(llm_response.text)
+
+                    # Fallback: If text is empty but reasoning exists, extract answer from it
+                    # (Some models put the answer in reasoning_content instead of content)
+                    if not final_answer and llm_response.reasoning:
+                        # Strip any incomplete JSON fragments from reasoning
+                        reasoning_text = llm_response.reasoning
+                        # Remove trailing JSON fragments (incomplete tool calls)
+                        reasoning_text = re.sub(r'\{[^{}]*$', '', reasoning_text)  # Trailing unclosed {
+                        reasoning_text = re.sub(r'\{"[^"]*":\s*"[^}]*$', '', reasoning_text)  # Partial JSON
+                        reasoning_text = reasoning_text.strip()
+                        if reasoning_text:
+                            final_answer = self._clean_answer(reasoning_text)
+                            logger.info(
+                                "Used reasoning as fallback answer",
+                                extra={"answer_length": len(final_answer)},
+                            )
 
                     # Emit answer as answer_token so UI displays it in answer panel
                     # (streaming sent it to thinking, now send cleaned version to answer)
@@ -824,6 +870,76 @@ To provide your final answer, respond WITHOUT calling any tools."""
         from orchestrator.utils.harmony_parser import parse_harmony_tool_calls
 
         return parse_harmony_tool_calls(text)
+
+    def _parse_json_tool_calls(self, text: str) -> Optional[List[Dict[str, Any]]]:
+        """Parse raw JSON tool calls from text (fallback for malformed output).
+
+        Some models output tool calls as raw JSON in reasoning_content instead
+        of as structured tool_calls. This extracts them as a fallback.
+
+        Supported formats:
+        - {"query": "..."} -> web_search
+        - {"code": "..."} -> python_execute
+        - {"url": "..."} or {"urls": [...]} -> web_extract
+
+        Args:
+            text: Text that may contain JSON tool call objects.
+
+        Returns:
+            List of tool call dicts in OpenAI format, or None if no tool calls found.
+        """
+        import json
+        import re
+        import uuid
+
+        if not text:
+            return None
+
+        tool_calls = []
+
+        # Find JSON objects in the text
+        # Look for patterns like {"query": "...", "max_results": 10}
+        json_pattern = r'\{[^{}]*"(?:query|code|url|urls)"[^{}]*\}'
+        matches = re.findall(json_pattern, text, re.DOTALL)
+
+        for match in matches:
+            try:
+                obj = json.loads(match)
+                tool_name = None
+                arguments = {}
+
+                if "query" in obj:
+                    tool_name = "web_search"
+                    arguments = {"query": obj["query"]}
+                    if "max_results" in obj:
+                        arguments["max_results"] = obj["max_results"]
+                elif "code" in obj:
+                    tool_name = "python_execute"
+                    arguments = {"code": obj["code"]}
+                elif "urls" in obj:
+                    tool_name = "web_extract"
+                    arguments = {"urls": obj["urls"]}
+                elif "url" in obj:
+                    tool_name = "web_extract"
+                    arguments = {"urls": [obj["url"]]}
+
+                if tool_name:
+                    tool_calls.append({
+                        "id": f"call_{uuid.uuid4().hex[:8]}",
+                        "type": "function",
+                        "function": {
+                            "name": tool_name,
+                            "arguments": json.dumps(arguments),
+                        },
+                    })
+                    logger.debug(
+                        "Extracted JSON tool call from reasoning",
+                        extra={"tool_name": tool_name, "match": match[:100]},
+                    )
+            except json.JSONDecodeError:
+                continue
+
+        return tool_calls if tool_calls else None
 
     def _parse_tool_calls(
         self,
@@ -1194,7 +1310,8 @@ To provide your final answer, respond WITHOUT calling any tools."""
             "content": (
                 "You have reached the maximum number of research steps. "
                 "Please synthesize your findings and provide your best answer "
-                "based on the information gathered so far. Include citations."
+                "based on the information gathered so far. "
+                "Use inline [1], [2] citations but do NOT add a separate Citations section."
             ),
         }
         messages = messages + [force_msg]

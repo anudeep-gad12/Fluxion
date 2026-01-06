@@ -17,7 +17,7 @@ def parse_responses_result(raw: Dict[str, Any], endpoint: str) -> LLMResponse:
         Normalized LLMResponse.
     """
     # Responses API returns output as list of content blocks
-    output = raw.get("output", [])
+    output = raw.get("output") or []
 
     text_parts: List[str] = []
     tool_calls: List[Dict[str, Any]] = []
@@ -27,7 +27,7 @@ def parse_responses_result(raw: Dict[str, Any], endpoint: str) -> LLMResponse:
         item_type = item.get("type")
 
         if item_type == "message":
-            content = item.get("content", [])
+            content = item.get("content") or []
             for block in content:
                 block_type = block.get("type")
                 # Handle both OpenAI format ("text") and LM Studio format ("output_text")
@@ -73,7 +73,7 @@ def parse_responses_result(raw: Dict[str, Any], endpoint: str) -> LLMResponse:
                 reasoning = summary
             else:
                 # LM Studio format: content array with reasoning_text blocks
-                content = item.get("content", [])
+                content = item.get("content") or []
                 reasoning_parts = []
                 for block in content:
                     if block.get("type") == "reasoning_text":
@@ -103,7 +103,7 @@ def parse_chat_result(raw: Dict[str, Any], endpoint: str) -> LLMResponse:
     Returns:
         Normalized LLMResponse.
     """
-    choices = raw.get("choices", [{}])
+    choices = raw.get("choices") or [{}]
     if not choices:
         return LLMResponse(
             text="",
@@ -201,30 +201,34 @@ def parse_streaming_delta(
             result["reasoning"] = reasoning
 
         # Tool calls - check if complete or delta
+        # Note: Streaming tool calls (like from llama-server) have id/name in first chunk
+        # but arguments stream across multiple chunks. We detect streaming by checking
+        # if arguments looks partial (starts with { but doesn't end with }).
         tool_calls = delta.get("tool_calls")
         if tool_calls:
-            # Complete tool calls have id, function.name, and function.arguments
-            # (e.g., DeepInfra sends complete tool calls in final chunk)
             complete_calls = []
             for tc in tool_calls:
                 if tc.get("id") and tc.get("function", {}).get("name"):
-                    # This is a complete tool call
                     arguments = tc.get("function", {}).get("arguments", "{}")
                     if isinstance(arguments, dict):
                         arguments = json.dumps(arguments)
-                    complete_calls.append({
-                        "id": tc["id"],
-                        "type": "function",
-                        "function": {
-                            "name": tc["function"]["name"],
-                            "arguments": arguments,
-                        },
-                    })
+                    # Check if arguments is complete (valid JSON) or streaming
+                    # Streaming: partial like '{"' or '{"code' - won't parse as JSON
+                    try:
+                        json.loads(arguments)
+                        # Valid JSON = complete tool call (e.g., DeepInfra non-streaming)
+                        complete_calls.append({
+                            "id": tc["id"],
+                            "type": "function",
+                            "function": {
+                                "name": tc["function"]["name"],
+                                "arguments": arguments,
+                            },
+                        })
+                    except json.JSONDecodeError:
+                        # Partial arguments = streaming, will be accumulated elsewhere
+                        pass
             if complete_calls:
-                # Return all complete tool calls
                 result["tool_calls_complete"] = complete_calls
-            else:
-                # Partial tool call delta for accumulation
-                result["tool_call"] = json.dumps(tool_calls)
 
     return result
