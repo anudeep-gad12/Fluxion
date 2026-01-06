@@ -53,7 +53,15 @@ start_api() {
     kill_port 9000
     cd "$PROJECT_DIR"
 
-    # Load provider env if set
+    # Load main env (API keys: E2B_API_KEY, DEEPINFRA_API_KEY, PARALLEL_API_KEY)
+    if [ -f "$PROJECT_DIR/.env" ]; then
+        set -a
+        source "$PROJECT_DIR/.env"
+        set +a
+        log "Loaded .env"
+    fi
+
+    # Load provider env if set (overrides LLM settings from .env)
     if [ -f "$PROJECT_DIR/.env.provider" ]; then
         set -a
         source "$PROJECT_DIR/.env.provider"

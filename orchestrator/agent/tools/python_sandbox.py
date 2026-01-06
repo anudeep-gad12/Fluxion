@@ -19,11 +19,12 @@ logger = get_logger(__name__)
 
 # E2B SDK import (handle import error gracefully)
 try:
-    from e2b_code_interpreter import Sandbox
+    from e2b_code_interpreter import AsyncSandbox, Sandbox
 
     E2B_AVAILABLE = True
 except ImportError:
     E2B_AVAILABLE = False
+    AsyncSandbox = None  # type: ignore
     Sandbox = None  # type: ignore
 
 
@@ -179,7 +180,7 @@ class PythonSandboxTool:
         Returns:
             ToolResult with stdout/stderr.
         """
-        if not E2B_AVAILABLE or Sandbox is None:
+        if not E2B_AVAILABLE or AsyncSandbox is None:
             return ToolResult(
                 success=False,
                 result_summary="E2B not available",
@@ -195,32 +196,31 @@ class PythonSandboxTool:
         for sandbox_attempt in range(max_sandbox_retries + 1):
             sandbox = None
             try:
-                # Create sandbox using Sandbox.create()
+                # Create sandbox using native AsyncSandbox.create()
                 # secure=False because code-interpreter template doesn't support secured access
                 logger.debug(
-                    "Creating E2B sandbox",
+                    "Creating E2B sandbox (async)",
                     extra={"template": self._template, "attempt": sandbox_attempt + 1},
                 )
-                sandbox = await asyncio.to_thread(
-                    Sandbox.create,
+                sandbox = await AsyncSandbox.create(
                     template=self._template,
                     timeout=self._timeout,
                     metadata=self._metadata,
                     api_key=self._api_key,
-                    secure=False,
                 )
 
                 # Wait for Jupyter kernel to start (code-interpreter needs warmup)
                 # Initial delay helps reduce port-not-open errors
-                await asyncio.sleep(2)
+                # 5 seconds gives more time for the FastAPI server on port 49999 to initialize
+                await asyncio.sleep(5)
 
                 # Retry run_code on same sandbox for transient port errors
                 for run_attempt in range(max_run_retries + 1):
                     try:
-                        # Execute code with timeout
+                        # Execute code with timeout using native async run_code
                         execution = await asyncio.wait_for(
-                            asyncio.to_thread(sandbox.run_code, code),
-                            timeout=self._timeout,
+                            sandbox.run_code(code, timeout=self._timeout),
+                            timeout=self._timeout + 5,  # Allow extra time for network
                         )
 
                         duration_ms = int((time.perf_counter() - start_time) * 1000)
@@ -259,7 +259,7 @@ class PythonSandboxTool:
 
                         # Clean up sandbox after successful execution
                         try:
-                            await asyncio.to_thread(sandbox.kill)
+                            await sandbox.kill()
                         except Exception as cleanup_error:
                             logger.warning(f"Failed to kill sandbox: {cleanup_error}")
 
@@ -286,7 +286,7 @@ class PythonSandboxTool:
 
                         if is_port_error and run_attempt < max_run_retries:
                             # Wait and retry on same sandbox - kernel may still be starting
-                            delay = 2 * (run_attempt + 1)  # 2s, 4s, 6s
+                            delay = 3 * (run_attempt + 1)  # 3s, 6s, 9s
                             logger.warning(
                                 "E2B port not ready, waiting for kernel",
                                 extra={
@@ -306,7 +306,7 @@ class PythonSandboxTool:
                 # Cleanup before returning
                 if sandbox:
                     try:
-                        await asyncio.to_thread(sandbox.kill)
+                        await sandbox.kill()
                     except Exception:
                         pass
                 return ToolResult(
@@ -322,7 +322,7 @@ class PythonSandboxTool:
                 # Cleanup current sandbox before potential retry
                 if sandbox:
                     try:
-                        await asyncio.to_thread(sandbox.kill)
+                        await sandbox.kill()
                     except Exception:
                         pass
 
@@ -335,7 +335,7 @@ class PythonSandboxTool:
                 )
 
                 if is_retryable and sandbox_attempt < max_sandbox_retries:
-                    delay = 3 * (sandbox_attempt + 1)  # 3s, 6s
+                    delay = 4 * (sandbox_attempt + 1)  # 4s, 8s
                     logger.warning(
                         "E2B sandbox error, creating new sandbox",
                         extra={
@@ -373,18 +373,17 @@ class PythonSandboxTool:
         Returns:
             True if healthy, False otherwise.
         """
-        if not E2B_AVAILABLE or Sandbox is None:
+        if not E2B_AVAILABLE or AsyncSandbox is None:
             return False
 
         try:
-            # Quick sandbox creation/teardown test
-            sandbox = await asyncio.to_thread(
-                Sandbox.create,
+            # Quick sandbox creation/teardown test using AsyncSandbox
+            sandbox = await AsyncSandbox.create(
                 timeout=10,
                 metadata={"app": "health_check"},
                 api_key=self._api_key,
             )
-            await asyncio.to_thread(sandbox.kill)
+            await sandbox.kill()
             return True
         except Exception as e:
             logger.warning(f"E2B health check failed: {e}")
