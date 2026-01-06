@@ -39,6 +39,27 @@ logger = get_logger(__name__)
 
 
 # =============================================================================
+# System Prompt Helpers
+# =============================================================================
+
+
+def get_system_prompt_for_query_type(query_type: "QueryType") -> str:
+    """Get appropriate system prompt based on query classification.
+
+    Args:
+        query_type: Classification result from QueryClassifier.
+
+    Returns:
+        System prompt string for the given query type.
+    """
+    from orchestrator.agent.query_classifier import QueryType
+
+    if query_type == QueryType.CALCULATION:
+        return AgentEngine.CALCULATION_SYSTEM_PROMPT
+    return AgentEngine.DEFAULT_SYSTEM_PROMPT
+
+
+# =============================================================================
 # Result Types
 # =============================================================================
 
@@ -149,6 +170,40 @@ IMPORTANT INSTRUCTIONS:
 To provide your final answer, respond WITHOUT calling any tools.
 Include citations in your response."""
 
+    # Calculation-focused system prompt for physics/math queries
+    CALCULATION_SYSTEM_PROMPT = """You are a research assistant specializing in physics and mathematical calculations.
+
+Available tools:
+- python_execute: Run Python code for calculations (USE THIS for any physics/math computation)
+- web_search: Search the web for reference data or constants
+- web_extract: Extract detailed content from URLs
+
+CRITICAL INSTRUCTIONS FOR CALCULATIONS:
+1. For ANY physics or mathematical calculation, you MUST use python_execute
+2. NEVER compute physics formulas mentally or in text - always use Python code
+3. Even "simple" physics calculations (like kinetic energy, velocity, etc.) MUST use python_execute
+4. Use Python for: unit conversions, formula evaluation, numerical computation
+5. Only answer directly for trivial arithmetic like "2+2" or "5*3"
+
+CALCULATION WORKFLOW:
+1. Identify the physics/math problem and relevant formula
+2. Use python_execute to compute the result with proper units
+3. If you need reference data (constants, material properties), use web_search first
+4. Present the final answer with the computation result
+
+Example - For "What is the kinetic energy of a 5kg object at 10m/s?":
+DO: Use python_execute with code like:
+```python
+mass = 5  # kg
+velocity = 10  # m/s
+kinetic_energy = 0.5 * mass * velocity**2
+print(f"Kinetic Energy: {kinetic_energy} Joules")
+```
+
+DO NOT: Answer "KE = 0.5 * 5 * 100 = 250 J" without using python_execute
+
+To provide your final answer, respond WITHOUT calling any tools."""
+
     def __init__(
         self,
         provider: "LLMProvider",
@@ -161,6 +216,7 @@ Include citations in your response."""
         temperature: float = 0.7,
         system_prompt: Optional[str] = None,
         keep_full_steps: int = 2,
+        tool_choice: Optional[str] = None,
     ) -> None:
         """Initialize agent engine.
 
@@ -175,6 +231,10 @@ Include citations in your response."""
             temperature: Sampling temperature.
             system_prompt: Custom system prompt (or use default).
             keep_full_steps: Number of recent steps to keep detailed.
+            tool_choice: Override tool selection behavior on first step.
+                - None: Use default "auto"
+                - "python_execute": Force python_execute on first step
+                - "required": Force model to use some tool
         """
         self._provider = provider
         self._repo = repo
@@ -186,6 +246,7 @@ Include citations in your response."""
         self._temperature = temperature
         self._system_prompt = system_prompt or self.DEFAULT_SYSTEM_PROMPT
         self._pruner = ContextPruner(keep_full_steps=keep_full_steps)
+        self._tool_choice = tool_choice
 
     async def run(
         self,
@@ -296,10 +357,13 @@ Include citations in your response."""
 
                 llm_start_time = time.perf_counter()
                 try:
+                    # Use tool_choice only on first step (if configured)
+                    step_tool_choice = self._tool_choice if step_number == 1 else None
                     llm_response = await self._call_llm_with_tools(
                         messages=pruned_messages,
                         event_callback=event_callback,
                         run_id=run_id,
+                        tool_choice=step_tool_choice,
                     )
                 except Exception as e:
                     logger.error("LLM call failed", extra={"error": str(e)})
@@ -668,6 +732,7 @@ Include citations in your response."""
         messages: List[Dict[str, Any]],
         event_callback: Optional[Callable[[Dict[str, Any]], None]],
         run_id: str,
+        tool_choice: Optional[str] = None,
     ) -> "LLMResponse":
         """Call LLM with tool schemas via streaming.
 
@@ -675,6 +740,7 @@ Include citations in your response."""
             messages: Message list.
             event_callback: SSE callback.
             run_id: Run ID for events.
+            tool_choice: Tool selection override (auto, required, or tool_name).
 
         Returns:
             LLMResponse with text and tool_calls.
@@ -719,6 +785,7 @@ Include citations in your response."""
             on_token=on_token,
             on_reasoning=on_reasoning,
             tools=tool_schemas if tool_schemas else None,
+            tool_choice=tool_choice,
             max_tokens=self._max_tokens,
             temperature=self._temperature,
         )
@@ -726,84 +793,20 @@ Include citations in your response."""
         return response
 
     def _parse_text_tool_calls(self, text: str) -> Optional[List[Dict[str, Any]]]:
-        """Parse tool calls from text using Harmony format.
+        """Parse tool calls from text using official Harmony parser.
 
-        Handles models that output tool calls in text format rather than
-        using the OpenAI tool_calls API. Handles various format variants:
-        - <|channel|>commentary to=TOOL_NAME <|constrain|>json<|message|>{args}
-        - <|channel|>commentary to=TOOL_NAME code<|message|>{args}
-        - <|channel|>commentary to=TOOL_NAME json{args}
-        - <|channel|>commentary <|constrain|>{args}  (missing to=, infer from args)
+        Uses the openai-harmony library to properly parse gpt-oss Harmony format
+        output instead of fragile regex patterns.
 
         Args:
-            text: Response text that may contain embedded tool calls.
+            text: Response text that may contain Harmony format tool calls.
 
         Returns:
             List of tool call dicts in OpenAI format, or None if no tool calls found.
         """
-        import uuid
+        from orchestrator.utils.harmony_parser import parse_harmony_tool_calls
 
-        tool_calls = []
-
-        # Pattern 1: With explicit to=TOOL_NAME
-        pattern_with_target = r'(?:<\|channel\|>)?commentary\s+to=(\w+)\s*(?:<\|constrain\|>)?(?:json|code)?(?:<\|message\|>)?(\{[^}]+\})'
-        matches = re.findall(pattern_with_target, text, re.IGNORECASE)
-
-        for tool_name, args_json in matches:
-            try:
-                json.loads(args_json)
-                tool_calls.append({
-                    "id": f"call_{uuid.uuid4().hex[:8]}",
-                    "type": "function",
-                    "function": {
-                        "name": tool_name,
-                        "arguments": args_json,
-                    },
-                })
-            except json.JSONDecodeError:
-                logger.warning(
-                    "Failed to parse tool call JSON from text",
-                    extra={"tool_name": tool_name, "args": args_json},
-                )
-
-        # Pattern 2: Without to=TOOL_NAME - infer tool from JSON content
-        # Matches: <|channel|>commentary <|constrain|>{ "code": "..." }
-        if not tool_calls:
-            pattern_no_target = r'(?:<\|channel\|>)?commentary\s*(?:<\|constrain\|>)?(?:json|code)?\s*(?:<\|message\|>)?(\{[\s\S]*?\})'
-            matches_no_target = re.findall(pattern_no_target, text, re.IGNORECASE)
-
-            for args_json in matches_no_target:
-                try:
-                    args = json.loads(args_json)
-                    # Infer tool name from JSON keys
-                    if "code" in args:
-                        tool_name = "python_execute"
-                    elif "query" in args:
-                        tool_name = "web_search"
-                    elif "url" in args or "urls" in args:
-                        tool_name = "web_extract"
-                    else:
-                        logger.warning(
-                            "Could not infer tool name from JSON",
-                            extra={"args": args_json[:100]},
-                        )
-                        continue
-
-                    tool_calls.append({
-                        "id": f"call_{uuid.uuid4().hex[:8]}",
-                        "type": "function",
-                        "function": {
-                            "name": tool_name,
-                            "arguments": args_json,
-                        },
-                    })
-                except json.JSONDecodeError:
-                    logger.warning(
-                        "Failed to parse inferred tool call JSON",
-                        extra={"args": args_json[:100] if args_json else ""},
-                    )
-
-        return tool_calls if tool_calls else None
+        return parse_harmony_tool_calls(text)
 
     def _parse_tool_calls(
         self,

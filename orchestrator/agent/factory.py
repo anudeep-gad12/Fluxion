@@ -13,7 +13,8 @@ from orchestrator.storage.db import get_db
 from orchestrator.storage.repositories.agent_repo import AgentRepo
 from orchestrator.storage.repositories.trace_repo import TraceRepo
 
-from .agent_engine import AgentEngine
+from .agent_engine import AgentEngine, get_system_prompt_for_query_type
+from .query_classifier import QueryClassifier
 from .tools import create_tool_registry
 
 if TYPE_CHECKING:
@@ -28,6 +29,7 @@ async def create_agent_engine(
     max_tokens: Optional[int] = None,
     temperature: Optional[float] = None,
     system_prompt: Optional[str] = None,
+    query: Optional[str] = None,
 ) -> AgentEngine:
     """Create a fully configured AgentEngine.
 
@@ -36,17 +38,49 @@ async def create_agent_engine(
     - Tool registry (web_search, web_extract, python_execute)
     - Agent repository (for persistence)
 
+    If query is provided and system_prompt is not explicitly set,
+    classifies the query to select an appropriate system prompt
+    and tool_choice for calculation-heavy queries.
+
     Args:
         model_name: Override default model name from config.
         max_steps: Override default max steps (default: 10).
         max_tokens: Override default max tokens from config.
         temperature: Override default temperature from config.
         system_prompt: Override default system prompt.
+        query: User query for classification-based prompt selection.
 
     Returns:
         Configured AgentEngine ready for execution.
     """
     config = get_chat_config()
+
+    # Classify query if provided (and system_prompt not explicitly set)
+    tool_choice = None
+    calculation_only = False
+    if query and not system_prompt:
+        classifier = QueryClassifier()
+        classification = classifier.classify(query)
+
+        system_prompt = get_system_prompt_for_query_type(classification.query_type)
+        tool_choice = classification.recommended_tool_choice
+
+        # For high-confidence calculation queries, only provide python_execute
+        # This forces the model to use code since it's the ONLY tool available
+        from orchestrator.agent.query_classifier import QueryType
+        if classification.query_type == QueryType.CALCULATION and tool_choice:
+            calculation_only = True
+
+        logger.info(
+            "Query classified for agent",
+            extra={
+                "query_type": classification.query_type.value,
+                "confidence": classification.confidence,
+                "tool_choice": tool_choice,
+                "calculation_only": calculation_only,
+                "matched_patterns": classification.matched_patterns[:5],  # Limit for logging
+            },
+        )
 
     # Create provider (with chain if configured)
     provider = create_provider(
@@ -54,8 +88,8 @@ async def create_agent_engine(
         chain_config=config.provider_chain,
     )
 
-    # Create tool registry with configured tools
-    registry = create_tool_registry(config)
+    # Create tool registry - for calculation queries, only python_execute
+    registry = create_tool_registry(config, calculation_only=calculation_only)
 
     # Create repositories
     db = await get_db()
@@ -73,6 +107,7 @@ async def create_agent_engine(
         max_tokens=max_tokens or config.model.max_tokens,
         temperature=temperature or config.model.temperature,
         system_prompt=system_prompt,
+        tool_choice=tool_choice,
     )
 
     logger.info(
@@ -81,6 +116,7 @@ async def create_agent_engine(
             "model": engine._model_name,
             "max_steps": engine._max_steps,
             "tools": registry.tool_names,
+            "tool_choice": tool_choice,
         },
     )
 

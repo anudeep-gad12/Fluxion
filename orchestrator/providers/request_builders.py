@@ -65,6 +65,7 @@ def build_responses_request(
     model: str,
     instructions: Optional[str] = None,
     tools: Optional[List[Dict[str, Any]]] = None,
+    tool_choice: Optional[str] = None,
     reasoning_effort: Optional[str] = None,
     max_output_tokens: Optional[int] = None,
     stream: bool = True,
@@ -77,6 +78,10 @@ def build_responses_request(
         model: Model name/ID.
         instructions: System prompt (separate from messages in responses API).
         tools: Tool definitions for function calling.
+        tool_choice: Tool selection behavior. Options:
+            - None or "auto": Model decides (default)
+            - "required": Model MUST call a tool
+            - "tool_name": Force specific tool (e.g., "python_execute")
         reasoning_effort: Native reasoning effort ("low", "medium", "high").
         max_output_tokens: Maximum tokens (responses API uses this, not max_tokens).
         stream: Whether to stream the response.
@@ -115,6 +120,10 @@ def build_responses_request(
             })
         payload["tools"] = transformed_tools
 
+        # Note: LM Studio's responses API does NOT support tool_choice parameter
+        # Tool guidance is handled via system prompt (CALCULATION_SYSTEM_PROMPT)
+        # Ignoring tool_choice here to avoid 400 Bad Request
+
     if reasoning_effort:
         payload["reasoning"] = {"effort": reasoning_effort}
 
@@ -129,6 +138,7 @@ def build_chat_completions_request(
     messages: List[Dict[str, Any]],
     model: str,
     tools: Optional[List[Dict[str, Any]]] = None,
+    tool_choice: Optional[str] = None,
     max_tokens: Optional[int] = None,
     temperature: Optional[float] = None,
     stream: bool = True,
@@ -140,6 +150,10 @@ def build_chat_completions_request(
         messages: List of message dicts with 'role' and 'content'.
         model: Model name/ID.
         tools: Tool definitions for function calling.
+        tool_choice: Tool selection behavior. Options:
+            - None or "auto": Model decides (default)
+            - "required": Model MUST call a tool
+            - "tool_name": Force specific tool (e.g., "python_execute")
         max_tokens: Maximum tokens to generate.
         temperature: Sampling temperature.
         stream: Whether to stream the response.
@@ -159,7 +173,18 @@ def build_chat_completions_request(
 
     if tools:
         payload["tools"] = tools
-        payload["tool_choice"] = "auto"
+        # Handle tool_choice
+        # Note: LM Studio doesn't support {"type": "function", "function": {"name": ...}} format
+        # So we convert specific tool names to "required" which forces the model to call a tool
+        if tool_choice:
+            if tool_choice in ("auto", "none", "required"):
+                payload["tool_choice"] = tool_choice
+            else:
+                # It's a tool name - but LM Studio doesn't support forcing specific tools
+                # Use "required" instead which forces ANY tool call
+                payload["tool_choice"] = "required"
+        else:
+            payload["tool_choice"] = "auto"
 
     if max_tokens:
         payload["max_tokens"] = max_tokens

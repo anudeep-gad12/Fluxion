@@ -81,13 +81,20 @@ class PythonSandboxTool:
         """OpenAI function schema."""
         return ToolSchema(
             name="python_execute",
-            description="Execute Python code in an isolated sandbox. Use for calculations, data processing, or any computation.",
+            description=(
+                "Execute Python code in an isolated sandbox. MUST be used for:\n"
+                "- Physics calculations (kinetic energy, momentum, force, relativistic energy)\n"
+                "- Mathematical computations (formulas, integrals, derivatives, equations)\n"
+                "- Unit conversions (energy units like eV/GeV/joules, mass, velocity)\n"
+                "- Any precision-sensitive or numerical calculations\n"
+                "Returns stdout, stderr, and execution status."
+            ),
             parameters={
                 "type": "object",
                 "properties": {
                     "code": {
                         "type": "string",
-                        "description": "Python code to execute",
+                        "description": "Python code to execute. Use print() to show results.",
                     },
                 },
                 "required": ["code"],
