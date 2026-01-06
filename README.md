@@ -11,6 +11,19 @@ A local AI chat application with a FastAPI backend, React + Vite UI, and pluggab
 - Streams answer and thinking tokens over SSE
 - Persists conversations, runs, and trace events in SQLite
 - Provides a UI for chats, streaming, thinking display, and trace inspection
+- **Research Mode**: Agent with web search, content extraction, and Python execution
+
+## Documentation
+
+Comprehensive documentation is available in the `docs/` folder:
+
+| Document | Description |
+|----------|-------------|
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Complete system architecture with diagrams |
+| [docs/DATA_MODELS.md](docs/DATA_MODELS.md) | Database schema, Pydantic models, TypeScript types |
+| [docs/DATA_FLOW.md](docs/DATA_FLOW.md) | Request lifecycle, streaming, provider failover |
+| [docs/COMPONENTS.md](docs/COMPONENTS.md) | Every backend and frontend component |
+| [docs/API_REFERENCE.md](docs/API_REFERENCE.md) | Complete REST API and SSE documentation |
 
 ## Architecture Snapshot
 
@@ -113,7 +126,13 @@ reasoner/
 │       ├── hooks/             # Zustand store, SSE hook
 │       ├── api/               # REST + SSE client
 │       └── types/             # Shared TS types
-├── ARCHITECTURE.md            # Detailed architecture documentation
+├── docs/                      # Comprehensive documentation
+│   ├── ARCHITECTURE.md        # System architecture
+│   ├── DATA_MODELS.md         # Data models reference
+│   ├── DATA_FLOW.md           # Data flow diagrams
+│   ├── COMPONENTS.md          # Component documentation
+│   └── API_REFERENCE.md       # API documentation
+├── ARCHITECTURE.md            # Architecture overview (see docs/ for details)
 ├── Procfile                   # Dev process manager
 ├── justfile                   # Dev tasks
 └── var/                       # SQLite DB and runtime artifacts
