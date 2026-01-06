@@ -228,26 +228,28 @@ explore_trace() {
     sqlite3 "$DB_PATH" "SELECT final_answer FROM runs WHERE run_id = '$run_id';"
 }
 
-# Switch provider (local or deepinfra)
+# Switch provider (local vLLM or cloud DeepInfra)
 switch_provider() {
     local provider=$1
 
     case "$provider" in
-        local|lm|lmstudio)
-            # Set for LM Studio
+        local|vllm)
+            # Set for vLLM (local)
             cat > "$PROJECT_DIR/.env.provider" << 'EOF'
-# Provider: LM Studio (local)
-LLM_BASE_URL=http://127.0.0.1:1234
-LLM_ENDPOINT=responses
+# Provider: vLLM (local)
+LLM_BASE_URL=http://localhost:8000/v1
+LLM_ENDPOINT=chat_completions
+LLM_MODEL=Qwen/Qwen2.5-14B-Instruct
 EOF
-            provider="local (LM Studio)"
+            provider="local (vLLM)"
             ;;
         deepinfra|cloud|di)
-            # Set for DeepInfra
+            # Set for DeepInfra (cloud)
             cat > "$PROJECT_DIR/.env.provider" << 'EOF'
 # Provider: DeepInfra (cloud)
 LLM_BASE_URL=https://api.deepinfra.com/v1/openai
 LLM_ENDPOINT=chat_completions
+LLM_MODEL=openai/gpt-oss-120b
 EOF
             provider="deepinfra (cloud)"
             ;;
@@ -262,7 +264,7 @@ EOF
             echo ""
             echo "Usage: ./dev.sh provider [local|deepinfra]"
             echo ""
-            echo "  local     - LM Studio @ localhost:1234"
+            echo "  local     - vLLM @ localhost:8000"
             echo "  deepinfra - DeepInfra cloud API"
             return
             ;;
