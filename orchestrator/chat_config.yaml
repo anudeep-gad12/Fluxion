@@ -177,22 +177,13 @@ parallel:
     max_urls_per_request: 5
 
 # =============================================================================
-# Sandbox Configuration (E2B)
+# Python Execution
 # =============================================================================
-# Used by python_execute tool for secure code execution.
-# Get API key from: https://e2b.dev
+# Used by python_execute tool for calculations.
+# Currently uses local subprocess (fast, reliable).
 
-sandbox:
-  provider: e2b
-
-  e2b:
-    api_key: ${E2B_API_KEY:-}
-    template: "code-interpreter"  # Must use code-interpreter, not "base" (port 49999 issue)
-    timeout_seconds: 30
-    cleanup_on_startup: true      # Clean zombie sessions on startup
-    stale_session_minutes: 10     # Age threshold for stale sessions
-    metadata:
-      app: "reasoner"
+python:
+  timeout_seconds: 30  # Execution timeout
 
 # =============================================================================
 # Query Classification (Tool Usage Policy)

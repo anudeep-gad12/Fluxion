@@ -481,6 +481,16 @@ To provide your final answer, respond WITHOUT calling any tools."""
 
                     final_answer = self._clean_answer(llm_response.text)
 
+                    # Emit answer as answer_token so UI displays it in answer panel
+                    # (streaming sent it to thinking, now send cleaned version to answer)
+                    if final_answer:
+                        self._emit(
+                            event_callback,
+                            "answer_token",
+                            run_id=run_id,
+                            content=final_answer,
+                        )
+
                     # Extract and store citations
                     citations = await self._extract_and_store_citations(
                         run_id=run_id,
@@ -768,13 +778,20 @@ To provide your final answer, respond WITHOUT calling any tools."""
             return cleaned
 
         def on_token(token: str) -> None:
-            """Handle content tokens - sanitize before emitting."""
-            cleaned = sanitize_token(token)
-            if cleaned and cleaned.strip():
-                self._emit(event_callback, "thinking", run_id=run_id, content=cleaned)
+            """Handle content tokens.
+
+            For gpt-oss models with native reasoning, content tokens are the
+            actual answer (not thinking). Don't emit to thinking - the answer
+            will be emitted as answer_token at synthesis.
+
+            This keeps thinking panel clean for actual reasoning content only.
+            """
+            # Don't emit content tokens to thinking - they're the answer
+            # The full answer will be emitted as answer_token at synthesis
+            pass
 
         def on_reasoning(reasoning: str) -> None:
-            """Handle native reasoning tokens - sanitize before emitting."""
+            """Handle native reasoning tokens - emit to thinking panel."""
             cleaned = sanitize_token(reasoning)
             if cleaned and cleaned.strip():
                 self._emit(event_callback, "thinking", run_id=run_id, content=cleaned)
