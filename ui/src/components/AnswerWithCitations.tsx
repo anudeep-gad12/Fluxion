@@ -3,10 +3,12 @@
  * Parses [N] patterns and replaces with CitationInline components.
  */
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { AnswerMarkdown } from '@/components/AnswerMarkdown';
 import { CitationInline } from '@/components/CitationInline';
 import type { AgentCitation } from '@/types/agent';
+
+const INITIAL_SOURCES_SHOWN = 3;
 
 interface AnswerWithCitationsProps {
   content: string;
@@ -26,22 +28,10 @@ export function AnswerWithCitations({
     return map;
   }, [citations]);
 
-  // For streaming or when no citations, just render markdown
-  if (isStreaming || citations.length === 0) {
-    return (
-      <div>
-        <AnswerMarkdown content={content} />
-        {isStreaming && (
-          <span className="inline-block w-2 h-4 bg-indigo-400 animate-pulse ml-0.5" />
-        )}
-      </div>
-    );
-  }
-
   // Parse content and replace [N] with citation components
-  // Split by citation pattern to get text parts and citation indices
+  // MUST be before any early returns to follow Rules of Hooks
   const parts = useMemo(() => {
-    if (!content) return [];
+    if (!content || citations.length === 0) return [];
 
     const result: Array<{ type: 'text'; content: string } | { type: 'citation'; index: number }> = [];
     let lastIndex = 0;
@@ -71,7 +61,17 @@ export function AnswerWithCitations({
     }
 
     return result;
-  }, [content, citationMap]);
+  }, [content, citationMap, citations.length]);
+
+  // For streaming, show markdown with cursor
+  if (isStreaming) {
+    return (
+      <div>
+        <AnswerMarkdown content={content} />
+        <span className="inline-block w-2 h-4 bg-indigo-400 animate-pulse ml-0.5" />
+      </div>
+    );
+  }
 
   // If no citation references found in content, render plain markdown
   const hasCitationRefs = parts.some((p) => p.type === 'citation');
@@ -79,7 +79,6 @@ export function AnswerWithCitations({
     return (
       <div>
         <AnswerMarkdown content={content} />
-        {/* Citation list at bottom */}
         <CitationsList citations={citations} />
       </div>
     );
@@ -111,13 +110,19 @@ export function AnswerWithCitations({
 
 /** Source list at the bottom of the answer */
 function CitationsList({ citations }: { citations: AgentCitation[] }) {
+  const [expanded, setExpanded] = useState(false);
+
   if (citations.length === 0) return null;
+
+  const hasMore = citations.length > INITIAL_SOURCES_SHOWN;
+  const visibleCitations = expanded ? citations : citations.slice(0, INITIAL_SOURCES_SHOWN);
+  const hiddenCount = citations.length - INITIAL_SOURCES_SHOWN;
 
   return (
     <div className="mt-4 pt-4 border-t border-slate-200">
       <div className="text-xs font-medium text-slate-500 mb-2">Sources</div>
       <div className="space-y-1">
-        {citations.map((citation, i) => {
+        {visibleCitations.map((citation, i) => {
           let hostname = '';
           try {
             hostname = new URL(citation.source_url).hostname;
@@ -146,6 +151,14 @@ function CitationsList({ citations }: { citations: AgentCitation[] }) {
           );
         })}
       </div>
+      {hasMore && (
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="mt-2 text-xs text-indigo-600 hover:text-indigo-800 font-medium"
+        >
+          {expanded ? 'Show less' : `+${hiddenCount} more sources`}
+        </button>
+      )}
     </div>
   );
 }

@@ -109,10 +109,11 @@ class HarmonyParser:
 
                 # Extract content (the code or arguments)
                 content_text = ""
-                for content in msg.content:
-                    # TextContent has a .text attribute
-                    if hasattr(content, "text"):
-                        content_text += content.text
+                if msg.content:  # Guard against None content
+                    for content in msg.content:
+                        # TextContent has a .text attribute
+                        if hasattr(content, "text"):
+                            content_text += content.text
 
                 if not content_text.strip():
                     continue
