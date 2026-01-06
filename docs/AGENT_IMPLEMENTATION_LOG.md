@@ -919,3 +919,143 @@ Reused existing `AnswerMarkdown` component (which handles ReactMarkdown + KaTeX 
 | File | Changes |
 |------|---------|
 | `ui/src/components/AgentStepsPanel.tsx` | Render thinking text with `AnswerMarkdown` component |
+
+---
+
+## Feature: Query Classification for Tool Usage (2026-01-05)
+
+### Summary
+
+Added keyword-based query classification to improve tool usage for physics/math calculations. The agent was skipping `python_execute` for calculations and answering directly (often incorrectly). This feature detects calculation-heavy queries and enforces tool usage via the `tool_choice` parameter.
+
+### Branch: `feature/query-classification`
+
+### Problem
+
+- gpt-oss model skipped `python_execute` for physics/math calculations
+- Example: Relativistic energy calculation (RHIC collider) answered in 1 step without using code
+- System prompt was web-research focused ("ALWAYS use web_search first")
+- Tool description too generic ("Use for calculations")
+- No mechanism to enforce tool usage for calculation queries
+
+### Solution
+
+1. **Query Classifier Module** - Keyword-based detection of physics/math queries
+2. **Calculation-Aware System Prompt** - Stronger guidance for python_execute
+3. **Tool Choice Enforcement** - Use `tool_choice` parameter on first step
+4. **Improved Tool Description** - Made python_execute more compelling
+
+### Files Created
+
+| File | Purpose |
+|------|---------|
+| `orchestrator/agent/query_classifier.py` | QueryClassifier with keyword/unit detection and confidence scoring |
+| `tests/agent/test_query_classifier.py` | 15 unit tests covering all classification scenarios |
+
+### Files Modified
+
+| File | Changes |
+|------|---------|
+| `orchestrator/agent/agent_engine.py` | Added `CALCULATION_SYSTEM_PROMPT`, `get_system_prompt_for_query_type()`, `tool_choice` parameter |
+| `orchestrator/agent/factory.py` | Integrate classifier, pass `query` param, get tool_choice recommendation |
+| `orchestrator/routes/agent_runs.py` | Pass query to `create_agent_engine()` |
+| `orchestrator/providers/request_builders.py` | Add `tool_choice` to both request builders |
+| `orchestrator/providers/base.py` | Add `tool_choice` to protocol |
+| `orchestrator/providers/openai_compat.py` | Pass `tool_choice` to builders |
+| `orchestrator/agent/tools/python_sandbox.py` | Improved tool description with physics examples |
+| `orchestrator/chat_config.yaml` | Added `query_classification` config section |
+
+### Key Components
+
+**QueryClassifier:**
+- Detects physics keywords: calculate, compute, energy, kinetic, momentum, velocity, force, etc.
+- Detects physics units: joule, eV, keV, MeV, GeV, TeV, kg, m/s, etc.
+- Allows simple arithmetic ("5+3", "what is 2*4") without tool enforcement
+- Confidence = number of matched patterns
+- Returns `tool_choice="python_execute"` when confidence ≥ threshold (default: 2)
+
+**Tool Choice:**
+- Only applied on first step (allows normal flow after)
+- Converts tool name to OpenAI format: `{"type": "function", "name": "tool_name"}`
+- Falls through to `auto` after first step
+
+**Calculation System Prompt:**
+```
+CRITICAL INSTRUCTIONS FOR CALCULATIONS:
+1. For ANY physics or mathematical calculation, you MUST use python_execute
+2. NEVER compute physics formulas mentally or in text - always use Python code
+3. Even "simple" physics (kinetic energy, velocity) MUST use python_execute
+4. Only answer directly for trivial arithmetic like "2+2" or "5*3"
+```
+
+### Configuration
+
+```yaml
+query_classification:
+  enabled: true
+  min_confidence_for_enforcement: 2
+```
+
+### Test Results
+
+- ✓ All 517 tests pass (15 new classifier tests + 502 existing)
+- ✓ Sanity test passes (32/32)
+
+### Example
+
+Query: "What is the kinetic energy of a gold ion traveling at 99.7% the speed of light?"
+
+Before:
+- Classified as general query
+- Model answers directly without code
+- Often incorrect for relativistic calculations
+
+After:
+- Classified as CALCULATION (confidence: 4, patterns: `keyword:energy`, `keyword:kinetic`, `keyword:velocity`, `unit:c`)
+- `tool_choice="python_execute"` forces first step to use code
+- Model uses Python with relativistic kinetic energy formula
+
+---
+
+## Bug Fix: tool_choice Not Supported on Responses API (2026-01-05)
+
+### Summary
+
+Fixed agent runs failing with `400 Bad Request` when `tool_choice` was set and using the `/v1/responses` endpoint. LM Studio's responses API doesn't support the `tool_choice` parameter.
+
+### Problem
+
+- Query classification correctly detected calculation queries
+- `tool_choice="python_execute"` was set
+- Request to `/v1/responses` with `tool_choice` returned 400 Bad Request
+- All calculation queries failed immediately
+
+### Root Cause
+
+LM Studio's `/v1/responses` endpoint doesn't support the `tool_choice` parameter. When we included `tool_choice` in the payload, it returned a 400 error.
+
+### Solution
+
+Force the `chat_completions` endpoint when `tool_choice` is set, since chat completions API does support `tool_choice`.
+
+### Files Modified
+
+| File | Changes |
+|------|---------|
+| `orchestrator/providers/openai_compat.py` | Force `chat_completions` endpoint when `tool_choice` is set |
+
+### Code Change
+
+```python
+endpoint_type = await self._resolve_endpoint()
+
+# Force chat_completions when tool_choice is set (responses API doesn't support it)
+if tool_choice and endpoint_type == "responses":
+    endpoint_type = "chat_completions"
+```
+
+### Test Results
+
+- ✓ All 517 tests pass
+- ✓ Sanity test passes (33/33)
+- ✓ Python sandbox test now succeeds for calculation queries
