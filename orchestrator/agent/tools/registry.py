@@ -140,14 +140,14 @@ def create_tool_registry(
 
     Args:
         config: Chat configuration with tool settings.
-        calculation_only: If True, only register python_execute tool.
+        calculation_only: If True, tool_choice=python_execute is used (tools still registered).
             Used for calculation queries where we want to force code execution
             without web search distraction.
 
     Returns:
         Configured ToolRegistry with tools.
     """
-    from .python_sandbox import PythonSandboxTool
+    from .python_local import LocalPythonTool
     from .web_extract import WebExtractTool
     from .web_search import WebSearchTool
 
@@ -155,25 +155,20 @@ def create_tool_registry(
 
     # Get tool configs from chat_config
     parallel_config = getattr(config, "parallel", None)
-    sandbox_config = getattr(config, "sandbox", None)
+    python_config = getattr(config, "python", None)
 
-    # Register sandbox FIRST (important for tool ordering)
-    # If calculation_only, this will be the ONLY tool - model MUST use it
-    if sandbox_config and sandbox_config.provider == "e2b" and sandbox_config.e2b.api_key:
-        registry.register(
-            PythonSandboxTool(
-                api_key=sandbox_config.e2b.api_key,
-                template=sandbox_config.e2b.template,
-                timeout_seconds=sandbox_config.e2b.timeout_seconds,
-                metadata=sandbox_config.e2b.metadata,
-                cleanup_on_init=sandbox_config.e2b.cleanup_on_startup,
-                stale_session_minutes=sandbox_config.e2b.stale_session_minutes,
-            )
-        )
-        logger.info("Registered python_execute tool")
+    # Register Python execution tool (local subprocess)
+    timeout = 30
+    if python_config:
+        timeout = getattr(python_config, "timeout_seconds", 30)
+    registry.register(LocalPythonTool(timeout_seconds=timeout))
+    logger.info("Registered python_execute tool (local)")
 
-    # Register web tools if Parallel.ai is configured AND not calculation_only
-    if not calculation_only and parallel_config and parallel_config.api_key:
+    # Register web tools if Parallel.ai is configured
+    # Note: Even for calculation_only queries, we register web tools because
+    # the model might need web_search for reference data/constants.
+    # tool_choice=python_execute ensures calculations use python_execute first.
+    if parallel_config and parallel_config.api_key:
         registry.register(
             WebSearchTool(
                 base_url=parallel_config.base_url,

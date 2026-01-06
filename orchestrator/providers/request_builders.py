@@ -120,9 +120,20 @@ def build_responses_request(
             })
         payload["tools"] = transformed_tools
 
-        # Note: LM Studio's responses API does NOT support tool_choice parameter
-        # Tool guidance is handled via system prompt (CALCULATION_SYSTEM_PROMPT)
-        # Ignoring tool_choice here to avoid 400 Bad Request
+        # Add tool_choice to force tool usage when specified
+        # OpenAI responses API format:
+        # - "auto": Model decides (default)
+        # - "required": Model MUST call at least one tool
+        # - {"type": "function", "name": "..."}: Force specific tool
+        if tool_choice:
+            if tool_choice in ("auto", "none", "required"):
+                payload["tool_choice"] = tool_choice
+            else:
+                # Specific tool name - use OpenAI format
+                payload["tool_choice"] = {
+                    "type": "function",
+                    "name": tool_choice,
+                }
 
     if reasoning_effort:
         payload["reasoning"] = {"effort": reasoning_effort}
