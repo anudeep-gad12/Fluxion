@@ -121,8 +121,8 @@ model:
 
 context:
   max_messages: 50            # Maximum conversation turns to keep
-  max_tokens: 6000            # Token budget for conversation history
-  reserve_for_response: 2048  # Tokens reserved for model response
+  max_tokens: 32000           # Token budget for conversation history (model has 128k)
+  reserve_for_response: 4096  # Tokens reserved for model response
   truncation_strategy: "sliding_window"  # sliding_window | oldest_first
 
 # =============================================================================
