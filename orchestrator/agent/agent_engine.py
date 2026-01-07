@@ -211,6 +211,9 @@ CITATION FORMAT (if referencing sources):
 
 To provide your final answer, respond WITHOUT calling any tools."""
 
+    # Maximum characters for tool result content (prevents context blowout)
+    MAX_TOOL_RESULT_CHARS: int = 50000
+
     def __init__(
         self,
         provider: "LLMProvider",
@@ -1163,20 +1166,35 @@ To provide your final answer, respond WITHOUT calling any tools."""
             result: ToolResult from execution.
 
         Returns:
-            JSON string for tool message content.
+            JSON string for tool message content, truncated if too large.
         """
         if result.success:
             # Use full result_data if available, otherwise summary
             if result.result_data:
-                return json.dumps(result.result_data, ensure_ascii=False)
-            return result.result_summary
+                content = json.dumps(result.result_data, ensure_ascii=False)
+            else:
+                content = result.result_summary
         else:
-            return json.dumps(
+            content = json.dumps(
                 {
                     "error": result.error_message or "Unknown error",
                     "summary": result.result_summary,
                 }
             )
+
+        # Truncate if too large to prevent context blowout
+        if len(content) > self.MAX_TOOL_RESULT_CHARS:
+            truncated = content[: self.MAX_TOOL_RESULT_CHARS - 100]
+            content = truncated + f"\n\n[... truncated {len(content) - len(truncated)} chars ...]"
+            logger.warning(
+                "Truncated large tool result",
+                extra={
+                    "original_chars": len(content),
+                    "truncated_to": self.MAX_TOOL_RESULT_CHARS,
+                },
+            )
+
+        return content
 
     def _extract_thinking(self, text: str) -> Optional[str]:
         """Extract thinking from Harmony format <think>...</think>.
