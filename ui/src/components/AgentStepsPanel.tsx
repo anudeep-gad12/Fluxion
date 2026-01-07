@@ -80,12 +80,23 @@ export function AgentStepsPanel({
   const { steps, toolCalls, thinkingBuffer, currentStep, isActive } =
     agentState;
 
-  // Group tool calls by step
+  // Build step_id to step_number mapping (handles both UUID and step-N formats)
+  const stepIdToNumber: Record<string, number> = {};
+  steps.forEach((s) => {
+    // Map actual step ID (UUID or step-N) to step_number
+    stepIdToNumber[s.id] = s.step_number;
+    // Also map step-N format for streaming compatibility
+    stepIdToNumber[`step-${s.step_number}`] = s.step_number;
+  });
+
+  // Group tool calls by step using the mapping
   const toolCallsByStep = toolCalls.reduce(
     (acc, tc) => {
-      const stepNum = parseInt(tc.step_id.replace('step-', ''), 10);
-      if (!acc[stepNum]) acc[stepNum] = [];
-      acc[stepNum].push(tc);
+      const stepNum = stepIdToNumber[tc.step_id];
+      if (stepNum !== undefined) {
+        if (!acc[stepNum]) acc[stepNum] = [];
+        acc[stepNum].push(tc);
+      }
       return acc;
     },
     {} as Record<number, AgentToolCall[]>
@@ -127,8 +138,9 @@ export function AgentStepsPanel({
           {steps.map((step, i) => {
             const stepToolCalls = toolCallsByStep[step.step_number] || [];
             const isCurrentStep = step.step_number === currentStep;
+            // Auto-expand: current step during streaming, OR all steps for historical (completed) runs
             const isStepExpanded =
-              expandedSteps.has(step.step_number) || isCurrentStep;
+              expandedSteps.has(step.step_number) || isCurrentStep || !isActive;
 
             return (
               <div
