@@ -1141,3 +1141,51 @@ if (currentState && currentState.currentStep > 0 && currentState.thinkingBuffer)
 - ✓ Build succeeds: `pnpm build`
 - ✓ All 245 agent tests pass
 - ✓ 515 tests pass total (2 pre-existing failures in response parser tests)
+
+---
+
+## Bug Fix: Historical Agent Steps Not Expanding (2026-01-07)
+
+### Summary
+
+Fixed agent steps not expanding to show thinking text and tool calls when viewing historical (completed) runs after page refresh.
+
+### Problem
+
+1. **Steps collapsed by default** - Only the last step auto-expanded for historical runs
+2. **Tool calls not matching steps** - DB uses UUIDs for `step_id`, but frontend expected `step-{number}` format
+
+### Root Cause
+
+```javascript
+// OLD: Only expands current step
+const isStepExpanded = expandedSteps.has(step.step_number) || isCurrentStep;
+
+// OLD: step_id matching broken for UUIDs
+const stepNum = parseInt(tc.step_id.replace('step-', ''), 10); // Returns NaN for UUIDs
+```
+
+### Solution
+
+**AgentStepsPanel.tsx:**
+```tsx
+// Build step_id to step_number mapping (handles both UUID and step-N formats)
+const stepIdToNumber: Record<string, number> = {};
+steps.forEach((s) => {
+  stepIdToNumber[s.id] = s.step_number;              // UUID mapping
+  stepIdToNumber[`step-${s.step_number}`] = s.step_number; // step-N mapping
+});
+
+// Auto-expand all steps for historical (completed) runs
+const isStepExpanded = expandedSteps.has(step.step_number) || isCurrentStep || !isActive;
+```
+
+### Files Modified
+
+| File | Changes |
+|------|---------|
+| `ui/src/components/AgentStepsPanel.tsx` | Fixed step_id mapping and auto-expand for historical runs |
+
+### Test Results
+
+- ✓ Build succeeds: `pnpm build`
