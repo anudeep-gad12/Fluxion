@@ -82,13 +82,45 @@ function formatToolName(name: string): string {
   return name.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-function formatArguments(args: Record<string, unknown>): string {
-  // Pretty format for display
+function formatArguments(
+  toolName: string,
+  args: Record<string, unknown>
+): string {
+  // Pretty format for display (non-python tools)
   if (args.query) return `"${args.query}"`;
   if (args.url) return args.url as string;
   if (args.urls) return `${(args.urls as string[]).length} URLs`;
-  if (args.code) return `Python code (${(args.code as string).length} chars)`;
+  // For python_execute, we render code separately
+  if (toolName === 'python_execute') return '';
   return JSON.stringify(args);
+}
+
+function PythonCodeBlock({ code, output }: { code: string; output?: string }) {
+  return (
+    <div className="space-y-2">
+      {/* Code Input */}
+      <div className="bg-slate-900 rounded-md overflow-hidden">
+        <div className="px-3 py-1.5 bg-slate-800 text-slate-400 text-xs font-medium border-b border-slate-700">
+          Python Code
+        </div>
+        <pre className="p-3 text-xs text-slate-100 overflow-x-auto font-mono leading-relaxed">
+          <code>{code}</code>
+        </pre>
+      </div>
+
+      {/* Output */}
+      {output && (
+        <div className="bg-slate-800 rounded-md overflow-hidden">
+          <div className="px-3 py-1.5 bg-slate-700 text-slate-300 text-xs font-medium border-b border-slate-600">
+            Output
+          </div>
+          <pre className="p-3 text-xs text-emerald-300 overflow-x-auto font-mono leading-relaxed whitespace-pre-wrap">
+            <code>{output}</code>
+          </pre>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function ToolCallCard({ toolCall }: ToolCallCardProps) {
@@ -99,9 +131,14 @@ export function ToolCallCard({ toolCall }: ToolCallCardProps) {
   const StatusIcon = statusConfig.icon;
 
   const isRunning = toolCall.status === 'running';
+  const isPython = toolCall.tool_name === 'python_execute';
   const hasResult =
     toolCall.result_summary && toolCall.result_summary.length > 0;
-  const showExpandButton = hasResult && toolCall.result_summary!.length > 150;
+  const showExpandButton =
+    hasResult && !isPython && toolCall.result_summary!.length > 150;
+
+  // For python, extract output from result_summary if available
+  const pythonOutput = isPython && hasResult ? toolCall.result_summary : undefined;
 
   return (
     <Card
@@ -138,13 +175,23 @@ export function ToolCallCard({ toolCall }: ToolCallCardProps) {
           </div>
         </div>
 
-        {/* Arguments */}
-        <div className="text-xs text-slate-600 mb-2 font-mono bg-white/50 rounded px-2 py-1">
-          {formatArguments(toolCall.arguments)}
-        </div>
+        {/* Python Code Block */}
+        {isPython && typeof toolCall.arguments.code === 'string' && (
+          <PythonCodeBlock
+            code={toolCall.arguments.code}
+            output={pythonOutput}
+          />
+        )}
 
-        {/* Result */}
-        {hasResult && (
+        {/* Arguments (non-python tools) */}
+        {!isPython && (
+          <div className="text-xs text-slate-600 mb-2 font-mono bg-white/50 rounded px-2 py-1">
+            {formatArguments(toolCall.tool_name, toolCall.arguments)}
+          </div>
+        )}
+
+        {/* Result (non-python tools) */}
+        {hasResult && !isPython && (
           <div className="mt-2">
             <div
               className={cn(
