@@ -152,18 +152,16 @@ export function AgentStepsPanel({
 
                 {isStepExpanded && (
                   <div className="ml-6 space-y-2 pb-2">
-                    {/* Thinking content for current step */}
-                    {isCurrentStep && thinkingBuffer && (
+                    {/* Live thinking for active current step (with animated cursor) */}
+                    {isCurrentStep && isActive && thinkingBuffer && (
                       <div className="text-xs text-slate-600 bg-white/50 rounded p-2 thinking-markdown">
                         <AnswerMarkdown content={thinkingBuffer} />
-                        {isActive && (
-                          <span className="inline-block w-1.5 h-3 bg-indigo-400 animate-pulse ml-0.5" />
-                        )}
+                        <span className="inline-block w-1.5 h-3 bg-indigo-400 animate-pulse ml-0.5" />
                       </div>
                     )}
 
-                    {/* Historical thinking */}
-                    {!isCurrentStep && step.thinking_text && (
+                    {/* Historical thinking for completed steps (including current step when not active) */}
+                    {!(isCurrentStep && isActive) && step.thinking_text && (
                       <div className="text-xs text-slate-600 bg-white/50 rounded p-2 thinking-markdown">
                         <AnswerMarkdown content={step.thinking_text} />
                       </div>
