@@ -1059,3 +1059,85 @@ if tool_choice and endpoint_type == "responses":
 - ✓ All 517 tests pass
 - ✓ Sanity test passes (33/33)
 - ✓ Python sandbox test now succeeds for calculation queries
+
+---
+
+## Bug Fix: Agent Thinking Not Shown After Step Completion (2026-01-07)
+
+### Summary
+
+Fixed agent thinking/reasoning not displaying for completed steps during streaming. The thinking was saved to the database but wasn't shown in the UI until page refresh.
+
+### Branch: `fix/agent-thinking-persistence`
+
+### Problem
+
+- During streaming, thinking content accumulates in `thinkingBuffer` (a single buffer for the current step)
+- When a new step starts, `thinkingBuffer` is cleared for the new step
+- The previous step's `thinking_text` property was never populated in the streaming state
+- UI only showed `step.thinking_text` for non-current steps, which was empty during streaming
+- After page refresh, historical data loaded correctly from API
+
+### Root Cause
+
+The SSE stream doesn't include a `step_complete` event with `thinking_text`. The backend saves it to the database, but the frontend only receives `thinking` tokens that go into `thinkingBuffer`. When a new step starts, the buffer is cleared without saving to the step object.
+
+### Solution
+
+Frontend-only fix: Save `thinkingBuffer` to the step's `thinking_text` on step transitions.
+
+### Files Modified
+
+| File | Changes |
+|------|---------|
+| `ui/src/hooks/useStore.ts` | Added `updateAgentStep` action to update step properties |
+| `ui/src/hooks/useAgentSSE.ts` | Save thinking to previous step on `step_start`, save final step on `handleComplete` |
+| `ui/src/components/AgentStepsPanel.tsx` | Fixed display logic: live thinking for active step, historical for all completed |
+
+### Key Changes
+
+**useStore.ts:**
+```typescript
+updateAgentStep: (runId, stepNumber, updates) =>
+  set((state) => {
+    const current = state.agentRunState[runId];
+    if (!current) return state;
+    return {
+      agentRunState: {
+        ...state.agentRunState,
+        [runId]: {
+          ...current,
+          steps: current.steps.map((s) =>
+            s.step_number === stepNumber ? { ...s, ...updates } : s
+          ),
+        },
+      },
+    };
+  }),
+```
+
+**useAgentSSE.ts (step_start handler):**
+```typescript
+// Save current thinking to previous step before starting new step
+if (currentState && currentState.currentStep > 0 && currentState.thinkingBuffer) {
+  updateAgentStep(id, currentState.currentStep, {
+    thinking_text: currentState.thinkingBuffer,
+    state: 'complete',
+  });
+}
+```
+
+**AgentStepsPanel.tsx:**
+```tsx
+{/* Live thinking for active current step */}
+{isCurrentStep && isActive && thinkingBuffer && (...)}
+
+{/* Historical thinking for completed steps (including current when not active) */}
+{!(isCurrentStep && isActive) && step.thinking_text && (...)}
+```
+
+### Test Results
+
+- ✓ Build succeeds: `pnpm build`
+- ✓ All 245 agent tests pass
+- ✓ 515 tests pass total (2 pre-existing failures in response parser tests)

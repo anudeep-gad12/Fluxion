@@ -27,6 +27,7 @@ export function useAgentSSE(runId: string | null, maxSteps: number = 10) {
   const appendAgentThinking = useStore((s) => s.appendAgentThinking);
   const appendAgentAnswer = useStore((s) => s.appendAgentAnswer);
   const addAgentStep = useStore((s) => s.addAgentStep);
+  const updateAgentStep = useStore((s) => s.updateAgentStep);
   const addAgentToolCall = useStore((s) => s.addAgentToolCall);
   const updateAgentToolCall = useStore((s) => s.updateAgentToolCall);
   const setAgentCitations = useStore((s) => s.setAgentCitations);
@@ -64,6 +65,16 @@ export function useAgentSSE(runId: string | null, maxSteps: number = 10) {
 
           case 'step_start': {
             const stepEvent = event as StepStartEvent;
+            const currentState = useStore.getState().agentRunState[id];
+
+            // Save current thinking to previous step before starting new step
+            if (currentState && currentState.currentStep > 0 && currentState.thinkingBuffer) {
+              updateAgentStep(id, currentState.currentStep, {
+                thinking_text: currentState.thinkingBuffer,
+                state: 'complete',
+              });
+            }
+
             addAgentStep(id, {
               id: `step-${stepEvent.step_number}`,
               run_id: id,
@@ -129,6 +140,15 @@ export function useAgentSSE(runId: string | null, maxSteps: number = 10) {
         total_steps: number;
         timing_ms: number;
       }) => {
+        // Save final step's thinking before marking complete
+        const currentState = useStore.getState().agentRunState[id];
+        if (currentState && currentState.currentStep > 0 && currentState.thinkingBuffer) {
+          updateAgentStep(id, currentState.currentStep, {
+            thinking_text: currentState.thinkingBuffer,
+            state: 'complete',
+          });
+        }
+
         updateAgentState(id, {
           isActive: false,
           agentState: result.success ? 'complete' : 'error',
@@ -182,6 +202,7 @@ export function useAgentSSE(runId: string | null, maxSteps: number = 10) {
       appendAgentThinking,
       appendAgentAnswer,
       addAgentStep,
+      updateAgentStep,
       addAgentToolCall,
       updateAgentToolCall,
       setAgentCitations,

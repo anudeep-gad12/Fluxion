@@ -81,6 +81,7 @@ interface AppState {
   addAgentStep: (runId: string, step: AgentStep) => void;
   addAgentToolCall: (runId: string, toolCall: AgentToolCall) => void;
   updateAgentToolCall: (runId: string, toolCallId: string, updates: Partial<AgentToolCall>) => void;
+  updateAgentStep: (runId: string, stepNumber: number, updates: Partial<AgentStep>) => void;
   setAgentCitations: (runId: string, citations: AgentCitation[]) => void;
   clearAgentRun: (runId: string) => void;
 }
@@ -372,6 +373,23 @@ export const useStore = create<AppState>((set, get) => ({
             ...current,
             toolCalls: current.toolCalls.map((tc) =>
               tc.id === toolCallId ? { ...tc, ...updates } : tc
+            ),
+          },
+        },
+      };
+    }),
+
+  updateAgentStep: (runId, stepNumber, updates) =>
+    set((state) => {
+      const current = state.agentRunState[runId];
+      if (!current) return state;
+      return {
+        agentRunState: {
+          ...state.agentRunState,
+          [runId]: {
+            ...current,
+            steps: current.steps.map((s) =>
+              s.step_number === stepNumber ? { ...s, ...updates } : s
             ),
           },
         },
