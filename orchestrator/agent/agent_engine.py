@@ -384,8 +384,11 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         timing_ms=int((time.perf_counter() - start_time) * 1000),
                     )
 
-                # Extract thinking if present (Harmony format)
+                # Extract thinking: Harmony format <think> tags OR native reasoning
                 thinking_text = self._extract_thinking(llm_response.text)
+                if not thinking_text and llm_response.reasoning:
+                    # Use native reasoning content if no <think> tags found
+                    thinking_text = llm_response.reasoning
 
                 # Check for tool calls - try API response first, then text fallback
                 tool_calls = llm_response.tool_calls
