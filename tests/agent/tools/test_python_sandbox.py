@@ -137,7 +137,7 @@ class TestPythonSandboxToolExecution:
                 result = await tool.execute(code='print("Hello, World!")')
 
         assert result.success is True
-        assert "successful" in result.result_summary.lower()
+        assert "Hello, World!" in result.result_summary  # Output shown in summary
         assert "Hello, World!" in result.result_data["stdout"]
         assert result.duration_ms is not None
 

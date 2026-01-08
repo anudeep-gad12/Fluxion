@@ -248,11 +248,11 @@ class PythonSandboxTool:
                                 if hasattr(result, "text") and result.text:
                                     stdout += result.text + "\n"
 
-                        # 1-line summary
+                        # Include actual output in summary for UI display
                         if has_error or stderr:
-                            result_summary = f"Execution completed with errors ({len(stderr)} chars stderr)"
+                            result_summary = f"Error:\n{stderr}" if stderr else "Execution failed"
                         else:
-                            result_summary = f"Execution successful ({len(stdout)} chars output)"
+                            result_summary = stdout.strip() if stdout.strip() else "(no output)"
 
                         # Clean up sandbox after successful execution
                         try:

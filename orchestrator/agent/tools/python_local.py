@@ -107,9 +107,10 @@ class LocalPythonTool:
             has_error = process.returncode != 0
 
             if has_error:
-                result_summary = f"Execution failed (exit code {process.returncode})"
+                result_summary = f"Execution failed (exit code {process.returncode})\n{stderr}"
             else:
-                result_summary = f"Execution successful ({len(stdout)} chars output)"
+                # Include actual output in summary for UI display
+                result_summary = stdout.strip() if stdout.strip() else "(no output)"
 
             return ToolResult(
                 success=not has_error,
