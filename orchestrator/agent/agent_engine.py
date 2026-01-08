@@ -12,6 +12,7 @@ import json
 import re
 import time
 from dataclasses import dataclass, field
+from datetime import date
 from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 
 from orchestrator.logging_config import get_logger
@@ -152,20 +153,32 @@ class AgentEngine:
         )
     """
 
-    # Default system prompt for agent
-    DEFAULT_SYSTEM_PROMPT = """You are a research assistant that MUST use tools to search the web and analyze information.
+    # Default system prompt for agent (date context added dynamically in _build_messages)
+    DEFAULT_SYSTEM_PROMPT = """You are a research assistant that uses tools to search the web and analyze information.
+
+{date_context}
 
 Available tools:
-- web_search: Search the web for information (ALWAYS use this first for questions about current events, data, or facts)
+- web_search: Search the web for information
 - web_extract: Extract detailed content from URLs
-- python_execute: Run Python code for calculations
+- python_execute: Run Python code for calculations and data analysis
 
-IMPORTANT INSTRUCTIONS:
-1. You MUST call web_search for questions requiring current information, data, or facts
-2. Never assume you can't access information - always try searching first
-3. If search results are empty or unhelpful, try different search terms
-4. Only provide a final answer AFTER using tools to gather information
-5. Use inline citations [1], [2], etc. when referencing sources
+TOOL SELECTION:
+- For calculations/math/physics: Use python_execute (not web_search)
+- For current events, facts, or data after your knowledge cutoff: Use web_search
+- For questions within your knowledge cutoff that don't need fresh data: Answer directly
+- For detailed content from specific URLs: Use web_extract after web_search
+
+WEB SEARCH GUIDELINES:
+- Use web_search when you need information after June 2024 or real-time data
+- If search results are unhelpful, try different search terms
+- Include the current year in searches for recent information
+
+WEB EXTRACT GUIDELINES:
+- Extract 2-3 most relevant URLs from search results (not more unless necessary)
+- Prefer: academic sources, official data, authoritative sites
+- Avoid extracting if the search snippet already answers the question
+- Skip: Wikipedia overviews, forums, paywalled content
 
 CITATION FORMAT:
 - Use [1], [2], etc. INLINE within your answer text where you reference information
@@ -176,6 +189,8 @@ To provide your final answer, respond WITHOUT calling any tools."""
 
     # Calculation-focused system prompt for physics/math queries
     CALCULATION_SYSTEM_PROMPT = """You are a research assistant specializing in physics and mathematical calculations.
+
+{date_context}
 
 Available tools:
 - python_execute: Run Python code for calculations (USE THIS for any physics/math computation)
@@ -195,12 +210,10 @@ CALCULATION WORKFLOW:
 3. If you need reference data (constants, material properties), use web_search first
 4. Present the final answer with the computation result
 
-Example calculation pattern:
-```python
-# Always use python_execute for physics/math
-value = formula_calculation
-print(f"Result: {value} units")
-```
+WEB EXTRACT GUIDELINES (if needed):
+- Extract 2-3 most relevant URLs (not more unless necessary)
+- Prefer: academic sources, official data, authoritative sites
+- Skip: Wikipedia overviews, forums, paywalled content
 
 NEVER answer with mental math like "KE = 0.5 * 5 * 100 = 250 J" - always use python_execute.
 
@@ -760,8 +773,16 @@ To provide your final answer, respond WITHOUT calling any tools."""
         Returns:
             Message list with system, history, and user messages.
         """
+        # Inject date context into system prompt
+        today = date.today()
+        date_context = (
+            f"Current date: {today.strftime('%B %d, %Y')}\n"
+            f"Your knowledge cutoff: June 2024. For information after this date, use web_search."
+        )
+        system_prompt = self._system_prompt.format(date_context=date_context)
+
         messages: List[Dict[str, Any]] = [
-            {"role": "system", "content": self._system_prompt},
+            {"role": "system", "content": system_prompt},
         ]
 
         # Load conversation history if conversation_id provided
