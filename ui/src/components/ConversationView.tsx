@@ -160,22 +160,13 @@ export function ConversationView() {
   useEffect(() => {
     if (!selectedConversationId) return;
 
-    // Check if conversation still exists (use getState to avoid dependency loop)
-    const currentConversations = useStore.getState().conversations;
-    const exists = currentConversations.some(
-      (c) => c.conversation_id === selectedConversationId
-    );
-    if (!exists) {
-      // Conversation was deleted, don't try to load it
-      return;
-    }
-
     async function loadConversation() {
       try {
         const data = await getConversation(selectedConversationId!);
         updateConversation(selectedConversationId!, data.conversation);
         setRuns(selectedConversationId!, data.runs);
       } catch (error) {
+        // Conversation might not exist (deleted) - silently ignore
         console.error('Failed to load conversation:', error);
       }
     }
