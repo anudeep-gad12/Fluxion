@@ -111,6 +111,7 @@ class ProviderConfig(BaseModel):
 
     # Reliability - exponential backoff with jitter
     timeout: float = 120.0
+    slow_response_threshold: float = 15.0  # Seconds before showing "taking longer" message
     max_retries: int = 3
     base_delay: float = 1.0
     max_delay: float = 30.0

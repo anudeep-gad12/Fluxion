@@ -67,6 +67,7 @@ _EVENT_TYPE_MAP = {
     "answer_token": "answer",
     "agent_complete": "complete",
     "agent_error": "error",
+    "slow_response": "slow_response",
 }
 
 

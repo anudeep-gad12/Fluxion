@@ -115,6 +115,8 @@ async def create_agent_engine(
         temperature=temperature or config.model.temperature,
         system_prompt=system_prompt,
         tool_choice=tool_choice,
+        max_context_tokens=config.context.max_tokens,
+        slow_response_threshold=config.provider.slow_response_threshold,
     )
 
     logger.info(

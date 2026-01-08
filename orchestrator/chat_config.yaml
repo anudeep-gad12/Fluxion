@@ -39,6 +39,7 @@ provider:
 
   # Reliability - exponential backoff with jitter
   timeout: 120.0
+  slow_response_threshold: 15.0  # Seconds before showing "taking longer than usual" message
   max_retries: 3
   base_delay: 1.0       # Initial delay for exponential backoff
   max_delay: 30.0       # Cap for backoff
@@ -121,7 +122,7 @@ model:
 
 context:
   max_messages: 50            # Maximum conversation turns to keep
-  max_tokens: 32000           # Token budget for conversation history (model has 128k)
+  max_tokens: 100000           # Token budget for conversation history (model has 128k)
   reserve_for_response: 4096  # Tokens reserved for model response
   truncation_strategy: "sliding_window"  # sliding_window | oldest_first
 
