@@ -568,17 +568,19 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     )
                     await state_machine.complete_run(final_answer)
 
+                    # Trace: agent_complete
+                    total_timing_ms = int((time.perf_counter() - start_time) * 1000)
+
                     self._emit(
                         event_callback,
                         "agent_complete",
                         run_id=run_id,
+                        success=True,
                         final_answer=final_answer,
                         citations=citations,
                         total_steps=step_number,
+                        timing_ms=total_timing_ms,
                     )
-
-                    # Trace: agent_complete
-                    total_timing_ms = int((time.perf_counter() - start_time) * 1000)
                     await self._add_trace_event(
                         run_id=run_id,
                         event_type="agent_complete",
@@ -614,17 +616,19 @@ To provide your final answer, respond WITHOUT calling any tools."""
 
             await state_machine.complete_run(final_answer)
 
+            # Trace: agent_complete (max steps)
+            total_timing_ms = int((time.perf_counter() - start_time) * 1000)
+
             self._emit(
                 event_callback,
                 "agent_complete",
                 run_id=run_id,
+                success=True,
                 final_answer=final_answer,
                 citations=citations,
                 total_steps=state_machine.current_step,
+                timing_ms=total_timing_ms,
             )
-
-            # Trace: agent_complete (max steps)
-            total_timing_ms = int((time.perf_counter() - start_time) * 1000)
             await self._add_trace_event(
                 run_id=run_id,
                 event_type="agent_complete",

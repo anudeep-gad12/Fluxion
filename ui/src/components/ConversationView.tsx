@@ -1,6 +1,6 @@
 // Conversation view - simple chat interface
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback, memo } from 'react';
 import type { KeyboardEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AnswerMarkdown, extractAnswer } from '@/components/AnswerMarkdown';
@@ -26,7 +26,10 @@ import type { Run, Conversation, ReasoningEffort } from '@/types';
 /** Mode: 'chat' for regular conversation, 'research' for agent */
 type ChatMode = 'chat' | 'research';
 
-function RunMessage({
+// Empty string constant to avoid creating new references
+const EMPTY_STRING = '';
+
+const RunMessage = memo(function RunMessage({
   run,
   onShowTrace,
 }: {
@@ -35,18 +38,9 @@ function RunMessage({
 }) {
   const isRunning = run.status === 'running';
   const finalAnswer = run.final_answer ? extractAnswer(run.final_answer) : '';
-  const streamingText = useStore((s) => s.streamingText[run.run_id] || '');
-  const streamingThinking = useStore((s) => s.streamingThinking[run.run_id] || '');
-
-  // Debug logging for streaming state
-  if (isRunning) {
-    console.log('[RunMessage] Streaming state:', {
-      run_id: run.run_id,
-      streamingText_len: streamingText.length,
-      streamingThinking_len: streamingThinking.length,
-      streamingThinking_preview: streamingThinking.slice(0, 50),
-    });
-  }
+  // Use stable selectors - return constant empty string if not found
+  const streamingText = useStore((s) => s.streamingText[run.run_id] ?? EMPTY_STRING);
+  const streamingThinking = useStore((s) => s.streamingThinking[run.run_id] ?? EMPTY_STRING);
 
   // Use streaming text while running, final answer when complete
   const displayText = isRunning ? streamingText : finalAnswer;
@@ -119,7 +113,7 @@ function RunMessage({
       </div>
     </div>
   );
-}
+});
 
 export function ConversationView() {
   const navigate = useNavigate();
@@ -194,10 +188,10 @@ export function ConversationView() {
     scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [runs.length]);
 
-  const handleShowTrace = (runId: string) => {
+  const handleShowTrace = useCallback((runId: string) => {
     selectRun(runId);
     setDetailPanelOpen(true);
-  };
+  }, [selectRun, setDetailPanelOpen]);
 
   const handleSubmit = async () => {
     if (!message.trim() || isSubmitting) return;
