@@ -7,6 +7,7 @@ This module provides:
 - Crash recovery support
 """
 
+import asyncio
 import hashlib
 import json
 import re
@@ -240,6 +241,8 @@ To provide your final answer, respond WITHOUT calling any tools."""
         system_prompt: Optional[str] = None,
         keep_full_steps: int = 2,
         tool_choice: Optional[str] = None,
+        max_context_tokens: int = 100000,
+        slow_response_threshold: float = 15.0,
     ) -> None:
         """Initialize agent engine.
 
@@ -258,6 +261,9 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 - None: Use default "auto"
                 - "python_execute": Force python_execute on first step
                 - "required": Force model to use some tool
+            max_context_tokens: Maximum tokens for input context (default 100k).
+                Used to enforce context budget before LLM calls.
+            slow_response_threshold: Seconds before emitting slow_response warning.
         """
         self._provider = provider
         self._repo = repo
@@ -270,6 +276,8 @@ To provide your final answer, respond WITHOUT calling any tools."""
         self._system_prompt = system_prompt or self.DEFAULT_SYSTEM_PROMPT
         self._pruner = ContextPruner(keep_full_steps=keep_full_steps)
         self._tool_choice = tool_choice
+        self._max_context_tokens = max_context_tokens
+        self._slow_response_threshold = slow_response_threshold
 
     async def run(
         self,
@@ -361,6 +369,35 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     current_step=step_number,
                     step_metadata=step_metadata,
                 )
+
+                # Enforce context budget - force prune if still over limit
+                estimated_tokens = self._pruner.estimate_tokens(pruned_messages)
+                prune_iterations = 0
+                max_prune_iterations = 20  # Safety limit to prevent infinite loop
+
+                while estimated_tokens > self._max_context_tokens and prune_iterations < max_prune_iterations:
+                    prune_iterations += 1
+                    logger.warning(
+                        "Context exceeds budget, force pruning",
+                        extra={
+                            "estimated_tokens": estimated_tokens,
+                            "max_context_tokens": self._max_context_tokens,
+                            "iteration": prune_iterations,
+                            "step": step_number,
+                        },
+                    )
+                    pruned_messages = self._force_prune_largest(pruned_messages, step_metadata)
+                    estimated_tokens = self._pruner.estimate_tokens(pruned_messages)
+
+                if prune_iterations > 0:
+                    logger.info(
+                        "Context budget enforced",
+                        extra={
+                            "prune_iterations": prune_iterations,
+                            "final_estimated_tokens": estimated_tokens,
+                            "messages_count": len(pruned_messages),
+                        },
+                    )
 
                 # Call LLM with tools
                 tool_schemas = self._registry.get_openai_schemas()
@@ -833,6 +870,8 @@ To provide your final answer, respond WITHOUT calling any tools."""
             LLMResponse with text and tool_calls.
         """
         tool_schemas = self._registry.get_openai_schemas()
+        first_token_received = asyncio.Event()
+        llm_complete = asyncio.Event()
 
         def sanitize_token(token: str) -> str:
             """Strip protocol tokens from thinking content.
@@ -863,26 +902,74 @@ To provide your final answer, respond WITHOUT calling any tools."""
 
             This keeps thinking panel clean for actual reasoning content only.
             """
+            # Signal that we've received a token (response is flowing)
+            first_token_received.set()
             # Don't emit content tokens to thinking - they're the answer
             # The full answer will be emitted as answer_token at synthesis
             pass
 
         def on_reasoning(reasoning: str) -> None:
             """Handle native reasoning tokens - emit to thinking panel."""
+            # Signal that we've received a token (response is flowing)
+            first_token_received.set()
             cleaned = sanitize_token(reasoning)
             if cleaned and cleaned.strip():
                 self._emit(event_callback, "thinking", run_id=run_id, content=cleaned)
 
-        response = await self._provider.complete_streaming(
-            messages=messages,
-            model=self._model_name,
-            on_token=on_token,
-            on_reasoning=on_reasoning,
-            tools=tool_schemas if tool_schemas else None,
-            tool_choice=tool_choice,
-            max_tokens=self._max_tokens,
-            temperature=self._temperature,
-        )
+        async def slow_response_monitor() -> None:
+            """Monitor LLM call and emit slow_response events if taking too long."""
+            start_time = time.perf_counter()
+            threshold = self._slow_response_threshold
+            warning_emitted = False
+
+            while not llm_complete.is_set():
+                elapsed = time.perf_counter() - start_time
+                # Only emit warning if we haven't received any tokens yet
+                if elapsed >= threshold and not first_token_received.is_set() and not warning_emitted:
+                    self._emit(
+                        event_callback,
+                        "slow_response",
+                        run_id=run_id,
+                        message="Taking longer than usual...",
+                        elapsed_seconds=round(elapsed, 1),
+                    )
+                    warning_emitted = True
+                    logger.info(
+                        "Slow LLM response detected",
+                        extra={
+                            "run_id": run_id,
+                            "elapsed_seconds": round(elapsed, 1),
+                            "threshold": threshold,
+                        },
+                    )
+                # Check every second
+                try:
+                    await asyncio.wait_for(llm_complete.wait(), timeout=1.0)
+                except asyncio.TimeoutError:
+                    continue
+
+        # Start the slow response monitor
+        monitor_task = asyncio.create_task(slow_response_monitor())
+
+        try:
+            response = await self._provider.complete_streaming(
+                messages=messages,
+                model=self._model_name,
+                on_token=on_token,
+                on_reasoning=on_reasoning,
+                tools=tool_schemas if tool_schemas else None,
+                tool_choice=tool_choice,
+                max_tokens=self._max_tokens,
+                temperature=self._temperature,
+            )
+        finally:
+            # Signal completion and clean up monitor
+            llm_complete.set()
+            monitor_task.cancel()
+            try:
+                await monitor_task
+            except asyncio.CancelledError:
+                pass
 
         return response
 
@@ -1220,6 +1307,140 @@ To provide your final answer, respond WITHOUT calling any tools."""
             )
 
         return content
+
+    def _force_prune_largest(
+        self, messages: List[Dict[str, Any]], step_metadata: Dict[str, int]
+    ) -> List[Dict[str, Any]]:
+        """Force prune the largest tool result to reduce context size.
+
+        Finds the tool message with the largest content and summarizes it,
+        preserving key information while dramatically reducing token count.
+        Prioritizes older messages over recent ones to preserve recent context.
+
+        Args:
+            messages: List of message dicts.
+            step_metadata: Mapping of tool_call_id to step number.
+
+        Returns:
+            New list with the largest tool result summarized.
+        """
+        # Find tool messages sorted by size (largest first), preferring older steps
+        tool_messages = []
+        for i, msg in enumerate(messages):
+            if msg.get("role") == "tool" and not msg.get("_force_pruned"):
+                content = msg.get("content", "")
+                step = msg.get("_step") or step_metadata.get(msg.get("tool_call_id"), 999)
+                tool_messages.append((i, len(content), step, msg))
+
+        if not tool_messages:
+            # No tool messages to prune - truncate the largest message regardless of type
+            logger.warning("No tool messages to prune, truncating largest message")
+            largest_idx = -1
+            largest_size = 0
+            for i, msg in enumerate(messages):
+                content_len = len(str(msg.get("content", "")))
+                if content_len > largest_size and msg.get("role") != "system":
+                    largest_size = content_len
+                    largest_idx = i
+
+            if largest_idx >= 0 and largest_size > 1000:
+                new_messages = messages.copy()
+                msg = new_messages[largest_idx]
+                content = str(msg.get("content", ""))
+                # Keep first and last portions
+                summary = content[:500] + "\n\n[... content truncated for context limit ...]\n\n" + content[-500:]
+                new_messages[largest_idx] = {**msg, "content": summary, "_force_pruned": True}
+                return new_messages
+            return messages
+
+        # Sort by: older steps first (lower step number), then by size (larger first)
+        # This ensures we prune older large results before recent ones
+        tool_messages.sort(key=lambda x: (x[2], -x[1]))
+
+        # Take the first candidate (oldest step with large content)
+        target_idx, content_len, step, target_msg = tool_messages[0]
+
+        # Create summary based on tool type
+        tool_name = target_msg.get("name", "unknown")
+        content = target_msg.get("content", "")
+
+        if tool_name == "web_search":
+            # For web search, keep query and result count
+            try:
+                data = json.loads(content)
+                query = data.get("query", "unknown query")
+                results = data.get("results", [])
+                # Keep just URLs and titles for reference
+                brief_results = [
+                    {"title": r.get("title", "")[:60], "url": r.get("url", "")}
+                    for r in results[:5]  # Keep top 5 only
+                ]
+                summary = json.dumps({
+                    "query": query,
+                    "result_count": len(results),
+                    "top_results": brief_results,
+                    "_summarized": True,
+                })
+            except (json.JSONDecodeError, TypeError):
+                summary = f"[Web search results - {content_len} chars, summarized for context limit]"
+
+        elif tool_name == "web_extract":
+            # For web extract, keep URL and brief excerpt
+            try:
+                data = json.loads(content)
+                url = data.get("url", "unknown")
+                title = data.get("title", "")[:100]
+                # Keep first 500 chars of content as excerpt
+                full_content = data.get("full_content", "")
+                excerpt = full_content[:500] + "..." if len(full_content) > 500 else full_content
+                summary = json.dumps({
+                    "url": url,
+                    "title": title,
+                    "excerpt": excerpt,
+                    "_summarized": True,
+                })
+            except (json.JSONDecodeError, TypeError):
+                summary = f"[Web extract results - {content_len} chars, summarized for context limit]"
+
+        elif tool_name == "python_execute":
+            # For python, keep code and truncated output
+            try:
+                data = json.loads(content)
+                code = data.get("code", "")[:300]
+                output = data.get("output", "")
+                output_summary = output[:200] + "..." if len(output) > 200 else output
+                summary = json.dumps({
+                    "code": code + ("..." if len(data.get("code", "")) > 300 else ""),
+                    "output": output_summary,
+                    "success": data.get("success", True),
+                    "_summarized": True,
+                })
+            except (json.JSONDecodeError, TypeError):
+                summary = f"[Python execution results - {content_len} chars, summarized for context limit]"
+
+        else:
+            # Generic summarization
+            summary = f"[Tool '{tool_name}' results - {content_len} chars, summarized for context limit]"
+
+        # Create new messages list with summarized content
+        new_messages = messages.copy()
+        new_messages[target_idx] = {
+            **target_msg,
+            "content": summary,
+            "_force_pruned": True,
+        }
+
+        logger.info(
+            "Force pruned large tool result",
+            extra={
+                "tool_name": tool_name,
+                "step": step,
+                "original_chars": content_len,
+                "summary_chars": len(summary),
+            },
+        )
+
+        return new_messages
 
     def _extract_thinking(self, text: str) -> Optional[str]:
         """Extract thinking from Harmony format <think>...</think>.
