@@ -9,6 +9,7 @@ Detailed documentation of every component in the Reasoner system.
    - [Engine Layer](#engine-layer)
    - [Provider Layer](#provider-layer)
    - [Thinking Layer](#thinking-layer)
+   - [Reporting Layer](#reporting-layer)
    - [Agent Layer](#agent-layer)
    - [Storage Layer](#storage-layer)
    - [Routes Layer](#routes-layer)
@@ -347,11 +348,9 @@ class ThinkingStrategy(ABC):
 
 **Registered Strategies**:
 ```python
-# Only DirectStrategy is registered by default
 _default_strategies = {
     "direct": DirectStrategy,
 }
-# Note: ChainOfThoughtStrategy exists but is not registered
 ```
 
 **Methods**:
@@ -373,21 +372,40 @@ _default_strategies = {
 
 **Use Case**: Fast responses, gpt-oss models with native reasoning.
 
-### `orchestrator/thinking/strategies/cot.py`
+---
 
-**Purpose**: Chain-of-thought with token budgets.
+## Reporting Layer
 
-**Class: `ChainOfThoughtStrategy`**
+### `orchestrator/reporting/report_builder.py`
 
-**Parameters**:
-- `thinking_budget`: 512 tokens
-- `answer_budget`: 256 tokens
+**Purpose**: Generate human-readable reports from run traces.
 
-**Flow**:
-1. Phase 1: Generate thinking with `[THINK]` tags
-2. Phase 2: Generate answer based on thinking
+**Class: `ReportBuilder`**
 
-**TALE-EP Approach**: Telling the model its budget helps it conclude naturally within it.
+**Constructor**:
+```python
+def __init__(self, format: str = "markdown") -> None:
+    self._format = format
+    self._sections: list[dict[str, Any]] = []
+```
+
+**Methods**:
+
+| Method | Description |
+|--------|-------------|
+| `add_summary(run_id, status)` | Add a summary section to the report |
+| `build()` | Generate final report as string |
+| `build_timeline(events)` | Build structured timeline from events |
+
+**Usage**:
+```python
+builder = ReportBuilder(format="markdown")
+builder.add_summary(run_id="run_001", status="succeeded")
+report = builder.build()
+# Returns: "# Chat Report\n\n**Run ID**: run_001\n**Status**: succeeded\n"
+```
+
+**Used By**: `/api/runs/{run_id}/report` endpoint for generating markdown reports.
 
 ---
 
@@ -619,6 +637,8 @@ class BaseTool(Protocol):
 - `agent_steps` - Agent step tracking
 - `agent_tool_calls` - Tool execution records
 - `agent_citations` - Evidence sources
+- `eval_runs` - Benchmark execution sessions
+- `eval_samples` - Individual evaluation samples
 
 ### `orchestrator/storage/repositories/conversation_repo.py`
 

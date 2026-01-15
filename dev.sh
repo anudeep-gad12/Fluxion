@@ -240,7 +240,7 @@ switch_provider() {
 # Provider: llama-server (local gpt-oss)
 LLM_BASE_URL=http://localhost:8080/v1
 LLM_ENDPOINT=chat_completions
-LLM_MODEL=gpt-oss-20b
+LLM_MODEL=gpt-oss-120b
 EOF
             provider="local (llama-server + gpt-oss-20b)"
             ;;
@@ -250,7 +250,7 @@ EOF
 # Provider: DeepInfra (cloud)
 LLM_BASE_URL=https://api.deepinfra.com/v1/openai
 LLM_ENDPOINT=chat_completions
-LLM_MODEL=openai/gpt-oss-120b
+LLM_MODEL=openai/gpt-oss-20b
 EOF
             provider="deepinfra (cloud)"
             ;;

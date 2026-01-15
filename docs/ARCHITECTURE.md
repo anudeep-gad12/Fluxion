@@ -100,8 +100,7 @@ orchestrator/
 │   ├── base.py               # ThinkingStrategy ABC, StreamParser, data models
 │   ├── orchestrator.py       # Strategy registry and routing
 │   └── strategies/
-│       ├── direct.py         # Single model call (fastest)
-│       └── cot.py            # Chain-of-thought with token budgets
+│       └── direct.py         # Single model call (fastest)
 │
 ├── agent/
 │   ├── agent_engine.py       # Agent loop with tool calling
@@ -454,8 +453,6 @@ Attempt 3: 4.0s + jitter
 | Strategy | Description | Use Case |
 |----------|-------------|----------|
 | `direct` | Single model call, captures native reasoning | Fast responses, gpt-oss models |
-
-Note: The `cot` (Chain-of-Thought) strategy file exists but is not registered by default. Only `direct` strategy is available in the orchestrator.
 
 ### StreamParser
 
