@@ -628,11 +628,15 @@ provider:
   api_key: ${DEEPINFRA_API_KEY:-}
   endpoint: ${LLM_ENDPOINT:-chat_completions}  # chat_completions | responses | auto
   fallback_on_404: true
+  fail_on_tool_fallback: true   # Raise error if tools unavailable
+  state_mode: "stateless"       # stateless | stateful_opt_in
   timeout: 120.0
+  slow_response_threshold: 15.0 # Seconds before showing "taking longer" message
   max_retries: 3
   base_delay: 1.0
   max_delay: 30.0
   retryable_statuses: [429, 500, 502, 503, 504]
+  extra_headers: {}             # Additional headers (e.g., api-version for Azure)
 
 provider_chain:
   enabled: false              # Set true for multi-provider failover
@@ -653,13 +657,45 @@ thinking:
   mode_mapping:
     default: "direct"
     thinking: "direct"
+  tracing:
+    save_internal: true       # Save internal reasoning traces
+    save_user_summary: true   # Save UI-friendly summaries
+  ui:
+    show_thinking: false      # Show thinking in UI by default
+    collapsible: true         # Allow collapsing thinking sections
+
+tracing:                      # Chat-level tracing (separate from thinking)
+  enabled: true
+  log_level: "info"           # debug | info | warn
+  log_model_calls: true       # Log LLM requests/responses
+
+query_classification:         # Query classification for tool selection
+  enabled: true               # If false, skip classification
+  min_confidence_for_enforcement: 2
 
 parallel:                     # Web search/extract (Parallel.ai)
   api_key: ${PARALLEL_API_KEY:-}
   base_url: "https://api.parallel.ai/v1beta"
+  search:
+    max_results: 10
+    timeout_ms: 15000
+  extract:
+    timeout_ms: 30000
+    max_urls_per_request: 5
 
 python:                       # Local Python execution
   timeout_seconds: 30
+
+# NOTE: E2B sandbox is configured but not currently in use.
+# Local Python execution is used instead.
+sandbox:                      # Python sandbox (NOT CURRENTLY USED)
+  provider: "e2b"
+  e2b:
+    api_key: ${E2B_API_KEY:-}
+    template: "code-interpreter"
+    timeout_seconds: 30
+    cleanup_on_startup: true
+    stale_session_minutes: 10
 ```
 
 ### Environment Variable Resolution
@@ -673,13 +709,16 @@ Variables are resolved before Pydantic validation.
 
 | Class | Purpose |
 |-------|---------|
-| `ProviderConfig` | LLM endpoint, retry settings, state mode |
+| `ProviderConfig` | LLM endpoint, retry settings, state mode, `slow_response_threshold` |
 | `ProviderChainConfig` | Multi-provider failover with circuit breakers |
 | `ChatModelConfig` | Model name, temperature, max_tokens, reasoning_effort |
 | `ChatContextConfig` | Conversation history limits, truncation |
-| `ThinkingConfig` | Mode mapping, tracing, UI display |
-| `ParallelConfig` | Web search/extract API settings |
-| `SandboxConfig` | Python sandbox settings |
+| `ChatTracingConfig` | Chat-level tracing (enabled, log_level, log_model_calls) |
+| `ThinkingConfig` | Mode mapping, ThinkingTracingConfig, ThinkingUIConfig |
+| `QueryClassificationConfig` | Query classification settings for tool selection |
+| `ParallelConfig` | Web search/extract with nested `ParallelSearchConfig`, `ParallelExtractConfig` |
+| `PythonConfig` | Local Python execution settings |
+| `SandboxConfig` | Python sandbox with `E2BConfig` (not currently used) |
 
 ---
 

@@ -354,9 +354,41 @@ _default_strategies = {
 ```
 
 **Methods**:
-- `get_strategy(name)` - Get strategy instance
-- `register_strategy(name, cls)` - Add custom strategy
-- `list_strategies()` - Available strategy names
+
+| Method | Description |
+|--------|-------------|
+| `get_strategy(name, **kwargs)` | Get strategy instance by name (uses default if None) |
+| `register_strategy(name, cls)` | Register a custom strategy at runtime |
+| `list_strategies()` | List all registered strategy names |
+| `has_strategy(name)` | Check if a strategy is registered |
+
+**Extending with Custom Strategies**:
+
+To add a custom thinking strategy:
+
+1. Create a class inheriting from `ThinkingStrategy`:
+```python
+from orchestrator.thinking.base import ThinkingStrategy
+
+class MyCustomStrategy(ThinkingStrategy):
+    async def think(self, messages, model_call):
+        # Custom reasoning logic
+        ...
+        return ThinkingResult(final_answer=..., thinking_summary=...)
+```
+
+2. Register the strategy:
+```python
+orchestrator = ThinkingOrchestrator()
+orchestrator.register_strategy("my_custom", MyCustomStrategy)
+strategy = orchestrator.get_strategy("my_custom")
+```
+
+**Error Handling**:
+- Raises `ValueError` if strategy name not found
+- Raises `TypeError` if registered class doesn't inherit from `ThinkingStrategy`
+
+---
 
 ### `orchestrator/thinking/strategies/direct.py`
 
@@ -410,6 +442,55 @@ report = builder.build()
 ---
 
 ## Agent Layer
+
+### `orchestrator/agent/factory.py`
+
+**Purpose**: Factory for creating fully configured AgentEngine instances with all dependencies.
+
+**Key Function**:
+
+```python
+async def create_agent_engine(
+    model_name: Optional[str] = None,
+    max_steps: Optional[int] = None,
+    max_tokens: Optional[int] = None,
+    temperature: Optional[float] = None,
+    system_prompt: Optional[str] = None,
+    query: Optional[str] = None,
+) -> AgentEngine
+```
+
+**Parameters**:
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `model_name` | str | config | Override model name |
+| `max_steps` | int | 10 | Maximum agent steps |
+| `max_tokens` | int | config | Override max tokens |
+| `temperature` | float | config | Override temperature |
+| `system_prompt` | str | None | Override system prompt |
+| `query` | str | None | User query for classification |
+
+**Behavior**:
+1. Loads configuration from `chat_config.yaml`
+2. If `query` provided (and classification enabled), classifies query to select appropriate system prompt
+3. Creates provider (with chain if configured)
+4. Creates tool registry (limited to `python_execute` for calculation queries)
+5. Creates repositories (AgentRepo, TraceRepo)
+6. Returns configured AgentEngine
+
+**Query Classification**:
+- Uses `QueryClassifier` to detect query type (calculation, research, general)
+- For high-confidence calculation queries, only provides `python_execute` tool
+- Forces code-based solutions for math problems
+
+**Usage**:
+```python
+engine = await create_agent_engine(query="What is 15% of 847?")
+result = await engine.run(run_id, query)
+```
+
+---
 
 ### `orchestrator/agent/agent_engine.py`
 
