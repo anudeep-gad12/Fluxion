@@ -521,6 +521,98 @@ See [SSE Streaming](#sse-streaming) for event format.
 
 ---
 
+### Get Run Report
+
+Get a human-readable markdown report for a run.
+
+**Request**:
+```
+GET /api/runs/{run_id}/report
+```
+
+**Response** (200 OK):
+```json
+{
+  "run_id": "run_001",
+  "report": "# Chat Report\n\n**Run ID**: run_001\n**Status**: succeeded\n",
+  "timeline": [
+    {
+      "seq": 1,
+      "type": "llm_request",
+      "duration_ms": null
+    },
+    {
+      "seq": 2,
+      "type": "llm_response",
+      "duration_ms": 1234
+    }
+  ]
+}
+```
+
+**Error** (404 Not Found):
+```json
+{
+  "detail": "Run not found"
+}
+```
+
+---
+
+### Get Run Thinking
+
+Get thinking trace for a run with configurable detail level.
+
+**Request**:
+```
+GET /api/runs/{run_id}/thinking?detail=user
+```
+
+**Query Parameters**:
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `detail` | string | `user` | Detail level: `user`, `internal`, or `full` |
+
+**Detail Levels**:
+- `user` - Clean, UI-friendly summaries (default)
+- `internal` - Full raw traces with tokens, timing, messages
+- `full` - Both internal and UI data
+
+**Response** (200 OK):
+```json
+{
+  "run_id": "run_001",
+  "thinking_summary": "I need to calculate 2+2...",
+  "strategy": "direct",
+  "steps": [
+    {
+      "seq": 1,
+      "step_type": "reasoning",
+      "summary": "Adding numbers",
+      "status": "done"
+    }
+  ],
+  "detail_level": "user"
+}
+```
+
+**Error** (404 Not Found):
+```json
+{
+  "detail": "Run not found"
+}
+```
+
+**Error** (400 Bad Request):
+```json
+{
+  "detail": "Invalid detail level. Use 'user', 'internal', or 'full'"
+}
+```
+
+---
+
 ## Agent Runs
 
 ### Create Agent Run

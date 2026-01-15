@@ -253,6 +253,51 @@ Stores evidence sources for agent answers.
 | `used_in_answer` | INTEGER | Boolean (0/1) |
 | `created_at` | TEXT | ISO 8601 timestamp |
 
+### Evaluation Tables
+
+#### eval_runs
+
+Benchmark execution sessions for model evaluation.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `eval_run_id` | TEXT PK | UUID identifier |
+| `created_at` | TEXT | ISO 8601 timestamp |
+| `benchmark_name` | TEXT | Benchmark identifier (e.g., "gpqa_diamond", "mmlu_pro") |
+| `model_id` | TEXT | Model being evaluated |
+| `policy_name` | TEXT | Strategy: `direct`, `vote`, `cot`, `solve_verify` |
+| `policy_config_json` | TEXT | Full policy configuration snapshot |
+| `status` | TEXT | `running`, `completed`, `failed`, `cancelled` |
+| `total_samples` | INT | Total samples in benchmark |
+| `completed_samples` | INT | Samples completed so far |
+| `accuracy` | REAL | Final accuracy (0.0 - 1.0) |
+| `avg_tokens_per_sample` | REAL | Average token usage |
+| `total_duration_ms` | INT | Total execution time |
+| `results_json` | TEXT | Detailed aggregate results |
+| `error_message` | TEXT | Error details if failed |
+
+#### eval_samples
+
+Individual evaluation samples linked to full traces.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `sample_id` | TEXT PK | UUID identifier |
+| `eval_run_id` | TEXT FK | Reference to eval_runs |
+| `created_at` | TEXT | ISO 8601 timestamp |
+| `question_id` | TEXT | ID from benchmark dataset |
+| `question_text` | TEXT | The evaluation question |
+| `correct_answer` | TEXT | Expected correct answer |
+| `model_answer` | TEXT | Model's response |
+| `is_correct` | BOOLEAN | Whether answer matches correct answer |
+| `run_id` | TEXT FK | Reference to runs table for full trace |
+| `thinking_tokens` | INT | Tokens used for thinking |
+| `answer_tokens` | INT | Tokens used for answer |
+| `total_tokens` | INT | Total tokens used |
+| `duration_ms` | INT | Execution duration |
+| `status` | TEXT | `pending`, `running`, `completed`, `failed` |
+| `error_message` | TEXT | Error details if failed |
+
 ---
 
 ## Backend Models (Python/Pydantic)
