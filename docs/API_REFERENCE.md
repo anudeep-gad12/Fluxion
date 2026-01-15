@@ -521,6 +521,63 @@ See [SSE Streaming](#sse-streaming) for event format.
 
 ---
 
+### Get Run Events
+
+Get events for a run with optional sequence filtering.
+
+**Request**:
+```
+GET /api/runs/{run_id}/events
+```
+
+**Query Parameters**:
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `since_seq` | int | null | Get events after this sequence number |
+
+**Response** (200 OK):
+```json
+{
+  "events": [
+    {
+      "run_id": "run_001",
+      "seq": 1,
+      "ts": "2024-01-15T10:30:00Z",
+      "type": "llm_request",
+      "display": { ... },
+      "payload": { ... }
+    },
+    {
+      "run_id": "run_001",
+      "seq": 2,
+      "ts": "2024-01-15T10:30:01Z",
+      "type": "llm_response",
+      "display": { ... },
+      "payload": { ... }
+    }
+  ]
+}
+```
+
+**Event Types**:
+- `llm_request` - Request sent to LLM
+- `llm_response` - Response received from LLM
+- `reasoning` - Thinking/reasoning step
+- `tool_call` - Tool invocation
+- `tool_response` - Tool result
+- `error` - Error occurred
+- `retry` - Retry attempt
+
+**Error** (404 Not Found):
+```json
+{
+  "detail": "Run not found"
+}
+```
+
+---
+
 ### Get Run Report
 
 Get a human-readable markdown report for a run.

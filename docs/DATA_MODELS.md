@@ -298,6 +298,47 @@ Individual evaluation samples linked to full traces.
 | `status` | TEXT | `pending`, `running`, `completed`, `failed` |
 | `error_message` | TEXT | Error details if failed |
 
+### Database Indexes
+
+Indexes are created for performance optimization on frequently queried columns:
+
+| Table | Index Name | Columns | Purpose |
+|-------|------------|---------|---------|
+| `conversations` | `idx_conversations_created_at` | `created_at` | Sort by creation date |
+| `runs` | `idx_runs_conversation_id` | `conversation_id` | Filter runs by conversation |
+| `eval_runs` | `idx_eval_runs_created_at` | `created_at` | Sort by creation date |
+| `eval_runs` | `idx_eval_runs_benchmark` | `benchmark_name` | Filter by benchmark |
+| `eval_samples` | `idx_eval_samples_eval_run_id` | `eval_run_id` | Filter samples by eval run |
+| `eval_samples` | `idx_eval_samples_run_id` | `run_id` | Link to trace data |
+| `trace_events` | `idx_trace_events_run_seq` | `run_id, seq` | Ordered event retrieval |
+| `trace_events` | `idx_trace_events_type` | `event_type` | Filter by event type |
+| `trace_events` | `idx_trace_events_step` | `run_id, step_number` | Filter by step |
+| `trace_events` | `idx_trace_events_parent` | `parent_event_id` | Parent-child linking |
+| `agent_steps` | `idx_agent_steps_run` | `run_id` | Filter steps by run |
+| `agent_steps` | `idx_agent_steps_state` | `state` | Filter by state |
+| `agent_tool_calls` | `idx_agent_tool_calls_run` | `run_id` | Filter calls by run |
+| `agent_tool_calls` | `idx_agent_tool_calls_step` | `step_id` | Filter calls by step |
+| `agent_tool_calls` | `idx_agent_tool_calls_status` | `status` | Filter by status |
+| `agent_citations` | `idx_agent_citations_run` | `run_id` | Filter citations by run |
+
+### Referential Integrity (CASCADE Deletes)
+
+The schema uses `ON DELETE CASCADE` for automatic cleanup when parent records are deleted:
+
+| Child Table | Parent Table | FK Column | Behavior |
+|-------------|--------------|-----------|----------|
+| `trace_events` | `runs` | `run_id` | Delete events when run deleted |
+| `trace_events` | `trace_events` | `parent_event_id` | Delete children when parent deleted |
+| `agent_steps` | `runs` | `run_id` | Delete steps when run deleted |
+| `agent_tool_calls` | `runs` | `run_id` | Delete calls when run deleted |
+| `agent_tool_calls` | `agent_steps` | `step_id` | Delete calls when step deleted |
+| `agent_citations` | `runs` | `run_id` | Delete citations when run deleted |
+| `agent_citations` | `agent_tool_calls` | `tool_call_id` | Delete citations when call deleted |
+| `eval_samples` | `eval_runs` | `eval_run_id` | Delete samples when eval run deleted |
+| `eval_samples` | `runs` | `run_id` | Delete samples when run deleted |
+
+**Note**: Deleting a `runs` record will automatically cascade to remove all related `trace_events`, `agent_steps`, `agent_tool_calls`, and `agent_citations`.
+
 ---
 
 ## Backend Models (Python/Pydantic)
