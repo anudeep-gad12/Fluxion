@@ -386,17 +386,17 @@ class RunResponse(BaseModel):
     run_id: str
     created_at: str
     status: str
-    mode: str
-    profile: str
-    prompt: str
-    user_message: Optional[str]
-    conversation_id: Optional[str]
-    final_answer: Optional[str]
-    thinking_summary: Optional[str]
-    thinking_steps: Optional[List[ThinkingStepResponse]]
-    strategy: Optional[str]
-    error_code: Optional[str]
-    error_detail: Optional[str]
+    mode: str = "chat"
+    profile: str = "chat"
+    prompt: str = ""
+    user_message: Optional[str] = None
+    conversation_id: Optional[str] = None
+    conversation_summary: Optional[str] = None
+    final_answer: Optional[str] = None
+    final_report: Optional[str] = None
+    error_code: Optional[str] = None
+    error_detail: Optional[str] = None
+    thinking_summary: Optional[str] = None
 
 class EventResponse(BaseModel):
     run_id: str
@@ -695,10 +695,8 @@ interface Run {
   final_answer?: string;
   final_report?: string;
   thinking_summary?: string;
-  thinking_steps?: ThinkingStep[];
   error_code?: string;
   error_detail?: string;
-  strategy?: string;
 }
 
 interface Event {

@@ -23,8 +23,6 @@ export interface Run {
   error_detail?: string;
   // Thinking data
   thinking_summary?: string;
-  thinking_steps?: ThinkingStep[];
-  strategy?: string;
 }
 
 export interface Event {
