@@ -6,12 +6,10 @@ This document provides a complete overview of the folder and file structure for 
 
 ```
 reasoner/
-├── architecture-diagram.html
-├── ARCHITECTURE.md
-├── DEBUGGING.md
 ├── dev.sh
 ├── justfile
 ├── Procfile
+├── PROJECT_STRUCTURE.md
 ├── pyproject.toml
 ├── README.md
 ├── uv.lock
@@ -28,13 +26,16 @@ reasoner/
 
 ```
 docs/
-├── AGENT_ARCHITECTURE_RESEARCH.md
-├── AGENT_CONVO_FULL.md
-├── AGENT_DESIGN.md
-├── AGENT_IMPLEMENTATION_LOG.md
-├── AGENT_MASTER_REFERENCE.md
-├── AGENT_SYSTEM_DESIGN.md
-└── SYSTEM_DESIGN.md
+├── API_REFERENCE.md
+├── ARCHITECTURE.md
+├── COMPONENTS.md
+├── DATA_FLOW.md
+├── DATA_MODELS.md
+├── IMPLEMENTATION_LOG.md
+├── WORKFLOW.md
+└── archive/
+    ├── AGENT_IMPLEMENTATION_LOG_v1.md
+    └── DEPRECATED_*.md (6 files)
 ```
 
 ## Logs (`logs/`)
@@ -298,12 +299,10 @@ var/
 ## Key Files Description
 
 ### Root Level
-- `architecture-diagram.html` - Visual architecture diagram
-- `ARCHITECTURE.md` - Architecture documentation
-- `DEBUGGING.md` - Debugging guide
 - `dev.sh` - Development script
 - `justfile` - Just command runner configuration
-- `Procfile` - Process configuration (likely for deployment)
+- `Procfile` - Process configuration
+- `PROJECT_STRUCTURE.md` - This file
 - `pyproject.toml` - Python project configuration
 - `README.md` - Project readme
 - `uv.lock` - UV package manager lock file
