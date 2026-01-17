@@ -16,8 +16,8 @@ uv run pytest tests/xxx/ -v           # Unit tests for module
 ./dev.sh traces                        # View recent runs
 
 # Before merge
-uv run pytest                          # Full test suite
-./scripts/sanity_test.sh --debug       # E2E tests (actual flow)
+uv run pytest                          # Unit + integration (mocks LLM)
+./scripts/sanity_test.sh --debug       # True E2E (actual LLM, validates all checkpoints)
 
 # Merge
 git checkout test && git merge feature/xxx
@@ -78,9 +78,13 @@ grep '"level":"ERROR"' logs/app.log | jq .
 ### Step 6: Full Test Suite
 
 ```bash
-uv run pytest                          # All unit tests
-./scripts/sanity_test.sh --debug       # E2E with live logs (actual flow)
+uv run pytest                          # Unit + integration tests (mocks LLM, fast)
+./scripts/sanity_test.sh --debug       # E2E sanity (actual LLM, validates traces/steps/tools)
 ```
+
+**Test types:**
+- `pytest`: Fast feedback, mocks LLM provider, tests internal flow
+- `sanity_test.sh`: True E2E, actual LLM calls, validates every checkpoint in the flow
 
 ### Step 7: Commit and Merge
 
@@ -125,9 +129,9 @@ gh pr create --base main --head test \
 - Feature Z: description
 
 ## Verification
-- All tests pass
-- E2E sanity tests pass
-- Manual testing completed"
+- pytest passes (unit + integration)
+- sanity_test.sh passes (full E2E with actual LLM)
+- Traces show no errors"
 
 # Request Claude Code review
 /code-review
