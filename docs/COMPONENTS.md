@@ -637,6 +637,8 @@ class BaseTool(Protocol):
 }
 ```
 
+**Registration**: Requires `PARALLEL_API_KEY` to be set.
+
 ### `orchestrator/agent/tools/web_extract.py`
 
 **Purpose**: Content extraction from URLs.
@@ -803,6 +805,9 @@ async with self._seq_lock:
 | `GET` | `/api/runs` | List runs |
 | `GET` | `/api/runs/{id}` | Get run details |
 | `GET` | `/api/runs/{id}/stream` | SSE stream |
+| `GET` | `/api/runs/{id}/events` | Get events with sequence filtering |
+| `GET` | `/api/runs/{id}/report` | Get markdown report |
+| `GET` | `/api/runs/{id}/thinking` | Get thinking trace (detail levels: user, internal, full) |
 | `GET` | `/api/runs/{id}/timeline` | Trace timeline |
 | `POST` | `/api/runs/{id}/abort` | Cancel run |
 

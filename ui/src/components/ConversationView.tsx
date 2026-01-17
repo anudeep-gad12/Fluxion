@@ -67,7 +67,6 @@ const RunMessage = memo(function RunMessage({
           {/* Thinking Panel - shows while thinking or after completion with thinking data */}
           <ThinkingPanel
             summary={run.thinking_summary}
-            steps={run.thinking_steps}
             isStreaming={isThinking}
             streamingContent={streamingThinking}
             defaultExpanded={false}

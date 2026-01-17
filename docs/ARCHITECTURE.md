@@ -448,7 +448,7 @@ Attempt 3: 4.0s + jitter
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Available Strategies
+### Available Strategy
 
 | Strategy | Description | Use Case |
 |----------|-------------|----------|

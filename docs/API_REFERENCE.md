@@ -70,12 +70,7 @@ POST /api/conversations
 **Response** (201 Created):
 ```json
 {
-  "conversation_id": "abc12345",
-  "title": null,
-  "summary": null,
-  "status": "active",
-  "created_at": "2024-01-15T10:30:00Z",
-  "metadata": null
+  "conversation_id": "abc12345"
 }
 ```
 
@@ -140,15 +135,13 @@ GET /api/conversations/{conversation_id}
       "run_id": "run_001",
       "created_at": "2024-01-15T10:31:00Z",
       "status": "succeeded",
-      "mode": "default",
-      "profile": "default",
+      "mode": "chat",
+      "profile": "chat",
       "prompt": "What is 2+2?",
       "user_message": "What is 2+2?",
       "conversation_id": "abc12345",
       "final_answer": "2+2 equals 4.",
       "thinking_summary": null,
-      "thinking_steps": null,
-      "strategy": "direct",
       "error_code": null,
       "error_detail": null
     }
@@ -211,7 +204,7 @@ DELETE /api/conversations/{conversation_id}
 **Response** (200 OK):
 ```json
 {
-  "deleted": true,
+  "status": "deleted",
   "conversation_id": "abc12345"
 }
 ```
@@ -231,31 +224,27 @@ GET /api/conversations/{conversation_id}/traces
 ```json
 {
   "conversation_id": "abc12345",
-  "runs": [
+  "events": [
     {
+      "id": "evt_001",
       "run_id": "run_001",
-      "events": [
-        {
-          "id": "evt_001",
-          "run_id": "run_001",
-          "seq": 1,
-          "created_at": "2024-01-15T10:31:00Z",
-          "event_type": "llm_request",
-          "event_status": "pending",
-          "actor": "system",
-          "endpoint": "/v1/responses",
-          "attempt": 1,
-          "content": { ... },
-          "parent_event_id": null,
-          "step_number": 1,
-          "duration_ms": null,
-          "token_count": null,
-          "error_message": null
-        },
-        ...
-      ]
-    }
-  ]
+      "seq": 1,
+      "created_at": "2024-01-15T10:31:00Z",
+      "event_type": "llm_request",
+      "event_status": "pending",
+      "actor": "system",
+      "endpoint": "/v1/responses",
+      "attempt": 1,
+      "content": { ... },
+      "parent_event_id": null,
+      "step_number": 1,
+      "duration_ms": null,
+      "token_count": null,
+      "error_message": null
+    },
+    ...
+  ],
+  "total_events": 10
 }
 ```
 
@@ -381,22 +370,13 @@ GET /api/runs/{run_id}
   "run_id": "run_001",
   "created_at": "2024-01-15T10:31:00Z",
   "status": "succeeded",
-  "mode": "default",
-  "profile": "default",
+  "mode": "chat",
+  "profile": "chat",
   "prompt": "What is 2+2?",
   "user_message": "What is 2+2?",
   "conversation_id": "abc12345",
   "final_answer": "2+2 equals 4.",
   "thinking_summary": "I need to add 2 and 2...",
-  "thinking_steps": [
-    {
-      "seq": 1,
-      "step_type": "reasoning",
-      "summary": "Adding numbers",
-      "status": "complete"
-    }
-  ],
-  "strategy": "direct",
   "error_code": null,
   "error_detail": null
 }
@@ -486,7 +466,7 @@ POST /api/runs/{run_id}/abort
 **Response** (200 OK):
 ```json
 {
-  "aborted": true,
+  "status": "aborted",
   "run_id": "run_001"
 }
 ```
@@ -835,8 +815,8 @@ POST /api/agent/runs/{run_id}/cancel
 **Response** (200 OK):
 ```json
 {
-  "cancelled": true,
-  "run_id": "agent_001"
+  "run_id": "agent_001",
+  "status": "cancelled"
 }
 ```
 

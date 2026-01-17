@@ -1,6 +1,15 @@
+> **DEPRECATED**: This document is kept for historical reference. For current documentation, see:
+> - [ARCHITECTURE.md](./ARCHITECTURE.md) - System architecture
+> - [COMPONENTS.md](./COMPONENTS.md) - Component documentation
+> - [DATA_MODELS.md](./DATA_MODELS.md) - Data models
+> - [DATA_FLOW.md](./DATA_FLOW.md) - Data flow diagrams
+> - [API_REFERENCE.md](./API_REFERENCE.md) - API documentation
+
+---
+
 # Agent Implementation Log
 
-> **Purpose:** Single source of truth for implementation progress. New conversations MUST read this first.
+> **Purpose:** Historical record of implementation progress for the agent feature.
 
 ---
 
