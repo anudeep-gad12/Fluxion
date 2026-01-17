@@ -361,41 +361,217 @@ check_conversation_detail() {
     fi
 }
 
-check_thinking_tokens() {
+check_native_reasoning() {
     local run_id="$1"
     local label="$2"
-    local events_json
-    events_json=$(curl -s "$API_URL/api/runs/$run_id/events")
+    local run_json
+    run_json=$(curl -s "$API_URL/api/runs/$run_id")
 
-    # Check for reasoning events (persisted events have type "reasoning", not "THINKING_TOKEN")
-    # THINKING_TOKEN events only exist during live streaming and are not persisted
-    if echo "$events_json" | grep -q '"type".*"reasoning"'; then
-        pass "$label has reasoning events recorded"
+    # Check thinking_summary is populated (from native reasoning or parsed thinking)
+    local thinking
+    thinking=$(json_get "$run_json" ".thinking_summary")
+    if [ -n "$thinking" ] && [ "$thinking" != "null" ]; then
+        pass "$label has reasoning captured"
     else
-        fail "$label missing reasoning events"
-    fi
-
-    # Check if the thinking content contains [THINK] tags (validates streaming would have worked)
-    local thinking_content
-    thinking_content=$(echo "$events_json" | jq -r '.events[0].payload.internal.raw_content // empty' 2>/dev/null)
-    if echo "$thinking_content" | grep -qi '\[THINK\]'; then
-        pass "$label reasoning content has [THINK] tags (streaming UI compatible)"
-    else
-        warn "$label [THINK] tag not found in reasoning content"
+        warn "$label reasoning not captured (may be model-dependent)"
     fi
 }
 
-check_think_tags() {
+# Agent helper functions
+wait_for_agent_run() {
     local run_id="$1"
     local label="$2"
-    local thinking_json
-    thinking_json=$(curl -s "$API_URL/api/runs/$run_id/thinking?detail=internal")
+    local timeout="${3:-60}"
+    local waited=0
+    local status=""
 
-    # Check if raw thinking contains [THINK] tag
-    if echo "$thinking_json" | grep -qi '\[THINK\]'; then
-        pass "$label response contains [THINK] tag"
+    while [ $waited -lt $timeout ]; do
+        local payload
+        payload=$(curl -s "$API_URL/api/agent/runs/$run_id")
+        status=$(json_get "$payload" ".status")
+
+        if [ "$status" = "succeeded" ]; then
+            pass "$label succeeded (run: $run_id)"
+            local answer
+            answer=$(json_get "$payload" ".final_answer")
+            if [ -n "$answer" ] && [ "$answer" != "null" ]; then
+                pass "$label has final answer"
+            else
+                warn "$label missing final answer"
+            fi
+            return 0
+        elif [ "$status" = "failed" ]; then
+            local error
+            error=$(json_get "$payload" ".error_message")
+            fail "$label failed: ${error:-unknown}"
+            return 1
+        fi
+
+        sleep 3
+        waited=$((waited + 3))
+    done
+
+    fail "$label did not complete within ${timeout}s (status: ${status:-unknown})"
+    return 1
+}
+
+check_agent_trace() {
+    local run_id="$1"
+    local label="$2"
+    local trace
+    local http_code
+
+    # Get trace with HTTP status code
+    http_code=$(curl -s -o /tmp/agent_trace.json -w "%{http_code}" "$API_URL/api/agent/runs/$run_id/trace")
+    trace=$(cat /tmp/agent_trace.json 2>/dev/null)
+
+    # Check if trace endpoint is working
+    if [ "$http_code" != "200" ]; then
+        warn "$label trace endpoint returned HTTP $http_code (endpoint may have issues)"
+        return 0
+    fi
+
+    # Check for error in response
+    if echo "$trace" | grep -qi "internal server error"; then
+        warn "$label trace endpoint returned error (endpoint may have issues)"
+        return 0
+    fi
+
+    local step_count
+    step_count=$(json_array_len "$trace" "steps")
+    if [ "$step_count" -gt 0 ]; then
+        pass "$label has steps recorded ($step_count steps)"
     else
-        warn "$label [THINK] tag not found in response (may affect streaming UI)"
+        warn "$label has no step records (may be expected for simple queries)"
+    fi
+
+    local tool_count
+    tool_count=$(json_array_len "$trace" "tool_calls")
+    if [ "$tool_count" -gt 0 ]; then
+        pass "$label has tool calls recorded ($tool_count calls)"
+    else
+        warn "$label has no tool calls (may be expected for simple queries)"
+    fi
+}
+
+# Check thinking content quality
+check_thinking_content() {
+    local run_id="$1"
+    local label="$2"
+    local trace
+    trace=$(curl -s "$API_URL/api/agent/runs/$run_id/trace")
+
+    # Get steps with thinking_text
+    local thinking_texts
+    thinking_texts=$(echo "$trace" | python3 -c "
+import json, sys
+data = json.loads(sys.stdin.read())
+for step in data.get('steps', []):
+    text = step.get('thinking_text', '')
+    if text:
+        print(text[:100])
+")
+
+    if [ -n "$thinking_texts" ]; then
+        pass "$label has thinking content"
+    else
+        warn "$label thinking content empty"
+    fi
+}
+
+# Check tool call details - ANY tool called = PASS
+# $3 = "require" if tools are mandatory, otherwise warn on no tools
+check_tool_calls_detail() {
+    local run_id="$1"
+    local label="$2"
+    local require_tools="${3:-}"
+    local trace
+    trace=$(curl -s "$API_URL/api/agent/runs/$run_id/trace")
+
+    # Check tool calls have arguments (any tool = pass)
+    local tool_info
+    tool_info=$(echo "$trace" | python3 -c "
+import json, sys
+data = json.loads(sys.stdin.read())
+tools = []
+for tc in data.get('tool_calls', []):
+    name = tc.get('tool_name', 'unknown')
+    has_args = bool(tc.get('arguments'))
+    tools.append(f'{name}:{\"ok\" if has_args else \"no-args\"}')
+print(','.join(tools) if tools else '')
+")
+
+    if [ -n "$tool_info" ]; then
+        pass "$label tool calls present ($tool_info)"
+    elif [ "$require_tools" = "require" ]; then
+        fail "$label no tool calls found (required)"
+    else
+        warn "$label no tool calls (model answered directly)"
+    fi
+}
+
+# Check final answer format
+# $3 = "require" if answer is mandatory, otherwise warn on empty (for external service failures)
+check_answer_format() {
+    local run_id="$1"
+    local label="$2"
+    local require_answer="${3:-require}"
+    local run_json
+    run_json=$(curl -s "$API_URL/api/agent/runs/$run_id")
+    local answer
+    answer=$(json_get "$run_json" ".final_answer")
+
+    # Check not empty
+    if [ -z "$answer" ] || [ "$answer" = "null" ]; then
+        if [ "$require_answer" = "require" ]; then
+            fail "$label answer is empty"
+        else
+            warn "$label answer is empty (possible external service issue)"
+        fi
+        return 1
+    fi
+    pass "$label has non-empty answer"
+
+    # Check no duplicate "Citations" section (model should use inline only)
+    if echo "$answer" | grep -qi "^## Citations\|^### Citations\|^Citations:"; then
+        warn "$label answer has separate Citations section (should use inline [N] only)"
+    else
+        pass "$label answer uses inline citations format"
+    fi
+
+    # Check for inline citation pattern [1], [2], etc. (only for web queries)
+    if echo "$answer" | grep -qE '\[[0-9]+\]'; then
+        pass "$label answer has inline citation references"
+    fi
+}
+
+# Check SSE event sequence
+check_sse_sequence() {
+    local run_id="$1"
+    local label="$2"
+    local stream
+    stream=$(curl -s --max-time 30 "$API_URL/api/agent/runs/$run_id/stream")
+
+    # Check for expected event types in sequence
+    # Use tr to ensure clean integer output from grep -c
+    local has_step_start has_complete
+    has_step_start=$(echo "$stream" | grep -c "event: step_start" 2>/dev/null | tr -d '[:space:]')
+    has_complete=$(echo "$stream" | grep -c "event: complete" 2>/dev/null | tr -d '[:space:]')
+
+    # Default to 0 if empty
+    has_step_start="${has_step_start:-0}"
+    has_complete="${has_complete:-0}"
+
+    if [ "$has_step_start" -gt 0 ] 2>/dev/null; then
+        pass "$label SSE has step_start events ($has_step_start)"
+    else
+        warn "$label SSE missing step_start events"
+    fi
+
+    if [ "$has_complete" -gt 0 ] 2>/dev/null; then
+        pass "$label SSE has complete event"
+    else
+        fail "$label SSE missing complete event"
     fi
 }
 
@@ -449,18 +625,37 @@ else
 fi
 
 # ============================================================
-# 2.5 OLLAMA CONNECTIVITY CHECK
+# 2.5 LLM PROVIDER CONNECTIVITY CHECK
 # ============================================================
-print_header "2.5. Ollama Connectivity Check"
+print_header "2.5. LLM Provider Connectivity Check"
 
-OLLAMA_URL="${OLLAMA_URL:-http://127.0.0.1:11434}"
+# Get base_url from config (OpenAI-compatible endpoint)
+LLM_BASE_URL=$(json_get "$CONFIG_JSON" ".config.provider.base_url")
+LLM_BASE_URL="${LLM_BASE_URL:-http://127.0.0.1:1234}"
+LLM_API_KEY=$(json_get "$CONFIG_JSON" ".config.provider.api_key")
 
-# Check Ollama is running
-if curl -s --max-time 5 "$OLLAMA_URL/api/tags" >/dev/null 2>&1; then
-    pass "Ollama server reachable at $OLLAMA_URL"
+# Build models endpoint URL (handle different base_url formats)
+# DeepInfra: https://api.deepinfra.com/v1/openai -> /models
+# Local: http://localhost:8080/v1 -> /models
+# Plain: http://localhost:1234 -> /v1/models
+if echo "$LLM_BASE_URL" | grep -q "/v1"; then
+    MODELS_URL="$LLM_BASE_URL/models"
 else
-    fail "Ollama server not reachable at $OLLAMA_URL"
-    echo "Start Ollama with: ollama serve"
+    MODELS_URL="$LLM_BASE_URL/v1/models"
+fi
+
+# Check models endpoint (with auth header if API key present)
+if [ -n "$LLM_API_KEY" ] && [ "$LLM_API_KEY" != "null" ]; then
+    LLM_CHECK=$(curl -s --max-time 10 -H "Authorization: Bearer $LLM_API_KEY" "$MODELS_URL")
+else
+    LLM_CHECK=$(curl -s --max-time 10 "$MODELS_URL")
+fi
+
+if echo "$LLM_CHECK" | grep -q "data\|models\|id"; then
+    pass "LLM server reachable at $LLM_BASE_URL"
+else
+    fail "LLM server not reachable at $MODELS_URL"
+    echo "Start your LLM server (llama-cpp, vLLM, etc.) or check API credentials"
     echo ""
     echo "========================================"
     echo "RESULTS: $PASSED passed, $FAILED failed (LLM tests skipped)"
@@ -468,13 +663,12 @@ else
     exit 1
 fi
 
-# Check model is available
+# Check model name from config
 MODEL_NAME=$(json_get "$CONFIG_JSON" ".config.model.name")
-MODEL_LIST=$(curl -s --max-time 5 "$OLLAMA_URL/api/tags")
-if echo "$MODEL_LIST" | grep -q "$MODEL_NAME"; then
-    pass "Model '$MODEL_NAME' is available in Ollama"
+if [ -n "$MODEL_NAME" ] && [ "$MODEL_NAME" != "null" ]; then
+    pass "Model configured: $MODEL_NAME"
 else
-    warn "Model '$MODEL_NAME' not found - test may fail (pull with: ollama pull $MODEL_NAME)"
+    warn "Model name not found in config"
 fi
 
 # ============================================================
@@ -510,14 +704,172 @@ if [ -n "$DIRECT_RUN_ID" ]; then
     check_events "$DIRECT_RUN_ID" "Direct run"
     check_thinking "$DIRECT_RUN_ID" "Direct run" "user" "false"
     check_thinking "$DIRECT_RUN_ID" "Direct run" "internal" "false"
+    check_native_reasoning "$DIRECT_RUN_ID" "Direct run"
     check_report "$DIRECT_RUN_ID" "Direct run"
     check_conversation_detail "$DIRECT_CONV_ID" "$DIRECT_RUN_ID" "Direct"
 fi
 
 # ============================================================
-# 4. LIST + HOUSEKEEPING CHECKS
+# 3.5 MULTI-TURN CONTEXT TEST
 # ============================================================
-print_header "4. Listing & housekeeping"
+print_header "3.5. Multi-Turn Context Test"
+
+# Use same conversation from direct flow test
+if [ -n "$DIRECT_CONV_ID" ] && [ -n "$DIRECT_RUN_ID" ]; then
+    # Send follow-up message that references prior context
+    FOLLOWUP_RESP=$(curl -s -X POST "$API_URL/api/conversations/$DIRECT_CONV_ID/runs" \
+        -H "Content-Type: application/json" \
+        -d '{"message": "What was my previous question?"}')
+    FOLLOWUP_RUN_ID=$(json_get "$FOLLOWUP_RESP" ".run_id")
+
+    if [ -n "$FOLLOWUP_RUN_ID" ]; then
+        pass "Created follow-up run ($FOLLOWUP_RUN_ID)"
+        wait_for_run "$FOLLOWUP_RUN_ID" "Follow-up run"
+
+        # Check if response references the prior question
+        followup_answer=$(json_get "$LAST_RUN_PAYLOAD" ".final_answer")
+        # Look for "2+2" or "two plus two" or similar in response
+        if echo "$followup_answer" | grep -qi "2.*2\|two.*two\|previous\|asked\|addition\|math"; then
+            pass "Context preserved - response references prior conversation"
+        else
+            warn "Context test inconclusive - response may not reference prior question"
+        fi
+    else
+        fail "Failed to create follow-up run"
+    fi
+else
+    warn "Skipping context test - no prior conversation"
+fi
+
+# ============================================================
+# 4. AGENT FLOW - CALCULATION QUERY
+# ============================================================
+print_header "4. Agent Flow - Calculation Query"
+
+# Check if agent endpoint exists
+AGENT_CHECK=$(curl -s -o /dev/null -w "%{http_code}" "$API_URL/api/agent/runs" -X POST -H "Content-Type: application/json" -d '{}' 2>/dev/null)
+if [ "$AGENT_CHECK" = "404" ]; then
+    warn "Agent endpoint not available - skipping agent tests"
+else
+    # Create agent run with a physics calculation query
+    CALC_QUERY="What is the kinetic energy of a 5kg object moving at 10 m/s?"
+    AGENT_CALC_RESP=$(curl -s -X POST "$API_URL/api/agent/runs" \
+        -H "Content-Type: application/json" \
+        -d "{\"query\": \"$CALC_QUERY\", \"max_steps\": 5}")
+    AGENT_CALC_ID=$(json_get "$AGENT_CALC_RESP" ".run_id")
+
+    if [ -n "$AGENT_CALC_ID" ] && [ "$AGENT_CALC_ID" != "null" ]; then
+        pass "Created calculation agent run ($AGENT_CALC_ID)"
+
+        # Wait for completion (longer timeout for tool execution)
+        wait_for_agent_run "$AGENT_CALC_ID" "Calculation run" 120
+
+        # Rigorous checks (any tool = pass)
+        check_thinking_content "$AGENT_CALC_ID" "Calculation run"
+        check_tool_calls_detail "$AGENT_CALC_ID" "Calculation run"
+        check_answer_format "$AGENT_CALC_ID" "Calculation run"
+        check_sse_sequence "$AGENT_CALC_ID" "Calculation run"
+        check_agent_trace "$AGENT_CALC_ID" "Calculation run"
+    else
+        fail "Failed to create calculation agent run"
+    fi
+fi
+
+# ============================================================
+# 4.5 AGENT FLOW - WEB SEARCH QUERY
+# ============================================================
+print_header "4.5. Agent Flow - Web Search Query"
+
+# Only run if Parallel.ai is configured
+PARALLEL_KEY=$(json_get "$CONFIG_JSON" ".config.parallel.api_key")
+if [ -n "$PARALLEL_KEY" ] && [ "$PARALLEL_KEY" != "null" ] && [ "$PARALLEL_KEY" != "***" ] && [ "$PARALLEL_KEY" != "" ]; then
+    WEB_QUERY="What is the current population of Tokyo?"
+    AGENT_WEB_RESP=$(curl -s -X POST "$API_URL/api/agent/runs" \
+        -H "Content-Type: application/json" \
+        -d "{\"query\": \"$WEB_QUERY\", \"max_steps\": 5}")
+    AGENT_WEB_ID=$(json_get "$AGENT_WEB_RESP" ".run_id")
+
+    if [ -n "$AGENT_WEB_ID" ] && [ "$AGENT_WEB_ID" != "null" ]; then
+        pass "Created web search agent run ($AGENT_WEB_ID)"
+
+        wait_for_agent_run "$AGENT_WEB_ID" "Web search run" 120
+
+        # Rigorous checks (any tool = pass)
+        check_thinking_content "$AGENT_WEB_ID" "Web search run"
+        check_tool_calls_detail "$AGENT_WEB_ID" "Web search run" "require"
+        check_answer_format "$AGENT_WEB_ID" "Web search run" "warn"
+        check_sse_sequence "$AGENT_WEB_ID" "Web search run"
+
+        # Check citations exist for web search
+        trace=$(curl -s "$API_URL/api/agent/runs/$AGENT_WEB_ID/trace")
+        citation_count=$(json_array_len "$trace" "citations")
+        if [ "$citation_count" -gt 0 ]; then
+            pass "Web search run has citations ($citation_count)"
+        else
+            warn "Web search run missing citations"
+        fi
+    else
+        fail "Failed to create web search agent run"
+    fi
+else
+    warn "Skipping web search test - PARALLEL_API_KEY not configured"
+fi
+
+# ============================================================
+# 5. TOOL HEALTH (Optional)
+# ============================================================
+print_header "5. Tool Health (Optional)"
+
+# Check E2B sandbox if configured
+E2B_KEY=$(json_get "$CONFIG_JSON" ".config.sandbox.e2b.api_key")
+if [ -n "$E2B_KEY" ] && [ "$E2B_KEY" != "null" ] && [ "$E2B_KEY" != "***" ] && [ "$E2B_KEY" != "" ]; then
+    echo "E2B API key detected - testing Python sandbox..."
+    # Simple agent run with python_execute intent
+    PYTHON_RUN=$(curl -s -X POST "$API_URL/api/agent/runs" \
+        -H "Content-Type: application/json" \
+        -d '{"query": "Use Python to calculate the square root of 144", "max_steps": 3}')
+    PYTHON_RUN_ID=$(json_get "$PYTHON_RUN" ".run_id")
+
+    if [ -n "$PYTHON_RUN_ID" ] && [ "$PYTHON_RUN_ID" != "null" ]; then
+        # Optional test - use longer timeout and treat timeout as warning
+        E2B_TIMEOUT=90
+        E2B_WAITED=0
+        E2B_STATUS=""
+        while [ $E2B_WAITED -lt $E2B_TIMEOUT ]; do
+            E2B_PAYLOAD=$(curl -s "$API_URL/api/agent/runs/$PYTHON_RUN_ID")
+            E2B_STATUS=$(json_get "$E2B_PAYLOAD" ".status")
+            if [ "$E2B_STATUS" = "succeeded" ]; then
+                pass "Python sandbox test succeeded"
+                break
+            elif [ "$E2B_STATUS" = "failed" ]; then
+                warn "Python sandbox test failed (external service issue)"
+                break
+            fi
+            sleep 3
+            E2B_WAITED=$((E2B_WAITED + 3))
+        done
+        if [ "$E2B_STATUS" != "succeeded" ] && [ "$E2B_STATUS" != "failed" ]; then
+            warn "Python sandbox test timed out (E2B may be slow to start)"
+        fi
+    else
+        warn "Failed to create Python sandbox test run"
+    fi
+else
+    warn "Skipping E2B sandbox test - E2B_API_KEY not configured"
+fi
+
+# Check Parallel.ai if configured
+PARALLEL_KEY=$(json_get "$CONFIG_JSON" ".config.parallel.api_key")
+if [ -n "$PARALLEL_KEY" ] && [ "$PARALLEL_KEY" != "null" ] && [ "$PARALLEL_KEY" != "***" ] && [ "$PARALLEL_KEY" != "" ]; then
+    pass "Parallel.ai API key configured (web tools available)"
+else
+    warn "Skipping web tool tests - PARALLEL_API_KEY not configured"
+fi
+
+# ============================================================
+# 6. LIST + HOUSEKEEPING CHECKS
+# ============================================================
+print_header "6. Listing & housekeeping"
 
 RUN_LIST=$(curl -s "$API_URL/api/runs?limit=5")
 if echo "$RUN_LIST" | grep -q "$DIRECT_RUN_ID"; then

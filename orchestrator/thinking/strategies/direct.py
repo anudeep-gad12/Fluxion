@@ -11,6 +11,7 @@ captures the reasoning output and includes it as the thinking_summary.
 from typing import Callable, List, Optional
 
 from orchestrator.thinking.base import ThinkingResult, ThinkingStrategy
+from orchestrator.utils.sanitize import sanitize_harmony_tokens
 
 
 class DirectStrategy(ThinkingStrategy):
@@ -76,9 +77,12 @@ class DirectStrategy(ThinkingStrategy):
         # Emit completion
         self.emit_event(event_callback, "THINKING_COMPLETED", strategy=self.name)
 
+        # Sanitize response to remove any Harmony format tokens
+        clean_answer = sanitize_harmony_tokens(response_text)
+
         return ThinkingResult(
             steps=[],  # No thinking steps for direct strategy
-            final_answer=response_text,
+            final_answer=clean_answer,
             thinking_summary=thinking_summary,  # Captured from native reasoning
             thinking_tokens=thinking_tokens,
             answer_tokens=answer_tokens,

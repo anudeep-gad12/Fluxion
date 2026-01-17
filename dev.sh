@@ -52,6 +52,23 @@ start_api() {
     log "Starting API server on port 9000..."
     kill_port 9000
     cd "$PROJECT_DIR"
+
+    # Load main env (API keys: E2B_API_KEY, DEEPINFRA_API_KEY, PARALLEL_API_KEY)
+    if [ -f "$PROJECT_DIR/.env" ]; then
+        set -a
+        source "$PROJECT_DIR/.env"
+        set +a
+        log "Loaded .env"
+    fi
+
+    # Load provider env if set (overrides LLM settings from .env)
+    if [ -f "$PROJECT_DIR/.env.provider" ]; then
+        set -a
+        source "$PROJECT_DIR/.env.provider"
+        set +a
+        log "Using provider: $(grep '^# Provider:' "$PROJECT_DIR/.env.provider" | cut -d: -f2)"
+    fi
+
     nohup uv run uvicorn orchestrator.app:app --reload --port 9000 --host 0.0.0.0 > "$LOG_DIR/api.log" 2>&1 &
     echo $! > "$PID_DIR/api.pid"
     sleep 2
@@ -211,6 +228,60 @@ explore_trace() {
     sqlite3 "$DB_PATH" "SELECT final_answer FROM runs WHERE run_id = '$run_id';"
 }
 
+# Switch provider (local llama-server or cloud DeepInfra)
+switch_provider() {
+    local provider=$1
+
+    case "$provider" in
+        local|llama)
+            # Set for llama-server (local gpt-oss)
+            # Start server first: llama-server -m ~/.lmstudio/models/lmstudio-community/gpt-oss-20b-GGUF/gpt-oss-20b-MXFP4.gguf --jinja --ctx-size 4096 -ub 512 -b 512 --port 8080
+            cat > "$PROJECT_DIR/.env.provider" << 'EOF'
+# Provider: llama-server (local gpt-oss)
+LLM_BASE_URL=http://localhost:8080/v1
+LLM_ENDPOINT=chat_completions
+LLM_MODEL=gpt-oss-120b
+EOF
+            provider="local (llama-server + gpt-oss-20b)"
+            ;;
+        deepinfra|cloud|di)
+            # Set for DeepInfra (cloud)
+            cat > "$PROJECT_DIR/.env.provider" << 'EOF'
+# Provider: DeepInfra (cloud)
+LLM_BASE_URL=https://api.deepinfra.com/v1/openai
+LLM_ENDPOINT=chat_completions
+LLM_MODEL=openai/gpt-oss-20b
+EOF
+            provider="deepinfra (cloud)"
+            ;;
+        "")
+            # Show current provider
+            echo -e "${BLUE}=== Current Provider ===${NC}"
+            if [ -f "$PROJECT_DIR/.env.provider" ]; then
+                cat "$PROJECT_DIR/.env.provider"
+            else
+                echo "No provider set. Using config defaults (DeepInfra)."
+            fi
+            echo ""
+            echo "Usage: ./dev.sh provider [local|deepinfra]"
+            echo ""
+            echo "  local     - llama-server @ localhost:8080 (gpt-oss-20b)"
+            echo "  deepinfra - DeepInfra cloud API (gpt-oss-120b)"
+            return
+            ;;
+        *)
+            error "Unknown provider: $provider"
+            echo "Use: local, deepinfra"
+            exit 1
+            ;;
+    esac
+
+    log "Switched to ${BLUE}$provider${NC}"
+    cat "$PROJECT_DIR/.env.provider"
+    echo ""
+    warn "Restart required: ./dev.sh restart"
+}
+
 # Show status
 show_status() {
     echo -e "${BLUE}=== Service Status ===${NC}"
@@ -289,6 +360,9 @@ case "${1:-start}" in
     status)
         show_status
         ;;
+    provider)
+        switch_provider "$2"
+        ;;
     *)
         echo "Usage: ./dev.sh [command]"
         echo ""
@@ -304,5 +378,6 @@ case "${1:-start}" in
         echo "  traces    View recent traces from database"
         echo "  explore   Explore a specific run: ./dev.sh explore <run_id>"
         echo "  status    Show service status"
+        echo "  provider  Switch LLM provider: ./dev.sh provider [local|deepinfra]"
         ;;
 esac

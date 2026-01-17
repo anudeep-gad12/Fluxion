@@ -152,3 +152,64 @@ CREATE INDEX IF NOT EXISTS idx_trace_events_run_seq ON trace_events(run_id, seq)
 CREATE INDEX IF NOT EXISTS idx_trace_events_type ON trace_events(event_type);
 CREATE INDEX IF NOT EXISTS idx_trace_events_step ON trace_events(run_id, step_number);
 CREATE INDEX IF NOT EXISTS idx_trace_events_parent ON trace_events(parent_event_id);
+
+-- =============================================================================
+-- Agent Tables (for web research agent with crash recovery)
+-- =============================================================================
+
+-- Agent steps (state machine steps)
+CREATE TABLE IF NOT EXISTS agent_steps (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    step_number INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    completed_at TEXT,
+    state TEXT NOT NULL,              -- planning | tool_calling | synthesizing | complete | error
+    thinking_text TEXT,
+    decision TEXT,                    -- call_tool | synthesize | error
+    error_message TEXT,
+    UNIQUE(run_id, step_number),
+    FOREIGN KEY(run_id) REFERENCES runs(run_id) ON DELETE CASCADE
+);
+
+-- Agent tool calls (NO result_raw - prevents WAL bloat)
+CREATE TABLE IF NOT EXISTS agent_tool_calls (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    step_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    tool_name TEXT NOT NULL,
+    arguments TEXT NOT NULL,          -- JSON
+    status TEXT NOT NULL,             -- pending | running | success | error | timeout | interrupted
+    started_at TEXT,
+    completed_at TEXT,
+    duration_ms INTEGER,
+    idempotency_key TEXT NOT NULL,    -- For retry detection
+    execution_attempt INTEGER DEFAULT 1,
+    result_summary TEXT,              -- 1-line only, no blobs
+    error_message TEXT,
+    FOREIGN KEY(run_id) REFERENCES runs(run_id) ON DELETE CASCADE,
+    FOREIGN KEY(step_id) REFERENCES agent_steps(id) ON DELETE CASCADE
+);
+
+-- Agent citations (evidence for answers)
+CREATE TABLE IF NOT EXISTS agent_citations (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    tool_call_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    source_url TEXT NOT NULL,
+    title TEXT,
+    snippet TEXT NOT NULL,
+    used_in_answer BOOLEAN DEFAULT FALSE,
+    FOREIGN KEY(run_id) REFERENCES runs(run_id) ON DELETE CASCADE,
+    FOREIGN KEY(tool_call_id) REFERENCES agent_tool_calls(id) ON DELETE CASCADE
+);
+
+-- Agent indexes
+CREATE INDEX IF NOT EXISTS idx_agent_steps_run ON agent_steps(run_id);
+CREATE INDEX IF NOT EXISTS idx_agent_steps_state ON agent_steps(state);
+CREATE INDEX IF NOT EXISTS idx_agent_tool_calls_run ON agent_tool_calls(run_id);
+CREATE INDEX IF NOT EXISTS idx_agent_tool_calls_step ON agent_tool_calls(step_id);
+CREATE INDEX IF NOT EXISTS idx_agent_tool_calls_status ON agent_tool_calls(status);
+CREATE INDEX IF NOT EXISTS idx_agent_citations_run ON agent_citations(run_id);

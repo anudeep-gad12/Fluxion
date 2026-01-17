@@ -22,6 +22,8 @@ from .base import (
     RetryExhaustedError,
     ToolFallbackError,
 )
+from .chain import AllProvidersFailedError, ChainedProvider, ProviderChain
+from .circuit_breaker import CircuitBreaker, CircuitBreakerConfig, CircuitState
 from .factory import create_provider
 from .openai_compat import OpenAICompatProvider, normalize_base_url
 from .request_builders import build_chat_completions_request, build_responses_request
@@ -35,10 +37,17 @@ __all__ = [
     "ProviderError",
     "RetryExhaustedError",
     "ToolFallbackError",
+    "AllProvidersFailedError",
     # Factory
     "create_provider",
     # Provider implementations
     "OpenAICompatProvider",
+    "ProviderChain",
+    "ChainedProvider",
+    # Circuit breaker
+    "CircuitBreaker",
+    "CircuitBreakerConfig",
+    "CircuitState",
     # Utilities
     "normalize_base_url",
     "build_responses_request",

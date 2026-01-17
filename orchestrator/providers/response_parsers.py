@@ -17,7 +17,7 @@ def parse_responses_result(raw: Dict[str, Any], endpoint: str) -> LLMResponse:
         Normalized LLMResponse.
     """
     # Responses API returns output as list of content blocks
-    output = raw.get("output", [])
+    output = raw.get("output") or []
 
     text_parts: List[str] = []
     tool_calls: List[Dict[str, Any]] = []
@@ -27,14 +27,14 @@ def parse_responses_result(raw: Dict[str, Any], endpoint: str) -> LLMResponse:
         item_type = item.get("type")
 
         if item_type == "message":
-            content = item.get("content", [])
+            content = item.get("content") or []
             for block in content:
                 block_type = block.get("type")
                 # Handle both OpenAI format ("text") and LM Studio format ("output_text")
                 if block_type in ("text", "output_text"):
                     text_parts.append(block.get("text", ""))
                 elif block_type == "tool_use":
-                    # Convert to OpenAI tool_calls format for consistency
+                    # OpenAI format: Convert to tool_calls format for consistency
                     tool_calls.append({
                         "id": block.get("id"),
                         "type": "function",
@@ -43,6 +43,24 @@ def parse_responses_result(raw: Dict[str, Any], endpoint: str) -> LLMResponse:
                             "arguments": json.dumps(block.get("input", {})),
                         },
                     })
+
+        elif item_type == "function_call":
+            # LM Studio format: function_call as top-level output item
+            # Format: {"id": "fc_...", "type": "function_call", "name": "...",
+            #          "arguments": "{...}", "call_id": "call_..."}
+            call_id = item.get("call_id") or item.get("id")
+            arguments = item.get("arguments", "{}")
+            # arguments is already a JSON string in LM Studio format
+            if isinstance(arguments, dict):
+                arguments = json.dumps(arguments)
+            tool_calls.append({
+                "id": call_id,
+                "type": "function",
+                "function": {
+                    "name": item.get("name"),
+                    "arguments": arguments,
+                },
+            })
 
         elif item_type == "reasoning":
             # Extract reasoning from different formats:
@@ -55,7 +73,7 @@ def parse_responses_result(raw: Dict[str, Any], endpoint: str) -> LLMResponse:
                 reasoning = summary
             else:
                 # LM Studio format: content array with reasoning_text blocks
-                content = item.get("content", [])
+                content = item.get("content") or []
                 reasoning_parts = []
                 for block in content:
                     if block.get("type") == "reasoning_text":
@@ -85,7 +103,7 @@ def parse_chat_result(raw: Dict[str, Any], endpoint: str) -> LLMResponse:
     Returns:
         Normalized LLMResponse.
     """
-    choices = raw.get("choices", [{}])
+    choices = raw.get("choices") or [{}]
     if not choices:
         return LLMResponse(
             text="",
@@ -113,7 +131,7 @@ def parse_chat_result(raw: Dict[str, Any], endpoint: str) -> LLMResponse:
 
 def parse_streaming_delta(
     delta: Dict[str, Any], endpoint_type: str
-) -> Dict[str, Optional[str]]:
+) -> Dict[str, Any]:
     """Parse a streaming delta chunk.
 
     Args:
@@ -121,12 +139,13 @@ def parse_streaming_delta(
         endpoint_type: "responses" or "chat_completions".
 
     Returns:
-        Dict with 'content', 'reasoning', and 'tool_call' keys.
+        Dict with 'content', 'reasoning', 'tool_call', and 'tool_call_complete' keys.
     """
-    result: Dict[str, Optional[str]] = {
+    result: Dict[str, Any] = {
         "content": None,
         "reasoning": None,
         "tool_call": None,
+        "tool_call_complete": None,  # Completed function call object
     }
 
     if endpoint_type == "responses":
@@ -147,6 +166,29 @@ def parse_streaming_delta(
         elif delta_type == "response.reasoning_text.delta":
             result["reasoning"] = delta.get("delta")
 
+        # LM Studio format: response.function_call_arguments.delta (streaming args)
+        elif delta_type == "response.function_call_arguments.delta":
+            # Returns partial arguments as they stream
+            result["tool_call"] = delta.get("delta", "")
+
+        # LM Studio format: response.output_item.done (completed function call)
+        elif delta_type == "response.output_item.done":
+            item = delta.get("item", {})
+            if item.get("type") == "function_call":
+                # Complete function call - extract and convert to standard format
+                call_id = item.get("call_id") or item.get("id")
+                arguments = item.get("arguments", "{}")
+                if isinstance(arguments, dict):
+                    arguments = json.dumps(arguments)
+                result["tool_call_complete"] = {
+                    "id": call_id,
+                    "type": "function",
+                    "function": {
+                        "name": item.get("name"),
+                        "arguments": arguments,
+                    },
+                }
+
     else:
         # Chat completions streaming format
         content = delta.get("content")
@@ -158,9 +200,35 @@ def parse_streaming_delta(
         if reasoning:
             result["reasoning"] = reasoning
 
-        # Tool call deltas (accumulated separately)
+        # Tool calls - check if complete or delta
+        # Note: Streaming tool calls (like from llama-server) have id/name in first chunk
+        # but arguments stream across multiple chunks. We detect streaming by checking
+        # if arguments looks partial (starts with { but doesn't end with }).
         tool_calls = delta.get("tool_calls")
         if tool_calls:
-            result["tool_call"] = json.dumps(tool_calls)
+            complete_calls = []
+            for tc in tool_calls:
+                if tc.get("id") and tc.get("function", {}).get("name"):
+                    arguments = tc.get("function", {}).get("arguments", "{}")
+                    if isinstance(arguments, dict):
+                        arguments = json.dumps(arguments)
+                    # Check if arguments is complete (valid JSON) or streaming
+                    # Streaming: partial like '{"' or '{"code' - won't parse as JSON
+                    try:
+                        json.loads(arguments)
+                        # Valid JSON = complete tool call (e.g., DeepInfra non-streaming)
+                        complete_calls.append({
+                            "id": tc["id"],
+                            "type": "function",
+                            "function": {
+                                "name": tc["function"]["name"],
+                                "arguments": arguments,
+                            },
+                        })
+                    except json.JSONDecodeError:
+                        # Partial arguments = streaming, will be accumulated elsewhere
+                        pass
+            if complete_calls:
+                result["tool_calls_complete"] = complete_calls
 
     return result
