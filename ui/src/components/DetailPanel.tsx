@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useRunEvents, useSelectedRun, useStore } from '@/hooks/useStore';
 import { cn } from '@/lib/utils';
-import { Copy, X, Bug, Eye, EyeOff } from 'lucide-react';
+import { Copy, X, Bug, Eye, EyeOff, RefreshCw } from 'lucide-react';
 import { getRun, getRunTimeline, getConversationTraces, type TraceEvent, type ConversationTraceEvent } from '@/api/client';
 import type { Event } from '@/types';
 
@@ -35,6 +35,7 @@ export function DetailPanel() {
   const loadedRunIdRef = useRef<string | null>(null);
   const loadedConvIdRef = useRef<string | null>(null);
   const prevSelectedRunIdRef = useRef<string | null>(null);
+  const [loadingRunTrace, setLoadingRunTrace] = useState(false);
 
   // Auto-switch view mode based on how the panel was opened:
   // - Details button (selectedRunId set) -> single run view
@@ -49,6 +50,13 @@ export function DetailPanel() {
     }
     prevSelectedRunIdRef.current = selectedRunId;
   }, [selectedRunId]);
+
+  // Reset cache when panel closes so it loads fresh data on reopen
+  useEffect(() => {
+    if (!detailPanelOpen) {
+      loadedConvIdRef.current = null;
+    }
+  }, [detailPanelOpen]);
 
   useEffect(() => {
     if (!selectedRunId) {
@@ -68,6 +76,7 @@ export function DetailPanel() {
 
     async function loadEvents() {
       setFetching(selectedRunId!, true);
+      setLoadingRunTrace(true);
       try {
         // Use timeline endpoint for trace events (llm_request, llm_response, etc.)
         const timeline = await getRunTimeline(selectedRunId!);
@@ -100,6 +109,7 @@ export function DetailPanel() {
         console.error('Failed to load trace events:', error);
       } finally {
         setFetching(selectedRunId!, false);
+        setLoadingRunTrace(false);
       }
     }
     loadEvents();
@@ -355,6 +365,21 @@ export function DetailPanel() {
               <Copy className="h-4 w-4" />
               Copy JSON
             </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                // Force refresh by clearing cache refs
+                loadedRunIdRef.current = null;
+                loadedConvIdRef.current = null;
+                setConversationEvents([]);
+                setEvents(selectedRunId || '', []);
+              }}
+              disabled={loadingConvTraces || loadingRunTrace}
+              title="Refresh traces"
+            >
+              <RefreshCw className={cn("h-4 w-4", (loadingConvTraces || loadingRunTrace) && "animate-spin")} />
+            </Button>
             {selectedEvent && (
               <Button
                 size="sm"
@@ -398,9 +423,15 @@ export function DetailPanel() {
                 <div className="text-sm text-slate-500">No traces found.</div>
               )
             ) : selectedRunId ? (
-              <pre className="text-xs whitespace-pre-wrap break-words bg-slate-50 border rounded-md p-3">
-                {traceJson}
-              </pre>
+              loadingRunTrace ? (
+                <div className="text-sm text-slate-500">Loading trace...</div>
+              ) : events.length > 0 ? (
+                <pre className="text-xs whitespace-pre-wrap break-words bg-slate-50 border rounded-md p-3">
+                  {traceJson}
+                </pre>
+              ) : (
+                <div className="text-sm text-slate-500">No trace events found.</div>
+              )
             ) : (
               <div className="text-sm text-slate-500">
                 Select a message to see its trace data.

@@ -1,5 +1,6 @@
 """Pydantic schemas for API requests and responses."""
 
+from enum import Enum
 from typing import Any, Optional
 from pydantic import BaseModel, Field
 
@@ -167,6 +168,108 @@ class RunTimelineResponse(BaseModel):
     created_at: str
     events: list[TraceEventResponse]
     total_events: int
+
+
+# ==================== Agent Schemas ====================
+
+class AgentStepState(str, Enum):
+    """State of an agent step."""
+    PLANNING = "planning"
+    TOOL_CALLING = "tool_calling"
+    SYNTHESIZING = "synthesizing"
+    COMPLETE = "complete"
+    ERROR = "error"
+
+
+class AgentToolCallStatus(str, Enum):
+    """Status of an agent tool call."""
+    PENDING = "pending"
+    RUNNING = "running"
+    SUCCESS = "success"
+    ERROR = "error"
+    TIMEOUT = "timeout"
+    INTERRUPTED = "interrupted"
+
+
+class AgentStepResponse(BaseModel):
+    """Agent step details."""
+    id: str
+    run_id: str
+    step_number: int
+    state: str
+    thinking_text: Optional[str] = None
+    decision: Optional[str] = None
+    created_at: str
+    completed_at: Optional[str] = None
+    error_message: Optional[str] = None
+
+
+class AgentToolCallResponse(BaseModel):
+    """Agent tool call details."""
+    id: str
+    run_id: str
+    step_id: str
+    tool_name: str
+    arguments: dict[str, Any]
+    status: str
+    result_summary: Optional[str] = None
+    error_message: Optional[str] = None
+    duration_ms: Optional[int] = None
+    created_at: str
+    started_at: Optional[str] = None
+    completed_at: Optional[str] = None
+    idempotency_key: str
+    execution_attempt: int = 1
+
+
+class AgentCitationResponse(BaseModel):
+    """Agent citation details."""
+    id: str
+    run_id: str
+    tool_call_id: str
+    source_url: str
+    title: Optional[str] = None
+    snippet: str
+    used_in_answer: bool = False
+    created_at: str
+
+
+class CreateAgentRunRequest(BaseModel):
+    """Request to start an agent run."""
+    query: str
+    conversation_id: Optional[str] = None
+    max_steps: int = 10
+
+
+class CreateAgentRunResponse(BaseModel):
+    """Response from creating an agent run."""
+    run_id: str
+    status: str
+    stream_url: str
+
+
+class AgentRunStatusResponse(BaseModel):
+    """Agent run status."""
+    run_id: str
+    status: str
+    agent_state: Optional[str] = None
+    current_step: int = 0
+    max_steps: int = 10
+    final_answer: Optional[str] = None
+    error_message: Optional[str] = None
+    created_at: str
+    updated_at: Optional[str] = None
+
+
+class AgentRunTraceResponse(BaseModel):
+    """Full trace of an agent run."""
+    run_id: str
+    status: str
+    agent_state: Optional[str] = None
+    steps: list[AgentStepResponse]
+    tool_calls: list[AgentToolCallResponse]
+    citations: list[AgentCitationResponse]
+    final_answer: Optional[str] = None
 
 
 # ==================== Helpers ====================

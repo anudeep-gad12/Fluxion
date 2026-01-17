@@ -224,3 +224,146 @@ export function subscribeToRun(
   return () => eventSource.close();
 }
 
+// =============================================================================
+// Agent Runs API
+// =============================================================================
+
+import type {
+  CreateAgentRunRequest,
+  CreateAgentRunResponse,
+  AgentRunStatus,
+  AgentRunTrace,
+  AgentSSEEvent,
+  AgentCitation,
+} from '@/types/agent';
+
+/**
+ * Create a new agent research run.
+ */
+export async function createAgentRun(
+  request: CreateAgentRunRequest,
+): Promise<CreateAgentRunResponse> {
+  return fetchJson<CreateAgentRunResponse>(`${API_BASE}/agent/runs`, {
+    method: 'POST',
+    body: JSON.stringify(request),
+  });
+}
+
+/**
+ * Get agent run status.
+ */
+export async function getAgentRunStatus(runId: string): Promise<AgentRunStatus> {
+  return withRetry(() => fetchJson(`${API_BASE}/agent/runs/${runId}`));
+}
+
+/**
+ * Get full agent run trace with steps, tool calls, and citations.
+ */
+export async function getAgentRunTrace(runId: string): Promise<AgentRunTrace> {
+  return withRetry(() => fetchJson(`${API_BASE}/agent/runs/${runId}/trace`));
+}
+
+/**
+ * Cancel an active agent run.
+ */
+export async function cancelAgentRun(
+  runId: string,
+): Promise<{ run_id: string; status: string }> {
+  return fetchJson(`${API_BASE}/agent/runs/${runId}/cancel`, {
+    method: 'POST',
+  });
+}
+
+/**
+ * Subscribe to agent run SSE stream with resumption support.
+ *
+ * @param runId - The run ID to subscribe to
+ * @param sinceSeq - Sequence number to resume from (for reconnection)
+ * @param onEvent - Callback for each event
+ * @param onComplete - Callback when run completes
+ * @param onError - Callback on error
+ * @param onCancelled - Callback when run is cancelled
+ * @returns Cleanup function to close connection
+ */
+export function subscribeToAgentRun(
+  runId: string,
+  sinceSeq: number,
+  onEvent: (event: AgentSSEEvent) => void,
+  onComplete: (result: {
+    run_id: string;
+    success: boolean;
+    final_answer?: string;
+    citations?: AgentCitation[];
+    total_steps: number;
+    timing_ms: number;
+  }) => void,
+  onError: (error: string) => void,
+  onCancelled?: () => void,
+): () => void {
+  const url = `${API_BASE}/agent/runs/${runId}/stream${sinceSeq > 0 ? `?since_seq=${sinceSeq}` : ''}`;
+  const eventSource = new EventSource(url);
+
+  // Map of SSE event names to handlers
+  const eventTypes = [
+    'agent_state',
+    'step_start',
+    'thinking',
+    'tool_start',
+    'tool_result',
+    'answer',
+  ];
+
+  eventTypes.forEach((eventType) => {
+    eventSource.addEventListener(eventType, (e) => {
+      try {
+        const data = JSON.parse((e as MessageEvent).data);
+        onEvent(data as AgentSSEEvent);
+      } catch (err) {
+        console.error(`Failed to parse ${eventType} event:`, err);
+      }
+    });
+  });
+
+  eventSource.addEventListener('complete', (e) => {
+    try {
+      const result = JSON.parse((e as MessageEvent).data);
+      onComplete(result);
+    } catch (err) {
+      console.error('Failed to parse complete event:', err);
+    }
+    eventSource.close();
+  });
+
+  eventSource.addEventListener('error', (e) => {
+    if (e instanceof MessageEvent) {
+      try {
+        const error = JSON.parse(e.data);
+        onError(error.error || 'Stream error');
+      } catch {
+        onError('Stream error');
+      }
+    } else {
+      onError('Connection error');
+    }
+    eventSource.close();
+  });
+
+  eventSource.addEventListener('cancelled', () => {
+    if (onCancelled) {
+      onCancelled();
+    }
+    eventSource.close();
+  });
+
+  eventSource.addEventListener('heartbeat', () => {
+    // Keep-alive, no action needed
+  });
+
+  eventSource.onerror = () => {
+    // Connection closed or error
+    eventSource.close();
+  };
+
+  return () => eventSource.close();
+}
+

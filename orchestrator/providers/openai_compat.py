@@ -118,6 +118,26 @@ class OpenAICompatProvider:
             headers=headers,
         )
 
+    def _build_url(self, endpoint: str) -> str:
+        """Build full URL for an endpoint.
+
+        Handles base URLs that already contain /v1/openai (e.g., DeepInfra).
+        For such URLs, we append /chat/completions instead of /v1/chat/completions.
+
+        Args:
+            endpoint: Endpoint path (e.g., "chat/completions", "responses", "models")
+
+        Returns:
+            Full URL for the endpoint.
+        """
+        base = self._base_url.rstrip("/")
+
+        # If base_url ends with /v1/openai or /openai, don't add /v1 prefix
+        if base.endswith("/v1/openai") or base.endswith("/openai"):
+            return f"{base}/{endpoint}"
+        else:
+            return f"{base}/v1/{endpoint}"
+
     async def close(self) -> None:
         """Clean up provider resources."""
         await self._client.aclose()
@@ -130,7 +150,7 @@ class OpenAICompatProvider:
         """
         try:
             response = await self._client.get(
-                f"{self._base_url}/v1/models",
+                self._build_url("models"),
                 timeout=5.0,
             )
             return response.status_code == 200
@@ -181,7 +201,7 @@ class OpenAICompatProvider:
                 stream=False,
                 previous_response_id=previous_response_id,
             )
-            url = f"{self._base_url}/v1/responses"
+            url = self._build_url("responses")
         else:
             payload = build_chat_completions_request(
                 messages=messages,
@@ -192,7 +212,7 @@ class OpenAICompatProvider:
                 stream=False,
                 **kwargs,
             )
-            url = f"{self._base_url}/v1/chat/completions"
+            url = self._build_url("chat/completions")
 
         # Make request with retry
         response = await self._request_with_retry(url, payload)
@@ -221,13 +241,17 @@ class OpenAICompatProvider:
         on_reasoning: Optional[Callable[[str], None]] = None,
         instructions: Optional[str] = None,
         tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: Optional[str] = None,
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
         reasoning_effort: Optional[str] = None,
         previous_response_id: Optional[str] = None,
         **kwargs: Any,
     ) -> LLMResponse:
-        """Stream a completion.
+        """Stream a completion with retry on network errors.
+
+        Retries on transient network errors (RemoteProtocolError, ReadError)
+        with exponential backoff. HTTP errors are handled separately.
 
         Args:
             messages: List of message dicts.
@@ -236,6 +260,7 @@ class OpenAICompatProvider:
             on_reasoning: Callback for reasoning tokens.
             instructions: System prompt.
             tools: Tool definitions.
+            tool_choice: Tool selection behavior (auto, required, or tool_name).
             max_tokens: Maximum tokens.
             temperature: Sampling temperature.
             reasoning_effort: Native reasoning effort.
@@ -244,48 +269,144 @@ class OpenAICompatProvider:
 
         Returns:
             Final LLMResponse after streaming.
+
+        Raises:
+            RetryExhaustedError: If streaming fails after all retry attempts.
         """
         endpoint_type = await self._resolve_endpoint()
 
-        # Build request
+        # Note: responses API doesn't support tool_choice parameter
+        # We pass it to build_responses_request but it will be ignored there
+        # The system prompt handles tool guidance instead
+
+        # Build request (done once, outside retry loop)
         if endpoint_type == "responses":
             payload = build_responses_request(
                 messages=messages,
                 model=model,
                 instructions=instructions,
                 tools=tools,
+                tool_choice=tool_choice,
                 reasoning_effort=reasoning_effort,
                 max_output_tokens=max_tokens,
                 stream=True,
                 previous_response_id=previous_response_id,
             )
-            url = f"{self._base_url}/v1/responses"
+            url = self._build_url("responses")
         else:
             payload = build_chat_completions_request(
                 messages=messages,
                 model=model,
                 tools=tools,
+                tool_choice=tool_choice,
                 max_tokens=max_tokens,
                 temperature=temperature,
                 stream=True,
                 **kwargs,
             )
-            url = f"{self._base_url}/v1/chat/completions"
+            url = self._build_url("chat/completions")
 
-        # Stream the response
+        # Retry loop for network errors (RemoteProtocolError, ReadError)
+        last_error: Optional[Exception] = None
+        for attempt in range(self._max_retries + 1):
+            try:
+                return await self._do_streaming(
+                    url=url,
+                    payload=payload,
+                    endpoint_type=endpoint_type,
+                    on_token=on_token,
+                    on_reasoning=on_reasoning,
+                    messages=messages,
+                    model=model,
+                    tools=tools,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    **kwargs,
+                )
+            except (httpx.RemoteProtocolError, httpx.ReadError) as e:
+                last_error = e
+                if attempt < self._max_retries:
+                    delay = min(self._base_delay * (2 ** attempt), self._max_delay)
+                    jitter = delay * random.uniform(0.1, 0.3)
+                    total_delay = delay + jitter
+                    logger.warning(
+                        "Streaming failed due to network error, retrying",
+                        extra={
+                            "attempt": attempt + 1,
+                            "max_retries": self._max_retries,
+                            "delay_seconds": round(total_delay, 2),
+                            "error": str(e),
+                        },
+                    )
+                    await asyncio.sleep(total_delay)
+                else:
+                    logger.error(
+                        "Streaming failed after all retries",
+                        extra={
+                            "attempts": attempt + 1,
+                            "error": str(e),
+                        },
+                    )
+
+        raise RetryExhaustedError(
+            f"Streaming failed after {self._max_retries} retries: {last_error}"
+        )
+
+    async def _do_streaming(
+        self,
+        url: str,
+        payload: Dict[str, Any],
+        endpoint_type: str,
+        on_token: Callable[[str], None],
+        on_reasoning: Optional[Callable[[str], None]],
+        messages: List[Dict[str, Any]],
+        model: str,
+        tools: Optional[List[Dict[str, Any]]],
+        max_tokens: Optional[int],
+        temperature: Optional[float],
+        **kwargs: Any,
+    ) -> LLMResponse:
+        """Execute the actual streaming request.
+
+        This method contains the streaming logic extracted from complete_streaming
+        to enable retry wrapping in the parent method.
+
+        Args:
+            url: Request URL.
+            payload: Request payload.
+            endpoint_type: "responses" or "chat_completions".
+            on_token: Callback for content tokens.
+            on_reasoning: Callback for reasoning tokens.
+            messages: Original messages (for fallback).
+            model: Model name (for fallback).
+            tools: Tool definitions (for fallback).
+            max_tokens: Maximum tokens (for fallback).
+            temperature: Sampling temperature (for fallback).
+            **kwargs: Additional parameters (for fallback).
+
+        Returns:
+            LLMResponse after streaming completes.
+
+        Raises:
+            httpx.RemoteProtocolError: On network-level streaming errors.
+            httpx.ReadError: On read errors during streaming.
+            httpx.HTTPStatusError: On HTTP errors (except 404/405 with fallback).
+        """
         full_content: List[str] = []
         full_reasoning: List[str] = []
         tool_calls: List[Dict[str, Any]] = []
+        # Accumulator for streaming tool calls (index -> {id, name, arguments_parts})
+        tool_call_accumulators: Dict[int, Dict[str, Any]] = {}
         finish_reason = "stop"
         usage: Dict[str, int] = {}
-        response_id: Optional[str] = None  # Capture response ID for stateful mode
+        response_id: Optional[str] = None
 
         try:
             async with self._client.stream("POST", url, json=payload) as response:
                 # Check for fallback needed
                 if response.status_code in (404, 405) and self._fallback_on_404:
                     if endpoint_type == "responses":
-                        # Need to close this stream and retry
+                        # Need to close this stream and retry with fallback
                         pass
                     else:
                         response.raise_for_status()
@@ -306,10 +427,7 @@ class OpenAICompatProvider:
                         continue
 
                     # Capture response_id from streaming events (responses API)
-                    # OpenAI returns "id" in response.created or response.completed events
-                    # LM Studio may return it in the initial chunk
                     if "/responses" in url and response_id is None:
-                        # Check various places where response_id might appear
                         if "id" in data:
                             response_id = data["id"]
                         elif data.get("type") == "response.created":
@@ -321,12 +439,34 @@ class OpenAICompatProvider:
                     if "/responses" in url:
                         delta = parse_streaming_delta(data, "responses")
                     else:
-                        # Chat completions format
                         choices = data.get("choices", [{}])
                         if choices:
                             choice_delta = choices[0].get("delta", {})
                             delta = parse_streaming_delta(choice_delta, "chat_completions")
-                            finish_reason = choices[0].get("finish_reason") or finish_reason
+                            new_finish = choices[0].get("finish_reason")
+                            if new_finish:
+                                finish_reason = new_finish
+
+                            # Accumulate streaming tool calls (llama-server format)
+                            # Use `or []` to handle None values (key exists with null)
+                            streaming_tool_calls = choice_delta.get("tool_calls") or []
+                            for tc in streaming_tool_calls:
+                                idx = tc.get("index", 0)
+                                if idx not in tool_call_accumulators:
+                                    tool_call_accumulators[idx] = {
+                                        "id": None,
+                                        "name": None,
+                                        "arguments_parts": [],
+                                    }
+                                acc = tool_call_accumulators[idx]
+                                # Capture id and name from first chunk
+                                if tc.get("id"):
+                                    acc["id"] = tc["id"]
+                                func = tc.get("function", {})
+                                if func.get("name"):
+                                    acc["name"] = func["name"]
+                                if func.get("arguments"):
+                                    acc["arguments_parts"].append(func["arguments"])
                         else:
                             delta = {"content": None, "reasoning": None, "tool_call": None}
 
@@ -338,6 +478,22 @@ class OpenAICompatProvider:
                     if delta["reasoning"] and on_reasoning:
                         full_reasoning.append(delta["reasoning"])
                         on_reasoning(delta["reasoning"])
+
+                    # Collect completed tool calls (LM Studio or DeepInfra format)
+                    if delta.get("tool_call_complete"):
+                        tool_calls.append(delta["tool_call_complete"])
+                        logger.debug(
+                            "Streaming tool call complete",
+                            extra={"tool_name": delta["tool_call_complete"]["function"]["name"]}
+                        )
+                    # Handle multiple complete tool calls (e.g., DeepInfra)
+                    if delta.get("tool_calls_complete"):
+                        for tc in delta["tool_calls_complete"]:
+                            tool_calls.append(tc)
+                            logger.debug(
+                                "Streaming tool call complete (batch)",
+                                extra={"tool_name": tc["function"]["name"]}
+                            )
 
                     # Track usage if present
                     if "usage" in data:
@@ -352,11 +508,32 @@ class OpenAICompatProvider:
                 )
             raise
 
+        # Finalize accumulated streaming tool calls (for llama-server format)
+        if tool_call_accumulators:
+            for idx in sorted(tool_call_accumulators.keys()):
+                acc = tool_call_accumulators[idx]
+                if acc["id"] and acc["name"]:
+                    tool_calls.append({
+                        "id": acc["id"],
+                        "type": "function",
+                        "function": {
+                            "name": acc["name"],
+                            "arguments": "".join(acc["arguments_parts"]),
+                        },
+                    })
+                    logger.debug(
+                        "Finalized streaming tool call",
+                        extra={
+                            "tool_name": acc["name"],
+                            "arguments_length": len("".join(acc["arguments_parts"])),
+                        }
+                    )
+
         return LLMResponse(
             text="".join(full_content),
             tool_calls=tool_calls if tool_calls else None,
             reasoning="".join(full_reasoning) if full_reasoning else None,
-            response_id=response_id,  # Include captured response ID
+            response_id=response_id,
             raw={},
             endpoint_used=url,
             usage=usage,
@@ -391,7 +568,7 @@ class OpenAICompatProvider:
         # Probe with minimal request
         try:
             response = await self._client.post(
-                f"{self._base_url}/v1/responses",
+                self._build_url("responses"),
                 json={"model": "probe", "input": []},
                 timeout=5.0,
             )
@@ -460,7 +637,7 @@ class OpenAICompatProvider:
             stream=stream,
             **kwargs,
         )
-        url = f"{self._base_url}/v1/chat/completions"
+        url = self._build_url("chat/completions")
         response = await self._request_with_retry(url, payload)
 
         # Cache that this base_url doesn't support responses
@@ -518,7 +695,7 @@ class OpenAICompatProvider:
             stream=True,
             **kwargs,
         )
-        url = f"{self._base_url}/v1/chat/completions"
+        url = self._build_url("chat/completions")
 
         # Cache that this base_url doesn't support responses
         self._endpoint_cache[self._base_url] = False

@@ -103,6 +103,7 @@ class LLMProvider(Protocol):
         on_reasoning: Optional[Callable[[str], None]] = None,
         instructions: Optional[str] = None,
         tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: Optional[str] = None,
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
         reasoning_effort: Optional[str] = None,
@@ -118,6 +119,7 @@ class LLMProvider(Protocol):
             on_reasoning: Callback for reasoning tokens (native reasoning).
             instructions: System prompt.
             tools: Tool definitions.
+            tool_choice: Tool selection behavior (auto, required, or tool_name).
             max_tokens: Maximum tokens.
             temperature: Sampling temperature.
             reasoning_effort: Native reasoning effort.

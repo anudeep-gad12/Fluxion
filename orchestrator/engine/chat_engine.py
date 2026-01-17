@@ -61,7 +61,11 @@ class ChatEngine:
         self.config = config or get_chat_config()
 
         # Initialize LLM provider (uses provider config for endpoint selection, retries, etc.)
-        self._provider = create_provider(self.config.provider)
+        # If provider_chain is enabled, creates ProviderChain with failover support
+        self._provider = create_provider(
+            self.config.provider,
+            chain_config=self.config.provider_chain,
+        )
 
         # Initialize thinking orchestrator (default to "direct", actual strategy chosen per-request via mode_mapping)
         self.thinking_orchestrator = ThinkingOrchestrator(default_strategy="direct")

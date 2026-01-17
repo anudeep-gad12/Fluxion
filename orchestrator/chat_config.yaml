@@ -11,20 +11,25 @@
 # Provider Configuration
 # =============================================================================
 # All providers are OpenAI-compatible - same code works with:
-# LM Studio, vLLM, Ollama, OpenAI, Azure OpenAI, etc.
+# vLLM, Ollama, OpenAI, Azure OpenAI, DeepInfra, etc.
 
 provider:
   # Base URL - supports env vars for deployment flexibility
-  base_url: ${LLM_BASE_URL:-http://127.0.0.1:1234}
+  # DeepInfra (cloud): https://api.deepinfra.com/v1/openai
+  # llama-server (local): http://localhost:8080/v1
+  # Note: For DeepInfra, code appends /chat/completions.
+  base_url: ${LLM_BASE_URL:-https://api.deepinfra.com/v1/openai}
 
   # API key - use env var for secrets (empty = no auth for local servers)
-  api_key: ${LLM_API_KEY:-}
+  # Note: Nested ${} not supported. Use DEEPINFRA_API_KEY directly.
+  api_key: ${DEEPINFRA_API_KEY:-}
 
   # Endpoint selection: responses | chat_completions | auto
-  # - responses: Primary endpoint for agents/tool use (recommended)
-  # - chat_completions: Fallback for compatibility
+  # - chat_completions: Standard OpenAI format (recommended for llama-server, DeepInfra)
+  # - responses: Custom format (gpt-oss models only)
   # - auto: Probe and cache result
-  endpoint: "responses"
+  # Set via: ./dev.sh provider [local|deepinfra]
+  endpoint: ${LLM_ENDPOINT:-chat_completions}
 
   # If /v1/responses returns 404/405, try /v1/chat/completions
   fallback_on_404: true
@@ -34,6 +39,7 @@ provider:
 
   # Reliability - exponential backoff with jitter
   timeout: 120.0
+  slow_response_threshold: 15.0  # Seconds before showing "taking longer than usual" message
   max_retries: 3
   base_delay: 1.0       # Initial delay for exponential backoff
   max_delay: 30.0       # Cap for backoff
@@ -43,11 +49,62 @@ provider:
   extra_headers: {}
 
 # =============================================================================
+# Provider Chain Configuration (Optional)
+# =============================================================================
+# When enabled, overrides single provider mode with failover chain.
+# Each provider has its own circuit breaker for independent health tracking.
+#
+# Failover Strategy:
+#   Request -> DeepInfra (primary)
+#     -> if 5xx or timeout: Together AI (fallback)
+#     -> if also fails: Error with retry option
+
+provider_chain:
+  enabled: false  # Set to true to enable chain mode
+
+  # Default circuit breaker settings (used if not specified per-provider)
+  default_circuit_breaker:
+    failure_threshold: 5        # Failures before opening circuit
+    recovery_timeout_seconds: 30.0  # Seconds before half-open test
+    success_threshold: 2        # Successes in half-open before closing
+
+  # Providers in priority order (lower priority = tried first)
+  providers:
+    - name: deepinfra
+      priority: 0  # Primary (tried first)
+      provider:
+        base_url: "https://api.deepinfra.com/v1/openai"
+        api_key: ${DEEPINFRA_API_KEY:-}
+        endpoint: "chat_completions"
+        timeout: 60.0
+        max_retries: 2
+        retryable_statuses: [429, 500, 502, 503, 504]
+      circuit_breaker:
+        failure_threshold: 5
+        recovery_timeout_seconds: 30.0
+
+    - name: together_ai
+      priority: 1  # Fallback
+      provider:
+        base_url: "https://api.together.xyz/v1"
+        api_key: ${TOGETHER_API_KEY:-}
+        endpoint: "chat_completions"
+        timeout: 60.0
+        max_retries: 2
+        retryable_statuses: [429, 500, 502, 503, 504]
+      circuit_breaker:
+        failure_threshold: 5
+        recovery_timeout_seconds: 30.0
+
+# =============================================================================
 # Model Configuration
 # =============================================================================
 
 model:
-  name: "openai/gpt-oss-20b"  # Model name as expected by the provider
+  # Model name - override via LLM_MODEL env var for different providers
+  # DeepInfra: openai/gpt-oss-120b (supports reasoning_effort)
+  # llama-server local: gpt-oss-20b (or whatever you're serving)
+  name: ${LLM_MODEL:-openai/gpt-oss-120b}
   temperature: 1.0            # Recommended for reasoning models
   max_tokens: 4096
   seed: null                  # Set to integer for reproducible outputs
@@ -56,6 +113,7 @@ model:
   presence_penalty: null
   # Native reasoning effort for gpt-oss models (low, medium, high)
   # Higher = deeper reasoning, more tokens, better for complex tasks
+  # Note: Only works with gpt-oss models on DeepInfra
   reasoning_effort: "medium"
 
 # =============================================================================
@@ -64,8 +122,8 @@ model:
 
 context:
   max_messages: 50            # Maximum conversation turns to keep
-  max_tokens: 6000            # Token budget for conversation history
-  reserve_for_response: 2048  # Tokens reserved for model response
+  max_tokens: 100000           # Token budget for conversation history (model has 128k)
+  reserve_for_response: 4096  # Tokens reserved for model response
   truncation_strategy: "sliding_window"  # sliding_window | oldest_first
 
 # =============================================================================
@@ -104,3 +162,41 @@ thinking:
   ui:
     show_thinking: false      # Hidden by default
     collapsible: true         # Allow expansion
+
+# =============================================================================
+# Parallel.ai Configuration (Web Search & Extract)
+# =============================================================================
+# Used by web_search and web_extract tools for web research.
+# Get API key from: https://parallel.ai
+
+parallel:
+  base_url: "https://api.parallel.ai/v1beta"
+  api_key: ${PARALLEL_API_KEY:-}
+
+  search:
+    max_results: 10
+    timeout_ms: 15000
+
+  extract:
+    timeout_ms: 30000
+    max_urls_per_request: 5
+
+# =============================================================================
+# Python Execution
+# =============================================================================
+# Used by python_execute tool for calculations.
+# Currently uses local subprocess (fast, reliable).
+
+python:
+  timeout_seconds: 30  # Execution timeout
+
+# =============================================================================
+# Query Classification (Tool Usage Policy)
+# =============================================================================
+# Controls when python_execute is required vs. optional for calculations.
+# Uses keyword-based detection (not LLM-based).
+
+query_classification:
+  enabled: false  # Disabled - let the model decide when to use tools
+  # CALCULATION_SYSTEM_PROMPT provides guidance without forcing tool_choice
+  min_confidence_for_enforcement: 2

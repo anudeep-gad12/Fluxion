@@ -307,3 +307,137 @@ class TestParseStreamingDelta:
 
         assert result["tool_call"] is not None
         assert "call_123" in result["tool_call"]
+
+    def test_lm_studio_function_call_arguments_delta(self):
+        """LM Studio response.function_call_arguments.delta is parsed."""
+        delta = {"type": "response.function_call_arguments.delta", "delta": '{"query":'}
+        result = parse_streaming_delta(delta, "responses")
+
+        assert result["tool_call"] == '{"query":'
+
+    def test_lm_studio_output_item_done_function_call(self):
+        """LM Studio response.output_item.done with function_call is parsed."""
+        delta = {
+            "type": "response.output_item.done",
+            "item": {
+                "id": "fc_abc123",
+                "type": "function_call",
+                "status": "completed",
+                "arguments": '{"query": "weather japan"}',
+                "call_id": "call_xyz789",
+                "name": "web_search",
+            },
+        }
+        result = parse_streaming_delta(delta, "responses")
+
+        assert result["tool_call_complete"] is not None
+        assert result["tool_call_complete"]["id"] == "call_xyz789"
+        assert result["tool_call_complete"]["type"] == "function"
+        assert result["tool_call_complete"]["function"]["name"] == "web_search"
+        assert result["tool_call_complete"]["function"]["arguments"] == '{"query": "weather japan"}'
+
+
+class TestLMStudioFunctionCallFormat:
+    """Tests for LM Studio function_call format in responses parser."""
+
+    def test_function_call_as_top_level_output(self):
+        """LM Studio function_call format is parsed correctly."""
+        raw = {
+            "output": [
+                {
+                    "id": "fc_wkdu4zwipjkfme6qn4yvl",
+                    "type": "function_call",
+                    "status": "completed",
+                    "arguments": '{"query": "weather japan", "topn": 5}',
+                    "call_id": "call_2481141372090039",
+                    "name": "web_search",
+                }
+            ]
+        }
+        result = parse_responses_result(raw, "/v1/responses")
+
+        assert len(result.tool_calls) == 1
+        assert result.tool_calls[0]["id"] == "call_2481141372090039"
+        assert result.tool_calls[0]["type"] == "function"
+        assert result.tool_calls[0]["function"]["name"] == "web_search"
+        assert result.tool_calls[0]["function"]["arguments"] == '{"query": "weather japan", "topn": 5}'
+
+    def test_function_call_with_dict_arguments(self):
+        """LM Studio function_call with dict arguments is handled."""
+        raw = {
+            "output": [
+                {
+                    "id": "fc_test",
+                    "type": "function_call",
+                    "arguments": {"url": "https://example.com"},
+                    "call_id": "call_test",
+                    "name": "web_extract",
+                }
+            ]
+        }
+        result = parse_responses_result(raw, "/v1/responses")
+
+        assert len(result.tool_calls) == 1
+        assert result.tool_calls[0]["function"]["arguments"] == '{"url": "https://example.com"}'
+
+    def test_function_call_id_fallback(self):
+        """Function call uses 'id' if 'call_id' not present."""
+        raw = {
+            "output": [
+                {
+                    "id": "fc_fallback_id",
+                    "type": "function_call",
+                    "arguments": "{}",
+                    "name": "test_tool",
+                }
+            ]
+        }
+        result = parse_responses_result(raw, "/v1/responses")
+
+        assert result.tool_calls[0]["id"] == "fc_fallback_id"
+
+    def test_multiple_function_calls(self):
+        """Multiple function calls are collected."""
+        raw = {
+            "output": [
+                {
+                    "type": "function_call",
+                    "arguments": '{"query": "news"}',
+                    "call_id": "call_1",
+                    "name": "web_search",
+                },
+                {
+                    "type": "function_call",
+                    "arguments": '{"url": "https://example.com"}',
+                    "call_id": "call_2",
+                    "name": "web_extract",
+                },
+            ]
+        }
+        result = parse_responses_result(raw, "/v1/responses")
+
+        assert len(result.tool_calls) == 2
+        assert result.tool_calls[0]["function"]["name"] == "web_search"
+        assert result.tool_calls[1]["function"]["name"] == "web_extract"
+
+    def test_mixed_message_and_function_calls(self):
+        """Message and function_call items are both handled."""
+        raw = {
+            "output": [
+                {
+                    "type": "message",
+                    "content": [{"type": "text", "text": "Let me search for that."}],
+                },
+                {
+                    "type": "function_call",
+                    "arguments": '{"query": "test"}',
+                    "call_id": "call_mix",
+                    "name": "web_search",
+                },
+            ]
+        }
+        result = parse_responses_result(raw, "/v1/responses")
+
+        assert result.text == "Let me search for that."
+        assert len(result.tool_calls) == 1
+        assert result.tool_calls[0]["function"]["name"] == "web_search"

@@ -1,5 +1,9 @@
 """FastAPI application - minimal entry point with routers."""
 
+# Load .env FIRST, before any other imports that might read config
+from dotenv import load_dotenv
+load_dotenv()
+
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -16,7 +20,7 @@ from orchestrator.logging_config import (
     set_component,
 )
 from orchestrator.storage.db import get_db
-from orchestrator.routes import conversations, runs
+from orchestrator.routes import conversations, runs, agent_runs
 
 
 logger = get_logger(__name__)
@@ -131,6 +135,7 @@ app.add_middleware(RequestLoggingMiddleware)
 # Include routers
 app.include_router(conversations.router)
 app.include_router(runs.router)
+app.include_router(agent_runs.router)
 
 
 @app.get("/api/health")

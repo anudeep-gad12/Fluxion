@@ -111,6 +111,7 @@ class ProviderConfig(BaseModel):
 
     # Reliability - exponential backoff with jitter
     timeout: float = 120.0
+    slow_response_threshold: float = 15.0  # Seconds before showing "taking longer" message
     max_retries: int = 3
     base_delay: float = 1.0
     max_delay: float = 30.0
@@ -126,6 +127,128 @@ class ProviderConfig(BaseModel):
         if v == "" or v is None:
             return None
         return v
+
+
+# =============================================================================
+# Provider Chain Configuration
+# =============================================================================
+
+
+class CircuitBreakerConfig(BaseModel):
+    """Circuit breaker configuration for provider resilience.
+
+    The circuit breaker prevents cascading failures by fast-failing
+    requests to unhealthy providers.
+    """
+
+    failure_threshold: int = 5  # Failures before opening circuit
+    recovery_timeout_seconds: float = 30.0  # Seconds before trying half-open
+    success_threshold: int = 2  # Successes in half-open before closing
+
+
+class ChainedProviderConfig(BaseModel):
+    """Configuration for a single provider in a chain.
+
+    Attributes:
+        name: Identifier for logging (e.g., "deepinfra", "together_ai")
+        provider: The provider configuration
+        priority: Lower number = higher priority (tried first)
+        circuit_breaker: Optional circuit breaker config (uses default if None)
+    """
+
+    name: str
+    provider: ProviderConfig
+    priority: int = 0
+    circuit_breaker: Optional[CircuitBreakerConfig] = None
+
+
+class ProviderChainConfig(BaseModel):
+    """Configuration for provider chain with failover.
+
+    When enabled, requests are routed through multiple providers
+    with automatic failover on failure.
+
+    Example:
+        provider_chain:
+          enabled: true
+          providers:
+            - name: deepinfra
+              priority: 0
+              provider:
+                base_url: "https://api.deepinfra.com/v1/openai"
+                api_key: ${DEEPINFRA_API_KEY:-}
+            - name: together_ai
+              priority: 1
+              provider:
+                base_url: "https://api.together.xyz/v1"
+                api_key: ${TOGETHER_API_KEY:-}
+    """
+
+    enabled: bool = False  # If False, use single provider mode
+    providers: List[ChainedProviderConfig] = []
+    default_circuit_breaker: CircuitBreakerConfig = CircuitBreakerConfig()
+
+
+# =============================================================================
+# Tool Configuration
+# =============================================================================
+
+
+class ParallelSearchConfig(BaseModel):
+    """Parallel.ai search settings."""
+
+    max_results: int = 10
+    timeout_ms: int = 15000
+
+
+class ParallelExtractConfig(BaseModel):
+    """Parallel.ai extract settings."""
+
+    timeout_ms: int = 30000
+    max_urls_per_request: int = 5
+
+
+class ParallelConfig(BaseModel):
+    """Parallel.ai API configuration for web search and extraction."""
+
+    base_url: str = "https://api.parallel.ai/v1beta"
+    api_key: Optional[str] = None
+    search: ParallelSearchConfig = ParallelSearchConfig()
+    extract: ParallelExtractConfig = ParallelExtractConfig()
+
+    @field_validator("api_key", mode="before")
+    @classmethod
+    def empty_string_to_none(cls, v: Any) -> Optional[str]:
+        """Convert empty string to None for api_key."""
+        if v == "" or v is None:
+            return None
+        return v
+
+
+class E2BConfig(BaseModel):
+    """E2B sandbox settings for Python code execution."""
+
+    api_key: Optional[str] = None
+    template: str = "code-interpreter"  # Must use code-interpreter for port 49999
+    timeout_seconds: int = 30
+    cleanup_on_startup: bool = True
+    stale_session_minutes: int = 10
+    metadata: Dict[str, str] = {"app": "reasoner"}
+
+    @field_validator("api_key", mode="before")
+    @classmethod
+    def empty_string_to_none(cls, v: Any) -> Optional[str]:
+        """Convert empty string to None for api_key."""
+        if v == "" or v is None:
+            return None
+        return v
+
+
+class SandboxConfig(BaseModel):
+    """Sandbox configuration."""
+
+    provider: Literal["e2b"] = "e2b"
+    e2b: E2BConfig = E2BConfig()
 
 
 # =============================================================================
@@ -191,6 +314,19 @@ class ThinkingConfig(BaseModel):
     ui: ThinkingUIConfig = ThinkingUIConfig()
 
 
+class QueryClassificationConfig(BaseModel):
+    """Query classification settings for tool selection."""
+
+    enabled: bool = True  # If False, skip classification and let model decide
+    min_confidence_for_enforcement: int = 2
+
+
+class PythonConfig(BaseModel):
+    """Python execution settings."""
+
+    timeout_seconds: int = 30
+
+
 # =============================================================================
 # Main Chat Configuration
 # =============================================================================
@@ -203,11 +339,20 @@ class ChatConfig(BaseModel):
     """
 
     provider: ProviderConfig = ProviderConfig()
+    provider_chain: Optional[ProviderChainConfig] = None  # Optional chain with failover
     model: ChatModelConfig = ChatModelConfig()
     context: ChatContextConfig = ChatContextConfig()
     system_prompt: str = "You are a helpful AI assistant. Answer directly and clearly."
     tracing: ChatTracingConfig = ChatTracingConfig()
     thinking: ThinkingConfig = ThinkingConfig()
+
+    # Tool configurations
+    parallel: Optional[ParallelConfig] = None  # Parallel.ai for web search/extract
+    sandbox: Optional[SandboxConfig] = None  # E2B for Python execution
+
+    # Query classification (disabled by default - let model decide when to use tools)
+    query_classification: Optional[QueryClassificationConfig] = None
+    python: Optional[PythonConfig] = None
 
     # Backward compatibility alias
     @property
@@ -220,7 +365,7 @@ class ChatConfig(BaseModel):
         import hashlib
 
         prompt_hash = hashlib.md5(self.system_prompt.encode()).hexdigest()[:8]
-        return {
+        snapshot = {
             "provider": self.provider.model_dump(),
             "model": self.model.model_dump(),
             "context": self.context.model_dump(),
@@ -228,6 +373,17 @@ class ChatConfig(BaseModel):
             "tracing": self.tracing.model_dump(),
             "thinking": self.thinking.model_dump(),
         }
+        if self.provider_chain:
+            snapshot["provider_chain"] = self.provider_chain.model_dump()
+        if self.parallel:
+            snapshot["parallel"] = self.parallel.model_dump()
+        if self.sandbox:
+            snapshot["sandbox"] = self.sandbox.model_dump()
+        if self.query_classification:
+            snapshot["query_classification"] = self.query_classification.model_dump()
+        if self.python:
+            snapshot["python"] = self.python.model_dump()
+        return snapshot
 
 
 # =============================================================================
