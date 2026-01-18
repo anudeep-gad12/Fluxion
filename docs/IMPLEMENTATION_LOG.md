@@ -9,7 +9,7 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
-| feature/chatengine-cleanup | Fix ChatEngine HTTP connection leak | testing | 2026-01-18 |
+| (none) | - | - | - |
 
 ---
 
