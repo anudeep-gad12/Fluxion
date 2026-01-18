@@ -6,6 +6,7 @@ The registry provides:
 - Lifecycle management (init, cleanup)
 """
 
+import os
 from typing import TYPE_CHECKING, Dict, List, Optional
 
 from orchestrator.logging_config import get_logger
@@ -157,12 +158,36 @@ def create_tool_registry(
     parallel_config = getattr(config, "parallel", None)
     python_config = getattr(config, "python", None)
 
-    # Register Python execution tool (local subprocess)
+    # Get timeout from config
     timeout = 30
     if python_config:
         timeout = getattr(python_config, "timeout_seconds", 30)
-    registry.register(LocalPythonTool(timeout_seconds=timeout))
-    logger.info("Registered python_execute tool (local)")
+
+    # Choose Python execution provider based on environment
+    # - "daytona": Fast, isolated sandbox (~90ms startup) - recommended for production
+    # - "local": Local subprocess - fast but less isolated, use for development
+    python_provider = os.environ.get("PYTHON_PROVIDER", "local")
+
+    if python_provider == "daytona":
+        from .python_daytona import DaytonaPythonTool
+
+        daytona_api_key = os.environ.get("DAYTONA_API_KEY") or os.environ.get("DAYTONA_API")
+        if daytona_api_key:
+            registry.register(DaytonaPythonTool(
+                api_key=daytona_api_key,
+                timeout_seconds=timeout,
+            ))
+            logger.info("Registered python_execute tool (Daytona sandbox)")
+        else:
+            # Fallback to local if no API key
+            logger.warning(
+                "PYTHON_PROVIDER=daytona but DAYTONA_API_KEY not set, falling back to local"
+            )
+            registry.register(LocalPythonTool(timeout_seconds=timeout))
+            logger.info("Registered python_execute tool (local)")
+    else:
+        registry.register(LocalPythonTool(timeout_seconds=timeout))
+        logger.info("Registered python_execute tool (local)")
 
     # Register web tools if Parallel.ai is configured
     # Note: Even for calculation_only queries, we register web tools because
