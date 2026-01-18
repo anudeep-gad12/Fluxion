@@ -9,7 +9,7 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
-| feature/production-deployment | Railway deployment with Daytona sandbox | ready-for-review | 2026-01-18 |
+| feature/orphan-run-cleanup | Clean up orphaned runs on server startup | testing | 2026-01-18 |
 
 ---
 
@@ -24,6 +24,47 @@
 ---
 
 ## Completed
+
+### 2026-01-18: Orphaned Run Cleanup on Startup
+
+**Branch:** `feature/orphan-run-cleanup`
+**Status:** testing
+
+**Description:**
+Fix runtime durability issue where runs stuck in 'running' status after server crash/restart would remain orphaned forever. Now on server startup, any runs with status='running' are automatically marked as 'failed' with an explanatory error message.
+
+**Problem:**
+- Server crashes mid-run → run stuck in 'running' status forever
+- UI shows spinner indefinitely for orphaned runs
+- No way to recover without manual DB intervention
+- Found 6 orphaned runs in production database
+
+**Files Created:**
+- `tests/test_app_lifespan.py` - 3 tests for orphaned run cleanup
+
+**Files Modified:**
+- `orchestrator/app.py` - Added orphaned run cleanup in lifespan startup
+
+**Tests:**
+- Unit: 3 new (all pass)
+- Full suite: 540 passed, 2 failed (pre-existing)
+
+**Verification:**
+```
+# Before fix: 6 orphaned runs stuck as 'running'
+sqlite3 var/traces.sqlite "SELECT COUNT(*) FROM runs WHERE status = 'running';"
+6
+
+# After restart with fix:
+grep -i "orphan" logs/app.log | jq .
+{"message": "Cleaned up 6 orphaned runs", "orphaned_runs": 6}
+
+# Orphaned runs now marked as failed:
+sqlite3 var/traces.sqlite "SELECT error_message FROM runs WHERE run_id = '141716c0-6b67-4057-8d50-8268584a57f2';"
+Server restarted - run was interrupted
+```
+
+---
 
 ### 2026-01-18: Production Deployment (Railway + Daytona)
 
@@ -149,6 +190,6 @@ Status: succeeded
 
 | Metric | Value |
 |--------|-------|
-| Features this session | 2 |
-| Total tests added | 22 |
+| Features this session | 3 |
+| Total tests added | 25 |
 | PRs to main | 0 |

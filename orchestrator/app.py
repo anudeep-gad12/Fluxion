@@ -128,8 +128,30 @@ async def lifespan(app: FastAPI):
         logger.warning(f"Could not load config for logging: {e}")
 
     # Startup: ensure database is initialized
-    await get_db()
+    db = await get_db()
     logger.info("Database initialized")
+
+    # Clean up orphaned runs (stuck in 'running' state from previous crash/restart)
+    cursor = await db.conn.execute(
+        "SELECT COUNT(*) FROM runs WHERE status = 'running'"
+    )
+    row = await cursor.fetchone()
+    orphaned_count = row[0] if row else 0
+
+    if orphaned_count > 0:
+        await db.conn.execute(
+            """
+            UPDATE runs
+            SET status = 'failed',
+                error_message = 'Server restarted - run was interrupted'
+            WHERE status = 'running'
+            """
+        )
+        await db.conn.commit()
+        logger.warning(
+            f"Cleaned up {orphaned_count} orphaned runs",
+            extra={"orphaned_runs": orphaned_count}
+        )
 
     yield
 
