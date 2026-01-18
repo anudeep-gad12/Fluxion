@@ -9,7 +9,7 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
-| feature/orphan-run-cleanup | Clean up orphaned runs on server startup | testing | 2026-01-18 |
+| (none) | - | - | - |
 
 ---
 
@@ -27,41 +27,50 @@
 
 ### 2026-01-18: Orphaned Run Cleanup on Startup
 
-**Branch:** `feature/orphan-run-cleanup`
-**Status:** testing
+**Branch:** `feature/orphan-run-cleanup` (merged to `test`)
+**Status:** merged
 
 **Description:**
-Fix runtime durability issue where runs stuck in 'running' status after server crash/restart would remain orphaned forever. Now on server startup, any runs with status='running' are automatically marked as 'failed' with an explanatory error message.
+Fix runtime durability issue where runs, tool_calls, and steps stuck in active states after server crash/restart would remain orphaned forever. On server startup, the system now:
+- Marks runs with status='running' as 'failed'
+- Marks tool_calls with status='running'/'pending' as 'interrupted'
+- Marks steps with state='tool_calling'/'planning' as 'error'
 
 **Problem:**
-- Server crashes mid-run → run stuck in 'running' status forever
+- Server crashes mid-run → data stuck in active states forever
 - UI shows spinner indefinitely for orphaned runs
 - No way to recover without manual DB intervention
-- Found 6 orphaned runs in production database
+- Found 6 orphaned runs, 43 orphaned tool_calls, 14 orphaned steps
 
 **Files Created:**
-- `tests/test_app_lifespan.py` - 3 tests for orphaned run cleanup
+- `tests/test_app_lifespan.py` - 4 tests for orphaned data cleanup
 
 **Files Modified:**
-- `orchestrator/app.py` - Added orphaned run cleanup in lifespan startup
+- `orchestrator/app.py` - Added comprehensive orphaned data cleanup in lifespan startup
 
 **Tests:**
-- Unit: 3 new (all pass)
+- Unit: 4 new (all pass)
 - Full suite: 540 passed, 2 failed (pre-existing)
 
 **Verification:**
 ```
-# Before fix: 6 orphaned runs stuck as 'running'
-sqlite3 var/traces.sqlite "SELECT COUNT(*) FROM runs WHERE status = 'running';"
-6
+# Complex multi-run test with 3 concurrent agent queries
+# Server killed mid-execution
 
 # After restart with fix:
-grep -i "orphan" logs/app.log | jq .
-{"message": "Cleaned up 6 orphaned runs", "orphaned_runs": 6}
+grep -i "orphan" logs/app.log | tail -1 | jq .
+{
+  "message": "Cleaned up orphaned data on startup",
+  "orphaned_runs": 0,
+  "orphaned_tool_calls": 43,
+  "orphaned_steps": 14
+}
 
-# Orphaned runs now marked as failed:
-sqlite3 var/traces.sqlite "SELECT error_message FROM runs WHERE run_id = '141716c0-6b67-4057-8d50-8268584a57f2';"
-Server restarted - run was interrupted
+# Verify no orphaned data remains:
+sqlite3 var/traces.sqlite "SELECT COUNT(*) FROM agent_tool_calls WHERE status IN ('running', 'pending');"
+0
+sqlite3 var/traces.sqlite "SELECT COUNT(*) FROM agent_steps WHERE state IN ('tool_calling', 'planning');"
+0
 ```
 
 ---
@@ -191,5 +200,5 @@ Status: succeeded
 | Metric | Value |
 |--------|-------|
 | Features this session | 3 |
-| Total tests added | 25 |
+| Total tests added | 26 |
 | PRs to main | 0 |
