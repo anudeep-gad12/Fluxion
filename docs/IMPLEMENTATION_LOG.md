@@ -9,7 +9,7 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
-| feature/queue-overflow-fix | Increase SSE queue size and add logging | testing | 2026-01-18 |
+| (none) | - | - | - |
 
 ---
 
