@@ -296,3 +296,243 @@ class TestPruneStats:
         assert stats.pruned_messages == 10
         assert stats.messages_summarized == 3
         assert stats.estimated_tokens_saved == 500
+
+    def test_stats_llm_summaries_default(self):
+        """PruneStats has llm_summaries_generated with default 0."""
+        stats = PruneStats(
+            original_messages=5,
+            pruned_messages=5,
+            messages_summarized=2,
+            estimated_tokens_saved=100,
+        )
+        assert stats.llm_summaries_generated == 0
+
+    def test_stats_llm_summaries_custom(self):
+        """PruneStats llm_summaries_generated can be set."""
+        stats = PruneStats(
+            original_messages=5,
+            pruned_messages=5,
+            messages_summarized=2,
+            estimated_tokens_saved=100,
+            llm_summaries_generated=2,
+        )
+        assert stats.llm_summaries_generated == 2
+
+
+class TestContextPrunerLLMSetup:
+    """Tests for LLM summarization setup."""
+
+    def test_has_llm_false_initially(self):
+        """has_llm is False before set_llm is called."""
+        pruner = ContextPruner()
+        assert pruner.has_llm is False
+
+    def test_has_llm_true_after_set(self):
+        """has_llm is True after set_llm is called."""
+        pruner = ContextPruner()
+
+        class MockProvider:
+            async def complete(self, **kwargs):
+                pass
+
+        pruner.set_llm(MockProvider(), "test-model", "test query")
+        assert pruner.has_llm is True
+
+    def test_set_llm_clears_cache(self):
+        """set_llm clears the summary cache."""
+        pruner = ContextPruner()
+        pruner._summary_cache["old-key"] = "old-value"
+
+        class MockProvider:
+            async def complete(self, **kwargs):
+                pass
+
+        pruner.set_llm(MockProvider(), "test-model", "new query")
+        assert pruner._summary_cache == {}
+
+
+class TestContextPrunerPruneAsync:
+    """Tests for async prune with LLM summarization."""
+
+    @pytest.mark.asyncio
+    async def test_prune_async_falls_back_without_llm(self):
+        """prune_async falls back to basic prune without LLM."""
+        pruner = ContextPruner(keep_full_steps=1)
+        messages = [
+            {"role": "tool", "content": "A" * 1000, "_step": 1, "name": "web_search"},
+        ]
+        result = await pruner.prune_async(messages, current_step=5)
+        # Should fall back to basic summarization
+        assert "[Search results - 1000 chars]" in result[0]["content"]
+        assert result[0]["_pruned"] is True
+        assert "_llm_summary" not in result[0]
+
+    @pytest.mark.asyncio
+    async def test_prune_async_empty_returns_empty(self):
+        """prune_async returns empty for empty input."""
+        pruner = ContextPruner()
+        result = await pruner.prune_async([], current_step=5)
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_prune_async_uses_llm_for_large_content(self):
+        """prune_async uses LLM for content > 500 chars."""
+        pruner = ContextPruner(keep_full_steps=1)
+
+        class MockResponse:
+            text = "Japan GDP grew 1.68% in 2023."
+
+        class MockProvider:
+            async def complete(self, messages, model, **kwargs):
+                return MockResponse()
+
+        pruner.set_llm(MockProvider(), "test-model", "What is Japan GDP?")
+
+        messages = [
+            {
+                "role": "tool",
+                "content": "X" * 1000,  # Large content triggers LLM
+                "_step": 1,
+                "name": "web_extract",
+                "tool_call_id": "tc-1",
+            },
+        ]
+        result = await pruner.prune_async(messages, current_step=5)
+
+        assert "Japan GDP grew 1.68%" in result[0]["content"]
+        assert result[0]["_pruned"] is True
+        assert result[0]["_llm_summary"] is True
+
+    @pytest.mark.asyncio
+    async def test_prune_async_skips_llm_for_short_content(self):
+        """prune_async uses basic for content < 500 chars."""
+        pruner = ContextPruner(keep_full_steps=1)
+
+        class MockProvider:
+            async def complete(self, messages, model, **kwargs):
+                raise AssertionError("LLM should not be called for short content")
+
+        pruner.set_llm(MockProvider(), "test-model", "query")
+
+        messages = [
+            {
+                "role": "tool",
+                "content": "Short",  # < 500 chars
+                "_step": 1,
+                "name": "web_extract",
+            },
+        ]
+        result = await pruner.prune_async(messages, current_step=5)
+
+        # Should use basic summarization
+        assert "Extracted content" in result[0]["content"]
+
+    @pytest.mark.asyncio
+    async def test_prune_async_skips_llm_for_python(self):
+        """prune_async uses basic for python_execute even with LLM enabled."""
+        pruner = ContextPruner(keep_full_steps=1)
+
+        class MockProvider:
+            async def complete(self, messages, model, **kwargs):
+                raise AssertionError("LLM should not be called for python output")
+
+        pruner.set_llm(MockProvider(), "test-model", "query")
+
+        messages = [
+            {
+                "role": "tool",
+                "content": "X" * 1000,
+                "_step": 1,
+                "name": "python_execute",
+            },
+        ]
+        result = await pruner.prune_async(messages, current_step=5)
+
+        # Should use basic head/tail summarization
+        assert "Output:" in result[0]["content"]
+        assert "_llm_summary" not in result[0]
+
+    @pytest.mark.asyncio
+    async def test_prune_async_caches_summaries(self):
+        """prune_async caches LLM summaries by tool_call_id."""
+        pruner = ContextPruner(keep_full_steps=1)
+        call_count = 0
+
+        class MockResponse:
+            text = "Cached summary"
+
+        class MockProvider:
+            async def complete(self, messages, model, **kwargs):
+                nonlocal call_count
+                call_count += 1
+                return MockResponse()
+
+        pruner.set_llm(MockProvider(), "test-model", "query")
+
+        messages = [
+            {
+                "role": "tool",
+                "content": "X" * 1000,
+                "_step": 1,
+                "name": "web_extract",
+                "tool_call_id": "tc-cache",
+            },
+        ]
+
+        # First call
+        await pruner.prune_async(messages, current_step=5)
+        assert call_count == 1
+
+        # Second call should use cache
+        await pruner.prune_async(messages, current_step=6)
+        assert call_count == 1  # Still 1, cache was used
+
+    @pytest.mark.asyncio
+    async def test_prune_async_falls_back_on_error(self):
+        """prune_async falls back to basic on LLM error."""
+        pruner = ContextPruner(keep_full_steps=1)
+
+        class MockProvider:
+            async def complete(self, messages, model, **kwargs):
+                raise Exception("LLM API error")
+
+        pruner.set_llm(MockProvider(), "test-model", "query")
+
+        messages = [
+            {
+                "role": "tool",
+                "content": "X" * 1000,
+                "_step": 1,
+                "name": "web_extract",
+            },
+        ]
+        result = await pruner.prune_async(messages, current_step=5)
+
+        # Should fall back to basic
+        assert "Extracted content" in result[0]["content"]
+        assert result[0]["_pruned"] is True
+        assert "_llm_summary" not in result[0]
+
+    @pytest.mark.asyncio
+    async def test_prune_async_recent_steps_not_pruned(self):
+        """prune_async keeps recent steps full even with LLM enabled."""
+        pruner = ContextPruner(keep_full_steps=2)
+
+        class MockProvider:
+            async def complete(self, messages, model, **kwargs):
+                raise AssertionError("LLM should not be called for recent steps")
+
+        pruner.set_llm(MockProvider(), "test-model", "query")
+
+        messages = [
+            {
+                "role": "tool",
+                "content": "Recent content should stay full",
+                "_step": 4,
+                "name": "web_extract",
+            },
+        ]
+        result = await pruner.prune_async(messages, current_step=5)
+
+        assert result[0]["content"] == "Recent content should stay full"
+        assert "_pruned" not in result[0]
