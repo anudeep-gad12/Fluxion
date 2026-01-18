@@ -318,6 +318,9 @@ To provide your final answer, respond WITHOUT calling any tools."""
             max_steps=self._max_steps,
         )
 
+        # Enable LLM-based smart summarization for context pruning
+        self._pruner.set_llm(self._provider, self._model_name, query)
+
         try:
             recovery_context = await state_machine.initialize()
 
@@ -363,8 +366,8 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     step_number=step_number,
                 )
 
-                # Prune context before LLM call
-                pruned_messages = self._pruner.prune(
+                # Prune context before LLM call (uses LLM for smart summarization)
+                pruned_messages = await self._pruner.prune_async(
                     messages,
                     current_step=step_number,
                     step_metadata=step_metadata,
