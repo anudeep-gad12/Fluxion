@@ -25,6 +25,56 @@
 
 ## Completed
 
+### 2026-01-18: LLM-based Smart Context Summarization
+
+**Branch:** `feature/llm-context-summarization` (merged to `test`)
+**Status:** merged
+
+**Description:**
+Add query-aware LLM summarization for context pruning. Instead of simple char-count summaries like `[Extracted - 20000 chars]`, the pruner now uses an LLM to extract key facts relevant to the user's query. This improves answer quality for multi-step agent queries while maintaining token efficiency.
+
+**Problem:**
+- Context pruner used dumb summaries: `[Tool result - 5000 chars]`
+- Lost important data from earlier steps in multi-step runs
+- No awareness of what information is relevant to the query
+- Risk of low-quality answers when key facts are pruned away
+
+**Solution:**
+- Added `SummarizerProvider` protocol for LLM providers
+- Added `set_llm(provider, model, query)` to configure LLM summarization
+- Added `prune_async()` for async LLM-based pruning
+- Added `_summarize_tool_result_llm()` with caching
+- Prompt extracts only query-relevant facts in 2-3 sentences
+- Falls back to basic summarization on error or for short content (<500 chars)
+- Skips LLM for python_execute (keep head/tail instead)
+
+**Files Modified:**
+- `orchestrator/agent/context_pruner.py` - Added LLM summarization (+221 lines)
+- `orchestrator/agent/agent_engine.py` - Use prune_async with query context (+7 lines)
+
+**Files Updated:**
+- `tests/agent/test_context_pruner.py` - 11 new tests for LLM summarization
+- `scripts/sanity_test.sh` - 3 complex multi-step agent queries added
+
+**Tests:**
+- Unit: 36 passed (11 new for LLM summarization)
+- Full suite: 561 passed, 2 failed (pre-existing in test_response_parsers.py)
+- Sanity: 71/71 passed (including new multi-step queries)
+
+**Verification:**
+```
+# Log output during multi-step research query:
+[06435] INFO: Pruned context messages (smart)
+
+# Tests verify:
+- LLM called for content > 500 chars
+- Caching prevents duplicate LLM calls
+- Fallback to basic on LLM error
+- Python output keeps head/tail pattern
+```
+
+---
+
 ### 2026-01-18: SSE Event Queue Overflow Fix
 
 **Branch:** `feature/queue-overflow-fix` (merged to `test`)
