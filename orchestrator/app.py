@@ -131,26 +131,72 @@ async def lifespan(app: FastAPI):
     db = await get_db()
     logger.info("Database initialized")
 
-    # Clean up orphaned runs (stuck in 'running' state from previous crash/restart)
+    # Clean up orphaned data (stuck in 'running' state from previous crash/restart)
+    # This runs unconditionally to catch any orphaned tool_calls/steps even if runs were already cleaned
+
+    # Count orphaned runs
     cursor = await db.conn.execute(
         "SELECT COUNT(*) FROM runs WHERE status = 'running'"
     )
     row = await cursor.fetchone()
-    orphaned_count = row[0] if row else 0
+    orphaned_runs = row[0] if row else 0
 
-    if orphaned_count > 0:
-        await db.conn.execute(
-            """
-            UPDATE runs
-            SET status = 'failed',
-                error_message = 'Server restarted - run was interrupted'
-            WHERE status = 'running'
-            """
-        )
+    # Count orphaned tool calls
+    cursor = await db.conn.execute(
+        "SELECT COUNT(*) FROM agent_tool_calls WHERE status IN ('running', 'pending')"
+    )
+    row = await cursor.fetchone()
+    orphaned_tool_calls = row[0] if row else 0
+
+    # Count orphaned steps
+    cursor = await db.conn.execute(
+        "SELECT COUNT(*) FROM agent_steps WHERE state IN ('tool_calling', 'planning')"
+    )
+    row = await cursor.fetchone()
+    orphaned_steps = row[0] if row else 0
+
+    if orphaned_runs > 0 or orphaned_tool_calls > 0 or orphaned_steps > 0:
+        # Mark orphaned runs as failed
+        if orphaned_runs > 0:
+            await db.conn.execute(
+                """
+                UPDATE runs
+                SET status = 'failed',
+                    error_message = 'Server restarted - run was interrupted'
+                WHERE status = 'running'
+                """
+            )
+
+        # Clean up orphaned agent_tool_calls (status = running/pending)
+        if orphaned_tool_calls > 0:
+            await db.conn.execute(
+                """
+                UPDATE agent_tool_calls
+                SET status = 'interrupted',
+                    error_message = 'Server restarted - tool call was interrupted'
+                WHERE status IN ('running', 'pending')
+                """
+            )
+
+        # Clean up orphaned agent_steps (state = tool_calling/planning)
+        if orphaned_steps > 0:
+            await db.conn.execute(
+                """
+                UPDATE agent_steps
+                SET state = 'error',
+                    error_message = 'Server restarted - step was interrupted'
+                WHERE state IN ('tool_calling', 'planning')
+                """
+            )
+
         await db.conn.commit()
         logger.warning(
-            f"Cleaned up {orphaned_count} orphaned runs",
-            extra={"orphaned_runs": orphaned_count}
+            "Cleaned up orphaned data on startup",
+            extra={
+                "orphaned_runs": orphaned_runs,
+                "orphaned_tool_calls": orphaned_tool_calls,
+                "orphaned_steps": orphaned_steps,
+            }
         )
 
     yield
