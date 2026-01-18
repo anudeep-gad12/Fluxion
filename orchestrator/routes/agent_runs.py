@@ -234,7 +234,7 @@ async def create_agent_run(request: CreateAgentRunRequest):
 
     try:
         # Initialize state
-        event_queue: asyncio.Queue = asyncio.Queue(maxsize=100)
+        event_queue: asyncio.Queue = asyncio.Queue(maxsize=1000)
         abort_signal = asyncio.Event()
 
         _active_runs[run_id] = event_queue

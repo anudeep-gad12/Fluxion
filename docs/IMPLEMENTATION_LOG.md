@@ -9,7 +9,7 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
-| (none) | - | - | - |
+| feature/queue-overflow-fix | Increase SSE queue size and add logging | testing | 2026-01-18 |
 
 ---
 
@@ -24,6 +24,46 @@
 ---
 
 ## Completed
+
+### 2026-01-18: SSE Event Queue Overflow Fix
+
+**Branch:** `feature/queue-overflow-fix` (merged to `test`)
+**Status:** merged
+
+**Description:**
+Fix SSE event queue overflow that caused streaming tokens to be silently dropped during long agent responses. The queue was filling up during web searches with lots of content, causing choppy/incomplete streaming to the UI.
+
+**Problem:**
+- Event queue had maxsize=100, too small for long agent responses
+- runs.py silently dropped events (`except QueueFull: pass`)
+- Sanity test showed 200+ "Event queue full" warnings during web search
+- UI experienced choppy streaming (final answer still worked via DB polling)
+
+**Fix:**
+- Increased queue size from 100 to 1000 in all three locations
+- Added `logger.warning("Event queue full")` in runs.py (agent_runs.py already had it)
+
+**Files Modified:**
+- `orchestrator/routes/runs.py` - Queue size 100→1000, added logging (2 locations)
+- `orchestrator/routes/agent_runs.py` - Queue size 100→1000
+
+**Files Updated:**
+- `tests/routes/test_runs.py` - 3 new tests for queue configuration
+
+**Tests:**
+- Unit: 3 new (all pass)
+- Full suite: 548 passed, 2 failed (pre-existing)
+
+**Verification:**
+```
+# Before: ~200 "Event queue full" warnings during web search
+# After: Queue can hold 10x more events
+
+uv run pytest tests/routes/test_runs.py -v
+7 passed (3 queue tests + 4 cleanup tests)
+```
+
+---
 
 ### 2026-01-18: ChatEngine HTTP Connection Cleanup
 
@@ -243,6 +283,6 @@ Status: succeeded
 
 | Metric | Value |
 |--------|-------|
-| Features this session | 4 |
-| Total tests added | 30 |
+| Features this session | 5 |
+| Total tests added | 33 |
 | PRs to main | 0 |
