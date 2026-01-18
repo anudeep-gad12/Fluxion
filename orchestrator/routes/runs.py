@@ -136,6 +136,9 @@ async def create_conversation_run(conversation_id: str, request: CreateConversat
             # Immediate cleanup on error
             _active_runs.pop(run_id, None)
             return
+        finally:
+            # Always close the engine to release HTTP connections
+            await engine.close()
         # Delay cleanup on success for late joiners
         await asyncio.sleep(2)
         _active_runs.pop(run_id, None)
@@ -202,6 +205,9 @@ async def create_run(request: CreateRunRequest):
             # Immediate cleanup on error
             _active_runs.pop(run_id, None)
             return
+        finally:
+            # Always close the engine to release HTTP connections
+            await engine.close()
         # Delay cleanup on success for late joiners
         await asyncio.sleep(2)
         _active_runs.pop(run_id, None)
