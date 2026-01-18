@@ -1,0 +1,5 @@
+# Nixpacks configuration for Railway
+# https://nixpacks.com/docs/configuration/file
+
+[start]
+cmd = "uv run uvicorn orchestrator.app:app --host 0.0.0.0 --port ${PORT:-8080}"
