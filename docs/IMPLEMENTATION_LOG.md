@@ -9,7 +9,7 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
-| (none) | - | - | - |
+| feature/chatengine-cleanup | Fix ChatEngine HTTP connection leak | testing | 2026-01-18 |
 
 ---
 
@@ -24,6 +24,50 @@
 ---
 
 ## Completed
+
+### 2026-01-18: ChatEngine HTTP Connection Cleanup
+
+**Branch:** `feature/chatengine-cleanup` (merged to `test`)
+**Status:** merged
+
+**Description:**
+Fix resource leak where ChatEngine (and its underlying httpx.AsyncClient) was never closed after chat completion. Each chat request creates a new ChatEngine with an HTTP client, but `engine.close()` was never called, leading to connection leaks.
+
+**Problem:**
+- `orchestrator/routes/runs.py` creates a ChatEngine for each run
+- ChatEngine creates an OpenAICompatProvider with an httpx.AsyncClient
+- Neither `engine.close()` nor `provider.close()` was called after chat completion
+- HTTP connections would accumulate until server restart
+
+**Fix:**
+Added `finally` block to call `await engine.close()` in both `run_chat()` functions:
+- `create_conversation_run` (line 139-141)
+- `create_run` (line 208-210)
+
+**Files Created:**
+- `tests/routes/__init__.py` - Test package init
+- `tests/routes/test_runs.py` - 4 tests for ChatEngine cleanup
+
+**Files Modified:**
+- `orchestrator/routes/runs.py` - Added `finally: await engine.close()` in both run_chat functions
+
+**Tests:**
+- Unit: 4 new (all pass)
+- Full suite: 545 passed, 2 failed (pre-existing)
+
+**Verification:**
+```
+uv run pytest tests/routes/test_runs.py -v
+4 passed in 0.32s
+
+# Tests verify:
+# 1. engine.close() called on success
+# 2. engine.close() called on error
+# 3. Provider's httpx client is closed
+# 4. ChatEngine.close() calls provider.close()
+```
+
+---
 
 ### 2026-01-18: Orphaned Run Cleanup on Startup
 
@@ -199,6 +243,6 @@ Status: succeeded
 
 | Metric | Value |
 |--------|-------|
-| Features this session | 3 |
-| Total tests added | 26 |
+| Features this session | 4 |
+| Total tests added | 30 |
 | PRs to main | 0 |
