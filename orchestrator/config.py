@@ -21,11 +21,18 @@ from pydantic import BaseModel, field_validator
 # =============================================================================
 
 BASE_DIR = Path(__file__).parent.parent
-VAR_DIR = BASE_DIR / "var"
-DB_PATH = VAR_DIR / "traces.sqlite"
 CHAT_CONFIG_PATH = Path(__file__).parent / "chat_config.yaml"
 
-# Ensure directories exist
+# Database path - configurable for Railway volumes or other persistent storage
+# Default: var/traces.sqlite (relative to project root)
+DB_PATH_STR = os.environ.get("DATABASE_PATH", str(BASE_DIR / "var" / "traces.sqlite"))
+DB_PATH = Path(DB_PATH_STR)
+
+# Ensure database directory exists
+DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+# VAR_DIR for backward compatibility (local dev)
+VAR_DIR = BASE_DIR / "var"
 VAR_DIR.mkdir(exist_ok=True)
 
 
