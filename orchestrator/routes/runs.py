@@ -79,7 +79,7 @@ async def create_conversation_run(conversation_id: str, request: CreateConversat
         raise HTTPException(status_code=404, detail="Conversation not found")
 
     run_id = str(uuid.uuid4())
-    event_queue: asyncio.Queue = asyncio.Queue(maxsize=100)
+    event_queue: asyncio.Queue = asyncio.Queue(maxsize=1000)
     _active_runs[run_id] = event_queue
 
     # Auto-title from first message
@@ -95,7 +95,7 @@ async def create_conversation_run(conversation_id: str, request: CreateConversat
             try:
                 event_queue.put_nowait(event)
             except asyncio.QueueFull:
-                pass
+                logger.warning("Event queue full", extra={"run_id": run_id})
 
         # Map UI mode to strategy (from config)
         strategy = _mode_to_strategy(request.thinking_mode, config.thinking.mode_mapping)
@@ -169,7 +169,7 @@ async def create_run(request: CreateRunRequest):
     )
 
     run_id = str(uuid.uuid4())
-    event_queue: asyncio.Queue = asyncio.Queue(maxsize=100)
+    event_queue: asyncio.Queue = asyncio.Queue(maxsize=1000)
     _active_runs[run_id] = event_queue
 
     async def run_chat():
@@ -180,7 +180,7 @@ async def create_run(request: CreateRunRequest):
             try:
                 event_queue.put_nowait(event)
             except asyncio.QueueFull:
-                pass
+                logger.warning("Event queue full", extra={"run_id": run_id})
 
         try:
             result = await engine.chat(

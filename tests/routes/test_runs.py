@@ -1,8 +1,37 @@
-"""Tests for runs routes, particularly ChatEngine resource cleanup."""
+"""Tests for runs routes, particularly ChatEngine resource cleanup and queue behavior."""
 
 import asyncio
 import pytest
 from unittest.mock import patch, AsyncMock, MagicMock
+
+
+class TestEventQueueSize:
+    """Tests for event queue configuration."""
+
+    def test_queue_size_is_1000_for_conversation_run(self):
+        """Event queue should have maxsize=1000 for conversation runs."""
+        # The queue is created inside the route, so we verify by checking the code
+        import orchestrator.routes.runs as runs_module
+        import inspect
+
+        source = inspect.getsource(runs_module.create_conversation_run)
+        assert "maxsize=1000" in source, "Queue maxsize should be 1000"
+
+    def test_queue_size_is_1000_for_standalone_run(self):
+        """Event queue should have maxsize=1000 for standalone runs."""
+        import orchestrator.routes.runs as runs_module
+        import inspect
+
+        source = inspect.getsource(runs_module.create_run)
+        assert "maxsize=1000" in source, "Queue maxsize should be 1000"
+
+    def test_queue_overflow_logs_warning(self):
+        """When queue is full, a warning should be logged."""
+        import orchestrator.routes.runs as runs_module
+        import inspect
+
+        source = inspect.getsource(runs_module.create_conversation_run)
+        assert 'logger.warning("Event queue full"' in source, "Should log warning on queue full"
 
 
 class TestChatEngineCleanup:
