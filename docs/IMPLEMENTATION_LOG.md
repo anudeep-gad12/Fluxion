@@ -25,6 +25,41 @@
 
 ## Completed
 
+### 2026-01-19: Fix Agent Forced Synthesis for Reasoning Models
+
+**Branch:** `fix/agent-forced-synthesis-empty` (merged to `test`)
+**Status:** done
+
+**Problem:**
+Agent runs that hit max_steps would trigger forced synthesis, but the model (gpt-oss-20b) would produce empty content with all output going to `reasoning_content`. The agent would complete with `answer_length: 0`.
+
+**Root Cause:**
+1. Forced synthesis LLM call wasn't traced, making debugging difficult
+2. Reasoning models put chain-of-thought in `reasoning_content` and may not output to `content`
+3. Token limit was too low for reasoning models
+4. 20b model produced poor synthesis quality
+
+**Solution:**
+- Added trace events for forced synthesis LLM request/response
+- Increased synthesis token limit from 4096 to 8192
+- Added reasoning content fallback when text is empty
+- Clean JSON tool call patterns from reasoning before using as answer
+- Stronger synthesis prompt to prevent tool call attempts
+- Updated default model to `openai/gpt-oss-120b` for better quality
+
+**Files Changed:**
+- `orchestrator/agent/agent_engine.py` - Synthesis tracing, fallback logic
+- `orchestrator/chat_config.yaml` - Model updated to 120b
+- `orchestrator/config.py` - Model default updated to 120b
+
+**Verification:**
+```
+# Before (20b): answer_length: 260, reasoning fallback with JSON artifacts
+# After (120b): answer_length: 6236, proper text output with comparison table
+```
+
+---
+
 ### 2026-01-19: Keyboard Shortcuts for Mode Switching
 
 **Branch:** `feature/keyboard-shortcuts-mode-toggle` (merged to `test`)
