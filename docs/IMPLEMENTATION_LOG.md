@@ -9,7 +9,7 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
-| feature/keyboard-shortcuts-mode-toggle | Keyboard shortcuts for mode switching, agent mode as default | in progress | 2026-01-19 |
+| (none) | - | - | - |
 
 ---
 
@@ -24,6 +24,26 @@
 ---
 
 ## Completed
+
+### 2026-01-19: Keyboard Shortcuts for Mode Switching
+
+**Branch:** `feature/keyboard-shortcuts-mode-toggle` (merged to `test`)
+**Status:** done
+
+**Changes:**
+- Default mode changed from 'chat' to 'research' (agent mode)
+- Added keyboard shortcuts for mode switching:
+  - `Cmd/Ctrl + Shift + R` - Switch to Research/Agent mode
+  - `Cmd/Ctrl + Shift + C` - Switch to Chat mode
+- Updated help text to display all available shortcuts
+
+**Files Changed:**
+- `ui/src/components/ConversationView.tsx`
+
+**Tests:**
+- UI build: success (no TypeScript errors)
+
+---
 
 ### 2026-01-19: Fix LLM Summarization Token Limit for Reasoning Models
 
