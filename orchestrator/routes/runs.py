@@ -79,7 +79,7 @@ async def create_conversation_run(conversation_id: str, request: CreateConversat
         raise HTTPException(status_code=404, detail="Conversation not found")
 
     run_id = str(uuid.uuid4())
-    event_queue: asyncio.Queue = asyncio.Queue(maxsize=100)
+    event_queue: asyncio.Queue = asyncio.Queue(maxsize=1000)
     _active_runs[run_id] = event_queue
 
     # Auto-title from first message
@@ -95,7 +95,7 @@ async def create_conversation_run(conversation_id: str, request: CreateConversat
             try:
                 event_queue.put_nowait(event)
             except asyncio.QueueFull:
-                pass
+                logger.warning("Event queue full", extra={"run_id": run_id})
 
         # Map UI mode to strategy (from config)
         strategy = _mode_to_strategy(request.thinking_mode, config.thinking.mode_mapping)
@@ -136,6 +136,9 @@ async def create_conversation_run(conversation_id: str, request: CreateConversat
             # Immediate cleanup on error
             _active_runs.pop(run_id, None)
             return
+        finally:
+            # Always close the engine to release HTTP connections
+            await engine.close()
         # Delay cleanup on success for late joiners
         await asyncio.sleep(2)
         _active_runs.pop(run_id, None)
@@ -166,7 +169,7 @@ async def create_run(request: CreateRunRequest):
     )
 
     run_id = str(uuid.uuid4())
-    event_queue: asyncio.Queue = asyncio.Queue(maxsize=100)
+    event_queue: asyncio.Queue = asyncio.Queue(maxsize=1000)
     _active_runs[run_id] = event_queue
 
     async def run_chat():
@@ -177,7 +180,7 @@ async def create_run(request: CreateRunRequest):
             try:
                 event_queue.put_nowait(event)
             except asyncio.QueueFull:
-                pass
+                logger.warning("Event queue full", extra={"run_id": run_id})
 
         try:
             result = await engine.chat(
@@ -202,6 +205,9 @@ async def create_run(request: CreateRunRequest):
             # Immediate cleanup on error
             _active_runs.pop(run_id, None)
             return
+        finally:
+            # Always close the engine to release HTTP connections
+            await engine.close()
         # Delay cleanup on success for late joiners
         await asyncio.sleep(2)
         _active_runs.pop(run_id, None)
@@ -419,13 +425,19 @@ async def get_run_events(
         if since_seq is not None and seq <= since_seq:
             continue
         content = event.get("content", {})
+        # Include duration_ms and token_count in payload
+        payload = {
+            **content,
+            "duration_ms": event.get("duration_ms"),
+            "token_count": event.get("token_count"),
+        }
         events.append(EventResponse(
             run_id=run_id,
             seq=seq,
             ts=event.get("created_at", ""),
             type=event.get("event_type", "unknown"),
             display=content,
-            payload=content,
+            payload=payload,
         ))
 
     return {"events": [e.model_dump() for e in events]}
