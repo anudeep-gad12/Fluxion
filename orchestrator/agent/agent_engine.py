@@ -484,6 +484,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     step_number=step_number,
                     duration_ms=llm_duration_ms,
                     parent_event_id=llm_request_event_id,
+                    token_count=llm_response.usage.get("total_tokens"),
                 )
 
                 if tool_calls:
@@ -759,6 +760,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
         step_number: Optional[int] = None,
         duration_ms: Optional[int] = None,
         parent_event_id: Optional[str] = None,
+        token_count: Optional[int] = None,
     ) -> Optional[str]:
         """Write trace event if trace_repo is configured.
 
@@ -771,6 +773,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
             step_number: Agent step number.
             duration_ms: Operation duration.
             parent_event_id: Parent event for linking.
+            token_count: Number of tokens used (from API response).
 
         Returns:
             Event ID if written, None if trace_repo not configured.
@@ -787,6 +790,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 step_number=step_number,
                 duration_ms=duration_ms,
                 parent_event_id=parent_event_id,
+                token_count=token_count,
             )
         except Exception as e:
             logger.warning("Failed to write trace event", extra={"error": str(e)})
@@ -1771,6 +1775,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 "finish_reason": response.finish_reason,
                 "forced_synthesis": True,
             },
+            token_count=response.usage.get("total_tokens"),
         )
 
         # If text is empty but we got reasoning, use reasoning as the answer
