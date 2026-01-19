@@ -9,17 +9,20 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
-| test | Findings Accumulator for Agent Synthesis | in-progress | 2026-01-19 |
+| test | Agent Improvements (findings, tokens, tone) | done | 2026-01-19 |
 
-### 2026-01-19: Agent Improvements (In Progress)
+### 2026-01-19: Agent Improvements
 
 **Branch:** `test`
-**Status:** in-progress
+**Status:** done
 
 **Description:**
-Two improvements to agent quality:
+Multiple improvements to agent quality and observability:
 1. Findings accumulator for better forced synthesis
 2. Conversational system prompt for fuller reasoning
+3. Token counting with correct tokenizer (o200k_harmony)
+4. Duration and token display in answer UI
+5. Warm/engaging tone for system prompts
 
 **Changes:**
 
@@ -31,29 +34,33 @@ Two improvements to agent quality:
 
 *Conversational System Prompt:*
 - Rewrote `DEFAULT_SYSTEM_PROMPT` from bullet-point imperative style to flowing conversational paragraphs
-- Same information, different tone - no explicit "think step by step" instructions
-- Result: Model now produces full-sentence reasoning instead of terse fragments
+- Added warm/engaging tone guidance to agent and chat prompts
 
-**Before (terse):**
-```
-"Need current data 2024 budgets. Must web search."
-```
-
-**After (conversational):**
-```
-"User asks: 'What news articles came out today about OpenAI?' Today is Jan 19, 2026
-(current date). Need news articles from today. Need to search web for recent news..."
-```
+*Token Counting & Display:*
+- Fixed tokenizer to use `o200k_harmony` (correct for gpt-oss models)
+- Added `total_tokens` field to `AgentResult` with accumulation across LLM calls
+- Token counts now shown in trace events via API
+- UI displays duration (clock icon) and tokens (zap icon) in answer footer
 
 **Files Modified:**
-- `orchestrator/agent/agent_engine.py` - Findings accumulator + system prompt rewrite
+- `orchestrator/agent/agent_engine.py` - Findings, prompts, token tracking
+- `orchestrator/utils/tokens.py` - Switch to o200k_harmony tokenizer
+- `orchestrator/routes/agent_runs.py` - Include total_tokens in SSE complete
+- `orchestrator/chat_config.yaml` - Warm tone for chat prompt
+- `ui/src/components/AgentRunMessage.tsx` - Duration/tokens display
+- `ui/src/hooks/useAgentSSE.ts` - Handle timing_ms and total_tokens
+- `ui/src/types/agent.ts` - Add stats to CompleteEvent and AgentUIState
 - `tests/agent/test_agent_engine.py` - 9 new tests for findings accumulator
 
 **Tests:**
 - Unit: 45 passed (agent_engine tests)
+- UI build: success
 
-**Verification:**
-- Live test confirmed fuller reasoning in agent_steps.thinking_text
+**Commits:**
+- `0da257e` - Conversational prompt + findings accumulator
+- `2d72b54` - o200k_harmony tokenizer fix
+- `9a36ddf` - Token counts in trace events
+- `a6d8d96` - Duration and token display in answer UI
 
 ---
 
