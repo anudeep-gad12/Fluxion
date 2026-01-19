@@ -494,22 +494,27 @@ class ThinkingResult:
 │  ┌────────────────┐  ┌────────────────┐  ┌────────────────────────────┐ │
 │  │ State Machine  │  │ Context Pruner │  │ Tool Registry              │ │
 │  │ - PLANNING     │  │ - Token budget │  │ - web_search               │ │
-│  │ - TOOL_CALLING │  │ - Prune old    │  │ - extract_content          │ │
-│  │ - SYNTHESIZING │  │   context      │  │ - python_exec              │ │
-│  │ - COMPLETE     │  │                │  │                            │ │
+│  │ - TOOL_CALLING │  │ - LLM-based    │  │ - web_extract              │ │
+│  │ - SYNTHESIZING │  │   summarization│  │ - python_execute           │ │
+│  │ - COMPLETE     │  │ - Query-aware  │  │                            │ │
 │  │ - ERROR        │  │                │  │                            │ │
 │  └────────┬───────┘  └────────────────┘  └────────────────────────────┘ │
 │           │                                                              │
+│           │          ┌────────────────┐                                  │
+│           │          │ Findings       │ Tracks key findings from each   │
+│           │          │ Accumulator    │ tool result for synthesis       │
+│           │          └────────────────┘                                  │
 │           ▼                                                              │
 │  ┌────────────────────────────────────────────────────────────────────┐ │
 │  │                        Agent Loop                                   │ │
 │  │  while not (synthesis or max_steps):                                │ │
-│  │    1. Prune context to fit token budget                             │ │
+│  │    1. Prune context with LLM summarization (query-aware)            │ │
 │  │    2. Call LLM with tool schemas                                    │ │
 │  │    3. Parse response for tool calls or synthesis decision           │ │
 │  │    4. Execute tools (with idempotency keys)                         │ │
-│  │    5. Record results in database                                    │ │
-│  │    6. Emit SSE events for UI                                        │ │
+│  │    5. Extract findings from tool results                            │ │
+│  │    6. Record results in database, track tokens                      │ │
+│  │    7. Emit SSE events for UI                                        │ │
 │  └────────────────────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -545,11 +550,13 @@ Any state can transition to ERROR on failure
 
 | Tool | Description | Provider | Registration |
 |------|-------------|----------|--------------|
-| `python_execute` | Execute Python code locally | Local subprocess | Always registered |
+| `python_execute` | Execute Python code | Local subprocess or Daytona | Always registered |
 | `web_search` | Search the web for information | Parallel.ai | Requires `PARALLEL_API_KEY` |
 | `web_extract` | Extract content from URLs | Parallel.ai | Requires `PARALLEL_API_KEY` |
 
-Note: The E2B sandbox tool (`python_sandbox.py`) exists but is not registered by default. Python execution uses local subprocess for speed and reliability.
+**Python Execution Providers** (set via `PYTHON_PROVIDER` env var):
+- `local` (default): Fast subprocess execution
+- `daytona`: Secure cloud sandbox via Daytona SDK (~90ms startup)
 
 ### Crash Recovery
 
@@ -557,6 +564,31 @@ The agent supports crash recovery via:
 - **Idempotency Keys**: Hash-based tool call deduplication
 - **State Reconstruction**: Rebuild state from database on restart
 - **Execution Attempts**: Track retry count per tool call
+
+### Findings Accumulator
+
+The agent tracks key findings from each tool result to improve synthesis quality:
+- Extracts query-relevant facts from web search/extract results
+- Stores findings with step number and source tool
+- Includes accumulated findings in forced synthesis prompt
+- Improves answer quality when hitting max steps
+
+### LLM-Based Context Summarization
+
+The `ContextPruner` uses LLM calls to create query-aware summaries:
+- Summarizes tool results over 500 chars using LLM
+- Prompt extracts only facts relevant to the user's query
+- Results are cached to prevent duplicate LLM calls
+- Falls back to basic truncation on error
+- Python output keeps head/tail pattern (not LLM summarized)
+
+### Token Tracking
+
+The agent tracks total tokens used across all LLM calls:
+- Accumulates tokens from each planning/tool-calling step
+- Includes tokens from forced synthesis
+- Returns `total_tokens` in `AgentResult`
+- Displayed in UI alongside duration
 
 ---
 
