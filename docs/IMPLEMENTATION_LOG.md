@@ -9,7 +9,7 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
-| (none) | - | - | - |
+| feature/keyboard-shortcuts-mode-toggle | Keyboard shortcuts for mode switching, agent mode as default | in progress | 2026-01-19 |
 
 ---
 

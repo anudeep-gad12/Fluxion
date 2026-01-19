@@ -130,7 +130,7 @@ export function ConversationView() {
   const [message, setMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>('medium');
-  const [mode, setMode] = useState<ChatMode>('chat');
+  const [mode, setMode] = useState<ChatMode>('research');
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Stop generation state
@@ -330,9 +330,23 @@ export function ConversationView() {
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    // Cmd/Ctrl + Enter to send
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       handleSubmit();
+      return;
+    }
+    // Cmd/Ctrl + Shift + R for Research/Agent mode
+    if (e.key === 'r' && (e.metaKey || e.ctrlKey) && e.shiftKey) {
+      e.preventDefault();
+      setMode('research');
+      return;
+    }
+    // Cmd/Ctrl + Shift + C for Chat mode
+    if (e.key === 'c' && (e.metaKey || e.ctrlKey) && e.shiftKey) {
+      e.preventDefault();
+      setMode('chat');
+      return;
     }
   };
 
@@ -414,7 +428,7 @@ export function ConversationView() {
                 : reasoningEffort === 'medium'
                   ? '🧠 Balanced'
                   : '⚡ Fast'}{' '}
-            · Cmd/Ctrl + Enter to send
+            · ⌘/Ctrl+Enter send · ⌘/Ctrl+Shift+R agent · ⌘/Ctrl+Shift+C chat
           </p>
         </div>
       </div>
@@ -518,7 +532,7 @@ export function ConversationView() {
               : reasoningEffort === 'medium'
                 ? '🧠 Balanced'
                 : '⚡ Fast'}{' '}
-          · Cmd/Ctrl + Enter to send
+          · ⌘/Ctrl+Enter send · ⌘/Ctrl+Shift+R agent · ⌘/Ctrl+Shift+C chat
         </p>
       </div>
     </div>
