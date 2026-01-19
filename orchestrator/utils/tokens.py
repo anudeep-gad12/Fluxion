@@ -1,7 +1,7 @@
 """Token counting utilities using tiktoken.
 
-Uses cl100k_base encoding which works ~95% accurately for most models
-including OpenAI GPT-4, Mistral, and similar architectures.
+Uses o200k_harmony encoding which is the tokenizer for gpt-oss models.
+This provides accurate token counting for gpt-oss-20b and gpt-oss-120b.
 """
 
 from typing import Optional
@@ -16,14 +16,14 @@ def _get_encoder() -> tiktoken.Encoding:
     """Get or create the tiktoken encoder (lazy initialization)."""
     global _encoder
     if _encoder is None:
-        _encoder = tiktoken.get_encoding("cl100k_base")
+        _encoder = tiktoken.get_encoding("o200k_harmony")
     return _encoder
 
 
 class TokenCounter:
-    """Token counter using tiktoken cl100k_base encoding.
+    """Token counter using tiktoken o200k_harmony encoding.
 
-    This provides accurate token counting compatible with most modern LLMs.
+    This provides accurate token counting for gpt-oss models.
     Falls back to character estimation if tiktoken fails.
     """
 
