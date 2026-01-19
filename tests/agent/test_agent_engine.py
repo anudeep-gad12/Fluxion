@@ -174,7 +174,7 @@ class TestAgentEngineInit:
             registry=create_mock_registry(),
         )
 
-        assert engine._model_name == "qwen3-32b"
+        assert engine._model_name == "openai/gpt-oss-120b"
         assert engine._max_steps == 10
         assert engine._max_tokens == 4096
         assert engine._temperature == 0.7
@@ -1010,3 +1010,201 @@ class TestAgentEngineForceSynthesis:
         synth_events = [e for e in events if e["type"] == "synthesizing"]
         assert len(synth_events) == 1
         assert synth_events[0].get("forced") is True
+
+
+class TestAgentEngineFindingsAccumulator:
+    """Tests for findings accumulator feature."""
+
+    def test_findings_initialized_empty(self):
+        """Findings list is initialized empty."""
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=create_mock_repo(),
+            registry=create_mock_registry(),
+        )
+        assert engine._findings == []
+        assert engine._current_query is None
+
+    def test_extract_finding_from_web_search(self):
+        """Extracts finding from web_search result."""
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=create_mock_repo(),
+            registry=create_mock_registry(),
+        )
+
+        finding = engine._extract_finding_from_result(
+            tool_name="web_search",
+            arguments={"query": "capital of France"},
+            result_summary="Found 5 results about Paris being the capital of France.",
+            step_number=1,
+        )
+
+        assert finding is not None
+        assert finding["step"] == 1
+        assert finding["tool"] == "web_search"
+        assert finding["query"] == "capital of France"
+        assert "Search for 'capital of France'" in finding["content"]
+
+    def test_extract_finding_from_web_extract(self):
+        """Extracts finding from web_extract result."""
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=create_mock_repo(),
+            registry=create_mock_registry(),
+        )
+
+        finding = engine._extract_finding_from_result(
+            tool_name="web_extract",
+            arguments={"urls": ["http://example.com/page"]},
+            result_summary="The article discusses the history of the Eiffel Tower...",
+            step_number=2,
+        )
+
+        assert finding is not None
+        assert finding["step"] == 2
+        assert finding["tool"] == "web_extract"
+        assert "example.com" in finding["url"]
+        assert "Extracted from" in finding["content"]
+
+    def test_extract_finding_from_python_success(self):
+        """Extracts finding from successful python_execute result."""
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=create_mock_repo(),
+            registry=create_mock_registry(),
+        )
+
+        finding = engine._extract_finding_from_result(
+            tool_name="python_execute",
+            arguments={"code": "print(2 + 2)"},
+            result_summary="The calculation result is 42.",
+            step_number=3,
+        )
+
+        assert finding is not None
+        assert finding["step"] == 3
+        assert finding["tool"] == "python_execute"
+        assert "Python result:" in finding["content"]
+
+    def test_extract_finding_skips_python_error(self):
+        """Skips extraction for python_execute with error."""
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=create_mock_repo(),
+            registry=create_mock_registry(),
+        )
+
+        finding = engine._extract_finding_from_result(
+            tool_name="python_execute",
+            arguments={"code": "invalid code"},
+            result_summary="Error: SyntaxError: invalid syntax",
+            step_number=3,
+        )
+
+        assert finding is None
+
+    def test_extract_finding_skips_short_content(self):
+        """Skips extraction for very short content."""
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=create_mock_repo(),
+            registry=create_mock_registry(),
+        )
+
+        finding = engine._extract_finding_from_result(
+            tool_name="web_search",
+            arguments={"query": "test"},
+            result_summary="No results",  # Too short
+            step_number=1,
+        )
+
+        assert finding is None
+
+    def test_extract_finding_truncates_long_content(self):
+        """Truncates long content in finding."""
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=create_mock_repo(),
+            registry=create_mock_registry(),
+        )
+
+        long_summary = "A" * 500  # Longer than 300 char limit for web_search
+        finding = engine._extract_finding_from_result(
+            tool_name="web_search",
+            arguments={"query": "test"},
+            result_summary=long_summary,
+            step_number=1,
+        )
+
+        assert finding is not None
+        assert finding["content"].endswith("...")
+        assert len(finding["content"]) < len(long_summary) + 50  # Some overhead for prefix
+
+    @pytest.mark.asyncio
+    async def test_force_synthesis_includes_findings(self):
+        """Force synthesis prompt includes accumulated findings."""
+        provider = MagicMock()
+        provider.complete_streaming = AsyncMock(
+            return_value=LLMResponse(text="Synthesized answer", tool_calls=None)
+        )
+
+        engine = AgentEngine(
+            provider=provider,
+            repo=create_mock_repo(),
+            registry=create_mock_registry(),
+        )
+
+        # Set up findings
+        engine._current_query = "What is the capital of France?"
+        engine._findings = [
+            {"step": 1, "tool": "web_search", "content": "Search for 'capital of France': Paris is the capital."},
+            {"step": 2, "tool": "web_extract", "content": "Extracted from wikipedia.org: Paris has been the capital since..."},
+        ]
+
+        result = await engine._force_synthesis(
+            messages=[{"role": "system", "content": "System"}],
+            event_callback=lambda e: None,
+            run_id="run-1",
+        )
+
+        # Check that the prompt includes findings
+        call_args = provider.complete_streaming.call_args
+        messages = call_args[1]["messages"]
+        last_message = messages[-1]["content"]
+
+        assert "KEY FINDINGS" in last_message
+        assert "2 items" in last_message
+        assert "capital of France" in last_message
+        assert "Paris is the capital" in last_message
+
+    @pytest.mark.asyncio
+    async def test_force_synthesis_without_findings(self):
+        """Force synthesis works without findings (fallback prompt)."""
+        provider = MagicMock()
+        provider.complete_streaming = AsyncMock(
+            return_value=LLMResponse(text="Synthesized answer", tool_calls=None)
+        )
+
+        engine = AgentEngine(
+            provider=provider,
+            repo=create_mock_repo(),
+            registry=create_mock_registry(),
+        )
+
+        # No findings set
+        engine._findings = []
+
+        result = await engine._force_synthesis(
+            messages=[{"role": "system", "content": "System"}],
+            event_callback=lambda e: None,
+            run_id="run-1",
+        )
+
+        # Check that fallback prompt is used
+        call_args = provider.complete_streaming.call_args
+        messages = call_args[1]["messages"]
+        last_message = messages[-1]["content"]
+
+        assert "KEY FINDINGS" not in last_message
+        assert "maximum number of research steps" in last_message

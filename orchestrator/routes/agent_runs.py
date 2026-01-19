@@ -200,6 +200,7 @@ async def _run_agent_task(
                         "citations": result.citations,
                         "total_steps": result.total_steps,
                         "timing_ms": result.timing_ms,
+                        "total_tokens": result.total_tokens,
                     },
                 }
             )
@@ -234,7 +235,7 @@ async def create_agent_run(request: CreateAgentRunRequest):
 
     try:
         # Initialize state
-        event_queue: asyncio.Queue = asyncio.Queue(maxsize=100)
+        event_queue: asyncio.Queue = asyncio.Queue(maxsize=1000)
         abort_signal = asyncio.Event()
 
         _active_runs[run_id] = event_queue
