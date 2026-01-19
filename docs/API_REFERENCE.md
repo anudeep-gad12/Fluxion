@@ -972,7 +972,7 @@ data: {"error": "Connection failed", "code": "PROVIDER_ERROR"}
 | `tool_start` | Tool starting | `{tool_call_id, tool_name, arguments}` |
 | `tool_result` | Tool finished | `{tool_call_id, success, result_summary, duration_ms}` |
 | `answer` | Answer token | `{content}` |
-| `complete` | Agent done | `{final_answer, citations, total_steps, timing_ms}` |
+| `complete` | Agent done | `{success, final_answer, citations, total_steps, timing_ms, total_tokens}` |
 | `error` | Error | `{error, step}` |
 | `cancelled` | Cancelled | `{message}` |
 | `heartbeat` | Keep-alive | `{}` |
@@ -994,7 +994,7 @@ data: {"seq": 6, "type": "agent_state", "state": "synthesizing", "current_step":
 
 data: {"seq": 7, "type": "answer", "content": "Based on my research"}
 
-data: {"seq": 8, "type": "complete", "final_answer": "Based on my research...", "citations": [...], "total_steps": 2, "timing_ms": 15000}
+data: {"seq": 8, "type": "complete", "success": true, "final_answer": "Based on my research...", "citations": [...], "total_steps": 2, "timing_ms": 15000, "total_tokens": 4250}
 
 ```
 

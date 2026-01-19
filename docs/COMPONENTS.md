@@ -51,10 +51,17 @@ async def lifespan(app: FastAPI):
     setup_logging()
     config = load_config()
     await get_db().initialize()
+    await cleanup_orphaned_data()  # Clean up runs/steps from crashes
     yield
     # Shutdown
     await cleanup()
 ```
+
+**Orphaned Data Cleanup** (on startup):
+- Marks runs with `status='running'` as `'failed'`
+- Marks tool_calls with `status='running'/'pending'` as `'interrupted'`
+- Marks steps with `state='tool_calling'/'planning'` as `'error'`
+- Prevents UI showing spinners for orphaned runs after server restart
 
 ### `orchestrator/config.py`
 
@@ -512,18 +519,34 @@ result = await engine.run(run_id, query)
 | `_execute_step()` | Single step execution |
 | `_execute_tool()` | Tool execution with idempotency |
 | `_synthesize()` | Generate final answer |
+| `_force_synthesis()` | Synthesize when hitting max steps |
+| `_extract_finding_from_result()` | Extract key findings from tool results |
 
 **Agent Loop**:
 ```python
 while not (synthesis or step >= max_steps):
-    1. Prune context (token budget)
+    1. Prune context with LLM summarization (query-aware)
     2. Call LLM with tool schemas
     3. Parse response:
        - tool_calls → execute tools
        - synthesize decision → break loop
-    4. Record step in database
-    5. Emit SSE events
+    4. Extract findings from tool results
+    5. Track token usage
+    6. Record step in database
+    7. Emit SSE events
 ```
+
+**Findings Accumulator**:
+- `_findings` list tracks key findings from tool results
+- Extracts query-relevant facts from web_search/web_extract
+- Included in forced synthesis prompt when hitting max steps
+- Improves answer quality for complex multi-step queries
+
+**Token Tracking**:
+- `_total_tokens` accumulates tokens from all LLM calls
+- Includes planning steps, tool calling, and synthesis
+- Returned in `AgentResult.total_tokens`
+- Displayed in UI footer with duration
 
 **Crash Recovery**:
 - Idempotency keys for tool calls
@@ -553,15 +576,26 @@ while not (synthesis or step >= max_steps):
 
 ### `orchestrator/agent/context_pruner.py`
 
-**Purpose**: Manage context within token budget.
+**Purpose**: Manage context within token budget with LLM-based smart summarization.
 
 **Class: `ContextPruner`**
 
+**Key Methods**:
+- `prune()` - Synchronous pruning (basic truncation)
+- `prune_async()` - Async pruning with LLM summarization
+- `set_llm(provider, model, query)` - Configure LLM for smart summaries
+
 **Strategy**:
 1. Calculate current token usage
-2. If over budget, remove oldest tool results
-3. Keep most recent context
-4. Preserve system prompt and query
+2. If over budget, summarize oldest tool results
+3. Use LLM to extract query-relevant facts (content > 500 chars)
+4. Cache summaries to prevent duplicate LLM calls
+5. Fall back to basic truncation on error
+6. Python output keeps head/tail pattern (not LLM summarized)
+
+**Configuration**:
+- `MAX_SUMMARY_TOKENS = 400` - Token limit for summary LLM calls
+- `keep_full_steps` - Number of recent steps to keep detailed (default: 2)
 
 ### `orchestrator/agent/query_classifier.py`
 
@@ -660,7 +694,7 @@ class BaseTool(Protocol):
 
 ### `orchestrator/agent/tools/python_local.py`
 
-**Purpose**: Local Python code execution (always registered).
+**Purpose**: Local Python code execution (default provider).
 
 **Class: `LocalPythonTool`**
 
@@ -679,15 +713,31 @@ class BaseTool(Protocol):
 - Subprocess execution via `python3 -c`
 - Configurable timeout (default 30s)
 - Stdout/stderr capture
-- Always registered (no API key required)
+- No API key required
+
+**Registration**: Used when `PYTHON_PROVIDER=local` (default).
+
+### `orchestrator/agent/tools/python_daytona.py`
+
+**Purpose**: Secure Python execution in Daytona cloud sandbox.
+
+**Class: `DaytonaPythonTool`**
+
+**Features**:
+- Secure isolated execution via Daytona SDK
+- ~90ms startup time
+- Same schema as `LocalPythonTool`
+- Ideal for production deployments (Railway, etc.)
+
+**Registration**: Used when `PYTHON_PROVIDER=daytona`. Requires `DAYTONA_API_KEY`.
 
 ### `orchestrator/agent/tools/python_sandbox.py`
 
-**Purpose**: Python execution in E2B sandbox (not registered by default).
+**Purpose**: Python execution in E2B sandbox (deprecated).
 
 **Class: `PythonSandboxTool`**
 
-**Note**: This tool exists but is not registered by default. The system uses `LocalPythonTool` for local Python execution.
+**Note**: This tool exists but is not registered. Use `LocalPythonTool` or `DaytonaPythonTool` instead.
 
 ---
 
@@ -1005,19 +1055,26 @@ _EVENT_TYPE_MAP = {
 
 ### `ui/src/components/AgentRunMessage.tsx`
 
-**Purpose**: Display complete agent run.
+**Purpose**: Display complete agent run with stats.
 
 **Elements**:
 - User query bubble (indigo)
 - "Research Agent" badge
-- Progress indicator
+- Progress indicator (step N/M)
 - AgentStepsPanel
 - AnswerWithCitations
 - Status badge and actions
+- **Stats display** (when complete):
+  - Duration with Clock icon (formatted: ms, s, or Xm Ys)
+  - Total tokens with Zap icon (with thousands separator)
 
 **Actions**:
 - "Stop" while running
 - "Details" when complete
+
+**Helper Functions**:
+- `formatDuration(ms)`: Converts milliseconds to human-readable duration
+- `formatTokens(tokens)`: Formats token count with locale-aware thousands separator
 
 ### `ui/src/components/AgentStepsPanel.tsx`
 
