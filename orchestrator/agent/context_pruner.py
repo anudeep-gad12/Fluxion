@@ -81,7 +81,7 @@ class ContextPruner:
     KEEP_FULL_STEPS: int = 2
     MAX_PYTHON_OUTPUT_CHARS: int = 500
     CHARS_PER_TOKEN: float = 4.0  # Rough estimate
-    MAX_SUMMARY_TOKENS: int = 150  # Max tokens for LLM summaries
+    MAX_SUMMARY_TOKENS: int = 400  # Max tokens for LLM summaries (reasoning models need more)
 
     # Prompt template for LLM summarization
     SUMMARIZE_PROMPT: str = """Summarize the key facts from this tool result that help answer the user's query.
