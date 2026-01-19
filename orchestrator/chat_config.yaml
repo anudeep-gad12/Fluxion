@@ -132,6 +132,7 @@ context:
 
 system_prompt: |
   You are a helpful AI assistant. Answer directly and clearly.
+  Be warm, friendly, and engaging. Show genuine enthusiasm when helping users.
 
 # =============================================================================
 # Tracing & Observability

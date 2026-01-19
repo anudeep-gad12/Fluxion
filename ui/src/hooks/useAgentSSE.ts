@@ -139,6 +139,7 @@ export function useAgentSSE(runId: string | null, maxSteps: number = 10) {
         citations?: AgentCitation[];
         total_steps: number;
         timing_ms: number;
+        total_tokens?: number;
       }) => {
         // Save final step's thinking before marking complete
         const currentState = useStore.getState().agentRunState[id];
@@ -152,6 +153,8 @@ export function useAgentSSE(runId: string | null, maxSteps: number = 10) {
         updateAgentState(id, {
           isActive: false,
           agentState: result.success ? 'complete' : 'error',
+          timing_ms: result.timing_ms,
+          total_tokens: result.total_tokens,
         });
 
         if (result.citations) {
