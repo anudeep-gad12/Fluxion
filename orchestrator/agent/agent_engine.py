@@ -155,38 +155,19 @@ class AgentEngine:
     """
 
     # Default system prompt for agent (date context added dynamically in _build_messages)
-    DEFAULT_SYSTEM_PROMPT = """You are a research assistant that uses tools to search the web and analyze information.
+    DEFAULT_SYSTEM_PROMPT = """You are a research assistant that helps users find and analyze information. You have access to tools for web searching, extracting content from URLs, and running Python code for calculations.
 
 {date_context}
 
-Available tools:
-- web_search: Search the web for information
-- web_extract: Extract detailed content from URLs
-- python_execute: Run Python code for calculations and data analysis
+You have three tools available: web_search for finding information online, web_extract for getting detailed content from specific URLs, and python_execute for running calculations and data analysis.
 
-TOOL SELECTION:
-- For calculations/math/physics: Use python_execute (not web_search)
-- For current events, facts, or data after your knowledge cutoff: Use web_search
-- For questions within your knowledge cutoff that don't need fresh data: Answer directly
-- For detailed content from specific URLs: Use web_extract after web_search
+When deciding how to help, consider what the user is asking for. If they need calculations or mathematical analysis, use python_execute rather than searching. If they're asking about current events or need data from after your knowledge cutoff, search the web. If you can answer from your existing knowledge, just respond directly. When you find relevant URLs from a search, you can extract 2-3 of the most authoritative sources for more detail.
 
-WEB SEARCH GUIDELINES:
-- Use web_search when you need information after June 2024 or real-time data
-- If search results are unhelpful, try different search terms
-- Include the current year in searches for recent information
+For web searches, include the current year when looking for recent information. If initial results aren't helpful, try rephrasing your search terms. When extracting content, prefer academic sources, official data, and authoritative sites over forums or paywalled content.
 
-WEB EXTRACT GUIDELINES:
-- Extract 2-3 most relevant URLs from search results (not more unless necessary)
-- Prefer: academic sources, official data, authoritative sites
-- Avoid extracting if the search snippet already answers the question
-- Skip: Wikipedia overviews, forums, paywalled content
+When citing sources in your answer, use inline references like [1], [2] where you mention information from those sources. The UI will display the full source list automatically, so don't add a separate citations section.
 
-CITATION FORMAT:
-- Use [1], [2], etc. INLINE within your answer text where you reference information
-- Do NOT add a separate "Citations" or "Sources" section at the end
-- The UI will automatically display a formatted sources list
-
-To provide your final answer, respond WITHOUT calling any tools."""
+When you're ready to give your final answer, respond without calling any tools."""
 
     # Calculation-focused system prompt for physics/math queries
     CALCULATION_SYSTEM_PROMPT = """You are a research assistant specializing in physics and mathematical calculations.
@@ -279,6 +260,10 @@ To provide your final answer, respond WITHOUT calling any tools."""
         self._max_context_tokens = max_context_tokens
         self._slow_response_threshold = slow_response_threshold
 
+        # Findings accumulator for improved synthesis
+        self._findings: List[Dict[str, Any]] = []
+        self._current_query: Optional[str] = None
+
     async def run(
         self,
         run_id: str,
@@ -298,6 +283,10 @@ To provide your final answer, respond WITHOUT calling any tools."""
             AgentResult with answer and citations.
         """
         start_time = time.perf_counter()
+
+        # Initialize findings for this run
+        self._findings = []
+        self._current_query = query
 
         # Emit start event
         self._emit(event_callback, "agent_started", run_id=run_id, query=query)
@@ -1241,6 +1230,21 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     result_data=result.result_data,
                 )
 
+            # Extract key finding from successful tool calls
+            if result.success:
+                finding = self._extract_finding_from_result(
+                    tool_name=tool_call.name,
+                    arguments=tool_call.arguments,
+                    result_summary=result.result_summary,
+                    step_number=step_number,
+                )
+                if finding:
+                    self._findings.append(finding)
+                    logger.debug(
+                        "Extracted finding from tool result",
+                        extra={"step": step_number, "tool": tool_call.name},
+                    )
+
             # Emit tool result event
             self._emit(
                 event_callback,
@@ -1505,6 +1509,68 @@ To provide your final answer, respond WITHOUT calling any tools."""
 
         return cleaned
 
+    def _extract_finding_from_result(
+        self,
+        tool_name: str,
+        arguments: Dict[str, Any],
+        result_summary: str,
+        step_number: int,
+    ) -> Optional[Dict[str, Any]]:
+        """Extract a key finding from a tool result.
+
+        Args:
+            tool_name: Name of the tool.
+            arguments: Tool arguments.
+            result_summary: Summary of the result.
+            step_number: Current step number.
+
+        Returns:
+            Finding dict or None if no finding to extract.
+        """
+        if not result_summary or len(result_summary) < 20:
+            return None
+
+        # For web_search, extract the query and summarize results
+        if tool_name == "web_search":
+            query = arguments.get("query", "")
+            # Take first 300 chars of summary as the finding
+            summary = result_summary[:300]
+            if len(result_summary) > 300:
+                summary += "..."
+            return {
+                "step": step_number,
+                "tool": tool_name,
+                "query": query,
+                "content": f"Search for '{query}': {summary}",
+            }
+
+        # For web_extract, note what URL was extracted
+        if tool_name == "web_extract":
+            urls = arguments.get("urls", [])
+            url_str = urls[0] if urls else "unknown"
+            # Take first 400 chars of summary
+            summary = result_summary[:400]
+            if len(result_summary) > 400:
+                summary += "..."
+            return {
+                "step": step_number,
+                "tool": tool_name,
+                "url": url_str,
+                "content": f"Extracted from {url_str}: {summary}",
+            }
+
+        # For python_execute, note the calculation result
+        if tool_name == "python_execute":
+            # Only include if there's actual output (not just errors)
+            if "Error" not in result_summary and len(result_summary) < 500:
+                return {
+                    "step": step_number,
+                    "tool": tool_name,
+                    "content": f"Python result: {result_summary[:200]}",
+                }
+
+        return None
+
     async def _store_citations_from_tool(
         self,
         run_id: str,
@@ -1603,16 +1669,33 @@ To provide your final answer, respond WITHOUT calling any tools."""
         Returns:
             Synthesized answer.
         """
-        # Add instruction to synthesize - emphasize no more tool calls
-        force_msg = {
-            "role": "user",
-            "content": (
+        # Build synthesis prompt with accumulated findings
+        if self._findings:
+            findings_text = "\n".join(
+                f"- {f['content']}" for f in self._findings
+            )
+            synthesis_content = (
+                f"IMPORTANT: You have reached the maximum number of research steps and NO MORE TOOLS ARE AVAILABLE.\n"
+                f"Do NOT attempt to use any tools or output JSON.\n\n"
+                f"ORIGINAL QUERY: {self._current_query}\n\n"
+                f"KEY FINDINGS FROM YOUR RESEARCH ({len(self._findings)} items):\n"
+                f"{findings_text}\n\n"
+                f"Based on these findings, provide your FINAL ANSWER directly as plain text.\n"
+                f"Address the original query directly and comprehensively.\n"
+                f"Use inline [1], [2] citations to reference sources but do NOT add a separate Citations section."
+            )
+        else:
+            synthesis_content = (
                 "IMPORTANT: You have reached the maximum number of research steps and NO MORE TOOLS ARE AVAILABLE. "
                 "Do NOT attempt to use any tools or output JSON. "
                 "Based on the information you have gathered so far, provide your FINAL ANSWER directly as plain text. "
                 "Summarize the key findings and insights from your research. "
                 "Use inline [1], [2] citations to reference sources but do NOT add a separate Citations section."
-            ),
+            )
+
+        force_msg = {
+            "role": "user",
+            "content": synthesis_content,
         }
         messages = messages + [force_msg]
 
@@ -1632,6 +1715,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 "messages_count": len(messages),
                 "tools_count": 0,
                 "forced_synthesis": True,
+                "findings_count": len(self._findings),
             },
         )
 

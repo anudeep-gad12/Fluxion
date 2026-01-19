@@ -9,7 +9,51 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
-| (none) | - | - | - |
+| test | Findings Accumulator for Agent Synthesis | in-progress | 2026-01-19 |
+
+### 2026-01-19: Agent Improvements (In Progress)
+
+**Branch:** `test`
+**Status:** in-progress
+
+**Description:**
+Two improvements to agent quality:
+1. Findings accumulator for better forced synthesis
+2. Conversational system prompt for fuller reasoning
+
+**Changes:**
+
+*Findings Accumulator:*
+- Added `_findings` list and `_current_query` to `AgentEngine.__init__`
+- Added `_extract_finding_from_result()` method to extract key findings from tool results
+- Integrated findings extraction after successful tool execution
+- Enhanced forced synthesis prompt to include accumulated findings
+
+*Conversational System Prompt:*
+- Rewrote `DEFAULT_SYSTEM_PROMPT` from bullet-point imperative style to flowing conversational paragraphs
+- Same information, different tone - no explicit "think step by step" instructions
+- Result: Model now produces full-sentence reasoning instead of terse fragments
+
+**Before (terse):**
+```
+"Need current data 2024 budgets. Must web search."
+```
+
+**After (conversational):**
+```
+"User asks: 'What news articles came out today about OpenAI?' Today is Jan 19, 2026
+(current date). Need news articles from today. Need to search web for recent news..."
+```
+
+**Files Modified:**
+- `orchestrator/agent/agent_engine.py` - Findings accumulator + system prompt rewrite
+- `tests/agent/test_agent_engine.py` - 9 new tests for findings accumulator
+
+**Tests:**
+- Unit: 45 passed (agent_engine tests)
+
+**Verification:**
+- Live test confirmed fuller reasoning in agent_steps.thinking_text
 
 ---
 
