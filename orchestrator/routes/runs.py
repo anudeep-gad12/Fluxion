@@ -425,13 +425,19 @@ async def get_run_events(
         if since_seq is not None and seq <= since_seq:
             continue
         content = event.get("content", {})
+        # Include duration_ms and token_count in payload
+        payload = {
+            **content,
+            "duration_ms": event.get("duration_ms"),
+            "token_count": event.get("token_count"),
+        }
         events.append(EventResponse(
             run_id=run_id,
             seq=seq,
             ts=event.get("created_at", ""),
             type=event.get("event_type", "unknown"),
             display=content,
-            payload=content,
+            payload=payload,
         ))
 
     return {"events": [e.model_dump() for e in events]}
