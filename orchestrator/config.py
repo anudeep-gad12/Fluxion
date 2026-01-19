@@ -266,7 +266,7 @@ class SandboxConfig(BaseModel):
 class ChatModelConfig(BaseModel):
     """Model generation parameters."""
 
-    name: str = "openai/gpt-oss-20b"
+    name: str = "openai/gpt-oss-120b"
     temperature: float = 0.7
     max_tokens: int = 4096
     seed: Optional[int] = None

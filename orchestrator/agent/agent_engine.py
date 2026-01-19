@@ -234,7 +234,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
         repo: "AgentRepo",
         registry: "ToolRegistry",
         trace_repo: Optional["TraceRepo"] = None,
-        model_name: str = "qwen3-32b",
+        model_name: str = "openai/gpt-oss-120b",
         max_steps: int = 10,
         max_tokens: int = 4096,
         temperature: float = 0.7,
@@ -1476,6 +1476,35 @@ To provide your final answer, respond WITHOUT calling any tools."""
         """
         return sanitize_harmony_tokens(text)
 
+    def _clean_reasoning_for_answer(self, reasoning: str) -> str:
+        """Clean reasoning content to use as answer fallback.
+
+        Removes JSON tool call patterns and other artifacts that appear
+        in reasoning content but shouldn't be in the final answer.
+
+        Args:
+            reasoning: Raw reasoning content from the model.
+
+        Returns:
+            Cleaned reasoning suitable for display as answer.
+        """
+        import re
+
+        # Remove JSON objects that look like tool calls (e.g., {"urls": [...], "query": ...})
+        # Pattern matches { ... } where content looks like a tool call
+        cleaned = re.sub(r'\{["\']?(urls|query|num_results)["\']?\s*:\s*[^}]+\}', '', reasoning)
+
+        # Remove standalone JSON arrays
+        cleaned = re.sub(r'\[\s*"https?://[^]]+\]', '', cleaned)
+
+        # Clean up extra whitespace
+        cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+
+        # Remove trailing punctuation fragments
+        cleaned = re.sub(r'[,.:;]+\s*$', '', cleaned).strip()
+
+        return cleaned
+
     async def _store_citations_from_tool(
         self,
         run_id: str,
@@ -1574,14 +1603,15 @@ To provide your final answer, respond WITHOUT calling any tools."""
         Returns:
             Synthesized answer.
         """
-        # Add instruction to synthesize
+        # Add instruction to synthesize - emphasize no more tool calls
         force_msg = {
             "role": "user",
             "content": (
-                "You have reached the maximum number of research steps. "
-                "Please synthesize your findings and provide your best answer "
-                "based on the information gathered so far. "
-                "Use inline [1], [2] citations but do NOT add a separate Citations section."
+                "IMPORTANT: You have reached the maximum number of research steps and NO MORE TOOLS ARE AVAILABLE. "
+                "Do NOT attempt to use any tools or output JSON. "
+                "Based on the information you have gathered so far, provide your FINAL ANSWER directly as plain text. "
+                "Summarize the key findings and insights from your research. "
+                "Use inline [1], [2] citations to reference sources but do NOT add a separate Citations section."
             ),
         }
         messages = messages + [force_msg]
@@ -1593,8 +1623,23 @@ To provide your final answer, respond WITHOUT calling any tools."""
             forced=True,
         )
 
+        # Trace: forced synthesis LLM request
+        await self._add_trace_event(
+            run_id=run_id,
+            event_type="llm_request",
+            content={
+                "model": self._model_name,
+                "messages_count": len(messages),
+                "tools_count": 0,
+                "forced_synthesis": True,
+            },
+        )
+
         # Call LLM without tools to force text response
+        # Use higher token limit for reasoning models that need extra tokens for chain-of-thought
+        synthesis_max_tokens = max(self._max_tokens, 8192)
         answer_tokens: List[str] = []
+        reasoning_tokens: List[str] = []
 
         def on_token(token: str) -> None:
             answer_tokens.append(token)
@@ -1608,13 +1653,66 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     content=cleaned,
                 )
 
+        def on_reasoning(token: str) -> None:
+            reasoning_tokens.append(token)
+
         response = await self._provider.complete_streaming(
             messages=messages,
             model=self._model_name,
             on_token=on_token,
+            on_reasoning=on_reasoning,
             tools=None,  # No tools - force text response
-            max_tokens=self._max_tokens,
+            max_tokens=synthesis_max_tokens,
             temperature=self._temperature,
         )
+
+        # Log synthesis results for debugging
+        logger.info(
+            "Forced synthesis completed",
+            extra={
+                "run_id": run_id,
+                "text_length": len(response.text) if response.text else 0,
+                "reasoning_length": len(response.reasoning) if response.reasoning else 0,
+                "finish_reason": response.finish_reason,
+            },
+        )
+
+        # Trace: forced synthesis LLM response
+        await self._add_trace_event(
+            run_id=run_id,
+            event_type="llm_response",
+            content={
+                "text_length": len(response.text) if response.text else 0,
+                "reasoning_length": len(response.reasoning) if response.reasoning else 0,
+                "finish_reason": response.finish_reason,
+                "forced_synthesis": True,
+            },
+        )
+
+        # If text is empty but we got reasoning, use reasoning as the answer
+        # This can happen with reasoning models where the "thinking" IS the answer
+        if not response.text and response.reasoning:
+            logger.warning(
+                "Forced synthesis produced reasoning but no content, using reasoning as answer",
+                extra={
+                    "run_id": run_id,
+                    "reasoning_length": len(response.reasoning),
+                    "finish_reason": response.finish_reason,
+                },
+            )
+            # Clean reasoning content - remove JSON tool call attempts
+            cleaned_reasoning = self._clean_reasoning_for_answer(response.reasoning)
+            return self._clean_answer(cleaned_reasoning)
+
+        # If both are empty, return a fallback message
+        if not response.text:
+            logger.error(
+                "Forced synthesis produced no content at all",
+                extra={
+                    "run_id": run_id,
+                    "finish_reason": response.finish_reason,
+                },
+            )
+            return "I was unable to synthesize a complete answer based on the research gathered. Please try again with a more specific question."
 
         return self._clean_answer(response.text)
