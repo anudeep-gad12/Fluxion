@@ -1,0 +1,12 @@
+# Railway deployment configuration
+# https://docs.railway.app/reference/config-as-code
+
+[build]
+builder = "NIXPACKS"
+buildCommand = "cd ui && npm install && npm run build && cd .. && pip install uv && uv sync --no-dev"
+
+[deploy]
+startCommand = "uv run uvicorn orchestrator.app:app --host 0.0.0.0 --port $PORT"
+healthcheckPath = "/api/health"
+healthcheckTimeout = 30
+numReplicas = 1

@@ -190,6 +190,7 @@ export interface CompleteEvent extends AgentSSEEventBase {
   citations?: AgentCitation[];
   total_steps: number;
   timing_ms: number;
+  total_tokens?: number;
 }
 
 /** Error event */
@@ -225,4 +226,6 @@ export interface AgentUIState {
   toolCalls: AgentToolCall[];
   citations: AgentCitation[];
   lastSeq: number;
+  timing_ms?: number;
+  total_tokens?: number;
 }

@@ -11,6 +11,7 @@ Provides:
 import json
 import logging
 import logging.handlers
+import os
 import re
 import sys
 from contextvars import ContextVar
@@ -162,6 +163,37 @@ class ConsoleFormatter(logging.Formatter):
         return formatted
 
 
+class RailwayStreamHandler(logging.Handler):
+    """Handler that routes logs to stdout (INFO/DEBUG) or stderr (WARNING+).
+
+    Railway interprets stdout as INFO and stderr as ERROR, so this handler
+    routes logs appropriately for proper log level display in Railway dashboard.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self._stdout = logging.StreamHandler(sys.stdout)
+        self._stderr = logging.StreamHandler(sys.stderr)
+
+    def emit(self, record: logging.LogRecord):
+        """Route log to appropriate stream based on level."""
+        if record.levelno >= logging.WARNING:
+            self._stderr.emit(record)
+        else:
+            self._stdout.emit(record)
+
+    def setFormatter(self, fmt: logging.Formatter):
+        """Set formatter for both handlers."""
+        self._stdout.setFormatter(fmt)
+        self._stderr.setFormatter(fmt)
+
+    def setLevel(self, level: int):
+        """Set level for both handlers."""
+        super().setLevel(level)
+        self._stdout.setLevel(level)
+        self._stderr.setLevel(level)
+
+
 # ============================================================================
 # Logging Setup
 # ============================================================================
@@ -203,10 +235,16 @@ def setup_logging(
     root_logger.handlers.clear()
     root_logger.setLevel(getattr(logging, log_level.upper()))
 
-    # Console handler (human-readable)
+    # Console handler - use Railway-compatible handler when on Railway
     if enable_console:
-        console_handler = logging.StreamHandler(sys.stderr)
-        console_handler.setFormatter(ConsoleFormatter())
+        if os.environ.get("RAILWAY_ENVIRONMENT"):
+            # Railway: JSON logs to stdout/stderr for proper log level display
+            console_handler = RailwayStreamHandler()
+            console_handler.setFormatter(JSONFormatter())
+        else:
+            # Local dev: human-readable colored output
+            console_handler = logging.StreamHandler(sys.stderr)
+            console_handler.setFormatter(ConsoleFormatter())
         console_handler.setLevel(getattr(logging, log_level.upper()))
         root_logger.addHandler(console_handler)
 

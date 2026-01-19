@@ -3,7 +3,7 @@
  * Full agent run visualization with user query, progress, and answer.
  */
 
-import { Globe, Square, Eye } from 'lucide-react';
+import { Globe, Square, Eye, Clock, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { cn, formatRelativeTime } from '@/lib/utils';
@@ -12,6 +12,21 @@ import { AnswerWithCitations } from '@/components/AnswerWithCitations';
 import { useAgentRunDetails } from '@/hooks/useAgentRunDetails';
 import { cancelAgentRun } from '@/api/client';
 import type { Run } from '@/types';
+
+/** Format milliseconds to human-readable duration */
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  const seconds = ms / 1000;
+  if (seconds < 60) return `${seconds.toFixed(1)}s`;
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = Math.round(seconds % 60);
+  return `${minutes}m ${remainingSeconds}s`;
+}
+
+/** Format token count with thousands separator */
+function formatTokens(tokens: number): string {
+  return tokens.toLocaleString();
+}
 
 interface AgentRunMessageProps {
   run: Run;
@@ -123,6 +138,19 @@ export function AgentRunMessage({ run, onShowTrace }: AgentRunMessageProps) {
             >
               {run.status === 'running' ? 'researching' : run.status}
             </span>
+            {/* Stats: duration and tokens (only shown when completed) */}
+            {!isActive && agentState?.timing_ms && (
+              <span className="text-xs text-slate-400 flex items-center gap-1">
+                <Clock className="h-3 w-3" />
+                {formatDuration(agentState.timing_ms)}
+              </span>
+            )}
+            {!isActive && agentState?.total_tokens && (
+              <span className="text-xs text-slate-400 flex items-center gap-1">
+                <Zap className="h-3 w-3" />
+                {formatTokens(agentState.total_tokens)} tokens
+              </span>
+            )}
           </div>
         </div>
       </div>

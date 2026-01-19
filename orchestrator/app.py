@@ -4,12 +4,16 @@
 from dotenv import load_dotenv
 load_dotenv()
 
+import os
 import time
 import uuid
 from contextlib import asynccontextmanager
+from pathlib import Path
 
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, Request, Response, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from orchestrator.config import get_chat_config
@@ -24,6 +28,26 @@ from orchestrator.routes import conversations, runs, agent_runs
 
 
 logger = get_logger(__name__)
+
+
+def get_cors_origins() -> list[str]:
+    """Get CORS origins from environment or defaults."""
+    origins = os.environ.get("CORS_ORIGINS", "")
+    if origins:
+        return [o.strip() for o in origins.split(",")]
+    return ["http://127.0.0.1:3000", "http://localhost:3000"]
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Middleware to add security headers to all responses."""
+
+    async def dispatch(self, request: Request, call_next) -> Response:
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        return response
 
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
@@ -76,11 +100,12 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager."""
-    # Setup logging first
+    # Setup logging first (configurable via env vars for production)
     setup_logging(
-        log_level="DEBUG",
-        log_dir="./logs",
+        log_level=os.environ.get("LOG_LEVEL", "INFO"),
+        log_dir=os.environ.get("LOG_DIR", "./logs"),
         log_file="app.log",
+        enable_file=os.environ.get("LOG_TO_FILE", "true").lower() == "true",
     )
 
     logger.info("Starting Reasoner API server")
@@ -103,8 +128,76 @@ async def lifespan(app: FastAPI):
         logger.warning(f"Could not load config for logging: {e}")
 
     # Startup: ensure database is initialized
-    await get_db()
+    db = await get_db()
     logger.info("Database initialized")
+
+    # Clean up orphaned data (stuck in 'running' state from previous crash/restart)
+    # This runs unconditionally to catch any orphaned tool_calls/steps even if runs were already cleaned
+
+    # Count orphaned runs
+    cursor = await db.conn.execute(
+        "SELECT COUNT(*) FROM runs WHERE status = 'running'"
+    )
+    row = await cursor.fetchone()
+    orphaned_runs = row[0] if row else 0
+
+    # Count orphaned tool calls
+    cursor = await db.conn.execute(
+        "SELECT COUNT(*) FROM agent_tool_calls WHERE status IN ('running', 'pending')"
+    )
+    row = await cursor.fetchone()
+    orphaned_tool_calls = row[0] if row else 0
+
+    # Count orphaned steps
+    cursor = await db.conn.execute(
+        "SELECT COUNT(*) FROM agent_steps WHERE state IN ('tool_calling', 'planning')"
+    )
+    row = await cursor.fetchone()
+    orphaned_steps = row[0] if row else 0
+
+    if orphaned_runs > 0 or orphaned_tool_calls > 0 or orphaned_steps > 0:
+        # Mark orphaned runs as failed
+        if orphaned_runs > 0:
+            await db.conn.execute(
+                """
+                UPDATE runs
+                SET status = 'failed',
+                    error_message = 'Server restarted - run was interrupted'
+                WHERE status = 'running'
+                """
+            )
+
+        # Clean up orphaned agent_tool_calls (status = running/pending)
+        if orphaned_tool_calls > 0:
+            await db.conn.execute(
+                """
+                UPDATE agent_tool_calls
+                SET status = 'interrupted',
+                    error_message = 'Server restarted - tool call was interrupted'
+                WHERE status IN ('running', 'pending')
+                """
+            )
+
+        # Clean up orphaned agent_steps (state = tool_calling/planning)
+        if orphaned_steps > 0:
+            await db.conn.execute(
+                """
+                UPDATE agent_steps
+                SET state = 'error',
+                    error_message = 'Server restarted - step was interrupted'
+                WHERE state IN ('tool_calling', 'planning')
+                """
+            )
+
+        await db.conn.commit()
+        logger.warning(
+            "Cleaned up orphaned data on startup",
+            extra={
+                "orphaned_runs": orphaned_runs,
+                "orphaned_tool_calls": orphaned_tool_calls,
+                "orphaned_steps": orphaned_steps,
+            }
+        )
 
     yield
 
@@ -120,14 +213,17 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS middleware
+# CORS middleware (configurable via CORS_ORIGINS env var)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://127.0.0.1:3000", "http://localhost:3000"],
+    allow_origins=get_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Security headers middleware
+app.add_middleware(SecurityHeadersMiddleware)
 
 # Request logging middleware
 app.add_middleware(RequestLoggingMiddleware)
@@ -153,4 +249,26 @@ async def get_config():
     }
 
 
-# Run with: uvicorn orchestrator.app:app --host 127.0.0.1 --port 9000 --reload
+# Static file serving for production (when SERVE_STATIC=true)
+STATIC_DIR = Path(__file__).parent.parent / "ui" / "dist"
+if STATIC_DIR.exists() and os.environ.get("SERVE_STATIC", "false").lower() == "true":
+    # Serve static assets with caching
+    app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
+
+    @app.get("/vite.svg")
+    async def serve_favicon():
+        """Serve Vite favicon."""
+        return FileResponse(STATIC_DIR / "vite.svg")
+
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        """Serve SPA for all non-API routes."""
+        if full_path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="Not found")
+        index_path = STATIC_DIR / "index.html"
+        if index_path.exists():
+            return FileResponse(index_path)
+        raise HTTPException(status_code=404, detail="Frontend not built")
+
+
+# Run with: uvicorn orchestrator.app:app --host 0.0.0.0 --port 9000

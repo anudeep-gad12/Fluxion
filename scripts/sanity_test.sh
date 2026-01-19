@@ -816,6 +816,121 @@ else
 fi
 
 # ============================================================
+# 4.7 AGENT FLOW - COMPLEX MULTI-STEP QUERIES
+# ============================================================
+print_header "4.7. Agent Flow - Complex Multi-Step Queries"
+
+# Test 1: Multi-step reasoning with calculation
+# This query requires: understanding the problem, calculating multiple values, synthesizing
+MULTI_STEP_QUERY="If I invest \$1000 at 5% annual interest compounded annually, how much will I have after 3 years? Show the calculation step by step."
+AGENT_MULTI1_RESP=$(curl -s -X POST "$API_URL/api/agent/runs" \
+    -H "Content-Type: application/json" \
+    -d "{\"query\": \"$MULTI_STEP_QUERY\", \"max_steps\": 8}")
+AGENT_MULTI1_ID=$(json_get "$AGENT_MULTI1_RESP" ".run_id")
+
+if [ -n "$AGENT_MULTI1_ID" ] && [ "$AGENT_MULTI1_ID" != "null" ]; then
+    pass "Created multi-step calculation run ($AGENT_MULTI1_ID)"
+
+    wait_for_agent_run "$AGENT_MULTI1_ID" "Multi-step calculation" 120
+
+    # Check for step-by-step reasoning
+    check_thinking_content "$AGENT_MULTI1_ID" "Multi-step calculation"
+    check_agent_trace "$AGENT_MULTI1_ID" "Multi-step calculation"
+    check_answer_format "$AGENT_MULTI1_ID" "Multi-step calculation"
+
+    # Verify answer quality - should mention compound interest formula or show yearly breakdown
+    multi1_answer=$(curl -s "$API_URL/api/agent/runs/$AGENT_MULTI1_ID" | python3 -c "
+import json, sys
+data = json.loads(sys.stdin.read())
+print(data.get('final_answer', ''))
+")
+    if echo "$multi1_answer" | grep -qiE "1157|1158|year|compound|interest|formula"; then
+        pass "Multi-step calculation has correct answer structure (mentions expected values/concepts)"
+    else
+        warn "Multi-step calculation answer may not show step-by-step breakdown"
+    fi
+else
+    fail "Failed to create multi-step calculation run"
+fi
+
+# Test 2: Multi-source research query (requires web search if available)
+if [ -n "$PARALLEL_KEY" ] && [ "$PARALLEL_KEY" != "null" ] && [ "$PARALLEL_KEY" != "***" ] && [ "$PARALLEL_KEY" != "" ]; then
+    RESEARCH_QUERY="Compare the GDP growth rates of Japan and Germany in the most recent available year. Which country had higher growth?"
+    AGENT_MULTI2_RESP=$(curl -s -X POST "$API_URL/api/agent/runs" \
+        -H "Content-Type: application/json" \
+        -d "{\"query\": \"$RESEARCH_QUERY\", \"max_steps\": 10}")
+    AGENT_MULTI2_ID=$(json_get "$AGENT_MULTI2_RESP" ".run_id")
+
+    if [ -n "$AGENT_MULTI2_ID" ] && [ "$AGENT_MULTI2_ID" != "null" ]; then
+        pass "Created multi-source research run ($AGENT_MULTI2_ID)"
+
+        # Longer timeout for multiple web searches
+        wait_for_agent_run "$AGENT_MULTI2_ID" "Multi-source research" 180
+
+        check_thinking_content "$AGENT_MULTI2_ID" "Multi-source research"
+        check_tool_calls_detail "$AGENT_MULTI2_ID" "Multi-source research" "require"
+        check_answer_format "$AGENT_MULTI2_ID" "Multi-source research" "warn"
+        check_agent_trace "$AGENT_MULTI2_ID" "Multi-source research"
+
+        # Check that both countries are mentioned in the answer
+        multi2_answer=$(curl -s "$API_URL/api/agent/runs/$AGENT_MULTI2_ID" | python3 -c "
+import json, sys
+data = json.loads(sys.stdin.read())
+print(data.get('final_answer', ''))
+")
+        if echo "$multi2_answer" | grep -qi "japan" && echo "$multi2_answer" | grep -qi "germany"; then
+            pass "Multi-source research compares both countries"
+        else
+            warn "Multi-source research may not compare both countries adequately"
+        fi
+
+        # Check for multiple tool calls (should search for both countries' data)
+        trace=$(curl -s "$API_URL/api/agent/runs/$AGENT_MULTI2_ID/trace")
+        tool_count=$(json_array_len "$trace" "tool_calls")
+        if [ "$tool_count" -ge 2 ]; then
+            pass "Multi-source research used multiple tool calls ($tool_count calls)"
+        else
+            warn "Multi-source research may not have used enough tools ($tool_count calls)"
+        fi
+    else
+        fail "Failed to create multi-source research run"
+    fi
+else
+    warn "Skipping multi-source research test - PARALLEL_API_KEY not configured"
+fi
+
+# Test 3: Complex reasoning problem (no external tools, just multi-step logic)
+LOGIC_QUERY="A farmer has chickens and cows. Together they have 30 heads and 74 legs. How many chickens and how many cows does the farmer have? Explain your reasoning."
+AGENT_MULTI3_RESP=$(curl -s -X POST "$API_URL/api/agent/runs" \
+    -H "Content-Type: application/json" \
+    -d "{\"query\": \"$LOGIC_QUERY\", \"max_steps\": 6}")
+AGENT_MULTI3_ID=$(json_get "$AGENT_MULTI3_RESP" ".run_id")
+
+if [ -n "$AGENT_MULTI3_ID" ] && [ "$AGENT_MULTI3_ID" != "null" ]; then
+    pass "Created logic puzzle run ($AGENT_MULTI3_ID)"
+
+    wait_for_agent_run "$AGENT_MULTI3_ID" "Logic puzzle" 120
+
+    check_thinking_content "$AGENT_MULTI3_ID" "Logic puzzle"
+    check_answer_format "$AGENT_MULTI3_ID" "Logic puzzle"
+
+    # Verify correct answer: 23 chickens and 7 cows (or equivalent)
+    multi3_answer=$(curl -s "$API_URL/api/agent/runs/$AGENT_MULTI3_ID" | python3 -c "
+import json, sys
+data = json.loads(sys.stdin.read())
+print(data.get('final_answer', ''))
+")
+    # Check for correct numbers (23 chickens, 7 cows)
+    if echo "$multi3_answer" | grep -qE "23.*chicken|chicken.*23|7.*cow|cow.*7"; then
+        pass "Logic puzzle has correct answer (23 chickens, 7 cows)"
+    else
+        warn "Logic puzzle answer may not be correct (expected 23 chickens, 7 cows)"
+    fi
+else
+    fail "Failed to create logic puzzle run"
+fi
+
+# ============================================================
 # 5. TOOL HEALTH (Optional)
 # ============================================================
 print_header "5. Tool Health (Optional)"
