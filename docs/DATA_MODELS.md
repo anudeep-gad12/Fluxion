@@ -668,6 +668,22 @@ class ThinkingStrategy(ABC):
     ) -> ThinkingResult: ...
 ```
 
+### Agent Models (`orchestrator/agent/agent_engine.py`)
+
+```python
+@dataclass
+class AgentResult:
+    """Final result from agent execution."""
+    run_id: str
+    success: bool
+    final_answer: Optional[str] = None
+    citations: List[Dict[str, Any]] = field(default_factory=list)
+    total_steps: int = 0
+    error_message: Optional[str] = None
+    timing_ms: int = 0           # Total execution duration
+    total_tokens: int = 0        # Total LLM tokens used across all steps
+```
+
 ---
 
 ## Frontend Types (TypeScript)
@@ -845,6 +861,8 @@ interface AgentUIState {
   toolCalls: AgentToolCall[];
   citations: AgentCitation[];
   lastSeq: number;
+  timing_ms?: number;      // Total execution duration
+  total_tokens?: number;   // Total LLM tokens used
 }
 
 // SSE Event Types (discriminated union)
@@ -889,10 +907,12 @@ interface AnswerEvent {
 
 interface CompleteEvent {
   type: 'complete';
+  success: boolean;
   final_answer?: string;
   citations: AgentCitation[];
   total_steps: number;
   timing_ms: number;
+  total_tokens?: number;   // Total LLM tokens used across all steps
 }
 
 type AgentSSEEvent =
