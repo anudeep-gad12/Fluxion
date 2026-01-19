@@ -25,6 +25,42 @@
 
 ## Completed
 
+### 2026-01-19: Fix LLM Summarization Token Limit for Reasoning Models
+
+**Branch:** `test` (direct fix)
+**Status:** done
+
+**Problem:**
+LLM summarization was generating empty summaries (llm_summaries: 0). Investigation showed:
+- LLM was being called correctly (logs showed provider type, content chars)
+- LLM returned `LLMResponse` with `text: ''` (empty string)
+- Raw response showed `finish_reason: 'length'` with reasoning in `reasoning_content`
+- The gpt-oss-20b reasoning model generates reasoning tokens FIRST, exhausting the 150 token limit before producing actual content
+
+**Root Cause:**
+`MAX_SUMMARY_TOKENS` was set to 150, which is insufficient for reasoning models that generate chain-of-thought reasoning before producing output. The model would fill reasoning_content, hit the token limit, and return empty content.
+
+**Solution:**
+Increased `MAX_SUMMARY_TOKENS` from 150 to 400 in `orchestrator/agent/context_pruner.py`.
+
+**Verification:**
+```
+# Before fix:
+{"text_attr":"''", "finish_reason": "length", "reasoning_content": "We need to..."}
+
+# After fix (400 tokens):
+{"text_attr":"'France's population is about 68 million people...'"}
+
+# Pruning stats now show LLM summaries:
+{"summarized":4,"llm_summaries":2,"current_step":5}
+```
+
+**Tests:**
+- Unit: 36 passed
+- Sanity: 71/71 passed
+
+---
+
 ### 2026-01-18: LLM-based Smart Context Summarization
 
 **Branch:** `feature/llm-context-summarization` (merged to `test`)
