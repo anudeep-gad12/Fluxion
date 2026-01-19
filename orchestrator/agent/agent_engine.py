@@ -78,6 +78,7 @@ class AgentResult:
         total_steps: Number of steps taken.
         error_message: Error message if failed.
         timing_ms: Total execution time in milliseconds.
+        total_tokens: Total tokens used across all LLM calls.
     """
 
     run_id: str
@@ -87,6 +88,7 @@ class AgentResult:
     total_steps: int = 0
     error_message: Optional[str] = None
     timing_ms: int = 0
+    total_tokens: int = 0
 
 
 @dataclass
@@ -166,6 +168,8 @@ When deciding how to help, consider what the user is asking for. If they need ca
 For web searches, include the current year when looking for recent information. If initial results aren't helpful, try rephrasing your search terms. When extracting content, prefer academic sources, official data, and authoritative sites over forums or paywalled content.
 
 When citing sources in your answer, use inline references like [1], [2] where you mention information from those sources. The UI will display the full source list automatically, so don't add a separate citations section.
+
+Be warm and engaging in your responses. Show genuine interest in helping the user and enthusiasm for interesting findings. A friendly, conversational tone makes information more accessible.
 
 When you're ready to give your final answer, respond without calling any tools."""
 
@@ -264,6 +268,9 @@ To provide your final answer, respond WITHOUT calling any tools."""
         self._findings: List[Dict[str, Any]] = []
         self._current_query: Optional[str] = None
 
+        # Token accumulator for run stats
+        self._total_tokens: int = 0
+
     async def run(
         self,
         run_id: str,
@@ -287,6 +294,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
         # Initialize findings for this run
         self._findings = []
         self._current_query = query
+        self._total_tokens = 0
 
         # Emit start event
         self._emit(event_callback, "agent_started", run_id=run_id, query=query)
@@ -427,6 +435,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         error_message=str(e),
                         total_steps=step_number,
                         timing_ms=int((time.perf_counter() - start_time) * 1000),
+                        total_tokens=self._total_tokens,
                     )
 
                 # Extract thinking: Harmony format <think> tags OR native reasoning
@@ -486,6 +495,10 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     parent_event_id=llm_request_event_id,
                     token_count=llm_response.usage.get("total_tokens"),
                 )
+
+                # Accumulate tokens for run stats
+                if llm_response.usage.get("total_tokens"):
+                    self._total_tokens += llm_response.usage["total_tokens"]
 
                 if tool_calls:
                     # Tool calling step
@@ -630,6 +643,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         citations=citations,
                         total_steps=step_number,
                         timing_ms=total_timing_ms,
+                        total_tokens=self._total_tokens,
                     )
 
             # Max steps reached - force synthesis
@@ -679,6 +693,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 citations=citations,
                 total_steps=state_machine.current_step,
                 timing_ms=total_timing_ms,
+                total_tokens=self._total_tokens,
             )
 
         except MaxStepsExceededError:
@@ -690,6 +705,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 error_message="Max steps exceeded",
                 total_steps=state_machine.current_step,
                 timing_ms=int((time.perf_counter() - start_time) * 1000),
+                total_tokens=self._total_tokens,
             )
         except Exception as e:
             logger.error(
@@ -728,6 +744,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 error_message=str(e),
                 total_steps=state_machine.current_step,
                 timing_ms=total_timing_ms,
+                total_tokens=self._total_tokens,
             )
 
     # =========================================================================
@@ -1777,6 +1794,10 @@ To provide your final answer, respond WITHOUT calling any tools."""
             },
             token_count=response.usage.get("total_tokens"),
         )
+
+        # Accumulate tokens from forced synthesis
+        if response.usage.get("total_tokens"):
+            self._total_tokens += response.usage["total_tokens"]
 
         # If text is empty but we got reasoning, use reasoning as the answer
         # This can happen with reasoning models where the "thinking" IS the answer

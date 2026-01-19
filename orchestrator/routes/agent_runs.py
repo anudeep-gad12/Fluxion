@@ -200,6 +200,7 @@ async def _run_agent_task(
                         "citations": result.citations,
                         "total_steps": result.total_steps,
                         "timing_ms": result.timing_ms,
+                        "total_tokens": result.total_tokens,
                     },
                 }
             )
