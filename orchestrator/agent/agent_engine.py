@@ -36,6 +36,7 @@ if TYPE_CHECKING:
     from orchestrator.storage.repositories.trace_repo import TraceRepo
     from orchestrator.agent.tools.registry import ToolRegistry
     from orchestrator.agent.tools.base import ToolResult
+    from orchestrator.agent.planner import ResearchPlan
 
 logger = get_logger(__name__)
 
@@ -228,6 +229,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
         tool_choice: Optional[str] = None,
         max_context_tokens: int = 100000,
         slow_response_threshold: float = 15.0,
+        planning_enabled: bool = True,
     ) -> None:
         """Initialize agent engine.
 
@@ -249,6 +251,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
             max_context_tokens: Maximum tokens for input context (default 100k).
                 Used to enforce context budget before LLM calls.
             slow_response_threshold: Seconds before emitting slow_response warning.
+            planning_enabled: Whether to create research plans before execution.
         """
         self._provider = provider
         self._repo = repo
@@ -270,6 +273,10 @@ To provide your final answer, respond WITHOUT calling any tools."""
 
         # Token accumulator for run stats
         self._total_tokens: int = 0
+
+        # Planning configuration
+        self._planning_enabled = planning_enabled
+        self._current_plan: Optional["ResearchPlan"] = None
 
     async def run(
         self,
@@ -335,6 +342,14 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         "hints": len(recovery_context.hints),
                     },
                 )
+
+            # Planning step - create plan before execution loop
+            self._current_plan = None
+            if self._planning_enabled:
+                plan = await self._create_plan(run_id, query, event_callback)
+                if plan:
+                    self._current_plan = plan
+                    messages = self._inject_plan_into_messages(messages, plan)
 
             # Step metadata for context pruning (maps tool_call_id -> step_number)
             step_metadata: Dict[str, int] = {}
@@ -546,6 +561,11 @@ To provide your final answer, respond WITHOUT calling any tools."""
                             }
                         )
                         step_metadata[tool_call.id] = step_number
+
+                    # Update plan progress based on executed tools
+                    if self._current_plan:
+                        parsed_calls = [ParsedToolCall(id=tc["id"], name=tc["function"]["name"], arguments=tc["function"].get("arguments", {})) for tc in tool_calls]
+                        self._update_plan_progress(parsed_calls, step_number)
 
                     await state_machine.complete_step(
                         decision="call_tool",
@@ -812,6 +832,167 @@ To provide your final answer, respond WITHOUT calling any tools."""
         except Exception as e:
             logger.warning("Failed to write trace event", extra={"error": str(e)})
             return None
+
+    # =========================================================================
+    # Planning Methods
+    # =========================================================================
+
+    async def _create_plan(
+        self,
+        run_id: str,
+        query: str,
+        event_callback: Optional[Callable[[Dict[str, Any]], None]],
+    ) -> Optional["ResearchPlan"]:
+        """Create a research plan for the query.
+
+        The planner LLM naturally scales plan complexity:
+        - Simple queries get 1-step plans
+        - Complex queries get 3-5 step plans
+
+        Args:
+            run_id: Current run ID.
+            query: User's query.
+            event_callback: SSE callback.
+
+        Returns:
+            ResearchPlan if created successfully, None otherwise.
+        """
+        from orchestrator.agent.planner import Planner
+
+        planning_start = time.perf_counter()
+
+        # Trace: planning_start
+        await self._add_trace_event(
+            run_id=run_id,
+            event_type="planning_start",
+            content={"query": query[:200]},
+            actor="system",
+        )
+
+        planner = Planner(
+            provider=self._provider,
+            model_name=self._model_name,
+        )
+
+        plan = await planner.create_plan(query, self._registry.tool_names)
+
+        planning_duration_ms = int((time.perf_counter() - planning_start) * 1000)
+
+        if plan:
+            # Trace: plan_created
+            await self._add_trace_event(
+                run_id=run_id,
+                event_type="plan_created",
+                content=plan.to_dict(),
+                actor="model",
+                duration_ms=planning_duration_ms,
+            )
+
+            logger.info(
+                "Research plan created",
+                extra={
+                    "run_id": run_id,
+                    "plan_id": plan.id,
+                    "steps": len(plan.steps),
+                    "complexity": plan.estimated_complexity,
+                    "duration_ms": planning_duration_ms,
+                },
+            )
+        else:
+            # Trace: planning_failed
+            await self._add_trace_event(
+                run_id=run_id,
+                event_type="planning_failed",
+                content={"reason": "Planning LLM call failed or returned invalid plan"},
+                actor="system",
+                event_status="error",
+                duration_ms=planning_duration_ms,
+            )
+
+            logger.warning(
+                "Planning failed, agent will proceed without plan",
+                extra={"run_id": run_id, "duration_ms": planning_duration_ms},
+            )
+
+        return plan
+
+    def _inject_plan_into_messages(
+        self,
+        messages: List[Dict[str, Any]],
+        plan: "ResearchPlan",
+    ) -> List[Dict[str, Any]]:
+        """Inject research plan into message list.
+
+        Adds the plan as a system message after the main system prompt.
+        The plan guides execution but doesn't force specific actions.
+
+        Args:
+            messages: Current message list.
+            plan: Research plan to inject.
+
+        Returns:
+            New message list with plan injected.
+        """
+        plan_text = plan.to_injection_text()
+        plan_message = {
+            "role": "system",
+            "content": f"""RESEARCH PLAN FOR THIS QUERY:
+
+{plan_text}
+
+Follow this plan as a guide. Adapt as needed based on what you discover.
+When you complete each step, proceed to the next.""",
+            "_plan": True,  # Marker for context pruning (don't prune plan)
+        }
+
+        # Insert after the main system prompt (index 1)
+        new_messages = messages.copy()
+        new_messages.insert(1, plan_message)
+        return new_messages
+
+    def _update_plan_progress(
+        self,
+        tool_calls: List[Dict[str, Any]],
+        step_number: int,
+    ) -> None:
+        """Update plan progress based on executed tools.
+
+        Maps executed tools to plan steps and marks them complete.
+
+        Args:
+            tool_calls: List of tool calls that were executed.
+            step_number: Current agent step number.
+        """
+        if not self._current_plan:
+            return
+
+        from orchestrator.agent.planner import PlanStepStatus
+
+        # Get tool names from executed calls
+        executed_tools = set()
+        for tc in tool_calls:
+            if isinstance(tc, dict):
+                name = tc.get("function", {}).get("name", "")
+            else:
+                # ParsedToolCall object
+                name = getattr(tc, "name", "")
+            if name:
+                executed_tools.add(name)
+
+        # Find and mark matching plan steps
+        for plan_step in self._current_plan.steps:
+            if plan_step.status == PlanStepStatus.PENDING:
+                if plan_step.expected_tool in executed_tools:
+                    plan_step.status = PlanStepStatus.COMPLETED
+                    logger.debug(
+                        "Plan step completed",
+                        extra={
+                            "plan_step": plan_step.step_number,
+                            "tool": plan_step.expected_tool,
+                            "agent_step": step_number,
+                        },
+                    )
+                    break  # Only mark one step per iteration
 
     async def _build_initial_messages(
         self,
