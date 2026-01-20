@@ -9,7 +9,59 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
-| test | Agent Improvements (findings, tokens, tone) | done | 2026-01-19 |
+| feature/agent-planning | Agent Planning Step | in-progress | 2026-01-20 |
+
+### 2026-01-20: Agent Planning Step
+
+**Branch:** `feature/agent-planning`
+**Status:** in-progress
+
+**Description:**
+Add explicit planning step to the agent loop that creates structured research plans BEFORE executing tools. The planner LLM naturally scales plan complexity based on query:
+- Simple queries: 1 step
+- Moderate research: 2-3 steps
+- Complex analysis: 3-5 steps
+
+**Changes:**
+
+*Planner Module:*
+- Created `orchestrator/agent/planner.py` with:
+  - `PlanStep` dataclass with step_number, step_type, description, expected_tool, status
+  - `ResearchPlan` dataclass with query_analysis, approach, steps, estimated_complexity
+  - `Planner` class that calls LLM to generate plans
+- Low temperature (0.3) for deterministic plans
+- JSON parsing with fallback for markdown code blocks
+
+*Agent Engine Integration:*
+- Added `planning_enabled` parameter to `AgentEngine.__init__`
+- Added `_create_plan()` method that calls Planner and emits trace events
+- Added `_inject_plan_into_messages()` to add plan as system message
+- Added `_update_plan_progress()` to track which plan steps are complete
+- Planning step runs after `_build_initial_messages()`, before main loop
+- Plan stored as trace event (`plan_created`) visible in Debug Trace panel
+
+*Configuration:*
+- Added `agent_planning` section to `chat_config.yaml`:
+  - `enabled: true` - Enable/disable planning
+  - `max_plan_steps: 5` - Maximum steps in a plan
+
+**Files Created:**
+- `orchestrator/agent/planner.py` - Planner class and data structures
+- `tests/agent/test_planner.py` - 20 unit tests
+
+**Files Modified:**
+- `orchestrator/agent/agent_engine.py` - Planning integration (+181 lines)
+- `orchestrator/agent/factory.py` - Pass planning_enabled config (+5 lines)
+- `orchestrator/chat_config.yaml` - Add agent_planning section (+13 lines)
+
+**Tests:**
+- Unit: 20 new (all pass)
+- Full suite: 589 passed (3 pre-existing failures unrelated to this feature)
+
+**Commits:**
+- `992ab90` - feat(agent): add planning step before execution loop
+
+---
 
 ### 2026-01-19: Agent Improvements
 
@@ -475,6 +527,6 @@ Status: succeeded
 
 | Metric | Value |
 |--------|-------|
-| Features this session | 5 |
-| Total tests added | 33 |
+| Features this session | 6 |
+| Total tests added | 53 |
 | PRs to main | 0 |
