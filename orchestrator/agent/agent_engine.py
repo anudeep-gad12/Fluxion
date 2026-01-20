@@ -564,7 +564,23 @@ To provide your final answer, respond WITHOUT calling any tools."""
 
                     # Update plan progress based on executed tools
                     if self._current_plan:
-                        parsed_calls = [ParsedToolCall(id=tc["id"], name=tc["function"]["name"], arguments=tc["function"].get("arguments", {})) for tc in tool_calls]
+                        parsed_calls = []
+                        for tc in tool_calls:
+                            args = tc["function"].get("arguments", {})
+                            if isinstance(args, str):
+                                raw_args = args
+                                try:
+                                    args = json.loads(args)
+                                except json.JSONDecodeError:
+                                    args = {}
+                            else:
+                                raw_args = json.dumps(args)
+                            parsed_calls.append(ParsedToolCall(
+                                id=tc["id"],
+                                name=tc["function"]["name"],
+                                arguments=args,
+                                raw_arguments=raw_args,
+                            ))
                         self._update_plan_progress(parsed_calls, step_number)
 
                     await state_machine.complete_step(
