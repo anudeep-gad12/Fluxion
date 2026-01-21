@@ -17,7 +17,7 @@ from typing import Callable, List, Optional
 import httpx
 
 from .loader import GAIAQuestion, load_gaia_dataset
-from .scorer import ScoreResult, score_answer, extract_final_answer
+from .scorer import ScoreResult, score_answer, extract_answer_with_llm
 from .results import (
     EvaluationResults,
     aggregate_results,
@@ -141,10 +141,6 @@ async def run_agent_query(
                     elapsed_ms = int((time.time() - start_time) * 1000)
                     answer = status_data.get("final_answer")
                     steps = status_data.get("total_steps", 0)
-
-                    if answer:
-                        answer = extract_final_answer(answer)
-
                     return answer, steps, elapsed_ms
 
                 elif status == "failed":
@@ -243,10 +239,6 @@ async def run_chat_query(
                 if status == "succeeded":
                     elapsed_ms = int((time.time() - start_time) * 1000)
                     answer = status_data.get("final_answer")
-
-                    if answer:
-                        answer = extract_final_answer(answer)
-
                     return answer, elapsed_ms
 
                 elif status == "failed":
@@ -296,19 +288,29 @@ async def evaluate_single_question(
     """
     async with semaphore:
         if mode == "agent":
-            answer, step_count, time_ms = await run_agent_query(
+            raw_answer, step_count, time_ms = await run_agent_query(
                 question.question,
                 max_steps=max_steps,
                 timeout_seconds=timeout_seconds,
                 api_url=api_url,
             )
         else:
-            answer, time_ms = await run_chat_query(
+            raw_answer, time_ms = await run_chat_query(
                 question.question,
                 timeout_seconds=timeout_seconds,
                 api_url=api_url,
             )
             step_count = 0
+
+        # Use LLM to extract clean answer from verbose response
+        if raw_answer:
+            answer = await extract_answer_with_llm(
+                response=raw_answer,
+                question=question.question,
+                api_url=api_url,
+            )
+        else:
+            answer = raw_answer
 
         # Score the answer
         score = None
@@ -357,7 +359,7 @@ async def evaluate_questions(
                 progress_callback(i + 1, len(questions), f"Evaluating: {question.task_id}")
 
             if mode == "agent":
-                answer, step_count, time_ms = await run_agent_query(
+                raw_answer, step_count, time_ms = await run_agent_query(
                     question.question,
                     max_steps=max_steps,
                     timeout_seconds=timeout_seconds,
@@ -365,12 +367,22 @@ async def evaluate_questions(
                 )
                 steps.append(step_count)
             else:
-                answer, time_ms = await run_chat_query(
+                raw_answer, time_ms = await run_chat_query(
                     question.question,
                     timeout_seconds=timeout_seconds,
                     api_url=api_url,
                 )
                 steps.append(0)
+
+            # Use LLM to extract clean answer
+            if raw_answer:
+                answer = await extract_answer_with_llm(
+                    response=raw_answer,
+                    question=question.question,
+                    api_url=api_url,
+                )
+            else:
+                answer = raw_answer
 
             answers.append(answer)
             times.append(time_ms)

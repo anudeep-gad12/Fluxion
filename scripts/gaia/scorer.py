@@ -9,10 +9,13 @@ Answer types:
 - List: comma-separated items compared as sets
 """
 
+import asyncio
 import re
 from dataclasses import dataclass
 from enum import Enum
 from typing import Optional
+
+import httpx
 
 
 class AnswerType(Enum):
@@ -283,8 +286,121 @@ def score_answer(
     )
 
 
+async def extract_answer_with_llm(
+    response: str,
+    question: str,
+    api_url: str = "http://127.0.0.1:9000",
+    timeout: float = 30.0,
+) -> str:
+    """Use LLM to extract the final answer from a verbose response.
+
+    This is more robust than pattern matching as it can handle any format
+    the agent outputs (markdown, citations, verbose explanations, etc.).
+
+    Args:
+        response: Full model response text.
+        question: The original question (for context).
+        api_url: API server URL.
+        timeout: Request timeout in seconds.
+
+    Returns:
+        Extracted answer string.
+    """
+    if not response:
+        return ""
+
+    # Build extraction prompt
+    extraction_prompt = f"""Extract ONLY the final answer from the response below.
+
+Rules:
+- Return just the answer value (number, word, or short phrase)
+- No explanations, no "The answer is...", just the raw answer
+- If the answer is a number, return just the number (e.g., "17" not "17 hours")
+- If the answer is a word written out (like "three"), convert to digit (e.g., "3")
+- If it's a list, return comma-separated values
+- If you cannot find a clear answer, return "UNKNOWN"
+
+Question: {question}
+
+Response: {response}
+
+Final answer (just the value):"""
+
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(timeout)) as client:
+            # Create a temporary conversation for extraction
+            conv_response = await client.post(
+                f"{api_url}/api/conversations",
+                json={"title": "GAIA Answer Extraction"},
+            )
+
+            if conv_response.status_code != 200:
+                # Fallback to basic extraction
+                return extract_final_answer(response)
+
+            conv_data = conv_response.json()
+            conversation_id = conv_data.get("conversation_id")
+
+            if not conversation_id:
+                return extract_final_answer(response)
+
+            # Create chat run for extraction
+            run_response = await client.post(
+                f"{api_url}/api/conversations/{conversation_id}/runs",
+                json={"message": extraction_prompt},
+            )
+
+            if run_response.status_code != 200:
+                return extract_final_answer(response)
+
+            run_data = run_response.json()
+            run_id = run_data.get("run_id")
+
+            if not run_id:
+                return extract_final_answer(response)
+
+            # Poll for completion
+            poll_interval = 0.5
+            max_polls = int(timeout / poll_interval)
+
+            for _ in range(max_polls):
+                status_response = await client.get(
+                    f"{api_url}/api/runs/{run_id}"
+                )
+
+                if status_response.status_code != 200:
+                    await asyncio.sleep(poll_interval)
+                    continue
+
+                status_data = status_response.json()
+                status = status_data.get("status")
+
+                if status == "succeeded":
+                    extracted = status_data.get("final_answer", "")
+                    # Clean up the extracted answer
+                    extracted = extracted.strip()
+                    # Remove any quotes
+                    extracted = extracted.strip('"\'')
+                    # If extraction failed, fallback
+                    if not extracted or extracted == "UNKNOWN":
+                        return extract_final_answer(response)
+                    return extracted
+
+                elif status == "failed":
+                    return extract_final_answer(response)
+
+                await asyncio.sleep(poll_interval)
+
+            # Timeout - fallback
+            return extract_final_answer(response)
+
+    except Exception:
+        # Any error - fallback to basic extraction
+        return extract_final_answer(response)
+
+
 def extract_final_answer(response: str) -> str:
-    """Extract final answer from a model response.
+    """Extract final answer from a model response (basic pattern matching).
 
     GAIA expects short answers. This function attempts to extract
     just the answer portion from potentially verbose responses.
