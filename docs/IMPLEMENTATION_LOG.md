@@ -9,12 +9,38 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
-| feature/agent-planning | Agent Planning Step | in-progress | 2026-01-20 |
+| feature/agent-planning | Agent Planning Step | done | 2026-01-20 |
+
+### 2026-01-21: Agent Planning - max_plan_steps Wiring
+
+**Branch:** `feature/agent-planning`
+**Status:** done
+
+**Description:**
+Wired up the `max_plan_steps` config setting which was previously unused. The planner now respects this config value when generating plans.
+
+**Changes:**
+- Added `max_plan_steps` parameter to `Planner.__init__()` and `AgentEngine.__init__()`
+- Updated `PLANNING_PROMPT` to use `{max_steps}` placeholder instead of hardcoded values
+- Added `plan_injected` trace event for debugging (shows messages before/after, plan preview)
+- Factory now reads `max_plan_steps` from config and passes through to engine
+- Added 2 new unit tests for max_plan_steps behavior
+
+**Files Modified:**
+- `orchestrator/agent/planner.py` - max_plan_steps param, dynamic prompt
+- `orchestrator/agent/agent_engine.py` - max_plan_steps param, plan_injected trace
+- `orchestrator/agent/factory.py` - Read and pass max_plan_steps config
+
+**Tests:**
+- Unit: 22 tests (all pass)
+- Sanity: 73/73 passed
+
+---
 
 ### 2026-01-20: Agent Planning Step
 
 **Branch:** `feature/agent-planning`
-**Status:** in-progress
+**Status:** done
 
 **Description:**
 Add explicit planning step to the agent loop that creates structured research plans BEFORE executing tools. The planner LLM naturally scales plan complexity based on query:
@@ -47,16 +73,16 @@ Add explicit planning step to the agent loop that creates structured research pl
 
 **Files Created:**
 - `orchestrator/agent/planner.py` - Planner class and data structures
-- `tests/agent/test_planner.py` - 20 unit tests
+- `tests/agent/test_planner.py` - 22 unit tests
 
 **Files Modified:**
-- `orchestrator/agent/agent_engine.py` - Planning integration (+181 lines)
-- `orchestrator/agent/factory.py` - Pass planning_enabled config (+5 lines)
+- `orchestrator/agent/agent_engine.py` - Planning integration (+200 lines)
+- `orchestrator/agent/factory.py` - Pass planning config (+8 lines)
 - `orchestrator/chat_config.yaml` - Add agent_planning section (+13 lines)
 
 **Tests:**
-- Unit: 20 new (all pass)
-- Full suite: 589 passed (3 pre-existing failures unrelated to this feature)
+- Unit: 22 new (all pass)
+- Sanity: 73/73 passed
 
 **Commits:**
 - `992ab90` - feat(agent): add planning step before execution loop
