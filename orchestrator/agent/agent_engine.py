@@ -349,7 +349,32 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 plan = await self._create_plan(run_id, query, event_callback)
                 if plan:
                     self._current_plan = plan
+                    messages_before = len(messages)
                     messages = self._inject_plan_into_messages(messages, plan)
+
+                    # Trace: plan_injected - verify plan is in messages
+                    await self._add_trace_event(
+                        run_id=run_id,
+                        event_type="plan_injected",
+                        content={
+                            "plan_id": plan.id,
+                            "messages_before": messages_before,
+                            "messages_after": len(messages),
+                            "plan_text_preview": plan.to_injection_text()[:500],
+                        },
+                        actor="system",
+                    )
+
+                    logger.info(
+                        "Plan injected into messages",
+                        extra={
+                            "run_id": run_id,
+                            "plan_id": plan.id,
+                            "messages_before": messages_before,
+                            "messages_after": len(messages),
+                            "plan_step_count": len(plan.steps),
+                        },
+                    )
 
             # Step metadata for context pruning (maps tool_call_id -> step_number)
             step_metadata: Dict[str, int] = {}
