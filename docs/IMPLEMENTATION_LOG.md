@@ -9,7 +9,65 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| feature/gaia-benchmark | GAIA Benchmark Evaluation | in-progress | 2026-01-21 |
 | feature/agent-planning | Agent Planning Step | done | 2026-01-20 |
+
+### 2026-01-21: GAIA Benchmark Evaluation Setup
+
+**Branch:** `feature/gaia-benchmark`
+**Status:** in-progress
+
+**Description:**
+Set up GAIA benchmark evaluation to compare Agent mode vs Chat mode performance.
+GAIA is a benchmark for General AI Assistants with 450+ questions requiring
+multi-step reasoning, tool use, and web browsing.
+
+**Features:**
+- Load GAIA dataset from HuggingFace (gated, requires HF_TOKEN)
+- Official GAIA quasi exact match scoring (string/number/list normalization)
+- Compare Agent mode (planning + tools) vs Chat mode (simple LLM)
+- JSON output with per-question results and summary statistics
+- Markdown report generation with detailed failure analysis
+- Parallel execution with semaphore-based concurrency control
+- CLI interface: `python -m scripts.gaia --level 1 --compare -c 5`
+
+**Files Created:**
+- `scripts/gaia/__init__.py` - Package exports
+- `scripts/gaia/loader.py` - GAIA dataset loader from HuggingFace
+- `scripts/gaia/scorer.py` - Quasi exact match scoring (string/number/list)
+- `scripts/gaia/results.py` - JSON/Markdown report generation
+- `scripts/gaia/runner.py` - Main evaluation runner with parallel execution
+- `scripts/gaia/__main__.py` - CLI entry point
+- `tests/gaia/__init__.py` - Test package
+- `tests/gaia/test_scorer.py` - 44 scoring unit tests
+- `tests/gaia/test_loader.py` - 10 loader unit tests
+
+**Files Modified:**
+- `pyproject.toml` - Added `benchmark` optional dependency group
+
+**Tests:**
+- Unit: 48 passed, 6 skipped (require datasets library)
+- Full suite: 639 passed, 3 failed (pre-existing)
+
+**Usage:**
+```bash
+# Install benchmark deps
+uv sync --extra benchmark
+
+# Run evaluation
+HF_TOKEN=xxx python -m scripts.gaia --level 1 --mode agent
+HF_TOKEN=xxx python -m scripts.gaia --level 1 --compare
+HF_TOKEN=xxx python -m scripts.gaia --level 1 -n 10 -c 5  # 10 questions, 5 parallel
+```
+
+**Initial Benchmark Results (10 questions per level):**
+| Level | Accuracy | Notes |
+|-------|----------|-------|
+| 1 | 40% (4/10) | Multi-step reasoning |
+| 2 | 40% (4/10) | Tool usage required |
+| 3 | 30% (3/10) | Complex reasoning |
+
+---
 
 ### 2026-01-21: Agent Planning - max_plan_steps Wiring
 

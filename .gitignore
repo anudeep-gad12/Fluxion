@@ -60,3 +60,5 @@ ui/dist/
 # Agent outputs
 .pids/
 .claude/
+# GAIA benchmark results (generated)
+gaia_results/
