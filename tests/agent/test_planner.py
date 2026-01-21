@@ -387,3 +387,49 @@ class TestPlanner:
         call_args = provider.complete.call_args
         assert call_args.kwargs["temperature"] == 0.3
         assert call_args.kwargs["max_tokens"] == 1024
+
+    @pytest.mark.asyncio
+    async def test_max_plan_steps_in_prompt(self):
+        """Verifies max_plan_steps is used in the prompt."""
+        provider = MagicMock()
+        provider.complete = AsyncMock(
+            return_value=MagicMock(
+                text="""{
+                "query_analysis": "Test",
+                "approach": "Test",
+                "steps": [{"step_number": 1, "step_type": "search", "description": "Search", "expected_tool": "web_search", "rationale": "r"}]
+            }"""
+            )
+        )
+
+        # Test with custom max_plan_steps
+        planner = Planner(provider, "test-model", max_plan_steps=7)
+        await planner.create_plan("Complex query", ["web_search"])
+
+        # Verify prompt contains max_steps value
+        call_args = provider.complete.call_args
+        prompt = call_args.kwargs["messages"][0]["content"]
+        assert "at most 7 steps" in prompt
+        assert "up to 7 steps" in prompt
+
+    @pytest.mark.asyncio
+    async def test_default_max_plan_steps(self):
+        """Verifies default max_plan_steps is 5."""
+        provider = MagicMock()
+        provider.complete = AsyncMock(
+            return_value=MagicMock(
+                text="""{
+                "query_analysis": "Test",
+                "approach": "Test",
+                "steps": [{"step_number": 1, "step_type": "search", "description": "Search", "expected_tool": "web_search", "rationale": "r"}]
+            }"""
+            )
+        )
+
+        planner = Planner(provider, "test-model")  # Uses default
+        await planner.create_plan("Test", ["web_search"])
+
+        # Verify prompt contains default max_steps value
+        call_args = provider.complete.call_args
+        prompt = call_args.kwargs["messages"][0]["content"]
+        assert "at most 5 steps" in prompt
