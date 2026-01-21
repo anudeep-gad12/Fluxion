@@ -60,12 +60,17 @@ HF_TOKEN=xxx python -m scripts.gaia --level 1 --compare
 HF_TOKEN=xxx python -m scripts.gaia --level 1 -n 10 -c 5  # 10 questions, 5 parallel
 ```
 
-**Initial Benchmark Results (10 questions per level):**
+**Initial Benchmark Results (10 questions per level, with extra prompt):**
 | Level | Accuracy | Notes |
 |-------|----------|-------|
 | 1 | 40% (4/10) | Multi-step reasoning |
 | 2 | 40% (4/10) | Tool usage required |
 | 3 | 30% (3/10) | Complex reasoning |
+
+**Fix: Removed extra prompt instructions (2026-01-21)**
+- Removed `gaia_instruction` that was appended to questions
+- GAIA benchmark should test raw agent capability, not with hints
+- Questions now sent as-is to agent/chat endpoints
 
 ---
 

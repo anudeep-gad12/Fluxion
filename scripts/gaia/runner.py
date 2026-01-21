@@ -99,19 +99,13 @@ async def run_agent_query(
     """
     start_time = time.time()
 
-    # Add GAIA-specific instruction to get short answers
-    gaia_instruction = (
-        "\n\nIMPORTANT: Provide ONLY the final answer with no explanation. "
-        "The answer should be a single word, number, or short phrase."
-    )
-
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(timeout_seconds + 10)) as client:
             # Create agent run via HTTP API
             create_response = await client.post(
                 f"{api_url}/api/agent/runs",
                 json={
-                    "query": query + gaia_instruction,
+                    "query": query,
                     "max_steps": max_steps,
                 },
             )
@@ -192,12 +186,6 @@ async def run_chat_query(
     """
     start_time = time.time()
 
-    # Add GAIA-specific instruction
-    gaia_instruction = (
-        "\n\nIMPORTANT: Provide ONLY the final answer with no explanation. "
-        "The answer should be a single word, number, or short phrase."
-    )
-
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(timeout_seconds + 10)) as client:
             # Create a conversation for this query
@@ -222,7 +210,7 @@ async def run_chat_query(
             # Create chat run
             run_response = await client.post(
                 f"{api_url}/api/conversations/{conversation_id}/runs",
-                json={"message": query + gaia_instruction},
+                json={"message": query},
             )
 
             if run_response.status_code != 200:
