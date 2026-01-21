@@ -230,6 +230,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
         max_context_tokens: int = 100000,
         slow_response_threshold: float = 15.0,
         planning_enabled: bool = True,
+        max_plan_steps: int = 5,
     ) -> None:
         """Initialize agent engine.
 
@@ -252,6 +253,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 Used to enforce context budget before LLM calls.
             slow_response_threshold: Seconds before emitting slow_response warning.
             planning_enabled: Whether to create research plans before execution.
+            max_plan_steps: Maximum steps the planner can create (default 5).
         """
         self._provider = provider
         self._repo = repo
@@ -276,6 +278,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
 
         # Planning configuration
         self._planning_enabled = planning_enabled
+        self._max_plan_steps = max_plan_steps
         self._current_plan: Optional["ResearchPlan"] = None
 
     async def run(
@@ -913,6 +916,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
         planner = Planner(
             provider=self._provider,
             model_name=self._model_name,
+            max_plan_steps=self._max_plan_steps,
         )
 
         plan = await planner.create_plan(query, self._registry.tool_names)
