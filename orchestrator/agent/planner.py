@@ -170,10 +170,10 @@ PLANNING_PROMPT = """You are a research planning assistant. Given a user query, 
 
 User Query: {query}
 
-Create a plan with the appropriate number of steps:
+Create a plan with at most {max_steps} steps:
 - For simple factual questions: 1 step (just answer or single search)
 - For moderate research: 2-3 steps
-- For complex analysis/comparison: 3-5 steps
+- For complex analysis/comparison: up to {max_steps} steps
 
 For each step specify:
 1. What to do (brief description)
@@ -201,6 +201,7 @@ Guidelines:
 - Simple queries like "What is X?" need only 1 step
 - For calculations, include python_execute early
 - Final synthesis step has expected_tool: null
+- Create at most {max_steps} steps total
 - Output ONLY JSON, no other text"""
 
 
@@ -232,15 +233,18 @@ class Planner:
         self,
         provider: "LLMProvider",
         model_name: str,
+        max_plan_steps: int = 5,
     ) -> None:
         """Initialize planner.
 
         Args:
             provider: LLM provider for planning call.
             model_name: Model to use for planning.
+            max_plan_steps: Maximum steps the planner can create.
         """
         self._provider = provider
         self._model_name = model_name
+        self._max_plan_steps = max_plan_steps
 
     async def create_plan(
         self,
@@ -251,7 +255,7 @@ class Planner:
 
         The planner LLM naturally scales plan complexity:
         - Simple queries get 1-step plans
-        - Complex queries get 3-5 step plans
+        - Complex queries get up to max_plan_steps
 
         Args:
             query: User's research query.
@@ -260,7 +264,7 @@ class Planner:
         Returns:
             ResearchPlan if successful, None if planning fails.
         """
-        prompt = PLANNING_PROMPT.format(query=query)
+        prompt = PLANNING_PROMPT.format(query=query, max_steps=self._max_plan_steps)
 
         try:
             response = await self._provider.complete(
