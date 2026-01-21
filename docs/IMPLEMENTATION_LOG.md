@@ -72,6 +72,12 @@ HF_TOKEN=xxx python -m scripts.gaia --level 1 -n 10 -c 5  # 10 questions, 5 para
 - GAIA benchmark should test raw agent capability, not with hints
 - Questions now sent as-is to agent/chat endpoints
 
+**Enhancement: LLM-based answer extraction (2026-01-21)**
+- Added `extract_answer_with_llm()` to extract clean answers from verbose responses
+- Agent outputs verbose text (e.g., `**17**【2】`) but LLM extracts just `17`
+- Extraction is fair: doesn't see ground truth, just cleans format
+- Improved Level 1 accuracy: 40% → 60% (10 questions)
+
 ---
 
 ### 2026-01-21: Agent Planning - max_plan_steps Wiring
