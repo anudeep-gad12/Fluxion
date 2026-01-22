@@ -9,7 +9,347 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
-| test | Agent Improvements (findings, tokens, tone) | done | 2026-01-19 |
+| feature/gaia-benchmark | GAIA Benchmark Evaluation | in-progress | 2026-01-21 |
+| feature/agent-planning | Agent Planning Step | done | 2026-01-20 |
+
+### 2026-01-22: Local Ministral 14B Reasoning Model Support
+
+**Branch:** `feature/gaia-benchmark`
+**Status:** done
+
+**Description:**
+Fixed multiple issues to support local llama-server with Ministral-3-14B-Reasoning model. Mistral models require strict user/assistant message alternation which exposed several bugs.
+
+**Fixes:**
+1. **URL building** - Fixed double `/v1` in URL when base_url already contains `/v1`
+2. **Plan injection** - Changed from creating second system message to appending to existing system message (Mistral rejects multiple system messages)
+3. **Conversation history** - Skip incomplete runs (no assistant response) and duplicate queries to maintain strict alternation
+
+**Files Modified:**
+- `orchestrator/providers/openai_compat.py` - Fixed `_build_url()` for URLs ending with `/v1`
+- `orchestrator/agent/agent_engine.py` - Fixed `_inject_plan_into_messages()` to append plan to system message
+- `orchestrator/agent/agent_engine.py` - Fixed `_build_initial_messages()` to skip incomplete runs
+- `orchestrator/chat_config.yaml` - Added env var support for model name (`${LLM_MODEL:-...}`)
+
+**Usage:**
+```bash
+./dev.sh provider local  # Creates .env.provider with llama-server settings
+# Start llama-server with Ministral model on port 8080
+./dev.sh start
+```
+
+**Tests:** Manual API tests successful with math query (python_execute) and factual query
+
+---
+
+### 2026-01-22: Agent System Prompt Enhancement
+
+**Branch:** `test`
+**Status:** done
+
+**Description:**
+Enhanced DEFAULT_SYSTEM_PROMPT with research-based verification protocols to improve GAIA benchmark accuracy (currently ~36%). Based on findings documented in `docs/AGENT_REASONING_RESEARCH.md`.
+
+**Changes:**
+Added three new protocols to agent system prompt:
+1. **SEARCH & VERIFICATION PROTOCOL** - Multiple searches, source authority hierarchy, cross-verification
+2. **MANDATORY PYTHON PROTOCOL** - Never compute mentally, always use python_execute
+3. **SELF-CHECK BEFORE FINAL ANSWER** - Evidence verification, confusion check
+
+**Files Modified:**
+- `orchestrator/agent/agent_engine.py` - Enhanced DEFAULT_SYSTEM_PROMPT (lines 161-210)
+- Added deprecation comment for CALCULATION_SYSTEM_PROMPT
+
+**Tests:** All 45 agent tests pass (`uv run pytest tests/agent/test_agent_engine.py -v`)
+
+**Trace Verification:** Existing traces show no errors
+
+---
+
+### 2026-01-22: GAIA max_steps and Extraction Prompt Improvements
+
+**Branch:** `feature/gaia-benchmark`
+**Status:** done
+
+**Description:**
+Based on analysis of benchmark failures (46/127 = 36.2% accuracy), two improvements to the GAIA benchmark runner:
+1. Increased default max_steps from 10 to 15 for complex questions
+2. Improved LLM answer extraction prompt for better answer parsing
+
+**Root Cause Analysis:**
+- ~18 questions failed due to needing more steps than 10
+- ~12 questions had verbose answers that weren't properly extracted
+- Level 2/3 questions require more reasoning steps for multi-hop queries
+
+**Files Modified:**
+- `scripts/gaia/runner.py` - `max_steps: int = 15` (was 10)
+- `scripts/gaia/scorer.py` - Improved extraction prompt with:
+  - More explicit formatting rules
+  - Truncate response to 2000 chars
+  - Examples for names, numbers, lists
+
+**Tests:** All 54 GAIA tests pass (`uv run pytest tests/gaia/ -v`)
+
+---
+
+### 2026-01-22: GAIA API & Empty Args Filtering Fixes
+
+**Branch:** `feature/gaia-benchmark`
+**Status:** done
+
+**Description:**
+Two fixes to improve GAIA benchmark evaluation:
+1. Extended empty args filtering to cover all streaming tool call paths
+2. Added `total_steps` field to agent run status API response
+
+**Fixes:**
+1. **Empty args filtering**: Extended validation to `tool_call_complete` and `tool_calls_complete`
+   paths in streaming response parsing. Previously only covered the accumulator finalization path.
+2. **API total_steps**: GAIA runner was looking for `total_steps` but API only returned `current_step`.
+   Added `total_steps` to `AgentRunStatusResponse` - returns step count when run is complete.
+
+**Files Modified:**
+- `orchestrator/providers/openai_compat.py` - Filter empty args in all streaming paths
+- `orchestrator/schemas.py` - Added `total_steps` field to AgentRunStatusResponse
+- `orchestrator/routes/agent_runs.py` - Return total_steps when run completes
+
+---
+
+### 2026-01-22: GAIA Timeout Fix & Model Tool Hallucination Fix
+
+**Branch:** `feature/gaia-benchmark`
+**Status:** done
+
+**Description:**
+Fixed two issues causing GAIA benchmark failures:
+1. Timeout too short (300s) - runs completing at ~286s avg were timing out
+2. Model hallucinating `web_find` tool - calling non-existent tool instead of reading extracted content
+
+**Fixes:**
+1. **GAIA timeout**: Increased from 300s to 600s (10 minutes) for complex questions
+2. **System prompt**: Updated to explicitly state ONLY 3 tools exist and to READ extracted content directly
+
+**Root Cause Analysis (web_find):**
+- Model extracts page content via web_extract
+- Model reads content, finds data (e.g., "State of Qatar")
+- Model wants to "verify" or "find end of table" → calls imaginary `web_find` tool
+- Not a context pruning issue - model HAS the content but tries to delegate search
+
+**Files Modified:**
+- `scripts/gaia/runner.py` - Timeout 300s → 600s
+- `orchestrator/agent/agent_engine.py` - System prompts now emphasize:
+  - "ONLY three tools available (no others exist)"
+  - "After web_extract, READ the content directly, don't try to search within it"
+
+---
+
+### 2026-01-22: GAIA Full Benchmark Results & Empty Args Fix
+
+**Branch:** `feature/gaia-benchmark`
+**Status:** done
+
+**Description:**
+Ran full GAIA benchmark (127 questions without attachments) overnight using gpt-oss-120b.
+Fixed streaming tool call accumulator bug that was causing 45% of python_execute calls to fail.
+
+**Benchmark Results (127 questions, gpt-oss-120b):**
+| Level | Correct | Total | Accuracy |
+|-------|---------|-------|----------|
+| 1 | 27 | 42 | 64.3% |
+| 2 | 18 | 66 | 27.3% |
+| 3 | 5 | 19 | 26.3% |
+| **Total** | **50** | **127** | **39.4%** |
+
+**Failure Analysis:**
+- 31 timeouts (24.4%) - questions taking >300s
+- 70 python_execute errors from empty arguments (45% of all python_execute calls)
+- 12 web_find errors (model calling non-existent tool)
+
+**Root Cause:**
+Streaming tool call accumulator in provider emitted tool calls even when no argument
+chunks were received. The check was `if acc["id"] and acc["name"]:` but didn't verify
+`arguments_parts` had content. Result: empty `{}` arguments passed to agent.
+
+**Fix:**
+- Added `and acc["arguments_parts"]` check before emitting streaming tool calls
+- Logs warning when skipping incomplete tool calls
+- Prevents wasting agent steps on tool calls that will definitely fail
+
+**Files Modified:**
+- `orchestrator/providers/openai_compat.py` - Skip streaming tool calls with empty args
+
+---
+
+### 2026-01-21: Fix empty tool arguments validation
+
+**Branch:** `feature/gaia-benchmark`
+**Status:** done
+
+**Description:**
+Added validation for required tool arguments before execution. The model sometimes
+emits tool calls without required arguments (e.g., `python_execute` with `{}`).
+The previous error "missing 1 required positional argument: 'code'" was unclear.
+
+**Fix:**
+- Validate required arguments from tool schema before calling execute()
+- Return clear error: "Missing required argument(s): 'code'. The python_execute tool requires these parameters."
+- Model can now understand what's missing and retry with proper arguments
+
+**Impact:**
+- Ping-pong riddle: Changed from INCORRECT (100) to CORRECT (3)
+- Model recovers faster from empty argument errors
+
+**Files Modified:**
+- `orchestrator/agent/agent_engine.py` - Added required args validation
+- `dev.sh` - Fixed deepinfra provider to use gpt-oss-120b (was incorrectly set to 20b)
+
+---
+
+### 2026-01-21: GAIA Benchmark Evaluation Setup
+
+**Branch:** `feature/gaia-benchmark`
+**Status:** in-progress
+
+**Description:**
+Set up GAIA benchmark evaluation to compare Agent mode vs Chat mode performance.
+GAIA is a benchmark for General AI Assistants with 450+ questions requiring
+multi-step reasoning, tool use, and web browsing.
+
+**Features:**
+- Load GAIA dataset from HuggingFace (gated, requires HF_TOKEN)
+- Official GAIA quasi exact match scoring (string/number/list normalization)
+- Compare Agent mode (planning + tools) vs Chat mode (simple LLM)
+- JSON output with per-question results and summary statistics
+- Markdown report generation with detailed failure analysis
+- Parallel execution with semaphore-based concurrency control
+- CLI interface: `python -m scripts.gaia --level 1 --compare -c 5`
+
+**Files Created:**
+- `scripts/gaia/__init__.py` - Package exports
+- `scripts/gaia/loader.py` - GAIA dataset loader from HuggingFace
+- `scripts/gaia/scorer.py` - Quasi exact match scoring (string/number/list)
+- `scripts/gaia/results.py` - JSON/Markdown report generation
+- `scripts/gaia/runner.py` - Main evaluation runner with parallel execution
+- `scripts/gaia/__main__.py` - CLI entry point
+- `tests/gaia/__init__.py` - Test package
+- `tests/gaia/test_scorer.py` - 44 scoring unit tests
+- `tests/gaia/test_loader.py` - 10 loader unit tests
+
+**Files Modified:**
+- `pyproject.toml` - Added `benchmark` optional dependency group
+
+**Tests:**
+- Unit: 48 passed, 6 skipped (require datasets library)
+- Full suite: 639 passed, 3 failed (pre-existing)
+
+**Usage:**
+```bash
+# Install benchmark deps
+uv sync --extra benchmark
+
+# Run evaluation
+HF_TOKEN=xxx python -m scripts.gaia --level 1 --mode agent
+HF_TOKEN=xxx python -m scripts.gaia --level 1 --compare
+HF_TOKEN=xxx python -m scripts.gaia --level 1 -n 10 -c 5  # 10 questions, 5 parallel
+```
+
+**Initial Benchmark Results (10 questions per level, with extra prompt):**
+| Level | Accuracy | Notes |
+|-------|----------|-------|
+| 1 | 40% (4/10) | Multi-step reasoning |
+| 2 | 40% (4/10) | Tool usage required |
+| 3 | 30% (3/10) | Complex reasoning |
+
+**Fix: Removed extra prompt instructions (2026-01-21)**
+- Removed `gaia_instruction` that was appended to questions
+- GAIA benchmark should test raw agent capability, not with hints
+- Questions now sent as-is to agent/chat endpoints
+
+**Enhancement: LLM-based answer extraction (2026-01-21)**
+- Added `extract_answer_with_llm()` to extract clean answers from verbose responses
+- Agent outputs verbose text (e.g., `**17**【2】`) but LLM extracts just `17`
+- Extraction is fair: doesn't see ground truth, just cleans format
+- Improved Level 1 accuracy: 40% → 60% (10 questions)
+
+---
+
+### 2026-01-21: Agent Planning - max_plan_steps Wiring
+
+**Branch:** `feature/agent-planning`
+**Status:** done
+
+**Description:**
+Wired up the `max_plan_steps` config setting which was previously unused. The planner now respects this config value when generating plans.
+
+**Changes:**
+- Added `max_plan_steps` parameter to `Planner.__init__()` and `AgentEngine.__init__()`
+- Updated `PLANNING_PROMPT` to use `{max_steps}` placeholder instead of hardcoded values
+- Added `plan_injected` trace event for debugging (shows messages before/after, plan preview)
+- Factory now reads `max_plan_steps` from config and passes through to engine
+- Added 2 new unit tests for max_plan_steps behavior
+
+**Files Modified:**
+- `orchestrator/agent/planner.py` - max_plan_steps param, dynamic prompt
+- `orchestrator/agent/agent_engine.py` - max_plan_steps param, plan_injected trace
+- `orchestrator/agent/factory.py` - Read and pass max_plan_steps config
+
+**Tests:**
+- Unit: 22 tests (all pass)
+- Sanity: 73/73 passed
+
+---
+
+### 2026-01-20: Agent Planning Step
+
+**Branch:** `feature/agent-planning`
+**Status:** done
+
+**Description:**
+Add explicit planning step to the agent loop that creates structured research plans BEFORE executing tools. The planner LLM naturally scales plan complexity based on query:
+- Simple queries: 1 step
+- Moderate research: 2-3 steps
+- Complex analysis: 3-5 steps
+
+**Changes:**
+
+*Planner Module:*
+- Created `orchestrator/agent/planner.py` with:
+  - `PlanStep` dataclass with step_number, step_type, description, expected_tool, status
+  - `ResearchPlan` dataclass with query_analysis, approach, steps, estimated_complexity
+  - `Planner` class that calls LLM to generate plans
+- Low temperature (0.3) for deterministic plans
+- JSON parsing with fallback for markdown code blocks
+
+*Agent Engine Integration:*
+- Added `planning_enabled` parameter to `AgentEngine.__init__`
+- Added `_create_plan()` method that calls Planner and emits trace events
+- Added `_inject_plan_into_messages()` to add plan as system message
+- Added `_update_plan_progress()` to track which plan steps are complete
+- Planning step runs after `_build_initial_messages()`, before main loop
+- Plan stored as trace event (`plan_created`) visible in Debug Trace panel
+
+*Configuration:*
+- Added `agent_planning` section to `chat_config.yaml`:
+  - `enabled: true` - Enable/disable planning
+  - `max_plan_steps: 5` - Maximum steps in a plan
+
+**Files Created:**
+- `orchestrator/agent/planner.py` - Planner class and data structures
+- `tests/agent/test_planner.py` - 22 unit tests
+
+**Files Modified:**
+- `orchestrator/agent/agent_engine.py` - Planning integration (+200 lines)
+- `orchestrator/agent/factory.py` - Pass planning config (+8 lines)
+- `orchestrator/chat_config.yaml` - Add agent_planning section (+13 lines)
+
+**Tests:**
+- Unit: 22 new (all pass)
+- Sanity: 73/73 passed
+
+**Commits:**
+- `992ab90` - feat(agent): add planning step before execution loop
+
+---
 
 ### 2026-01-19: Agent Improvements
 
@@ -475,6 +815,6 @@ Status: succeeded
 
 | Metric | Value |
 |--------|-------|
-| Features this session | 5 |
-| Total tests added | 33 |
+| Features this session | 6 |
+| Total tests added | 53 |
 | PRs to main | 0 |

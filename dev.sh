@@ -250,7 +250,7 @@ EOF
 # Provider: DeepInfra (cloud)
 LLM_BASE_URL=https://api.deepinfra.com/v1/openai
 LLM_ENDPOINT=chat_completions
-LLM_MODEL=openai/gpt-oss-20b
+LLM_MODEL=openai/gpt-oss-120b
 EOF
             provider="deepinfra (cloud)"
             ;;

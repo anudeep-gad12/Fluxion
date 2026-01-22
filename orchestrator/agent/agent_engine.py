@@ -36,6 +36,7 @@ if TYPE_CHECKING:
     from orchestrator.storage.repositories.trace_repo import TraceRepo
     from orchestrator.agent.tools.registry import ToolRegistry
     from orchestrator.agent.tools.base import ToolResult
+    from orchestrator.agent.planner import ResearchPlan
 
 logger = get_logger(__name__)
 
@@ -161,27 +162,65 @@ class AgentEngine:
 
 {date_context}
 
-You have three tools available: web_search for finding information online, web_extract for getting detailed content from specific URLs, and python_execute for running calculations and data analysis.
+You have ONLY three tools available (no others exist):
+- web_search: Find URLs for information online
+- web_extract: Get full page content from URLs
+- python_execute: Run calculations and data analysis
 
-When deciding how to help, consider what the user is asking for. If they need calculations or mathematical analysis, use python_execute rather than searching. If they're asking about current events or need data from after your knowledge cutoff, search the web. If you can answer from your existing knowledge, just respond directly. When you find relevant URLs from a search, you can extract 2-3 of the most authoritative sources for more detail.
+IMPORTANT: After using web_extract, you have the COMPLETE page content. Read through it directly to find what you need - do not try to call any "search within page" or "find" tools, they don't exist.
 
-For web searches, include the current year when looking for recent information. If initial results aren't helpful, try rephrasing your search terms. When extracting content, prefer academic sources, official data, and authoritative sites over forums or paywalled content.
+=== SEARCH & VERIFICATION PROTOCOL ===
 
-When citing sources in your answer, use inline references like [1], [2] where you mention information from those sources. The UI will display the full source list automatically, so don't add a separate citations section.
+1. MULTIPLE SEARCHES: For factual questions, search at least twice with different query phrasings. Don't trust a single search result.
 
-Be warm and engaging in your responses. Show genuine interest in helping the user and enthusiasm for interesting findings. A friendly, conversational tone makes information more accessible.
+2. SOURCE AUTHORITY: Prefer authoritative sources in this order:
+   - Official government sites (.gov)
+   - Academic institutions (.edu)
+   - Wikipedia (for general facts)
+   - Established news organizations
+   - Avoid: forums, blogs, user-generated content, paywalled sites
 
-When you're ready to give your final answer, respond without calling any tools."""
+3. CROSS-VERIFICATION: If sources disagree, search again to resolve. Note the disagreement in your reasoning.
 
+4. EXTRACT BEFORE ANSWERING: When you find relevant URLs, extract 2-3 authoritative sources to verify information. Don't rely on search snippets alone.
+
+=== MANDATORY PYTHON PROTOCOL ===
+
+For ANY calculation, you MUST use python_execute:
+- Math operations (addition, multiplication, percentages)
+- Date calculations (days between dates, years)
+- Unit conversions (miles to km, F to C)
+- Counting or aggregating data
+
+NEVER compute mentally or in text. Even "simple" calculations like "5 * 10 = 50" must use python_execute.
+
+=== SELF-CHECK BEFORE FINAL ANSWER ===
+
+Before providing your final answer, verify:
+- "What specific evidence supports this answer?"
+- "Could I be confusing this with something similar?"
+- "Have I verified with at least one authoritative source?"
+- "Did I use python_execute for any calculations?"
+
+=== RESPONSE FORMAT ===
+
+When citing sources, use inline references like [1], [2]. The UI displays the full source list automatically.
+
+Be warm and engaging. Show genuine interest in helping and enthusiasm for findings.
+
+When ready to give your final answer, respond without calling any tools."""
+
+    # DEPRECATED: Query classification is disabled. DEFAULT_SYSTEM_PROMPT now includes
+    # calculation guidelines. Kept for backwards compatibility.
     # Calculation-focused system prompt for physics/math queries
     CALCULATION_SYSTEM_PROMPT = """You are a research assistant specializing in physics and mathematical calculations.
 
 {date_context}
 
-Available tools:
+You have ONLY three tools (no others exist):
 - python_execute: Run Python code for calculations (USE THIS for any physics/math computation)
 - web_search: Search the web for reference data or constants
-- web_extract: Extract detailed content from URLs
+- web_extract: Extract detailed content from URLs (then READ it directly, don't try to search within it)
 
 CRITICAL INSTRUCTIONS FOR CALCULATIONS:
 1. For ANY physics or mathematical calculation, you MUST use python_execute
@@ -228,6 +267,8 @@ To provide your final answer, respond WITHOUT calling any tools."""
         tool_choice: Optional[str] = None,
         max_context_tokens: int = 100000,
         slow_response_threshold: float = 15.0,
+        planning_enabled: bool = True,
+        max_plan_steps: int = 5,
     ) -> None:
         """Initialize agent engine.
 
@@ -249,6 +290,8 @@ To provide your final answer, respond WITHOUT calling any tools."""
             max_context_tokens: Maximum tokens for input context (default 100k).
                 Used to enforce context budget before LLM calls.
             slow_response_threshold: Seconds before emitting slow_response warning.
+            planning_enabled: Whether to create research plans before execution.
+            max_plan_steps: Maximum steps the planner can create (default 5).
         """
         self._provider = provider
         self._repo = repo
@@ -270,6 +313,11 @@ To provide your final answer, respond WITHOUT calling any tools."""
 
         # Token accumulator for run stats
         self._total_tokens: int = 0
+
+        # Planning configuration
+        self._planning_enabled = planning_enabled
+        self._max_plan_steps = max_plan_steps
+        self._current_plan: Optional["ResearchPlan"] = None
 
     async def run(
         self,
@@ -335,6 +383,39 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         "hints": len(recovery_context.hints),
                     },
                 )
+
+            # Planning step - create plan before execution loop
+            self._current_plan = None
+            if self._planning_enabled:
+                plan = await self._create_plan(run_id, query, event_callback)
+                if plan:
+                    self._current_plan = plan
+                    messages_before = len(messages)
+                    messages = self._inject_plan_into_messages(messages, plan)
+
+                    # Trace: plan_injected - verify plan is in messages
+                    await self._add_trace_event(
+                        run_id=run_id,
+                        event_type="plan_injected",
+                        content={
+                            "plan_id": plan.id,
+                            "messages_before": messages_before,
+                            "messages_after": len(messages),
+                            "plan_text_preview": plan.to_injection_text()[:500],
+                        },
+                        actor="system",
+                    )
+
+                    logger.info(
+                        "Plan injected into messages",
+                        extra={
+                            "run_id": run_id,
+                            "plan_id": plan.id,
+                            "messages_before": messages_before,
+                            "messages_after": len(messages),
+                            "plan_step_count": len(plan.steps),
+                        },
+                    )
 
             # Step metadata for context pruning (maps tool_call_id -> step_number)
             step_metadata: Dict[str, int] = {}
@@ -546,6 +627,27 @@ To provide your final answer, respond WITHOUT calling any tools."""
                             }
                         )
                         step_metadata[tool_call.id] = step_number
+
+                    # Update plan progress based on executed tools
+                    if self._current_plan:
+                        parsed_calls = []
+                        for tc in tool_calls:
+                            args = tc["function"].get("arguments", {})
+                            if isinstance(args, str):
+                                raw_args = args
+                                try:
+                                    args = json.loads(args)
+                                except json.JSONDecodeError:
+                                    args = {}
+                            else:
+                                raw_args = json.dumps(args)
+                            parsed_calls.append(ParsedToolCall(
+                                id=tc["id"],
+                                name=tc["function"]["name"],
+                                arguments=args,
+                                raw_arguments=raw_args,
+                            ))
+                        self._update_plan_progress(parsed_calls, step_number)
 
                     await state_machine.complete_step(
                         decision="call_tool",
@@ -813,6 +915,177 @@ To provide your final answer, respond WITHOUT calling any tools."""
             logger.warning("Failed to write trace event", extra={"error": str(e)})
             return None
 
+    # =========================================================================
+    # Planning Methods
+    # =========================================================================
+
+    async def _create_plan(
+        self,
+        run_id: str,
+        query: str,
+        event_callback: Optional[Callable[[Dict[str, Any]], None]],
+    ) -> Optional["ResearchPlan"]:
+        """Create a research plan for the query.
+
+        The planner LLM naturally scales plan complexity:
+        - Simple queries get 1-step plans
+        - Complex queries get 3-5 step plans
+
+        Args:
+            run_id: Current run ID.
+            query: User's query.
+            event_callback: SSE callback.
+
+        Returns:
+            ResearchPlan if created successfully, None otherwise.
+        """
+        from orchestrator.agent.planner import Planner
+
+        planning_start = time.perf_counter()
+
+        # Trace: planning_start
+        await self._add_trace_event(
+            run_id=run_id,
+            event_type="planning_start",
+            content={"query": query[:200]},
+            actor="system",
+        )
+
+        planner = Planner(
+            provider=self._provider,
+            model_name=self._model_name,
+            max_plan_steps=self._max_plan_steps,
+        )
+
+        plan = await planner.create_plan(query, self._registry.tool_names)
+
+        planning_duration_ms = int((time.perf_counter() - planning_start) * 1000)
+
+        if plan:
+            # Trace: plan_created
+            await self._add_trace_event(
+                run_id=run_id,
+                event_type="plan_created",
+                content=plan.to_dict(),
+                actor="model",
+                duration_ms=planning_duration_ms,
+            )
+
+            logger.info(
+                "Research plan created",
+                extra={
+                    "run_id": run_id,
+                    "plan_id": plan.id,
+                    "steps": len(plan.steps),
+                    "complexity": plan.estimated_complexity,
+                    "duration_ms": planning_duration_ms,
+                },
+            )
+        else:
+            # Trace: planning_failed
+            await self._add_trace_event(
+                run_id=run_id,
+                event_type="planning_failed",
+                content={"reason": "Planning LLM call failed or returned invalid plan"},
+                actor="system",
+                event_status="error",
+                duration_ms=planning_duration_ms,
+            )
+
+            logger.warning(
+                "Planning failed, agent will proceed without plan",
+                extra={"run_id": run_id, "duration_ms": planning_duration_ms},
+            )
+
+        return plan
+
+    def _inject_plan_into_messages(
+        self,
+        messages: List[Dict[str, Any]],
+        plan: "ResearchPlan",
+    ) -> List[Dict[str, Any]]:
+        """Inject research plan into message list.
+
+        Appends the plan to the existing system message to maintain proper
+        message alternation (required by some models like Mistral).
+
+        Args:
+            messages: Current message list.
+            plan: Research plan to inject.
+
+        Returns:
+            New message list with plan appended to system prompt.
+        """
+        plan_text = plan.to_injection_text()
+        plan_content = f"""
+
+=== RESEARCH PLAN FOR THIS QUERY ===
+
+{plan_text}
+
+Follow this plan as a guide. Adapt as needed based on what you discover.
+When you complete each step, proceed to the next."""
+
+        # Find and modify the system message (should be first)
+        new_messages = []
+        plan_injected = False
+        for msg in messages:
+            if msg.get("role") == "system" and not plan_injected:
+                # Append plan to system message
+                new_msg = msg.copy()
+                new_msg["content"] = msg["content"] + plan_content
+                new_msg["_plan"] = True  # Marker for context pruning
+                new_messages.append(new_msg)
+                plan_injected = True
+            else:
+                new_messages.append(msg)
+
+        return new_messages
+
+    def _update_plan_progress(
+        self,
+        tool_calls: List[Dict[str, Any]],
+        step_number: int,
+    ) -> None:
+        """Update plan progress based on executed tools.
+
+        Maps executed tools to plan steps and marks them complete.
+
+        Args:
+            tool_calls: List of tool calls that were executed.
+            step_number: Current agent step number.
+        """
+        if not self._current_plan:
+            return
+
+        from orchestrator.agent.planner import PlanStepStatus
+
+        # Get tool names from executed calls
+        executed_tools = set()
+        for tc in tool_calls:
+            if isinstance(tc, dict):
+                name = tc.get("function", {}).get("name", "")
+            else:
+                # ParsedToolCall object
+                name = getattr(tc, "name", "")
+            if name:
+                executed_tools.add(name)
+
+        # Find and mark matching plan steps
+        for plan_step in self._current_plan.steps:
+            if plan_step.status == PlanStepStatus.PENDING:
+                if plan_step.expected_tool in executed_tools:
+                    plan_step.status = PlanStepStatus.COMPLETED
+                    logger.debug(
+                        "Plan step completed",
+                        extra={
+                            "plan_step": plan_step.step_number,
+                            "tool": plan_step.expected_tool,
+                            "agent_step": step_number,
+                        },
+                    )
+                    break  # Only mark one step per iteration
+
     async def _build_initial_messages(
         self,
         query: str,
@@ -855,6 +1128,13 @@ To provide your final answer, respond WITHOUT calling any tools."""
             for run in sorted_runs:
                 user_msg = run.get("user_message")
                 assistant_msg = run.get("final_answer")
+                # Skip incomplete runs (no assistant response) to maintain
+                # strict user/assistant alternation required by some models
+                if not assistant_msg:
+                    continue
+                # Skip if this is the same query we're about to add
+                if user_msg == query:
+                    continue
                 if user_msg:
                     messages.append({"role": "user", "content": user_msg})
                 if assistant_msg:
@@ -1209,27 +1489,48 @@ To provide your final answer, respond WITHOUT calling any tools."""
             # Get and execute tool
             tool = self._registry.get(tool_call.name)
             if tool is None:
+                available_tools = list(self._registry._tools.keys())
                 result = ToolResult(
                     success=False,
                     result_summary=f"Unknown tool: {tool_call.name}",
-                    error_message=f"Tool '{tool_call.name}' not found",
+                    error_message=(
+                        f"Tool '{tool_call.name}' does not exist. "
+                        f"Available tools: {', '.join(available_tools)}. "
+                        f"Use web_search to find URLs, web_extract to get page content, "
+                        f"or python_execute to process/search text."
+                    ),
                     duration_ms=0,
                 )
             else:
-                try:
-                    result = await tool.execute(**tool_call.arguments)
-                except Exception as e:
-                    logger.error(
-                        "Tool execution failed",
-                        extra={
-                            "tool": tool_call.name,
-                            "error": str(e),
-                        },
-                    )
+                # Validate required arguments before execution
+                required_args = tool.schema.parameters.get("required", [])
+                missing_args = [arg for arg in required_args if arg not in tool_call.arguments]
+                if missing_args:
+                    arg_list = ", ".join(f"'{a}'" for a in missing_args)
                     result = ToolResult(
                         success=False,
-                        result_summary=f"Tool error: {str(e)[:100]}",
-                        error_message=str(e),
+                        result_summary=f"Missing required args: {arg_list}",
+                        error_message=(
+                            f"Missing required argument(s): {arg_list}. "
+                            f"The {tool_call.name} tool requires these parameters."
+                        ),
+                        duration_ms=0,
+                    )
+                else:
+                    try:
+                        result = await tool.execute(**tool_call.arguments)
+                    except Exception as e:
+                        logger.error(
+                            "Tool execution failed",
+                            extra={
+                                "tool": tool_call.name,
+                                "error": str(e),
+                            },
+                        )
+                        result = ToolResult(
+                            success=False,
+                            result_summary=f"Tool error: {str(e)[:100]}",
+                            error_message=str(e),
                         duration_ms=0,
                     )
 

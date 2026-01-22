@@ -83,19 +83,16 @@ class PythonSandboxTool:
         return ToolSchema(
             name="python_execute",
             description=(
-                "Execute Python code in an isolated sandbox. MUST be used for:\n"
-                "- Physics calculations (kinetic energy, momentum, force, relativistic energy)\n"
-                "- Mathematical computations (formulas, integrals, derivatives, equations)\n"
-                "- Unit conversions (energy units like eV/GeV/joules, mass, velocity)\n"
-                "- Any precision-sensitive or numerical calculations\n"
-                "Returns stdout, stderr, and execution status."
+                "Execute Python code in an isolated sandbox. "
+                "IMPORTANT: Always provide the 'code' argument with your Python code. "
+                "Use for calculations, simulations, data processing. Returns stdout/stderr."
             ),
             parameters={
                 "type": "object",
                 "properties": {
                     "code": {
                         "type": "string",
-                        "description": "Python code to execute. Use print() to show results.",
+                        "description": "REQUIRED: Python code to execute. Must include actual code, not empty. Use print() for output.",
                     },
                 },
                 "required": ["code"],
