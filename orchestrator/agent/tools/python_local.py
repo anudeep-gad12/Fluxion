@@ -43,18 +43,16 @@ class LocalPythonTool:
         return ToolSchema(
             name="python_execute",
             description=(
-                "Execute Python code for calculations. Use for:\n"
-                "- Physics calculations (kinetic energy, momentum, etc.)\n"
-                "- Mathematical computations\n"
-                "- Unit conversions\n"
-                "Returns stdout and stderr."
+                "Execute Python code in an isolated environment. "
+                "IMPORTANT: Always provide the 'code' argument with your Python code. "
+                "Use for calculations, simulations, data processing. Returns stdout/stderr."
             ),
             parameters={
                 "type": "object",
                 "properties": {
                     "code": {
                         "type": "string",
-                        "description": "Python code to execute. Use print() to show results.",
+                        "description": "REQUIRED: Python code to execute. Must include actual code, not empty. Use print() for output.",
                     },
                 },
                 "required": ["code"],

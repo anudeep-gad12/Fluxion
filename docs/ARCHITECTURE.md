@@ -369,6 +369,35 @@ The provider supports two OpenAI endpoints with automatic fallback:
 2. On 404/405, cache result and use `/v1/chat/completions`
 3. Cached per `base_url` for session
 
+### Provider Switching
+
+Switch between cloud (DeepInfra) and local (llama-server) providers:
+
+```bash
+./dev.sh provider local      # Local llama-server on port 8080
+./dev.sh provider deepinfra  # DeepInfra cloud (default)
+./dev.sh restart             # Required after switching
+```
+
+**Supported Local Providers**:
+- `llama-server` (llama.cpp) - Tested with Ministral-3-14B-Reasoning
+- `vLLM` - OpenAI-compatible server
+- `Ollama` - Via OpenAI compatibility mode
+
+**Configuration** (`.env.provider`):
+```bash
+LLM_BASE_URL=http://localhost:8080/v1  # Local
+LLM_ENDPOINT=chat_completions
+LLM_MODEL=ministral-14b-reasoning
+```
+
+**URL Building**: Handles base URLs that already contain `/v1` (e.g., llama-server) to avoid double `/v1/v1/...` paths.
+
+**Message Alternation**: Some models (Mistral family) require strict user/assistant message alternation. The provider layer ensures:
+- Plan is appended to system message (not as separate message)
+- Incomplete conversation history runs are skipped
+- No duplicate user messages
+
 ### Circuit Breaker Pattern
 
 ```
@@ -519,6 +548,33 @@ class ThinkingResult:
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
+### Planning Step (Pre-Execution)
+
+Before entering the main agent loop, the engine can optionally create a research plan:
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                         Planning Step                                │
+│                                                                      │
+│  Input: User query + system prompt                                   │
+│  Output: ResearchPlan with ordered steps                             │
+│                                                                      │
+│  1. Analyze query complexity                                         │
+│  2. Generate plan with tool suggestions per step                     │
+│  3. Inject plan into system message                                  │
+│  4. Track plan progress during execution                             │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**Configuration** (`chat_config.yaml`):
+```yaml
+agent_planning:
+  enabled: true           # Enable/disable planning step
+  max_plan_steps: 5       # Maximum steps planner can create
+```
+
+**Plan Injection**: The plan is appended to the system message (not as a separate message) to maintain strict user/assistant message alternation required by some models (e.g., Mistral).
+
 ### Agent State Machine
 
 ```
@@ -527,15 +583,22 @@ class ThinkingResult:
 └──────┬──────┘
        │
        ▼
+┌─────────────┐ (optional)
+│  PLANNING   │─────────────────────────┐
+│  (research  │                         │
+│   plan)     │                         │
+└──────┬──────┘                         │
+       │                                │
+       ▼                                ▼
 ┌─────────────┐     tool_calls     ┌─────────────┐
-│  PLANNING   │──────────────────►│ TOOL_CALLING│
+│ STEP_LOOP   │──────────────────►│ TOOL_CALLING│
 └──────┬──────┘                    └──────┬──────┘
        │                                  │
        │ synthesize                       │ all tools done
        │                                  │
        ▼                                  ▼
 ┌─────────────┐                    ┌─────────────┐
-│SYNTHESIZING │◄───────────────────│  PLANNING   │
+│SYNTHESIZING │◄───────────────────│ STEP_LOOP   │
 └──────┬──────┘                    └─────────────┘
        │
        ▼

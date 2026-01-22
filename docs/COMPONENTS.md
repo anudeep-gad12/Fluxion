@@ -521,9 +521,17 @@ result = await engine.run(run_id, query)
 | `_synthesize()` | Generate final answer |
 | `_force_synthesis()` | Synthesize when hitting max steps |
 | `_extract_finding_from_result()` | Extract key findings from tool results |
+| `_create_plan()` | Generate research plan before execution |
+| `_inject_plan_into_messages()` | Append plan to system message |
 
-**Agent Loop**:
+**Agent Execution Flow**:
 ```python
+# 1. Planning Step (optional, if enabled)
+if planning_enabled:
+    plan = await planner.create_plan(query)
+    messages = _inject_plan_into_messages(messages, plan)
+
+# 2. Main Agent Loop
 while not (synthesis or step >= max_steps):
     1. Prune context with LLM summarization (query-aware)
     2. Call LLM with tool schemas
@@ -531,10 +539,16 @@ while not (synthesis or step >= max_steps):
        - tool_calls → execute tools
        - synthesize decision → break loop
     4. Extract findings from tool results
-    5. Track token usage
-    6. Record step in database
-    7. Emit SSE events
+    5. Update plan progress tracking
+    6. Track token usage
+    7. Record step in database
+    8. Emit SSE events
 ```
+
+**Message Alternation** (for Mistral compatibility):
+- Plan is appended to system message content, not added as separate message
+- Incomplete runs (no assistant response) are skipped from history
+- Duplicate user queries are filtered out
 
 **Findings Accumulator**:
 - `_findings` list tracks key findings from tool results
@@ -609,6 +623,54 @@ while not (synthesis or step >= max_steps):
 - `WEB_RESEARCH` - Web search needed
 
 **Method**: Keyword-based classification (not LLM).
+
+### `orchestrator/agent/planner.py`
+
+**Purpose**: Generate research plans before agent execution.
+
+**Class: `Planner`**
+
+**Constructor**:
+```python
+def __init__(
+    self,
+    provider: LLMProvider,
+    model_name: str,
+    max_plan_steps: int = 5,
+) -> None
+```
+
+**Key Methods**:
+
+| Method | Description |
+|--------|-------------|
+| `create_plan(query)` | Generate a ResearchPlan for the query |
+| `_parse_plan_response()` | Extract structured plan from LLM response |
+
+**Planning Prompt**:
+- Analyzes query complexity
+- Suggests tool usage per step
+- Limits steps to `max_plan_steps`
+- Returns structured plan with analysis and steps
+
+**Dataclass: `ResearchPlan`**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `analysis` | str | Brief analysis of the query |
+| `approach` | str | High-level approach description |
+| `steps` | list[PlanStep] | Ordered list of execution steps |
+
+**Dataclass: `PlanStep`**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `number` | int | Step number (1-indexed) |
+| `description` | str | What to do in this step |
+| `tool_hint` | str | Suggested tool (web_search, python_execute, etc.) |
+
+**Plan Injection**:
+The plan is appended to the system message content (not as a separate message) to maintain strict user/assistant message alternation required by models like Mistral.
 
 ### `orchestrator/agent/recovery.py`
 

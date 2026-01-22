@@ -121,8 +121,8 @@ class OpenAICompatProvider:
     def _build_url(self, endpoint: str) -> str:
         """Build full URL for an endpoint.
 
-        Handles base URLs that already contain /v1/openai (e.g., DeepInfra).
-        For such URLs, we append /chat/completions instead of /v1/chat/completions.
+        Handles base URLs that already contain /v1 (e.g., llama-server, DeepInfra).
+        For such URLs, we append /chat/completions directly without adding /v1.
 
         Args:
             endpoint: Endpoint path (e.g., "chat/completions", "responses", "models")
@@ -132,8 +132,8 @@ class OpenAICompatProvider:
         """
         base = self._base_url.rstrip("/")
 
-        # If base_url ends with /v1/openai or /openai, don't add /v1 prefix
-        if base.endswith("/v1/openai") or base.endswith("/openai"):
+        # If base_url already ends with /v1, /v1/openai, or /openai, don't add /v1 prefix
+        if base.endswith("/v1") or base.endswith("/v1/openai") or base.endswith("/openai"):
             return f"{base}/{endpoint}"
         else:
             return f"{base}/v1/{endpoint}"
@@ -401,6 +401,18 @@ class OpenAICompatProvider:
         usage: Dict[str, int] = {}
         response_id: Optional[str] = None
 
+        # Debug: Log the request payload
+        import json as json_module
+        payload_json = json_module.dumps(payload)
+        logger.info(
+            "Streaming request payload",
+            extra={
+                "url": url,
+                "payload_len": len(payload_json),
+                "payload_preview": payload_json[:8000],
+            },
+        )
+
         try:
             async with self._client.stream("POST", url, json=payload) as response:
                 # Check for fallback needed
@@ -480,20 +492,36 @@ class OpenAICompatProvider:
                         on_reasoning(delta["reasoning"])
 
                     # Collect completed tool calls (LM Studio or DeepInfra format)
+                    # Skip tool calls with empty arguments - they'll just fail
                     if delta.get("tool_call_complete"):
-                        tool_calls.append(delta["tool_call_complete"])
-                        logger.debug(
-                            "Streaming tool call complete",
-                            extra={"tool_name": delta["tool_call_complete"]["function"]["name"]}
-                        )
+                        tc = delta["tool_call_complete"]
+                        args = tc.get("function", {}).get("arguments", "")
+                        if args and args.strip() and args.strip() != "{}":
+                            tool_calls.append(tc)
+                            logger.debug(
+                                "Streaming tool call complete",
+                                extra={"tool_name": tc["function"]["name"]}
+                            )
+                        else:
+                            logger.warning(
+                                "Skipped tool call with empty arguments",
+                                extra={"tool_name": tc.get("function", {}).get("name", "unknown")}
+                            )
                     # Handle multiple complete tool calls (e.g., DeepInfra)
                     if delta.get("tool_calls_complete"):
                         for tc in delta["tool_calls_complete"]:
-                            tool_calls.append(tc)
-                            logger.debug(
-                                "Streaming tool call complete (batch)",
-                                extra={"tool_name": tc["function"]["name"]}
-                            )
+                            args = tc.get("function", {}).get("arguments", "")
+                            if args and args.strip() and args.strip() != "{}":
+                                tool_calls.append(tc)
+                                logger.debug(
+                                    "Streaming tool call complete (batch)",
+                                    extra={"tool_name": tc["function"]["name"]}
+                                )
+                            else:
+                                logger.warning(
+                                    "Skipped tool call with empty arguments (batch)",
+                                    extra={"tool_name": tc.get("function", {}).get("name", "unknown")}
+                                )
 
                     # Track usage if present
                     if "usage" in data:
@@ -512,7 +540,9 @@ class OpenAICompatProvider:
         if tool_call_accumulators:
             for idx in sorted(tool_call_accumulators.keys()):
                 acc = tool_call_accumulators[idx]
-                if acc["id"] and acc["name"]:
+                # Skip incomplete tool calls (missing id, name, or arguments)
+                # This prevents emitting tool calls with empty {} arguments
+                if acc["id"] and acc["name"] and acc["arguments_parts"]:
                     tool_calls.append({
                         "id": acc["id"],
                         "type": "function",
@@ -527,6 +557,11 @@ class OpenAICompatProvider:
                             "tool_name": acc["name"],
                             "arguments_length": len("".join(acc["arguments_parts"])),
                         }
+                    )
+                elif acc["id"] and acc["name"]:
+                    logger.warning(
+                        "Skipped streaming tool call with empty arguments",
+                        extra={"tool_name": acc["name"], "tool_id": acc["id"]},
                     )
 
         return LLMResponse(

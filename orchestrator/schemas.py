@@ -254,6 +254,7 @@ class AgentRunStatusResponse(BaseModel):
     status: str
     agent_state: Optional[str] = None
     current_step: int = 0
+    total_steps: Optional[int] = None  # Final step count when run completes
     max_steps: int = 10
     final_answer: Optional[str] = None
     error_message: Optional[str] = None

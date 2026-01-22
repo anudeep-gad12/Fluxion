@@ -104,7 +104,7 @@ model:
   # Model name - override via LLM_MODEL env var for different providers
   # DeepInfra: openai/gpt-oss-120b (supports reasoning_effort)
   # llama-server local: gpt-oss-20b (or whatever you're serving)
-  name: openai/gpt-oss-120b
+  name: ${LLM_MODEL:-openai/gpt-oss-120b}
   temperature: 1.0            # Recommended for reasoning models
   max_tokens: 4096
   seed: null                  # Set to integer for reproducible outputs
@@ -201,3 +201,16 @@ query_classification:
   enabled: false  # Disabled - let the model decide when to use tools
   # CALCULATION_SYSTEM_PROMPT provides guidance without forcing tool_choice
   min_confidence_for_enforcement: 2
+
+# =============================================================================
+# Agent Planning
+# =============================================================================
+# Controls whether the agent creates an explicit plan before executing.
+# The planner LLM naturally scales plan complexity based on query:
+# - Simple queries: 1 step
+# - Moderate research: 2-3 steps
+# - Complex analysis: 3-5 steps
+
+agent_planning:
+  enabled: true           # Enable/disable planning step
+  max_plan_steps: 5       # Maximum steps planner can create
