@@ -1006,31 +1006,40 @@ To provide your final answer, respond WITHOUT calling any tools."""
     ) -> List[Dict[str, Any]]:
         """Inject research plan into message list.
 
-        Adds the plan as a system message after the main system prompt.
-        The plan guides execution but doesn't force specific actions.
+        Appends the plan to the existing system message to maintain proper
+        message alternation (required by some models like Mistral).
 
         Args:
             messages: Current message list.
             plan: Research plan to inject.
 
         Returns:
-            New message list with plan injected.
+            New message list with plan appended to system prompt.
         """
         plan_text = plan.to_injection_text()
-        plan_message = {
-            "role": "system",
-            "content": f"""RESEARCH PLAN FOR THIS QUERY:
+        plan_content = f"""
+
+=== RESEARCH PLAN FOR THIS QUERY ===
 
 {plan_text}
 
 Follow this plan as a guide. Adapt as needed based on what you discover.
-When you complete each step, proceed to the next.""",
-            "_plan": True,  # Marker for context pruning (don't prune plan)
-        }
+When you complete each step, proceed to the next."""
 
-        # Insert after the main system prompt (index 1)
-        new_messages = messages.copy()
-        new_messages.insert(1, plan_message)
+        # Find and modify the system message (should be first)
+        new_messages = []
+        plan_injected = False
+        for msg in messages:
+            if msg.get("role") == "system" and not plan_injected:
+                # Append plan to system message
+                new_msg = msg.copy()
+                new_msg["content"] = msg["content"] + plan_content
+                new_msg["_plan"] = True  # Marker for context pruning
+                new_messages.append(new_msg)
+                plan_injected = True
+            else:
+                new_messages.append(msg)
+
         return new_messages
 
     def _update_plan_progress(
@@ -1119,6 +1128,13 @@ When you complete each step, proceed to the next.""",
             for run in sorted_runs:
                 user_msg = run.get("user_message")
                 assistant_msg = run.get("final_answer")
+                # Skip incomplete runs (no assistant response) to maintain
+                # strict user/assistant alternation required by some models
+                if not assistant_msg:
+                    continue
+                # Skip if this is the same query we're about to add
+                if user_msg == query:
+                    continue
                 if user_msg:
                     messages.append({"role": "user", "content": user_msg})
                 if assistant_msg:
