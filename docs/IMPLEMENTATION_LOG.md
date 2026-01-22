@@ -12,6 +12,119 @@
 | feature/gaia-benchmark | GAIA Benchmark Evaluation | in-progress | 2026-01-21 |
 | feature/agent-planning | Agent Planning Step | done | 2026-01-20 |
 
+### 2026-01-22: GAIA API & Empty Args Filtering Fixes
+
+**Branch:** `feature/gaia-benchmark`
+**Status:** done
+
+**Description:**
+Two fixes to improve GAIA benchmark evaluation:
+1. Extended empty args filtering to cover all streaming tool call paths
+2. Added `total_steps` field to agent run status API response
+
+**Fixes:**
+1. **Empty args filtering**: Extended validation to `tool_call_complete` and `tool_calls_complete`
+   paths in streaming response parsing. Previously only covered the accumulator finalization path.
+2. **API total_steps**: GAIA runner was looking for `total_steps` but API only returned `current_step`.
+   Added `total_steps` to `AgentRunStatusResponse` - returns step count when run is complete.
+
+**Files Modified:**
+- `orchestrator/providers/openai_compat.py` - Filter empty args in all streaming paths
+- `orchestrator/schemas.py` - Added `total_steps` field to AgentRunStatusResponse
+- `orchestrator/routes/agent_runs.py` - Return total_steps when run completes
+
+---
+
+### 2026-01-22: GAIA Timeout Fix & Model Tool Hallucination Fix
+
+**Branch:** `feature/gaia-benchmark`
+**Status:** done
+
+**Description:**
+Fixed two issues causing GAIA benchmark failures:
+1. Timeout too short (300s) - runs completing at ~286s avg were timing out
+2. Model hallucinating `web_find` tool - calling non-existent tool instead of reading extracted content
+
+**Fixes:**
+1. **GAIA timeout**: Increased from 300s to 600s (10 minutes) for complex questions
+2. **System prompt**: Updated to explicitly state ONLY 3 tools exist and to READ extracted content directly
+
+**Root Cause Analysis (web_find):**
+- Model extracts page content via web_extract
+- Model reads content, finds data (e.g., "State of Qatar")
+- Model wants to "verify" or "find end of table" → calls imaginary `web_find` tool
+- Not a context pruning issue - model HAS the content but tries to delegate search
+
+**Files Modified:**
+- `scripts/gaia/runner.py` - Timeout 300s → 600s
+- `orchestrator/agent/agent_engine.py` - System prompts now emphasize:
+  - "ONLY three tools available (no others exist)"
+  - "After web_extract, READ the content directly, don't try to search within it"
+
+---
+
+### 2026-01-22: GAIA Full Benchmark Results & Empty Args Fix
+
+**Branch:** `feature/gaia-benchmark`
+**Status:** done
+
+**Description:**
+Ran full GAIA benchmark (127 questions without attachments) overnight using gpt-oss-120b.
+Fixed streaming tool call accumulator bug that was causing 45% of python_execute calls to fail.
+
+**Benchmark Results (127 questions, gpt-oss-120b):**
+| Level | Correct | Total | Accuracy |
+|-------|---------|-------|----------|
+| 1 | 27 | 42 | 64.3% |
+| 2 | 18 | 66 | 27.3% |
+| 3 | 5 | 19 | 26.3% |
+| **Total** | **50** | **127** | **39.4%** |
+
+**Failure Analysis:**
+- 31 timeouts (24.4%) - questions taking >300s
+- 70 python_execute errors from empty arguments (45% of all python_execute calls)
+- 12 web_find errors (model calling non-existent tool)
+
+**Root Cause:**
+Streaming tool call accumulator in provider emitted tool calls even when no argument
+chunks were received. The check was `if acc["id"] and acc["name"]:` but didn't verify
+`arguments_parts` had content. Result: empty `{}` arguments passed to agent.
+
+**Fix:**
+- Added `and acc["arguments_parts"]` check before emitting streaming tool calls
+- Logs warning when skipping incomplete tool calls
+- Prevents wasting agent steps on tool calls that will definitely fail
+
+**Files Modified:**
+- `orchestrator/providers/openai_compat.py` - Skip streaming tool calls with empty args
+
+---
+
+### 2026-01-21: Fix empty tool arguments validation
+
+**Branch:** `feature/gaia-benchmark`
+**Status:** done
+
+**Description:**
+Added validation for required tool arguments before execution. The model sometimes
+emits tool calls without required arguments (e.g., `python_execute` with `{}`).
+The previous error "missing 1 required positional argument: 'code'" was unclear.
+
+**Fix:**
+- Validate required arguments from tool schema before calling execute()
+- Return clear error: "Missing required argument(s): 'code'. The python_execute tool requires these parameters."
+- Model can now understand what's missing and retry with proper arguments
+
+**Impact:**
+- Ping-pong riddle: Changed from INCORRECT (100) to CORRECT (3)
+- Model recovers faster from empty argument errors
+
+**Files Modified:**
+- `orchestrator/agent/agent_engine.py` - Added required args validation
+- `dev.sh` - Fixed deepinfra provider to use gpt-oss-120b (was incorrectly set to 20b)
+
+---
+
 ### 2026-01-21: GAIA Benchmark Evaluation Setup
 
 **Branch:** `feature/gaia-benchmark`

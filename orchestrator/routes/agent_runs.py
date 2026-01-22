@@ -337,11 +337,16 @@ async def get_agent_run_status(run_id: str):
     base_status = run.get("status", "unknown")
     status = "running" if is_active else base_status
 
+    # total_steps is the final step count when run completes
+    current_step = run.get("current_step", 0)
+    total_steps = current_step if status in ("succeeded", "failed") else None
+
     return AgentRunStatusResponse(
         run_id=run_id,
         status=status,
         agent_state=run.get("agent_state"),
-        current_step=run.get("current_step", 0),
+        current_step=current_step,
+        total_steps=total_steps,
         max_steps=run.get("max_steps", 10),
         final_answer=run.get("final_answer"),
         error_message=run.get("error_message"),
