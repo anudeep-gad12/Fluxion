@@ -162,7 +162,12 @@ class AgentEngine:
 
 {date_context}
 
-You have three tools available: web_search for finding information online, web_extract for getting detailed content from specific URLs, and python_execute for running calculations and data analysis.
+You have ONLY three tools available (no others exist):
+- web_search: Find URLs for information online
+- web_extract: Get full page content from URLs
+- python_execute: Run calculations and data analysis
+
+IMPORTANT: After using web_extract, you have the COMPLETE page content. Read through it directly to find what you need - do not try to call any "search within page" or "find" tools, they don't exist. The extracted content is already in your context.
 
 When deciding how to help, consider what the user is asking for. If they need calculations or mathematical analysis, use python_execute rather than searching. If they're asking about current events or need data from after your knowledge cutoff, search the web. If you can answer from your existing knowledge, just respond directly. When you find relevant URLs from a search, you can extract 2-3 of the most authoritative sources for more detail.
 
@@ -179,10 +184,10 @@ When you're ready to give your final answer, respond without calling any tools."
 
 {date_context}
 
-Available tools:
+You have ONLY three tools (no others exist):
 - python_execute: Run Python code for calculations (USE THIS for any physics/math computation)
 - web_search: Search the web for reference data or constants
-- web_extract: Extract detailed content from URLs
+- web_extract: Extract detailed content from URLs (then READ it directly, don't try to search within it)
 
 CRITICAL INSTRUCTIONS FOR CALCULATIONS:
 1. For ANY physics or mathematical calculation, you MUST use python_execute
@@ -1435,27 +1440,48 @@ When you complete each step, proceed to the next.""",
             # Get and execute tool
             tool = self._registry.get(tool_call.name)
             if tool is None:
+                available_tools = list(self._registry._tools.keys())
                 result = ToolResult(
                     success=False,
                     result_summary=f"Unknown tool: {tool_call.name}",
-                    error_message=f"Tool '{tool_call.name}' not found",
+                    error_message=(
+                        f"Tool '{tool_call.name}' does not exist. "
+                        f"Available tools: {', '.join(available_tools)}. "
+                        f"Use web_search to find URLs, web_extract to get page content, "
+                        f"or python_execute to process/search text."
+                    ),
                     duration_ms=0,
                 )
             else:
-                try:
-                    result = await tool.execute(**tool_call.arguments)
-                except Exception as e:
-                    logger.error(
-                        "Tool execution failed",
-                        extra={
-                            "tool": tool_call.name,
-                            "error": str(e),
-                        },
-                    )
+                # Validate required arguments before execution
+                required_args = tool.schema.parameters.get("required", [])
+                missing_args = [arg for arg in required_args if arg not in tool_call.arguments]
+                if missing_args:
+                    arg_list = ", ".join(f"'{a}'" for a in missing_args)
                     result = ToolResult(
                         success=False,
-                        result_summary=f"Tool error: {str(e)[:100]}",
-                        error_message=str(e),
+                        result_summary=f"Missing required args: {arg_list}",
+                        error_message=(
+                            f"Missing required argument(s): {arg_list}. "
+                            f"The {tool_call.name} tool requires these parameters."
+                        ),
+                        duration_ms=0,
+                    )
+                else:
+                    try:
+                        result = await tool.execute(**tool_call.arguments)
+                    except Exception as e:
+                        logger.error(
+                            "Tool execution failed",
+                            extra={
+                                "tool": tool_call.name,
+                                "error": str(e),
+                            },
+                        )
+                        result = ToolResult(
+                            success=False,
+                            result_summary=f"Tool error: {str(e)[:100]}",
+                            error_message=str(e),
                         duration_ms=0,
                     )
 

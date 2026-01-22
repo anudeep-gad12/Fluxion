@@ -54,7 +54,7 @@ class RunConfig:
     mode: str = "agent"
     limit: Optional[int] = None
     max_steps: int = 10
-    timeout_seconds: int = 300
+    timeout_seconds: int = 600  # 10 minutes - complex questions need more time
     skip_attachments: bool = True
     output_dir: Path = Path("./gaia_results")
     hf_token: Optional[str] = None
