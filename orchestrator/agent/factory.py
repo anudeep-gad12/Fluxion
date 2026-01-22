@@ -103,6 +103,11 @@ async def create_agent_engine(
     repo = AgentRepo(db)
     trace_repo = TraceRepo(db)
 
+    # Get planning config
+    planning_config = getattr(config, "agent_planning", None)
+    planning_enabled = planning_config.enabled if planning_config else True
+    max_plan_steps = planning_config.max_plan_steps if planning_config else 5
+
     # Build engine with overrides
     engine = AgentEngine(
         provider=provider,
@@ -117,6 +122,8 @@ async def create_agent_engine(
         tool_choice=tool_choice,
         max_context_tokens=config.context.max_tokens,
         slow_response_threshold=config.provider.slow_response_threshold,
+        planning_enabled=planning_enabled,
+        max_plan_steps=max_plan_steps,
     )
 
     logger.info(

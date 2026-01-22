@@ -44,9 +44,13 @@ Thumbs.db
 
 # Logs
 *.log
+logs/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Database files
+*.db
 
 # Test coverage
 coverage/
@@ -60,3 +64,6 @@ ui/dist/
 # Agent outputs
 .pids/
 .claude/
+# GAIA benchmark results (generated, except best_runs)
+gaia_results/
+!gaia_results/best_runs/
