@@ -121,8 +121,8 @@ class OpenAICompatProvider:
     def _build_url(self, endpoint: str) -> str:
         """Build full URL for an endpoint.
 
-        Handles base URLs that already contain /v1/openai (e.g., DeepInfra).
-        For such URLs, we append /chat/completions instead of /v1/chat/completions.
+        Handles base URLs that already contain /v1 (e.g., llama-server, DeepInfra).
+        For such URLs, we append /chat/completions directly without adding /v1.
 
         Args:
             endpoint: Endpoint path (e.g., "chat/completions", "responses", "models")
@@ -132,8 +132,8 @@ class OpenAICompatProvider:
         """
         base = self._base_url.rstrip("/")
 
-        # If base_url ends with /v1/openai or /openai, don't add /v1 prefix
-        if base.endswith("/v1/openai") or base.endswith("/openai"):
+        # If base_url already ends with /v1, /v1/openai, or /openai, don't add /v1 prefix
+        if base.endswith("/v1") or base.endswith("/v1/openai") or base.endswith("/openai"):
             return f"{base}/{endpoint}"
         else:
             return f"{base}/v1/{endpoint}"
@@ -400,6 +400,18 @@ class OpenAICompatProvider:
         finish_reason = "stop"
         usage: Dict[str, int] = {}
         response_id: Optional[str] = None
+
+        # Debug: Log the request payload
+        import json as json_module
+        payload_json = json_module.dumps(payload)
+        logger.info(
+            "Streaming request payload",
+            extra={
+                "url": url,
+                "payload_len": len(payload_json),
+                "payload_preview": payload_json[:8000],
+            },
+        )
 
         try:
             async with self._client.stream("POST", url, json=payload) as response:
