@@ -64,5 +64,6 @@ ui/dist/
 # Agent outputs
 .pids/
 .claude/
-# GAIA benchmark results (generated)
+# GAIA benchmark results (generated, except best_runs)
 gaia_results/
+!gaia_results/best_runs/
