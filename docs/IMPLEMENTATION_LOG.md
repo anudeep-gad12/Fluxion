@@ -12,6 +12,32 @@
 | feature/gaia-benchmark | GAIA Benchmark Evaluation | in-progress | 2026-01-21 |
 | feature/agent-planning | Agent Planning Step | done | 2026-01-20 |
 
+### 2026-01-22: GAIA max_steps and Extraction Prompt Improvements
+
+**Branch:** `feature/gaia-benchmark`
+**Status:** done
+
+**Description:**
+Based on analysis of benchmark failures (46/127 = 36.2% accuracy), two improvements to the GAIA benchmark runner:
+1. Increased default max_steps from 10 to 15 for complex questions
+2. Improved LLM answer extraction prompt for better answer parsing
+
+**Root Cause Analysis:**
+- ~18 questions failed due to needing more steps than 10
+- ~12 questions had verbose answers that weren't properly extracted
+- Level 2/3 questions require more reasoning steps for multi-hop queries
+
+**Files Modified:**
+- `scripts/gaia/runner.py` - `max_steps: int = 15` (was 10)
+- `scripts/gaia/scorer.py` - Improved extraction prompt with:
+  - More explicit formatting rules
+  - Truncate response to 2000 chars
+  - Examples for names, numbers, lists
+
+**Tests:** All 54 GAIA tests pass (`uv run pytest tests/gaia/ -v`)
+
+---
+
 ### 2026-01-22: GAIA API & Empty Args Filtering Fixes
 
 **Branch:** `feature/gaia-benchmark`
