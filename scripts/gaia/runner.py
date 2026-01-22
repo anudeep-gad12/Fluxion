@@ -53,8 +53,8 @@ class RunConfig:
     split: str = "validation"
     mode: str = "agent"
     limit: Optional[int] = None
-    max_steps: int = 10
-    timeout_seconds: int = 600  # 10 minutes - complex questions need more time
+    max_steps: int = 15
+    timeout_seconds: int = 1800  # 30 minutes - eliminate timeout as a failure cause
     skip_attachments: bool = True
     output_dir: Path = Path("./gaia_results")
     hf_token: Optional[str] = None
@@ -83,7 +83,7 @@ async def check_api_health(api_url: str) -> bool:
 async def run_agent_query(
     query: str,
     max_steps: int = 10,
-    timeout_seconds: int = 300,
+    timeout_seconds: int = 1800,
     api_url: str = DEFAULT_API_URL,
 ) -> tuple[Optional[str], int, int]:
     """Run a single query through the agent via HTTP API.
@@ -167,7 +167,7 @@ async def run_agent_query(
 
 async def run_chat_query(
     query: str,
-    timeout_seconds: int = 300,
+    timeout_seconds: int = 1800,
     api_url: str = DEFAULT_API_URL,
 ) -> tuple[Optional[str], int]:
     """Run a single query through chat mode via HTTP API.
@@ -328,7 +328,7 @@ async def evaluate_questions(
     questions: List[GAIAQuestion],
     mode: str,
     max_steps: int = 10,
-    timeout_seconds: int = 300,
+    timeout_seconds: int = 1800,
     api_url: str = DEFAULT_API_URL,
     concurrency: int = 1,
     progress_callback: Optional[Callable[[int, int, str], None]] = None,
