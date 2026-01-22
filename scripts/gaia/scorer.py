@@ -310,21 +310,22 @@ async def extract_answer_with_llm(
         return ""
 
     # Build extraction prompt
-    extraction_prompt = f"""Extract ONLY the final answer from the response below.
+    extraction_prompt = f"""Extract ONLY the final answer value from this response.
 
 Rules:
-- Return just the answer value (number, word, or short phrase)
-- No explanations, no "The answer is...", just the raw answer
-- If the answer is a number, return just the number (e.g., "17" not "17 hours")
-- If the answer is a word written out (like "three"), convert to digit (e.g., "3")
-- If it's a list, return comma-separated values
-- If you cannot find a clear answer, return "UNKNOWN"
+- Return JUST the answer (number, word, or short phrase)
+- NO explanations, NO "The answer is..."
+- Numbers: just digits (e.g., "17" not "17 hours" or "seventeen")
+- Names: just the name (e.g., "Paris" not "The answer is Paris")
+- Lists: comma-separated (e.g., "a, b, c")
+- Convert written numbers to digits (e.g., "three" -> "3")
+- If no clear answer found, return: UNKNOWN
 
 Question: {question}
 
-Response: {response}
+Response: {response[:2000]}
 
-Final answer (just the value):"""
+Answer:"""
 
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(timeout)) as client:
