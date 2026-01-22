@@ -12,6 +12,30 @@
 | feature/gaia-benchmark | GAIA Benchmark Evaluation | in-progress | 2026-01-21 |
 | feature/agent-planning | Agent Planning Step | done | 2026-01-20 |
 
+### 2026-01-22: Agent System Prompt Enhancement
+
+**Branch:** `test`
+**Status:** done
+
+**Description:**
+Enhanced DEFAULT_SYSTEM_PROMPT with research-based verification protocols to improve GAIA benchmark accuracy (currently ~36%). Based on findings documented in `docs/AGENT_REASONING_RESEARCH.md`.
+
+**Changes:**
+Added three new protocols to agent system prompt:
+1. **SEARCH & VERIFICATION PROTOCOL** - Multiple searches, source authority hierarchy, cross-verification
+2. **MANDATORY PYTHON PROTOCOL** - Never compute mentally, always use python_execute
+3. **SELF-CHECK BEFORE FINAL ANSWER** - Evidence verification, confusion check
+
+**Files Modified:**
+- `orchestrator/agent/agent_engine.py` - Enhanced DEFAULT_SYSTEM_PROMPT (lines 161-210)
+- Added deprecation comment for CALCULATION_SYSTEM_PROMPT
+
+**Tests:** All 45 agent tests pass (`uv run pytest tests/agent/test_agent_engine.py -v`)
+
+**Trace Verification:** Existing traces show no errors
+
+---
+
 ### 2026-01-22: GAIA max_steps and Extraction Prompt Improvements
 
 **Branch:** `feature/gaia-benchmark`
