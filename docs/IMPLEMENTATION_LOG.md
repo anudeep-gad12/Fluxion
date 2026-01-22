@@ -12,6 +12,36 @@
 | feature/gaia-benchmark | GAIA Benchmark Evaluation | in-progress | 2026-01-21 |
 | feature/agent-planning | Agent Planning Step | done | 2026-01-20 |
 
+### 2026-01-22: Local Ministral 14B Reasoning Model Support
+
+**Branch:** `feature/gaia-benchmark`
+**Status:** done
+
+**Description:**
+Fixed multiple issues to support local llama-server with Ministral-3-14B-Reasoning model. Mistral models require strict user/assistant message alternation which exposed several bugs.
+
+**Fixes:**
+1. **URL building** - Fixed double `/v1` in URL when base_url already contains `/v1`
+2. **Plan injection** - Changed from creating second system message to appending to existing system message (Mistral rejects multiple system messages)
+3. **Conversation history** - Skip incomplete runs (no assistant response) and duplicate queries to maintain strict alternation
+
+**Files Modified:**
+- `orchestrator/providers/openai_compat.py` - Fixed `_build_url()` for URLs ending with `/v1`
+- `orchestrator/agent/agent_engine.py` - Fixed `_inject_plan_into_messages()` to append plan to system message
+- `orchestrator/agent/agent_engine.py` - Fixed `_build_initial_messages()` to skip incomplete runs
+- `orchestrator/chat_config.yaml` - Added env var support for model name (`${LLM_MODEL:-...}`)
+
+**Usage:**
+```bash
+./dev.sh provider local  # Creates .env.provider with llama-server settings
+# Start llama-server with Ministral model on port 8080
+./dev.sh start
+```
+
+**Tests:** Manual API tests successful with math query (python_execute) and factual query
+
+---
+
 ### 2026-01-22: Agent System Prompt Enhancement
 
 **Branch:** `test`
