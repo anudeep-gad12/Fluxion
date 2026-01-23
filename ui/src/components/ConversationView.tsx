@@ -20,8 +20,28 @@ import { useConversationRuns, useSelectedConversation, useStore } from '@/hooks/
 import { useSSE } from '@/hooks/useSSE';
 import { useAgentSSE } from '@/hooks/useAgentSSE';
 import { cn, formatRelativeTime } from '@/lib/utils';
-import { Eye, Loader2, Send, Square, Globe, MessageSquare } from 'lucide-react';
+import { Eye, Loader2, Send, Square, Globe, MessageSquare, Sparkles } from 'lucide-react';
 import type { Run, Conversation, ReasoningEffort } from '@/types';
+
+/** Preset questions showcasing multi-step agentic research capabilities */
+const PRESET_QUESTIONS = [
+  {
+    label: 'Dragon diet paper',
+    query: 'What was the volume in m^3 of the fish bag calculated in the University of Leicester paper "Can Hiccup Supply Enough Fish to Maintain a Dragon\'s Diet?"',
+  },
+  {
+    label: 'Polish Raymond actor',
+    query: 'Who did the actor who played Ray in the Polish-language version of Everybody Loves Raymond play in Magda M.? Give only the first name.',
+  },
+  {
+    label: '1977 Yankees stats',
+    query: 'How many at bats did the Yankee with the most walks in the 1977 regular season have that same season?',
+  },
+  {
+    label: 'NASA award trail',
+    query: 'On June 6, 2023, an article by Carolyn Collins Petersen was published in Universe Today. This article mentions a team that produced a paper about their observations, linked at the bottom of the article. In this paper, what is the identifier for the NASA award?',
+  },
+];
 
 /** Mode: 'chat' for regular conversation, 'research' for agent */
 type ChatMode = 'chat' | 'research';
@@ -353,11 +373,39 @@ export function ConversationView() {
   // Determine if we should show Stop button
   const isGenerating = isSubmitting && pendingRunId;
 
+  const handlePresetClick = (query: string) => {
+    setMessage(query);
+    setMode('research'); // Preset questions are designed for research mode
+  };
+
   if (!conversation && runs.length === 0) {
     return (
       <div className="h-full flex flex-col">
-        <div className="flex-1 flex flex-col items-center justify-center text-slate-500 gap-3">
-          <p className="text-sm">Start a conversation.</p>
+        <div className="flex-1 flex flex-col items-center justify-center text-slate-500 gap-6 px-6">
+          <div className="text-center">
+            <h2 className="text-lg font-semibold text-slate-700 mb-2">Research Assistant</h2>
+            <p className="text-sm">Ask complex questions requiring multi-step research</p>
+          </div>
+
+          {/* Preset Questions */}
+          <div className="w-full max-w-2xl">
+            <div className="flex items-center gap-2 mb-3">
+              <Sparkles className="h-4 w-4 text-indigo-500" />
+              <span className="text-xs font-medium text-slate-600">Try these examples</span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {PRESET_QUESTIONS.map((preset) => (
+                <button
+                  key={preset.label}
+                  onClick={() => handlePresetClick(preset.query)}
+                  className="px-3 py-1.5 text-xs rounded-full border border-slate-200 bg-white hover:bg-indigo-50 hover:border-indigo-300 hover:text-indigo-700 transition-colors text-slate-600 text-left"
+                  title={preset.query}
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
         <div className="border-t p-4">
           <div className="flex gap-3">
