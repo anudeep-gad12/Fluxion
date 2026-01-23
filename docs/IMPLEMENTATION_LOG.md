@@ -9,8 +9,36 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
-| feature/gaia-benchmark | GAIA Benchmark Evaluation | in-progress | 2026-01-21 |
+| feature/preset-question-chips | Demo preset questions | done | 2026-01-23 |
+| feature/gaia-benchmark | GAIA Benchmark Evaluation | done | 2026-01-21 |
 | feature/agent-planning | Agent Planning Step | done | 2026-01-20 |
+
+### 2026-01-23: Preset Question Chips for Demo
+
+**Branch:** `feature/preset-question-chips`
+**Status:** done
+
+**Description:**
+Added preset question chips to the chat UI empty state to showcase multi-step agentic research capabilities. Selected 4 questions from successful GAIA benchmark runs that demonstrate different agentic skills.
+
+**Questions Selected:**
+1. **Dragon diet paper** - Academic paper research (find specific value in Leicester paper)
+2. **Polish Raymond actor** - Cross-cultural entertainment research (multi-hop)
+3. **1977 Yankees stats** - Sports data lookup with cross-referencing
+4. **NASA award trail** - Multi-hop reference chain (article → paper → award ID)
+
+**Files Modified:**
+- `ui/src/components/ConversationView.tsx` - Added PRESET_QUESTIONS array and chip UI
+
+**Features:**
+- Chips appear above text input on empty conversation view
+- Clicking a chip populates the input with the question
+- Automatically switches to research mode
+- Sparkles icon with "Try these examples" label
+
+**Tests:** UI build succeeds, 645/648 tests pass (3 unrelated failures)
+
+---
 
 ### 2026-01-22: Local Ministral 14B Reasoning Model Support
 
