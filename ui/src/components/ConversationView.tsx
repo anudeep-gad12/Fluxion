@@ -26,20 +26,20 @@ import type { Run, Conversation, ReasoningEffort } from '@/types';
 /** Preset questions showcasing multi-step agentic research capabilities */
 const PRESET_QUESTIONS = [
   {
-    label: 'Dragon diet paper',
-    query: 'What was the volume in m^3 of the fish bag calculated in the University of Leicester paper "Can Hiccup Supply Enough Fish to Maintain a Dragon\'s Diet?"',
+    label: 'Latest Nobel Prize in Physics',
+    query: 'Who won the most recent Nobel Prize in Physics and what was their discovery?',
   },
   {
-    label: 'Polish Raymond actor',
-    query: 'Who did the actor who played Ray in the Polish-language version of Everybody Loves Raymond play in Magda M.? Give only the first name.',
+    label: 'Tallest buildings comparison',
+    query: 'Compare the tallest buildings in New York and Dubai - which is taller and by how much?',
   },
   {
-    label: '1977 Yankees stats',
-    query: 'How many at bats did the Yankee with the most walks in the 1977 regular season have that same season?',
+    label: '100m world record',
+    query: 'Who holds the current world record for the 100m sprint, what is the time, and when was it set?',
   },
   {
-    label: 'NASA award trail',
-    query: 'On June 6, 2023, an article by Carolyn Collins Petersen was published in Universe Today. This article mentions a team that produced a paper about their observations, linked at the bottom of the article. In this paper, what is the identifier for the NASA award?',
+    label: 'Top grossing movie 2024',
+    query: 'What was the highest-grossing movie of 2024 worldwide and how much did it earn?',
   },
 ];
 
