@@ -1,14 +1,18 @@
 // Main application component with collapsible sidebar
 
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { Routes, Route, Navigate, useParams } from 'react-router-dom';
+import { Routes, Route, Navigate, useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { ConversationList } from '@/components/ConversationList';
 import { ConversationView } from '@/components/ConversationView';
 import { DetailPanel } from '@/components/DetailPanel';
 import { useStore } from '@/hooks/useStore';
 import { cn } from '@/lib/utils';
-import { PanelLeftClose, PanelLeft, GripVertical } from 'lucide-react';
+import { PanelLeftClose, PanelLeft, GripVertical, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+
+// LocalStorage keys for demo mode
+const OWNER_TOKEN_KEY = 'reasoner_owner_token';
+const SIDEBAR_PREF_KEY = 'reasoner_sidebar_pref';
 
 // Component to sync URL params with store
 function ConversationSync() {
@@ -44,9 +48,85 @@ function NewConversationView() {
 
 function AppLayout() {
   const detailPanelOpen = useStore((s) => s.detailPanelOpen);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
+
+  // Owner detection - check localStorage for owner token
+  const [isOwner, setIsOwner] = useState(() => {
+    const token = localStorage.getItem(OWNER_TOKEN_KEY);
+    return Boolean(token && token.length >= 16);
+  });
+
+  // Demo mode state - fetched from backend
+  const [isDemoMode, setIsDemoMode] = useState(false);
+
+  // Sidebar state - defaults to collapsed for non-owners in demo mode
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    // If owner, respect their saved preference
+    if (localStorage.getItem(OWNER_TOKEN_KEY)) {
+      return localStorage.getItem(SIDEBAR_PREF_KEY) === 'collapsed';
+    }
+    // For non-owners, start collapsed (demo mode will enforce this)
+    return true;
+  });
   const [sidebarWidth, setSidebarWidth] = useState(320); // default 320px
   const isResizing = useRef(false);
+
+  // Check for owner secret in URL params (?owner=<secret>)
+  useEffect(() => {
+    const ownerParam = searchParams.get('owner');
+    if (ownerParam && ownerParam.length >= 16) {
+      // Store the token
+      localStorage.setItem(OWNER_TOKEN_KEY, ownerParam);
+      setIsOwner(true);
+      // Open sidebar for owner
+      setSidebarCollapsed(false);
+      // Remove param from URL (clean up)
+      searchParams.delete('owner');
+      setSearchParams(searchParams, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
+
+  // Fetch demo mode status from backend
+  useEffect(() => {
+    fetch('/api/config')
+      .then((res) => res.json())
+      .then((data) => {
+        setIsDemoMode(data.demo?.enabled ?? false);
+      })
+      .catch(() => {
+        // Default to non-demo if config fails
+        setIsDemoMode(false);
+      });
+  }, []);
+
+  // Enforce sidebar collapsed for non-owners in demo mode
+  useEffect(() => {
+    if (isDemoMode && !isOwner) {
+      setSidebarCollapsed(true);
+    }
+  }, [isDemoMode, isOwner]);
+
+  // Handle sidebar toggle with demo mode enforcement
+  const handleSidebarToggle = useCallback(
+    (collapsed: boolean) => {
+      // Prevent non-owners from opening sidebar in demo mode
+      if (!collapsed && isDemoMode && !isOwner) {
+        return;
+      }
+      setSidebarCollapsed(collapsed);
+      // Save preference for owners
+      if (isOwner) {
+        localStorage.setItem(SIDEBAR_PREF_KEY, collapsed ? 'collapsed' : 'open');
+      }
+    },
+    [isDemoMode, isOwner]
+  );
+
+  // Navigate to new conversation
+  const handleNewConversation = useCallback(() => {
+    navigate('/conversations');
+  }, [navigate]);
 
   const handleMouseDown = useCallback(() => {
     isResizing.current = true;
@@ -84,7 +164,7 @@ function AppLayout() {
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => setSidebarCollapsed(true)}
+            onClick={() => handleSidebarToggle(true)}
             className="h-8 w-8"
           >
             <PanelLeftClose className="h-4 w-4" />
@@ -105,15 +185,28 @@ function AppLayout() {
         </div>
       </aside>
 
-      {/* Collapsed sidebar toggle */}
+      {/* Collapsed sidebar strip with New Chat button */}
       {sidebarCollapsed && (
-        <div className="border-r p-2 flex flex-col items-center">
+        <div className="border-r p-2 flex flex-col items-center gap-2">
+          {/* Expand button - only show for owners or when not in demo mode */}
+          {(isOwner || !isDemoMode) && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => handleSidebarToggle(false)}
+              title="Open sidebar"
+            >
+              <PanelLeft className="h-4 w-4" />
+            </Button>
+          )}
+          {/* New Chat button - always visible */}
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => setSidebarCollapsed(false)}
+            onClick={handleNewConversation}
+            title="New conversation"
           >
-            <PanelLeft className="h-4 w-4" />
+            <Plus className="h-4 w-4" />
           </Button>
         </div>
       )}
