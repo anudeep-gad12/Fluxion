@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { listConversations, deleteConversation } from '@/api/client';
-import { useStore } from '@/hooks/useStore';
+import { useStore, useHasActiveRun } from '@/hooks/useStore';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/dialog';
 import { cn, formatRelativeTime, truncate } from '@/lib/utils';
@@ -78,6 +78,7 @@ export function ConversationList() {
   const selectedConversationId = useStore((s) => s.selectedConversationId);
   const setConversations = useStore((s) => s.setConversations);
   const removeConversation = useStore((s) => s.removeConversation);
+  const hasActiveRun = useHasActiveRun();
   const [isLoading, setIsLoading] = useState(false);
 
   // Delete modal state
@@ -106,6 +107,8 @@ export function ConversationList() {
   }, [setConversations]);
 
   const handleNewConversation = () => {
+    // Block during active run to prevent queue overflow
+    if (hasActiveRun) return;
     // Just navigate to /conversations to show empty "new conversation" state
     // The actual conversation will be created when user sends first message
     navigate('/conversations');
@@ -192,10 +195,17 @@ export function ConversationList() {
           >
             {isSelectMode ? <X className="h-4 w-4" /> : <CheckSquare className="h-4 w-4" />}
           </Button>
-          <Button size="sm" variant="ghost" onClick={handleNewConversation}>
-            <Plus className="h-4 w-4" />
-            New
-          </Button>
+          <span title={hasActiveRun ? "Active run in progress — cannot start new conversation until complete" : "New conversation"}>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={handleNewConversation}
+              disabled={hasActiveRun}
+            >
+              <Plus className="h-4 w-4" />
+              New
+            </Button>
+          </span>
         </div>
       </div>
 
