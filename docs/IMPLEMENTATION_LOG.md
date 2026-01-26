@@ -9,6 +9,7 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| feature/update-favicon | Custom neural network favicon | done | 2026-01-26 |
 | feature/reorder-mode-buttons | Reorder mode buttons and rename to Agent mode | done | 2026-01-26 |
 | feature/improve-mode-shortcuts | Simpler keyboard shortcuts for mode switching | done | 2026-01-26 |
 | feature/sse-auto-reconnect | SSE auto-reconnect on page reload | done | 2026-01-26 |
@@ -18,6 +19,41 @@
 | feature/preset-question-chips | Demo preset questions | done | 2026-01-23 |
 | feature/gaia-benchmark | GAIA Benchmark Evaluation | done | 2026-01-21 |
 | feature/agent-planning | Agent Planning Step | done | 2026-01-20 |
+
+### 2026-01-26: Custom Neural Network Favicon
+
+**Branch:** `feature/update-favicon`
+**Status:** done
+
+**Description:**
+Replaced the default Vite favicon with a custom-designed neural network icon that better represents the AI reasoning agent application.
+
+**Design:**
+- **Visual**: Neural network with connected nodes representing AI agent reasoning
+- **Color scheme**: Indigo blue gradient background (#4F46E5) matching the app's brand color
+- **Style**: Clean, modern SVG with glowing center node and semi-transparent connections
+- **Symbolism**: Network topology represents multi-step reasoning and connected thoughts
+
+**Implementation:**
+- Created `ui/public/favicon.svg` with custom neural network design
+- Updated `ui/index.html` to reference `/favicon.svg` instead of `/vite.svg`
+- SVG format ensures crisp display at all sizes (browser tabs, bookmarks, etc.)
+
+**Technical details:**
+- 100x100 viewBox with rounded corners (rx="20")
+- 6 nodes of varying sizes representing reasoning steps
+- 7 connection lines with varying opacity for depth
+- Center node highlighted with glow effect for focus
+
+**Files Modified:**
+- `ui/public/favicon.svg` - New neural network icon (created)
+- `ui/index.html` - Updated favicon reference
+
+**Benefits:**
+- Professional appearance distinct from default Vite branding
+- Visual identity aligned with AI/reasoning theme
+- Recognizable in browser tabs and bookmarks
+- Scalable SVG format for all display sizes
 
 ### 2026-01-26: Reorder Mode Buttons and Rename to Agent Mode
 
