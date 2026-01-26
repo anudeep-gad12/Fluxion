@@ -393,12 +393,12 @@ export function ConversationView() {
         <div className="border-b px-4 py-2 flex items-center justify-end bg-gradient-to-r from-transparent to-slate-50">
           <button
             onClick={() => navigate('/benchmarks')}
-            className="flex items-center gap-1.5 px-3 py-1 text-xs rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white shadow-sm hover:shadow-md transition-all duration-200"
             title="View GAIA benchmark results"
           >
-            <BarChart3 className="h-3 w-3" />
-            <span className="font-medium">Benchmarks</span>
-            <ChevronRight className="h-3 w-3" />
+            <BarChart3 className="h-3.5 w-3.5" />
+            <span className="font-semibold">Benchmarks</span>
+            <ChevronRight className="h-3.5 w-3.5" />
           </button>
         </div>
 
@@ -516,12 +516,12 @@ export function ConversationView() {
         </h2>
         <button
           onClick={() => navigate('/benchmarks')}
-          className="flex items-center gap-1.5 px-3 py-1 text-xs rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white shadow-sm hover:shadow-md transition-all duration-200"
           title="View GAIA benchmark results"
         >
-          <BarChart3 className="h-3 w-3" />
-          <span className="font-medium">Benchmarks</span>
-          <ChevronRight className="h-3 w-3" />
+          <BarChart3 className="h-3.5 w-3.5" />
+          <span className="font-semibold">Benchmarks</span>
+          <ChevronRight className="h-3.5 w-3.5" />
         </button>
       </div>
 
