@@ -380,16 +380,16 @@ export function ConversationView() {
       handleSubmit();
       return;
     }
-    // Cmd/Ctrl + 1 for Chat mode
+    // Cmd/Ctrl + 1 for Agent mode
     if (e.key === '1' && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
-      setMode('chat');
+      setMode('research');
       return;
     }
-    // Cmd/Ctrl + 2 for Research mode
+    // Cmd/Ctrl + 2 for Chat mode
     if (e.key === '2' && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
-      setMode('research');
+      setMode('chat');
       return;
     }
   };
@@ -407,7 +407,7 @@ export function ConversationView() {
       <div className="h-full flex flex-col">
         <div className="flex-1 flex flex-col items-center justify-center text-slate-500 gap-6 px-6">
           <div className="text-center">
-            <h2 className="text-lg font-semibold text-slate-700 mb-2">Research Assistant</h2>
+            <h2 className="text-lg font-semibold text-slate-700 mb-2">Agent Mode</h2>
             <p className="text-sm">Ask complex questions requiring multi-step research</p>
           </div>
 
@@ -434,7 +434,7 @@ export function ConversationView() {
         <div className="border-t p-4">
           <div className="flex gap-3">
             <Textarea
-              placeholder={mode === 'research' ? 'Research a topic...' : 'Ask a question...'}
+              placeholder={mode === 'research' ? 'Ask agent to research...' : 'Ask a question...'}
               value={message}
               onChange={(e) => setMessage(e.target.value)}
               onKeyDown={handleKeyDown}
@@ -447,21 +447,21 @@ export function ConversationView() {
               <div className="flex gap-1">
                 <Button
                   size="sm"
+                  variant={mode === 'research' ? 'default' : 'outline'}
+                  className={cn('h-8 px-2', mode === 'research' && 'bg-indigo-600 hover:bg-indigo-700')}
+                  onClick={() => setMode('research')}
+                  title="Agent mode"
+                >
+                  <Globe className="h-3 w-3" />
+                </Button>
+                <Button
+                  size="sm"
                   variant={mode === 'chat' ? 'default' : 'outline'}
                   className="h-8 px-2"
                   onClick={() => setMode('chat')}
                   title="Chat mode"
                 >
                   <MessageSquare className="h-3 w-3" />
-                </Button>
-                <Button
-                  size="sm"
-                  variant={mode === 'research' ? 'default' : 'outline'}
-                  className={cn('h-8 px-2', mode === 'research' && 'bg-indigo-600 hover:bg-indigo-700')}
-                  onClick={() => setMode('research')}
-                  title="Research mode"
-                >
-                  <Globe className="h-3 w-3" />
                 </Button>
               </div>
               {/* Reasoning effort - only show in chat mode */}
@@ -498,13 +498,13 @@ export function ConversationView() {
             {hasActiveRun
               ? '⏳ Waiting for active run to complete...'
               : mode === 'research'
-                ? '🌐 Research mode: web search + analysis'
+                ? '🌐 Agent mode: web search + analysis'
                 : reasoningEffort === 'high'
                   ? '🔬 Deep reasoning'
                   : reasoningEffort === 'medium'
                     ? '🧠 Balanced'
                     : '⚡ Fast'}{' '}
-            · Press ⌘/Ctrl+Enter to send · ⌘/Ctrl+1 for Chat · ⌘/Ctrl+2 for Research
+            · Press ⌘/Ctrl+Enter to send · ⌘/Ctrl+1 for Agent · ⌘/Ctrl+2 for Chat
           </p>
         </div>
       </div>
@@ -542,7 +542,7 @@ export function ConversationView() {
       <div className="border-t p-4">
         <div className="flex gap-3">
           <Textarea
-            placeholder={mode === 'research' ? 'Research a topic...' : 'Ask a follow-up question...'}
+            placeholder={mode === 'research' ? 'Ask agent to research...' : 'Ask a follow-up question...'}
             value={message}
             onChange={(e) => setMessage(e.target.value)}
             onKeyDown={handleKeyDown}
@@ -555,21 +555,21 @@ export function ConversationView() {
             <div className="flex gap-1">
               <Button
                 size="sm"
+                variant={mode === 'research' ? 'default' : 'outline'}
+                className={cn('h-8 px-2', mode === 'research' && 'bg-indigo-600 hover:bg-indigo-700')}
+                onClick={() => setMode('research')}
+                title="Agent mode"
+              >
+                <Globe className="h-3 w-3" />
+              </Button>
+              <Button
+                size="sm"
                 variant={mode === 'chat' ? 'default' : 'outline'}
                 className="h-8 px-2"
                 onClick={() => setMode('chat')}
                 title="Chat mode"
               >
                 <MessageSquare className="h-3 w-3" />
-              </Button>
-              <Button
-                size="sm"
-                variant={mode === 'research' ? 'default' : 'outline'}
-                className={cn('h-8 px-2', mode === 'research' && 'bg-indigo-600 hover:bg-indigo-700')}
-                onClick={() => setMode('research')}
-                title="Research mode"
-              >
-                <Globe className="h-3 w-3" />
               </Button>
             </div>
             {/* Reasoning effort - only show in chat mode */}
@@ -602,13 +602,13 @@ export function ConversationView() {
         </div>
         <p className="text-xs text-slate-500 mt-2">
           {mode === 'research'
-            ? '🌐 Research mode: web search + analysis'
+            ? '🌐 Agent mode: web search + analysis'
             : reasoningEffort === 'high'
               ? '🔬 Deep reasoning'
               : reasoningEffort === 'medium'
                 ? '🧠 Balanced'
                 : '⚡ Fast'}{' '}
-          · Press ⌘/Ctrl+Enter to send · ⌘/Ctrl+1 for Chat · ⌘/Ctrl+2 for Research
+          · Press ⌘/Ctrl+Enter to send · ⌘/Ctrl+1 for Agent · ⌘/Ctrl+2 for Chat
         </p>
       </div>
     </div>
