@@ -407,29 +407,37 @@ export function ConversationView() {
       <div className="h-full flex flex-col">
         <div className="flex-1 flex flex-col items-center justify-center text-slate-500 gap-6 px-6">
           <div className="text-center">
-            <h2 className="text-lg font-semibold text-slate-700 mb-2">Agent Mode</h2>
-            <p className="text-sm">Ask complex questions requiring multi-step research</p>
+            <h2 className="text-lg font-semibold text-slate-700 mb-2">
+              {mode === 'research' ? 'Agent Mode' : 'Chat Mode'}
+            </h2>
+            <p className="text-sm">
+              {mode === 'research'
+                ? 'Ask complex questions requiring multi-step research'
+                : 'Have a conversation with reasoning-capable AI'}
+            </p>
           </div>
 
-          {/* Preset Questions */}
-          <div className="w-full max-w-2xl">
-            <div className="flex items-center gap-2 mb-3">
-              <Sparkles className="h-4 w-4 text-indigo-500" />
-              <span className="text-xs font-medium text-slate-600">Try these examples</span>
+          {/* Preset Questions - only show in agent mode */}
+          {mode === 'research' && (
+            <div className="w-full max-w-2xl">
+              <div className="flex items-center gap-2 mb-3">
+                <Sparkles className="h-4 w-4 text-indigo-500" />
+                <span className="text-xs font-medium text-slate-600">Try these examples</span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {PRESET_QUESTIONS.map((preset) => (
+                  <button
+                    key={preset.label}
+                    onClick={() => handlePresetClick(preset.query)}
+                    className="px-3 py-1.5 text-xs rounded-full border border-slate-200 bg-white hover:bg-indigo-50 hover:border-indigo-300 hover:text-indigo-700 transition-colors text-slate-600 text-left"
+                    title={preset.query}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
             </div>
-            <div className="flex flex-wrap gap-2">
-              {PRESET_QUESTIONS.map((preset) => (
-                <button
-                  key={preset.label}
-                  onClick={() => handlePresetClick(preset.query)}
-                  className="px-3 py-1.5 text-xs rounded-full border border-slate-200 bg-white hover:bg-indigo-50 hover:border-indigo-300 hover:text-indigo-700 transition-colors text-slate-600 text-left"
-                  title={preset.query}
-                >
-                  {preset.label}
-                </button>
-              ))}
-            </div>
-          </div>
+          )}
         </div>
         <div className="border-t p-4">
           <div className="flex gap-3">
