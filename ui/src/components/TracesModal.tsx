@@ -183,7 +183,7 @@ export function TracesModal({ open, onOpenChange }: TracesModalProps) {
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-2">
-                        <Badge variant={trace.level === 1 ? 'default' : trace.level === 2 ? 'secondary' : 'outline'}>
+                        <Badge variant="default">
                           Level {trace.level}
                         </Badge>
                         <span className="text-sm text-muted-foreground">{formatDate(trace.timestamp)}</span>
