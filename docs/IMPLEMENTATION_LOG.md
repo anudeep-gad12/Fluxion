@@ -9,8 +9,89 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
-| feature/gaia-benchmark | GAIA Benchmark Evaluation | in-progress | 2026-01-21 |
+| feature/demo-mode | Demo mode (rate limiting + sidebar) | done | 2026-01-26 |
+| feature/preset-question-chips | Demo preset questions | done | 2026-01-23 |
+| feature/gaia-benchmark | GAIA Benchmark Evaluation | done | 2026-01-21 |
 | feature/agent-planning | Agent Planning Step | done | 2026-01-20 |
+
+### 2026-01-26: Demo Mode with Rate Limiting and Sidebar Lock
+
+**Branch:** `feature/demo-mode`
+**Status:** done
+
+**Description:**
+Added demo mode features to make the app showcase-ready without authentication:
+1. Rate limiting to prevent abuse
+2. Sidebar locked for demo visitors (owner can unlock)
+
+**Rate Limiting:**
+- 10 agent runs per hour per IP (expensive - web search + multiple LLM calls)
+- 30 chat runs per hour per IP (cheaper - single LLM call)
+- In-memory tracking with sliding time window
+- Whitelist localhost IPs by default
+- Returns 429 with retry info when limit exceeded
+
+**Sidebar Lock:**
+- Sidebar collapsed by default in demo mode
+- Owner unlocks via secret URL param: `?owner=<32+ char secret>`
+- Token stored in localStorage (persists across sessions)
+- New Chat button always visible in collapsed strip
+- Expand button hidden for non-owners in demo mode
+
+**Configuration:**
+```yaml
+demo:
+  enabled: ${DEMO_MODE:-false}
+  owner_secret: ${DEMO_OWNER_SECRET:-}
+  rate_limit:
+    max_agent_runs_per_hour: 10
+    max_chat_runs_per_hour: 30
+    window_seconds: 3600
+  whitelist_ips:
+    - "127.0.0.1"
+    - "::1"
+```
+
+**Files Created:**
+- `orchestrator/middleware/rate_limit.py` - Rate limiting middleware
+- `tests/middleware/test_rate_limit.py` - Rate limit tests (10 tests)
+
+**Files Modified:**
+- `orchestrator/chat_config.yaml` - Added demo config section
+- `orchestrator/config.py` - Added DemoConfig, RateLimitConfig models
+- `orchestrator/app.py` - Registered middleware, updated /api/config
+- `ui/src/App.tsx` - Sidebar logic, owner detection, New Chat button
+
+**Tests:** 655 passed, 3 pre-existing failures unrelated to changes
+
+---
+
+### 2026-01-23: Preset Question Chips for Demo
+
+**Branch:** `feature/preset-question-chips`
+**Status:** done
+
+**Description:**
+Added preset question chips to the chat UI empty state to showcase multi-step agentic research capabilities. Selected 4 questions from successful GAIA benchmark runs that demonstrate different agentic skills.
+
+**Questions Selected:**
+1. **Dragon diet paper** - Academic paper research (find specific value in Leicester paper)
+2. **Polish Raymond actor** - Cross-cultural entertainment research (multi-hop)
+3. **1977 Yankees stats** - Sports data lookup with cross-referencing
+4. **NASA award trail** - Multi-hop reference chain (article → paper → award ID)
+
+**Files Modified:**
+- `ui/src/components/ConversationView.tsx` - Added PRESET_QUESTIONS array and chip UI
+
+**Features:**
+- Chips appear above text input on empty conversation view
+- Clicking a chip populates the input with the question
+- Automatically switches to research mode
+- Sparkles icon with "Try these examples" label
+
+**Tests:** UI build succeeds, 645/648 tests pass (3 unrelated failures)
+
+---
 
 ### 2026-01-22: Local Ministral 14B Reasoning Model Support
 

@@ -335,6 +335,40 @@ class PythonConfig(BaseModel):
 
 
 # =============================================================================
+# Demo Mode Configuration
+# =============================================================================
+
+
+class RateLimitConfig(BaseModel):
+    """Rate limiting settings for demo mode."""
+
+    max_agent_runs_per_hour: int = 10
+    max_chat_runs_per_hour: int = 30
+    window_seconds: int = 3600
+
+
+class DemoConfig(BaseModel):
+    """Demo mode configuration for showcase deployments.
+
+    When enabled, adds rate limiting and sidebar restrictions.
+    Owner can unlock full access via secret URL parameter.
+    """
+
+    enabled: bool = False
+    owner_secret: str = ""
+    rate_limit: RateLimitConfig = RateLimitConfig()
+    whitelist_ips: List[str] = ["127.0.0.1", "::1"]
+
+    @field_validator("owner_secret", mode="before")
+    @classmethod
+    def empty_string_to_empty(cls, v: Any) -> str:
+        """Convert None to empty string for owner_secret."""
+        if v is None:
+            return ""
+        return v
+
+
+# =============================================================================
 # Main Chat Configuration
 # =============================================================================
 
@@ -360,6 +394,9 @@ class ChatConfig(BaseModel):
     # Query classification (disabled by default - let model decide when to use tools)
     query_classification: Optional[QueryClassificationConfig] = None
     python: Optional[PythonConfig] = None
+
+    # Demo mode (rate limiting, sidebar lock)
+    demo: Optional[DemoConfig] = None
 
     # Backward compatibility alias
     @property
@@ -390,6 +427,11 @@ class ChatConfig(BaseModel):
             snapshot["query_classification"] = self.query_classification.model_dump()
         if self.python:
             snapshot["python"] = self.python.model_dump()
+        if self.demo:
+            # Don't expose owner_secret in snapshot
+            demo_snapshot = self.demo.model_dump()
+            demo_snapshot.pop("owner_secret", None)
+            snapshot["demo"] = demo_snapshot
         return snapshot
 
 
