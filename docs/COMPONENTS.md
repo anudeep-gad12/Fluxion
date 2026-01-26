@@ -1315,6 +1315,7 @@ Loading placeholder.
 - `useSelectedRun()`
 - `useRunEvents(id)`
 - `useAgentRunState(id)`
+- `useHasActiveRun()` - Checks if any run is active (agent state, streaming, or backend 'running' status)
 
 ### `ui/src/hooks/useSSE.ts`
 

@@ -29,15 +29,24 @@ Block creating new conversations from UI when there's an active run (agent or ch
 **Implementation:**
 - Added `useHasActiveRun` selector to check if any agent run is active or chat is streaming
 - Modified `ConversationView.tsx` to block submit when creating new conversation + active run exists
-- Visual feedback: disabled button + "Waiting for active run" message
+- Modified `App.tsx` and `ConversationList.tsx` to block "New" buttons
+- Visual feedback: disabled button + "Waiting for active run" message + tooltip on hover
+
+**Improvements (2026-01-26):**
+1. **Tooltip visibility fix**: Wrapped disabled buttons in `<span>` elements so tooltips show even when button is disabled (browsers often block tooltips on disabled elements)
+2. **Reload persistence**: `useHasActiveRun` now also checks `runsByConversation` for runs with `status === 'running'` from backend data, surviving page reloads
 
 **Files Modified:**
-- `ui/src/hooks/useStore.ts` - Added `useHasActiveRun` selector
-- `ui/src/components/ConversationView.tsx` - Added blocking logic and UI feedback
+- `ui/src/hooks/useStore.ts` - Added `useHasActiveRun` selector with backend run check
+- `ui/src/components/ConversationView.tsx` - Added blocking logic, tooltip wrapper
+- `ui/src/App.tsx` - Block "New" button in collapsed sidebar strip, tooltip wrapper
+- `ui/src/components/ConversationList.tsx` - Block "New" button in sidebar header, tooltip wrapper
 
 **Testing:**
 - TypeScript compilation: passed
 - Manual: verified button disabled during active run
+- Manual: tooltip shows on hover even when disabled
+- Manual: blocking persists after page reload during active run
 
 ---
 
