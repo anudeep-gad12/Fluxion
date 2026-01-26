@@ -169,20 +169,13 @@ You have ONLY three tools available (no others exist):
 
 IMPORTANT: After using web_extract, you have the COMPLETE page content. Read through it directly to find what you need - do not try to call any "search within page" or "find" tools, they don't exist.
 
-=== SEARCH & VERIFICATION PROTOCOL ===
+=== RESEARCH GUIDELINES ===
 
-1. MULTIPLE SEARCHES: For factual questions, search at least twice with different query phrasings. Don't trust a single search result.
+1. GOOD SOURCES: Wikipedia, official sites (.gov, .edu), established news. Avoid forums, blogs, paywalled sites.
 
-2. SOURCE AUTHORITY: Prefer authoritative sources in this order:
-   - Official government sites (.gov)
-   - Academic institutions (.edu)
-   - Wikipedia (for general facts)
-   - Established news organizations
-   - Avoid: forums, blogs, user-generated content, paywalled sites
+2. EFFICIENCY: One good source with clear facts is enough. Only search again if information is unclear or conflicting.
 
-3. CROSS-VERIFICATION: If sources disagree, search again to resolve. Note the disagreement in your reasoning.
-
-4. EXTRACT BEFORE ANSWERING: When you find relevant URLs, extract 2-3 authoritative sources to verify information. Don't rely on search snippets alone.
+3. EXTRACT WHEN NEEDED: Use web_extract to get full content when search snippets aren't sufficient.
 
 === MANDATORY PYTHON PROTOCOL ===
 
@@ -192,19 +185,13 @@ For ANY calculation, you MUST use python_execute:
 - Unit conversions (miles to km, F to C)
 - Counting or aggregating data
 
-NEVER compute mentally or in text. Even "simple" calculations like "5 * 10 = 50" must use python_execute.
+Don't use python_execute to verify values already stated in the content.
 
-=== SELF-CHECK BEFORE FINAL ANSWER ===
-
-Before providing your final answer, verify:
-- "What specific evidence supports this answer?"
-- "Could I be confusing this with something similar?"
-- "Have I verified with at least one authoritative source?"
-- "Did I use python_execute for any calculations?"
+NEVER compute mentally or in text.
 
 === RESPONSE FORMAT ===
 
-When citing sources, use inline references like [1], [2]. The UI displays the full source list automatically.
+Do NOT include inline citation numbers like [1], [2] in your answer text. The UI automatically displays a Sources section at the bottom with all the web pages you consulted during research.
 
 Be warm and engaging. Show genuine interest in helping and enthusiasm for findings.
 
@@ -235,17 +222,13 @@ CALCULATION WORKFLOW:
 3. If you need reference data (constants, material properties), use web_search first
 4. Present the final answer with the computation result
 
-WEB EXTRACT GUIDELINES (if needed):
-- Extract 2-3 most relevant URLs (not more unless necessary)
-- Prefer: academic sources, official data, authoritative sites
-- Skip: Wikipedia overviews, forums, paywalled content
+WEB EXTRACT: Use when you need reference data. Wikipedia and official sources are fine.
 
 NEVER answer with mental math like "KE = 0.5 * 5 * 100 = 250 J" - always use python_execute.
 
-CITATION FORMAT (if referencing sources):
-- Use [1], [2], etc. INLINE within your answer text
-- Do NOT add a separate "Citations" or "Sources" section at the end
-- The UI will automatically display a formatted sources list
+RESPONSE FORMAT:
+- Do NOT include inline citation numbers like [1], [2] in your answer
+- The UI automatically displays a Sources section with all consulted pages
 
 To provide your final answer, respond WITHOUT calling any tools."""
 
@@ -263,7 +246,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
         max_tokens: int = 4096,
         temperature: float = 0.7,
         system_prompt: Optional[str] = None,
-        keep_full_steps: int = 2,
+        keep_full_steps: int = 10,
         tool_choice: Optional[str] = None,
         max_context_tokens: int = 100000,
         slow_response_threshold: float = 15.0,
@@ -1909,10 +1892,15 @@ When you complete each step, proceed to the next."""
             result_data: Result data from tool.
         """
         if not result_data:
+            logger.debug(
+                "No result_data for citations",
+                extra={"run_id": run_id, "tool_name": tool_name},
+            )
             return
 
         if tool_name == "web_search":
             results = result_data.get("results", [])
+            citation_count = 0
             for r in results:
                 url = r.get("url", "")
                 if url:
@@ -1923,9 +1911,15 @@ When you complete each step, proceed to the next."""
                         title=r.get("title"),
                         snippet=r.get("snippet", "")[:500],
                     )
+                    citation_count += 1
+            logger.debug(
+                "Stored citations from web_search",
+                extra={"run_id": run_id, "citation_count": citation_count},
+            )
         elif tool_name == "web_extract":
             # Handle both single extraction and batch extraction
             extractions = result_data.get("extractions", [result_data])
+            citation_count = 0
             for extraction in extractions:
                 url = extraction.get("url", "")
                 if url:
@@ -1938,25 +1932,34 @@ When you complete each step, proceed to the next."""
                         title=title,
                         snippet=content[:500] if content else "",
                     )
+                    citation_count += 1
+            logger.debug(
+                "Stored citations from web_extract",
+                extra={"run_id": run_id, "citation_count": citation_count},
+            )
 
     async def _extract_and_store_citations(
         self,
         run_id: str,
         answer: str,
     ) -> List[Dict[str, Any]]:
-        """Mark citations used in final answer.
+        """Get all citations for the run to show as sources.
+
+        All sources gathered during research are returned so users can
+        see what was consulted. The UI displays these at the end of
+        the answer.
 
         Args:
             run_id: Run ID.
             answer: Final answer text.
 
         Returns:
-            List of used citation dicts.
+            List of all citation dicts for the run.
         """
-        # Get all citations for run
+        # Get all citations for run - return all sources, not just "used" ones
         all_citations = await self._repo.get_citations_for_run(run_id)
 
-        # Simple heuristic: mark citations whose URL appears in answer
+        # Mark citations that are explicitly referenced in the answer
         used_ids = []
         for citation in all_citations:
             url = citation.get("source_url", "")
@@ -1973,7 +1976,16 @@ When you complete each step, proceed to the next."""
         if used_ids:
             await self._repo.mark_citations_used(used_ids)
 
-        return [c for c in all_citations if c["id"] in used_ids]
+        # Return ALL citations so Sources section always shows what was consulted
+        logger.info(
+            "Returning citations for run",
+            extra={
+                "run_id": run_id,
+                "total_citations": len(all_citations),
+                "used_citations": len(used_ids),
+            },
+        )
+        return all_citations
 
     async def _force_synthesis(
         self,
@@ -2004,7 +2016,7 @@ When you complete each step, proceed to the next."""
                 f"{findings_text}\n\n"
                 f"Based on these findings, provide your FINAL ANSWER directly as plain text.\n"
                 f"Address the original query directly and comprehensively.\n"
-                f"Use inline [1], [2] citations to reference sources but do NOT add a separate Citations section."
+                f"Do NOT include inline citation numbers like [1], [2] - the UI will show sources automatically."
             )
         else:
             synthesis_content = (
@@ -2012,7 +2024,7 @@ When you complete each step, proceed to the next."""
                 "Do NOT attempt to use any tools or output JSON. "
                 "Based on the information you have gathered so far, provide your FINAL ANSWER directly as plain text. "
                 "Summarize the key findings and insights from your research. "
-                "Use inline [1], [2] citations to reference sources but do NOT add a separate Citations section."
+                "Do NOT include inline citation numbers like [1], [2] - the UI will show sources automatically."
             )
 
         force_msg = {
