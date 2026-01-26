@@ -195,16 +195,17 @@ export function ConversationList() {
           >
             {isSelectMode ? <X className="h-4 w-4" /> : <CheckSquare className="h-4 w-4" />}
           </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={handleNewConversation}
-            disabled={hasActiveRun}
-            title={hasActiveRun ? "Active run in progress — cannot start new conversation until complete" : "New conversation"}
-          >
-            <Plus className="h-4 w-4" />
-            New
-          </Button>
+          <span title={hasActiveRun ? "Active run in progress — cannot start new conversation until complete" : "New conversation"}>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={handleNewConversation}
+              disabled={hasActiveRun}
+            >
+              <Plus className="h-4 w-4" />
+              New
+            </Button>
+          </span>
         </div>
       </div>
 
