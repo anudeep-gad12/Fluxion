@@ -380,16 +380,16 @@ export function ConversationView() {
       handleSubmit();
       return;
     }
-    // Cmd/Ctrl + Shift + R for Research/Agent mode
-    if (e.key === 'r' && (e.metaKey || e.ctrlKey) && e.shiftKey) {
-      e.preventDefault();
-      setMode('research');
-      return;
-    }
-    // Cmd/Ctrl + Shift + C for Chat mode
-    if (e.key === 'c' && (e.metaKey || e.ctrlKey) && e.shiftKey) {
+    // Cmd/Ctrl + 1 for Chat mode
+    if (e.key === '1' && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       setMode('chat');
+      return;
+    }
+    // Cmd/Ctrl + 2 for Research mode
+    if (e.key === '2' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      setMode('research');
       return;
     }
   };
@@ -504,7 +504,7 @@ export function ConversationView() {
                   : reasoningEffort === 'medium'
                     ? '🧠 Balanced'
                     : '⚡ Fast'}{' '}
-            · ⌘/Ctrl+Enter send · ⌘/Ctrl+Shift+R agent · ⌘/Ctrl+Shift+C chat
+            · Press ⌘/Ctrl+Enter to send · ⌘/Ctrl+1 for Chat · ⌘/Ctrl+2 for Research
           </p>
         </div>
       </div>
@@ -608,7 +608,7 @@ export function ConversationView() {
               : reasoningEffort === 'medium'
                 ? '🧠 Balanced'
                 : '⚡ Fast'}{' '}
-          · ⌘/Ctrl+Enter send · ⌘/Ctrl+Shift+R agent · ⌘/Ctrl+Shift+C chat
+          · Press ⌘/Ctrl+Enter to send · ⌘/Ctrl+1 for Chat · ⌘/Ctrl+2 for Research
         </p>
       </div>
     </div>
