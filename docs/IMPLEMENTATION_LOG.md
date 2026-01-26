@@ -9,11 +9,56 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| feature/sse-auto-reconnect | SSE auto-reconnect on page reload | testing | 2026-01-26 |
 | feature/block-new-convo-during-run | Block new convo during active run | done | 2026-01-26 |
 | feature/demo-mode | Demo mode (rate limiting + sidebar) | done | 2026-01-26 |
 | feature/preset-question-chips | Demo preset questions | done | 2026-01-23 |
 | feature/gaia-benchmark | GAIA Benchmark Evaluation | done | 2026-01-21 |
 | feature/agent-planning | Agent Planning Step | done | 2026-01-20 |
+
+### 2026-01-26: SSE Auto-Reconnect on Page Reload
+
+**Branch:** `feature/sse-auto-reconnect`
+**Status:** testing
+
+**Problem:**
+When user reloads the page during an active run (agent or chat), the frontend loses its SSE connection and in-memory state. After reload, the UI shows status="running" but receives no updates until another reload is performed.
+
+**Solution:**
+Automatically reconnect to SSE streams on page load for any runs with status='running'.
+
+**Implementation:**
+- Modified `ConversationView.tsx` `loadConversation()` useEffect
+- After loading conversation + runs from API, check for runs with `status === 'running'`
+- For agent runs: call `subscribeAgent(run_id, 0)` to reconnect with sinceSeq=0
+  - sinceSeq=0 tells backend to replay all events from `_event_history` (kept for 5 minutes)
+- For chat runs: call `subscribe(run_id)` to reconnect
+- Added debug console.log messages: `[Auto-reconnect] Reconnecting to <mode> run: <id>`
+- Updated dependency array to include `subscribe` and `subscribeAgent` callbacks
+
+**Backend Support:**
+Backend already supports resumption via:
+- `since_seq` query parameter in `/api/agent/runs/{id}/stream`
+- `_event_history` dict stores all events for 5 minutes
+- SSE endpoint replays missed events before streaming live events
+
+**Files Modified:**
+- `ui/src/components/ConversationView.tsx` - Added auto-reconnect logic
+
+**Testing:**
+- TypeScript compilation: passed
+- Build: passed
+- Manual test required:
+  1. Start agent run with complex query
+  2. Reload page while run is active (before completion)
+  3. Verify console shows auto-reconnect message
+  4. Verify UI shows all previous events + continues receiving new events
+  5. No second reload needed
+
+**Benefits:**
+- Seamless UX: user can reload page anytime without losing connection
+- Event replay: no data loss, all events from start replayed
+- Works for both agent and chat modes
 
 ### 2026-01-26: Block New Conversation During Active Run
 
