@@ -142,6 +142,8 @@ The FastAPI application initializes with:
 1. **Lifespan Management**: Startup loads config, initializes DB; shutdown handles cleanup
 2. **Middleware**:
    - `RequestLoggingMiddleware`: Request ID correlation and timing
+   - `SecurityHeadersMiddleware`: Security headers (X-Frame-Options, etc.)
+   - `RateLimitMiddleware`: IP-based rate limiting for demo mode
    - `CORSMiddleware`: Allows frontend at localhost:3000
 3. **Routers**: `/api/conversations`, `/api/runs`, `/api/agent/runs`
 4. **Health/Config Endpoints**: `/api/health`, `/api/config`
@@ -791,6 +793,18 @@ sandbox:                      # Python sandbox (NOT CURRENTLY USED)
     timeout_seconds: 30
     cleanup_on_startup: true
     stale_session_minutes: 10
+
+# Demo mode for showcase deployments
+demo:
+  enabled: ${DEMO_MODE:-false}
+  owner_secret: ${DEMO_OWNER_SECRET:-}  # Long random string for owner access
+  rate_limit:
+    max_agent_runs_per_hour: 10    # Agent runs are expensive
+    max_chat_runs_per_hour: 30     # Chat runs are cheaper
+    window_seconds: 3600           # 1 hour window
+  whitelist_ips:                   # IPs that bypass rate limiting
+    - "127.0.0.1"
+    - "::1"
 ```
 
 ### Environment Variable Resolution
@@ -814,6 +828,7 @@ Variables are resolved before Pydantic validation.
 | `ParallelConfig` | Web search/extract with nested `ParallelSearchConfig`, `ParallelExtractConfig` |
 | `PythonConfig` | Local Python execution settings |
 | `SandboxConfig` | Python sandbox with `E2BConfig` (not currently used) |
+| `DemoConfig` | Demo mode with `RateLimitConfig` for rate limiting and sidebar lock |
 
 ---
 
