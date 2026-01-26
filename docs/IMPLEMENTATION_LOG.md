@@ -33,11 +33,11 @@ Added a dedicated benchmarks page displaying GAIA benchmark results with a profe
 - Comparison table with top systems from HAL Princeton leaderboard
 - Key observations highlighting cost efficiency and open-weight model performance
 - Note: Questions with file attachments were excluded from evaluation
-- **Traces Modal** (2026-01-26): View best evaluation run for each difficulty level
-  - Filters to show only the highest accuracy run for L1, L2, and L3 (3 traces total)
+- **Traces Modal** (2026-01-26): View full evaluation runs for each difficulty level
+  - Filters to show only full evaluation runs (≥19 questions) to exclude test runs
+  - Shows best accuracy run for L1 (42Q, 64.3%), L2 (66Q, 37.9%), L3 (19Q, 31.6%)
   - Shows metadata: level, model, timestamp, questions, correct answers, accuracy
-  - "Best Run" badge on each trace
-  - Detail view with question results, expected vs actual answers, timing per question
+  - Detail view with ALL question results, expected vs actual answers, timing per question
   - Color-coded correct/incorrect results
 
 **Navigation:**
