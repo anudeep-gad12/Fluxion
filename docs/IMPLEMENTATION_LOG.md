@@ -9,11 +9,46 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| feature/benchmarks-page | Benchmarks page with GAIA results | done | 2026-01-26 |
 | feature/block-new-convo-during-run | Block new convo during active run | done | 2026-01-26 |
 | feature/demo-mode | Demo mode (rate limiting + sidebar) | done | 2026-01-26 |
 | feature/preset-question-chips | Demo preset questions | done | 2026-01-23 |
 | feature/gaia-benchmark | GAIA Benchmark Evaluation | done | 2026-01-21 |
 | feature/agent-planning | Agent Planning Step | done | 2026-01-20 |
+
+### 2026-01-26: Benchmarks Page with GAIA Results
+
+**Branch:** `feature/benchmarks-page`
+**Status:** done
+
+**Description:**
+Added a dedicated benchmarks page displaying GAIA benchmark results with a professional leaderboard-style layout.
+
+**Features:**
+- Hero stats cards showing:
+  - Level 1 rank (#11 of 32 systems)
+  - Cost efficiency (~$5 vs $100-500+ for frontier models)
+  - Overall rank (#18 using open-weight model)
+- Results table by difficulty level (L1: 64.3%, L2: 37.9%, L3: 31.6%)
+- Comparison table with top systems from HAL Princeton leaderboard
+- Key observations highlighting cost efficiency and open-weight model performance
+- Note: Questions with file attachments were excluded from evaluation
+
+**Navigation:**
+- "Benchmarks" chip with arrow in ConversationView header (both empty state and conversation view)
+- Dedicated /benchmarks route with scrollable content
+
+**Files Created:**
+- `ui/src/components/BenchmarksPage.tsx` - Full benchmarks page component
+
+**Files Modified:**
+- `ui/src/App.tsx` - Added /benchmarks route, imported BenchmarksPage
+- `ui/src/components/ConversationView.tsx` - Added benchmarks chip in header
+
+**Data Source:**
+Rankings from [HAL Princeton GAIA Leaderboard](https://hal.cs.princeton.edu/gaia) (January 2026)
+
+---
 
 ### 2026-01-26: Block New Conversation During Active Run
 
