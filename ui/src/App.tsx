@@ -202,15 +202,16 @@ function AppLayout() {
             </Button>
           )}
           {/* New Chat button - always visible, disabled during active run */}
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={handleNewConversation}
-            disabled={hasActiveRun}
-            title={hasActiveRun ? "Active run in progress — cannot start new conversation until complete" : "New conversation"}
-          >
-            <Plus className="h-4 w-4" />
-          </Button>
+          <span title={hasActiveRun ? "Active run in progress — cannot start new conversation until complete" : "New conversation"}>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleNewConversation}
+              disabled={hasActiveRun}
+            >
+              <Plus className="h-4 w-4" />
+            </Button>
+          </span>
         </div>
       )}
 

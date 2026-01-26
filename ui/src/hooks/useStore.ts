@@ -452,12 +452,18 @@ export const useAgentRunState = (runId: string | null) => {
 export const useHasActiveRun = () => {
   const agentRunState = useStore((s) => s.agentRunState);
   const streamingRunId = useStore((s) => s.streamingRunId);
+  const runsByConversation = useStore((s) => s.runsByConversation);
 
-  // Check if any agent run is active
+  // Check if any agent run is active (in-memory state)
   const hasActiveAgent = Object.values(agentRunState).some((state) => state.isActive);
 
-  // Check if chat streaming is active
+  // Check if chat streaming is active (in-memory state)
   const hasActiveChat = streamingRunId !== null;
 
-  return hasActiveAgent || hasActiveChat;
+  // Check if any run has status 'running' in backend data (survives reload)
+  const hasRunningBackendRun = Object.values(runsByConversation).some((runs) =>
+    runs.some((run) => run.status === 'running')
+  );
+
+  return hasActiveAgent || hasActiveChat || hasRunningBackendRun;
 };
