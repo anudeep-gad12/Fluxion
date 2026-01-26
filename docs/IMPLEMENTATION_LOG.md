@@ -22,7 +22,7 @@
 **Status:** done
 
 **Description:**
-Added a dedicated benchmarks page displaying GAIA benchmark results with a professional leaderboard-style layout.
+Added a dedicated benchmarks page displaying GAIA benchmark results with a professional leaderboard-style layout, plus a modal to browse full evaluation traces.
 
 **Features:**
 - Hero stats cards showing:
@@ -33,20 +33,35 @@ Added a dedicated benchmarks page displaying GAIA benchmark results with a profe
 - Comparison table with top systems from HAL Princeton leaderboard
 - Key observations highlighting cost efficiency and open-weight model performance
 - Note: Questions with file attachments were excluded from evaluation
+- **Traces Modal** (2026-01-26): View all 58 evaluation runs with full question-answer pairs
+  - Lists all trace files sorted by timestamp
+  - Shows metadata: level, model, timestamp, questions, correct answers, accuracy
+  - Detail view with question results, expected vs actual answers, timing per question
+  - Color-coded correct/incorrect results
 
 **Navigation:**
 - "Benchmarks" chip with arrow in ConversationView header (both empty state and conversation view)
 - Dedicated /benchmarks route with scrollable content
+- "View traces" link in Key Observations section opens traces modal
+
+**API Endpoints:**
+- `GET /api/benchmarks/traces` - List all available trace files with metadata
+- `GET /api/benchmarks/traces/{filename}` - Fetch full trace data for a specific run
 
 **Files Created:**
 - `ui/src/components/BenchmarksPage.tsx` - Full benchmarks page component
+- `ui/src/components/TracesModal.tsx` - Modal for browsing evaluation traces
+- `orchestrator/routes/benchmarks.py` - Benchmarks API routes
 
 **Files Modified:**
 - `ui/src/App.tsx` - Added /benchmarks route, imported BenchmarksPage
 - `ui/src/components/ConversationView.tsx` - Added benchmarks chip in header
+- `ui/src/components/ui/dialog.tsx` - Updated to allow custom sizing for trace modal
+- `orchestrator/app.py` - Added benchmarks router
 
 **Data Source:**
 Rankings from [HAL Princeton GAIA Leaderboard](https://hal.cs.princeton.edu/gaia) (January 2026)
+Traces from `gaia_results/*.json` (58 evaluation runs)
 
 ---
 
