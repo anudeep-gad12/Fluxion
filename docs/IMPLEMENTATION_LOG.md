@@ -9,10 +9,46 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| feature/block-new-convo-during-run | Block new convo during active run | done | 2026-01-26 |
 | feature/demo-mode | Demo mode (rate limiting + sidebar) | done | 2026-01-26 |
 | feature/preset-question-chips | Demo preset questions | done | 2026-01-23 |
 | feature/gaia-benchmark | GAIA Benchmark Evaluation | done | 2026-01-21 |
 | feature/agent-planning | Agent Planning Step | done | 2026-01-20 |
+
+### 2026-01-26: Block New Conversation During Active Run
+
+**Branch:** `feature/block-new-convo-during-run`
+**Status:** done
+
+**Problem:**
+During GAIA benchmark runs with 8x concurrency, the SSE event queue would overflow causing `QueueFull` errors. While these didn't affect actual results (answers still computed), it degraded UX.
+
+**Solution:**
+Block creating new conversations from UI when there's an active run (agent or chat). API still allows creation so scripts/curl can run benchmarks.
+
+**Implementation:**
+- Added `useHasActiveRun` selector to check if any agent run is active or chat is streaming
+- Modified `ConversationView.tsx` to block submit when creating new conversation + active run exists
+- Modified `App.tsx` and `ConversationList.tsx` to block "New" buttons
+- Visual feedback: disabled button + "Waiting for active run" message + tooltip on hover
+
+**Improvements (2026-01-26):**
+1. **Tooltip visibility fix**: Wrapped disabled buttons in `<span>` elements so tooltips show even when button is disabled (browsers often block tooltips on disabled elements)
+2. **Reload persistence**: `useHasActiveRun` now also checks `runsByConversation` for runs with `status === 'running'` from backend data, surviving page reloads
+
+**Files Modified:**
+- `ui/src/hooks/useStore.ts` - Added `useHasActiveRun` selector with backend run check
+- `ui/src/components/ConversationView.tsx` - Added blocking logic, tooltip wrapper
+- `ui/src/App.tsx` - Block "New" button in collapsed sidebar strip, tooltip wrapper
+- `ui/src/components/ConversationList.tsx` - Block "New" button in sidebar header, tooltip wrapper
+
+**Testing:**
+- TypeScript compilation: passed
+- Manual: verified button disabled during active run
+- Manual: tooltip shows on hover even when disabled
+- Manual: blocking persists after page reload during active run
+
+---
 
 ### 2026-01-26: Demo Mode with Rate Limiting and Sidebar Lock
 

@@ -16,7 +16,7 @@ import {
   createAgentRun,
   cancelAgentRun,
 } from '@/api/client';
-import { useConversationRuns, useSelectedConversation, useStore } from '@/hooks/useStore';
+import { useConversationRuns, useSelectedConversation, useStore, useHasActiveRun } from '@/hooks/useStore';
 import { useSSE } from '@/hooks/useSSE';
 import { useAgentSSE } from '@/hooks/useAgentSSE';
 import { cn, formatRelativeTime } from '@/lib/utils';
@@ -147,6 +147,7 @@ export function ConversationView() {
   const setDetailPanelOpen = useStore((s) => s.setDetailPanelOpen);
   const conversation = useSelectedConversation();
   const runs = useConversationRuns(selectedConversationId);
+  const hasActiveRun = useHasActiveRun();
   const [message, setMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>('medium');
@@ -205,6 +206,13 @@ export function ConversationView() {
 
   const handleSubmit = async () => {
     if (!message.trim() || isSubmitting) return;
+
+    // Block new conversation creation if there's an active run (prevents queue overflow)
+    // This only blocks UI - API/curl can still create conversations for testing
+    if (!selectedConversationId && hasActiveRun) {
+      console.warn('Blocked new conversation: active run in progress');
+      return;
+    }
 
     const messageToSend = message.trim();
     setIsSubmitting(true);
@@ -458,24 +466,28 @@ export function ConversationView() {
                   <Square className="h-4 w-4 fill-current" />
                 </Button>
               ) : (
-                <Button
-                  onClick={handleSubmit}
-                  disabled={!message.trim() || isSubmitting}
-                  className={mode === 'research' ? 'bg-indigo-600 hover:bg-indigo-700' : ''}
-                >
-                  {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                </Button>
+                <span title={hasActiveRun ? 'Active run in progress — cannot start new conversation until complete' : undefined}>
+                  <Button
+                    onClick={handleSubmit}
+                    disabled={!message.trim() || isSubmitting || hasActiveRun}
+                    className={mode === 'research' ? 'bg-indigo-600 hover:bg-indigo-700' : ''}
+                  >
+                    {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                  </Button>
+                </span>
               )}
             </div>
           </div>
           <p className="text-xs text-slate-500 mt-2">
-            {mode === 'research'
-              ? '🌐 Research mode: web search + analysis'
-              : reasoningEffort === 'high'
-                ? '🔬 Deep reasoning'
-                : reasoningEffort === 'medium'
-                  ? '🧠 Balanced'
-                  : '⚡ Fast'}{' '}
+            {hasActiveRun
+              ? '⏳ Waiting for active run to complete...'
+              : mode === 'research'
+                ? '🌐 Research mode: web search + analysis'
+                : reasoningEffort === 'high'
+                  ? '🔬 Deep reasoning'
+                  : reasoningEffort === 'medium'
+                    ? '🧠 Balanced'
+                    : '⚡ Fast'}{' '}
             · ⌘/Ctrl+Enter send · ⌘/Ctrl+Shift+R agent · ⌘/Ctrl+Shift+C chat
           </p>
         </div>
