@@ -69,7 +69,19 @@ export function TracesModal({ open, onOpenChange }: TracesModalProps) {
       const response = await fetch('/api/benchmarks/traces');
       if (!response.ok) throw new Error('Failed to fetch traces');
       const data = await response.json();
-      setTraces(data);
+
+      // Filter to show only the best trace for each level (highest accuracy)
+      const bestByLevel = new Map<number, TraceMetadata>();
+      data.forEach((trace: TraceMetadata) => {
+        const existing = bestByLevel.get(trace.level);
+        if (!existing || trace.accuracy > existing.accuracy) {
+          bestByLevel.set(trace.level, trace);
+        }
+      });
+
+      // Convert to array and sort by level
+      const bestTraces = Array.from(bestByLevel.values()).sort((a, b) => a.level - b.level);
+      setTraces(bestTraces);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load traces');
     } finally {
@@ -132,7 +144,7 @@ export function TracesModal({ open, onOpenChange }: TracesModalProps) {
               <DialogDescription>
                 {selectedTrace
                   ? formatDate(selectedTrace.metadata.timestamp)
-                  : 'Browse GAIA benchmark evaluation runs with full question-answer pairs'}
+                  : 'Best performing evaluation run for each difficulty level with full question-answer pairs'}
               </DialogDescription>
             </div>
             <Button variant="ghost" size="icon" onClick={() => onOpenChange(false)}>
@@ -171,6 +183,7 @@ export function TracesModal({ open, onOpenChange }: TracesModalProps) {
                         <Badge variant={trace.level === 1 ? 'default' : trace.level === 2 ? 'secondary' : 'outline'}>
                           Level {trace.level}
                         </Badge>
+                        <Badge variant="success" className="text-xs">Best Run</Badge>
                         <span className="text-sm text-muted-foreground">{formatDate(trace.timestamp)}</span>
                       </div>
                       <div className="text-xs text-muted-foreground mb-1">{trace.model}</div>
