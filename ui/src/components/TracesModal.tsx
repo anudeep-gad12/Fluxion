@@ -70,9 +70,12 @@ export function TracesModal({ open, onOpenChange }: TracesModalProps) {
       if (!response.ok) throw new Error('Failed to fetch traces');
       const data = await response.json();
 
-      // Filter to show only the best trace for each level (highest accuracy)
+      // Filter to show only full evaluation runs (>= 19 questions)
+      // Then select the best (highest accuracy) for each level
+      const fullRuns = data.filter((trace: TraceMetadata) => trace.total_questions >= 19);
+
       const bestByLevel = new Map<number, TraceMetadata>();
-      data.forEach((trace: TraceMetadata) => {
+      fullRuns.forEach((trace: TraceMetadata) => {
         const existing = bestByLevel.get(trace.level);
         if (!existing || trace.accuracy > existing.accuracy) {
           bestByLevel.set(trace.level, trace);
@@ -143,8 +146,8 @@ export function TracesModal({ open, onOpenChange }: TracesModalProps) {
               </DialogTitle>
               <DialogDescription>
                 {selectedTrace
-                  ? formatDate(selectedTrace.metadata.timestamp)
-                  : 'Best performing evaluation run for each difficulty level with full question-answer pairs'}
+                  ? `${selectedTrace.summary.total_questions} questions · ${formatDate(selectedTrace.metadata.timestamp)}`
+                  : 'Full evaluation runs for each difficulty level with all question-answer pairs'}
               </DialogDescription>
             </div>
             <Button variant="ghost" size="icon" onClick={() => onOpenChange(false)}>
@@ -183,7 +186,6 @@ export function TracesModal({ open, onOpenChange }: TracesModalProps) {
                         <Badge variant={trace.level === 1 ? 'default' : trace.level === 2 ? 'secondary' : 'outline'}>
                           Level {trace.level}
                         </Badge>
-                        <Badge variant="success" className="text-xs">Best Run</Badge>
                         <span className="text-sm text-muted-foreground">{formatDate(trace.timestamp)}</span>
                       </div>
                       <div className="text-xs text-muted-foreground mb-1">{trace.model}</div>
