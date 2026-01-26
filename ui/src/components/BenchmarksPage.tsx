@@ -29,7 +29,7 @@ const COMPARISON_DATA = [
   { system: 'HAL + Claude Opus 4.1', overall: 68.5, l1: 71.7, l2: 70.9, l3: 53.9, cost: 562 },
   { system: 'HAL + GPT-5 Medium', overall: 59.4, l1: 67.9, l2: 58.1, l3: 46.2, cost: 105 },
   { system: 'HF + o4-mini Low', overall: 47.9, l1: 58.5, l2: 47.7, l3: 26.9, cost: 81 },
-  { system: 'Reasoner (gpt-oss-120b)', overall: 45.7, l1: 64.3, l2: 37.9, l3: 31.6, cost: 5, isOurs: true },
+  { system: 'This Agent (gpt-oss-120b)', overall: 45.7, l1: 64.3, l2: 37.9, l3: 31.6, cost: 5, isOurs: true },
   { system: 'HAL + DeepSeek R1', overall: 30.3, l1: 43.4, l2: 27.9, l3: 11.5, cost: 73 },
   { system: 'HAL + DeepSeek V3', overall: 29.4, l1: 38.7, l2: 32.0, l3: 1.9, cost: 17 },
 ];
@@ -250,7 +250,7 @@ export function BenchmarksPage() {
                         <div className="flex items-center gap-2">
                           {row.system}
                           {row.isOurs && (
-                            <Badge variant="default" className="text-xs">Ours</Badge>
+                            <Badge variant="default" className="text-xs">This System</Badge>
                           )}
                         </div>
                       </td>
@@ -281,7 +281,7 @@ export function BenchmarksPage() {
               <li className="flex items-start gap-3">
                 <Badge variant="success" className="mt-0.5 shrink-0">L1</Badge>
                 <span>
-                  Our 64.3% on Level 1 is competitive with systems using Claude-3.7 Sonnet and
+                  This agent's 64.3% on Level 1 is competitive with systems using Claude-3.7 Sonnet and
                   Haiku 4.5, despite using an open-weight model.
                 </span>
               </li>
@@ -295,7 +295,7 @@ export function BenchmarksPage() {
               <li className="flex items-start gap-3">
                 <Badge variant="default" className="mt-0.5 shrink-0">Open</Badge>
                 <span>
-                  We achieve GPT-4.1 tier performance using gpt-oss-120b, an open-weight reasoning model
+                  This agent achieves GPT-4.1 tier performance using gpt-oss-120b, an open-weight reasoning model
                   that can be self-hosted.
                 </span>
               </li>
