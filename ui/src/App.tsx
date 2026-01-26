@@ -5,6 +5,7 @@ import { Routes, Route, Navigate, useParams, useSearchParams, useNavigate } from
 import { ConversationList } from '@/components/ConversationList';
 import { ConversationView } from '@/components/ConversationView';
 import { DetailPanel } from '@/components/DetailPanel';
+import { BenchmarksPage } from '@/components/BenchmarksPage';
 import { useStore, useHasActiveRun } from '@/hooks/useStore';
 import { cn } from '@/lib/utils';
 import { PanelLeftClose, PanelLeft, GripVertical, Plus } from 'lucide-react';
@@ -236,7 +237,12 @@ function AppLayout() {
 }
 
 function App() {
-  return <AppLayout />;
+  return (
+    <Routes>
+      <Route path="/benchmarks" element={<BenchmarksPage />} />
+      <Route path="/*" element={<AppLayout />} />
+    </Routes>
+  );
 }
 
 export default App;
