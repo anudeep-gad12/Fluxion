@@ -9,10 +9,37 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| feature/block-new-convo-during-run | Block new convo during active run | done | 2026-01-26 |
 | feature/demo-mode | Demo mode (rate limiting + sidebar) | done | 2026-01-26 |
 | feature/preset-question-chips | Demo preset questions | done | 2026-01-23 |
 | feature/gaia-benchmark | GAIA Benchmark Evaluation | done | 2026-01-21 |
 | feature/agent-planning | Agent Planning Step | done | 2026-01-20 |
+
+### 2026-01-26: Block New Conversation During Active Run
+
+**Branch:** `feature/block-new-convo-during-run`
+**Status:** done
+
+**Problem:**
+During GAIA benchmark runs with 8x concurrency, the SSE event queue would overflow causing `QueueFull` errors. While these didn't affect actual results (answers still computed), it degraded UX.
+
+**Solution:**
+Block creating new conversations from UI when there's an active run (agent or chat). API still allows creation so scripts/curl can run benchmarks.
+
+**Implementation:**
+- Added `useHasActiveRun` selector to check if any agent run is active or chat is streaming
+- Modified `ConversationView.tsx` to block submit when creating new conversation + active run exists
+- Visual feedback: disabled button + "Waiting for active run" message
+
+**Files Modified:**
+- `ui/src/hooks/useStore.ts` - Added `useHasActiveRun` selector
+- `ui/src/components/ConversationView.tsx` - Added blocking logic and UI feedback
+
+**Testing:**
+- TypeScript compilation: passed
+- Manual: verified button disabled during active run
+
+---
 
 ### 2026-01-26: Demo Mode with Rate Limiting and Sidebar Lock
 
