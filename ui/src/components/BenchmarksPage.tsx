@@ -303,13 +303,6 @@ export function BenchmarksPage() {
                 </span>
               </li>
               <li className="flex items-start gap-3">
-                <Badge variant="secondary" className="mt-0.5 shrink-0">Note</Badge>
-                <span>
-                  L2/L3 performance is limited by multi-hop reasoning capability of the underlying model.
-                  Results vary ~10-15% between runs.
-                </span>
-              </li>
-              <li className="flex items-start gap-3">
                 <Badge variant="outline" className="mt-0.5 shrink-0">📊</Badge>
                 <span>
                   Full evaluation traces with question-answer pairs and step-by-step execution logs
@@ -330,8 +323,7 @@ export function BenchmarksPage() {
         {/* Footer */}
         <div className="text-center text-sm text-muted-foreground pb-8">
           <p>
-            Model: {BENCHMARK_RESULTS.model} via {BENCHMARK_RESULTS.provider} •
-            Evaluated: {BENCHMARK_RESULTS.date}
+            Model: {BENCHMARK_RESULTS.model} • Evaluated: {BENCHMARK_RESULTS.date}
           </p>
           <p className="mt-2 text-xs">
             * Questions with file attachments were excluded from this evaluation
