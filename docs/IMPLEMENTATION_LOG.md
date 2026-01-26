@@ -9,12 +9,47 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| feature/improve-mode-shortcuts | Simpler keyboard shortcuts for mode switching | done | 2026-01-26 |
 | feature/sse-auto-reconnect | SSE auto-reconnect on page reload | done | 2026-01-26 |
 | feature/block-new-convo-during-run | Block new convo during active run | done | 2026-01-26 |
 | feature/demo-mode | Demo mode (rate limiting + sidebar) | done | 2026-01-26 |
 | feature/preset-question-chips | Demo preset questions | done | 2026-01-23 |
 | feature/gaia-benchmark | GAIA Benchmark Evaluation | done | 2026-01-21 |
 | feature/agent-planning | Agent Planning Step | done | 2026-01-20 |
+
+### 2026-01-26: Simpler Keyboard Shortcuts for Mode Switching
+
+**Branch:** `feature/improve-mode-shortcuts`
+**Status:** done
+
+**Problem:**
+The keyboard shortcuts for switching between Chat and Research modes required 3 keys (Cmd+Shift+R, Cmd+Shift+C), which was clumsy and hard to remember. The help text was also cramped and unclear.
+
+**Solution:**
+Simplified to 2-key shortcuts using numbers:
+- **Cmd/Ctrl+1** for Chat mode (was Cmd+Shift+C)
+- **Cmd/Ctrl+2** for Research mode (was Cmd+Shift+R)
+
+**Implementation:**
+- Updated `handleKeyDown()` in ConversationView to check for `'1'` and `'2'` keys with Cmd/Ctrl
+- Improved help text readability:
+  - Before: `⌘/Ctrl+Enter send · ⌘/Ctrl+Shift+R agent · ⌘/Ctrl+Shift+C chat`
+  - After: `Press ⌘/Ctrl+Enter to send · ⌘/Ctrl+1 for Chat · ⌘/Ctrl+2 for Research`
+- Changed text structure to use proper English ("Press ... to" and "... for")
+
+**Files Modified:**
+- `ui/src/components/ConversationView.tsx` - Keyboard shortcuts + help text
+
+**Benefits:**
+- Faster mode switching (only 2 keys instead of 3)
+- Numbers are more intuitive than letter combinations
+- Easier to remember (1 = first mode, 2 = second mode)
+- Clearer help text with better readability
+
+**Testing:**
+- TypeScript compilation: passed
+- Build: passed
+- Manual test: Press Cmd+1 (Chat), Cmd+2 (Research) in textarea
 
 ### 2026-01-26: SSE Auto-Reconnect on Page Reload
 
