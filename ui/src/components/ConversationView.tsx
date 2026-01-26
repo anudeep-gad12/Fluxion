@@ -185,6 +185,22 @@ export function ConversationView() {
         const data = await getConversation(selectedConversationId!);
         updateConversation(selectedConversationId!, data.conversation);
         setRuns(selectedConversationId!, data.runs);
+
+        // Auto-reconnect to any active runs after page reload
+        // This handles the case where user refreshes during an ongoing run
+        for (const run of data.runs) {
+          if (run.status === 'running') {
+            if (run.mode === 'agent') {
+              // Reconnect to agent SSE stream with sinceSeq=0 to replay all events
+              console.log('[Auto-reconnect] Reconnecting to agent run:', run.run_id);
+              subscribeAgent(run.run_id, 0);
+            } else {
+              // Reconnect to chat SSE stream
+              console.log('[Auto-reconnect] Reconnecting to chat run:', run.run_id);
+              subscribe(run.run_id);
+            }
+          }
+        }
       } catch (error) {
         // Conversation might not exist (deleted) - silently ignore
         console.error('Failed to load conversation:', error);
@@ -192,7 +208,7 @@ export function ConversationView() {
     }
 
     loadConversation();
-  }, [selectedConversationId, setRuns, updateConversation]);
+  }, [selectedConversationId, setRuns, updateConversation, subscribe, subscribeAgent]);
 
   useEffect(() => {
     if (!scrollRef.current) return;
