@@ -470,7 +470,7 @@ export function ConversationView() {
                   onClick={handleSubmit}
                   disabled={!message.trim() || isSubmitting || hasActiveRun}
                   className={mode === 'research' ? 'bg-indigo-600 hover:bg-indigo-700' : ''}
-                  title={hasActiveRun ? 'Wait for current run to complete' : undefined}
+                  title={hasActiveRun ? 'Active run in progress — cannot start new conversation until complete' : undefined}
                 >
                   {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                 </Button>
