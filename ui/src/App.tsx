@@ -5,7 +5,7 @@ import { Routes, Route, Navigate, useParams, useSearchParams, useNavigate } from
 import { ConversationList } from '@/components/ConversationList';
 import { ConversationView } from '@/components/ConversationView';
 import { DetailPanel } from '@/components/DetailPanel';
-import { useStore } from '@/hooks/useStore';
+import { useStore, useHasActiveRun } from '@/hooks/useStore';
 import { cn } from '@/lib/utils';
 import { PanelLeftClose, PanelLeft, GripVertical, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -48,6 +48,7 @@ function NewConversationView() {
 
 function AppLayout() {
   const detailPanelOpen = useStore((s) => s.detailPanelOpen);
+  const hasActiveRun = useHasActiveRun();
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
 
@@ -123,10 +124,11 @@ function AppLayout() {
     [isDemoMode, isOwner]
   );
 
-  // Navigate to new conversation
+  // Navigate to new conversation (blocked during active run)
   const handleNewConversation = useCallback(() => {
+    if (hasActiveRun) return;
     navigate('/conversations');
-  }, [navigate]);
+  }, [navigate, hasActiveRun]);
 
   const handleMouseDown = useCallback(() => {
     isResizing.current = true;
@@ -199,15 +201,17 @@ function AppLayout() {
               <PanelLeft className="h-4 w-4" />
             </Button>
           )}
-          {/* New Chat button - always visible */}
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={handleNewConversation}
-            title="New conversation"
-          >
-            <Plus className="h-4 w-4" />
-          </Button>
+          {/* New Chat button - always visible, disabled during active run */}
+          <span title={hasActiveRun ? "Active run in progress — cannot start new conversation until complete" : "New conversation"}>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleNewConversation}
+              disabled={hasActiveRun}
+            >
+              <Plus className="h-4 w-4" />
+            </Button>
+          </span>
         </div>
       )}
 
