@@ -9,6 +9,7 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| feature/reorder-mode-buttons | Reorder mode buttons and rename to Agent mode | done | 2026-01-26 |
 | feature/improve-mode-shortcuts | Simpler keyboard shortcuts for mode switching | done | 2026-01-26 |
 | feature/sse-auto-reconnect | SSE auto-reconnect on page reload | done | 2026-01-26 |
 | feature/block-new-convo-during-run | Block new convo during active run | done | 2026-01-26 |
@@ -16,6 +17,41 @@
 | feature/preset-question-chips | Demo preset questions | done | 2026-01-23 |
 | feature/gaia-benchmark | GAIA Benchmark Evaluation | done | 2026-01-21 |
 | feature/agent-planning | Agent Planning Step | done | 2026-01-20 |
+
+### 2026-01-26: Reorder Mode Buttons and Rename to Agent Mode
+
+**Branch:** `feature/reorder-mode-buttons`
+**Status:** done
+
+**Changes:**
+1. **Button order**: Swapped so Agent mode (Globe icon) appears first, Chat mode second
+2. **Terminology**: Renamed "Research Assistant" -> "Agent Mode" and "Research mode" -> "Agent mode" throughout
+3. **Keyboard shortcuts**: Updated to match visual order
+   - Cmd+1 now switches to Agent mode (was Chat)
+   - Cmd+2 now switches to Chat mode (was Agent)
+4. **Placeholder text**: "Research a topic..." -> "Ask agent to research..."
+5. **Button titles**: "Research mode" -> "Agent mode"
+
+**Implementation:**
+- Updated button order in both input areas (empty state and conversation view)
+- Changed keyboard shortcut handlers to match new order
+- Updated all help text to reflect new shortcuts
+- Renamed header from "Research Assistant" to "Agent Mode"
+- Updated status messages and placeholders
+
+**Files Modified:**
+- `ui/src/components/ConversationView.tsx` - Button order, naming, shortcuts
+
+**Benefits:**
+- Agent mode is now the primary/first option (main use case)
+- Clearer terminology - "Agent" is more descriptive than "Research"
+- Visual order matches keyboard shortcut order (1 = first button, 2 = second)
+- More intuitive for users - main feature comes first
+
+**Testing:**
+- TypeScript compilation: passed
+- Build: passed
+- Manual test: Verify button order, press Cmd+1 (Agent), Cmd+2 (Chat)
 
 ### 2026-01-26: Simpler Keyboard Shortcuts for Mode Switching
 
