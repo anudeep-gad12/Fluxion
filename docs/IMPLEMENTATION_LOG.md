@@ -12,6 +12,7 @@
 | feature/reorder-mode-buttons | Reorder mode buttons and rename to Agent mode | done | 2026-01-26 |
 | feature/improve-mode-shortcuts | Simpler keyboard shortcuts for mode switching | done | 2026-01-26 |
 | feature/sse-auto-reconnect | SSE auto-reconnect on page reload | done | 2026-01-26 |
+| feature/benchmarks-page | Benchmarks page with GAIA results | done | 2026-01-26 |
 | feature/block-new-convo-during-run | Block new convo during active run | done | 2026-01-26 |
 | feature/demo-mode | Demo mode (rate limiting + sidebar) | done | 2026-01-26 |
 | feature/preset-question-chips | Demo preset questions | done | 2026-01-23 |
@@ -130,6 +131,54 @@ Backend already supports resumption via:
 - Seamless UX: user can reload page anytime without losing connection
 - Event replay: no data loss, all events from start replayed
 - Works for both agent and chat modes
+
+### 2026-01-26: Benchmarks Page with GAIA Results
+
+**Branch:** `feature/benchmarks-page`
+**Status:** done
+
+**Description:**
+Added a dedicated benchmarks page displaying GAIA benchmark results with a professional leaderboard-style layout, plus a modal to browse full evaluation traces.
+
+**Features:**
+- Hero stats cards showing:
+  - Level 1 rank (#11 of 32 systems)
+  - Cost efficiency (~$5 vs $100-500+ for frontier models)
+  - Overall rank (#18 using open-weight model)
+- Results table by difficulty level (L1: 64.3%, L2: 37.9%, L3: 31.6%)
+- Comparison table with top systems from HAL Princeton leaderboard
+- Key observations highlighting cost efficiency and open-weight model performance
+- Note: Questions with file attachments were excluded from evaluation
+- **Traces Modal** (2026-01-26): View full evaluation runs for each difficulty level
+  - Filters to show only full evaluation runs (≥19 questions) to exclude test runs
+  - Shows best accuracy run for L1 (42Q, 64.3%), L2 (66Q, 37.9%), L3 (19Q, 31.6%)
+  - Shows metadata: level, model, timestamp, questions, correct answers, accuracy
+  - Detail view with ALL question results, expected vs actual answers, timing per question
+  - Color-coded correct/incorrect results
+
+**Navigation:**
+- "Benchmarks" chip with arrow in ConversationView header (both empty state and conversation view)
+- Dedicated /benchmarks route with scrollable content
+- "View traces" link in Key Observations section opens traces modal
+
+**API Endpoints:**
+- `GET /api/benchmarks/traces` - List all available trace files with metadata
+- `GET /api/benchmarks/traces/{filename}` - Fetch full trace data for a specific run
+
+**Files Created:**
+- `ui/src/components/BenchmarksPage.tsx` - Full benchmarks page component
+- `ui/src/components/TracesModal.tsx` - Modal for browsing evaluation traces
+- `orchestrator/routes/benchmarks.py` - Benchmarks API routes
+
+**Files Modified:**
+- `ui/src/App.tsx` - Added /benchmarks route, imported BenchmarksPage
+- `ui/src/components/ConversationView.tsx` - Added benchmarks chip in header
+- `ui/src/components/ui/dialog.tsx` - Updated to allow custom sizing for trace modal
+- `orchestrator/app.py` - Added benchmarks router
+
+**Data Source:**
+Rankings from [HAL Princeton GAIA Leaderboard](https://hal.cs.princeton.edu/gaia) (January 2026)
+Traces from `gaia_results/*.json` (58 evaluation runs)
 
 ### 2026-01-26: Block New Conversation During Active Run
 

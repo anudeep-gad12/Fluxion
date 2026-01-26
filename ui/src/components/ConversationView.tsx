@@ -20,7 +20,7 @@ import { useConversationRuns, useSelectedConversation, useStore, useHasActiveRun
 import { useSSE } from '@/hooks/useSSE';
 import { useAgentSSE } from '@/hooks/useAgentSSE';
 import { cn, formatRelativeTime } from '@/lib/utils';
-import { Eye, Loader2, Send, Square, Globe, MessageSquare, Sparkles } from 'lucide-react';
+import { Eye, Loader2, Send, Square, Globe, MessageSquare, Sparkles, BarChart3, ChevronRight } from 'lucide-react';
 import type { Run, Conversation, ReasoningEffort } from '@/types';
 
 /** Preset questions showcasing multi-step agentic research capabilities */
@@ -405,6 +405,19 @@ export function ConversationView() {
   if (!conversation && runs.length === 0) {
     return (
       <div className="h-full flex flex-col">
+        {/* Top banner with benchmarks link */}
+        <div className="border-b px-4 py-2 flex items-center justify-end bg-gradient-to-r from-transparent to-slate-50">
+          <button
+            onClick={() => navigate('/benchmarks')}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white shadow-sm hover:shadow-md transition-all duration-200"
+            title="View GAIA benchmark results"
+          >
+            <BarChart3 className="h-3.5 w-3.5" />
+            <span className="font-semibold">Benchmarks</span>
+            <ChevronRight className="h-3.5 w-3.5" />
+          </button>
+        </div>
+
         <div className="flex-1 flex flex-col items-center justify-center text-slate-500 gap-6 px-6">
           <div className="text-center">
             <h2 className="text-lg font-semibold text-slate-700 mb-2">
@@ -521,10 +534,19 @@ export function ConversationView() {
 
   return (
     <div className="h-full flex flex-col">
-      <div className="border-b px-6 py-4">
+      <div className="border-b px-6 py-4 flex items-center justify-between">
         <h2 className="text-lg font-semibold">
           {conversation?.title || 'Conversation'}
         </h2>
+        <button
+          onClick={() => navigate('/benchmarks')}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white shadow-sm hover:shadow-md transition-all duration-200"
+          title="View GAIA benchmark results"
+        >
+          <BarChart3 className="h-3.5 w-3.5" />
+          <span className="font-semibold">Benchmarks</span>
+          <ChevronRight className="h-3.5 w-3.5" />
+        </button>
       </div>
 
       <div className="flex-1 overflow-y-auto px-6 py-6" ref={scrollRef}>
