@@ -25,6 +25,7 @@ from orchestrator.logging_config import (
 )
 from orchestrator.storage.db import get_db
 from orchestrator.routes import conversations, runs, agent_runs
+from orchestrator.middleware.rate_limit import RateLimitMiddleware
 
 
 logger = get_logger(__name__)
@@ -228,6 +229,9 @@ app.add_middleware(SecurityHeadersMiddleware)
 # Request logging middleware
 app.add_middleware(RequestLoggingMiddleware)
 
+# Rate limiting middleware (only active when demo mode enabled)
+app.add_middleware(RateLimitMiddleware)
+
 # Include routers
 app.include_router(conversations.router)
 app.include_router(runs.router)
@@ -242,11 +246,19 @@ async def health_check():
 
 @app.get("/api/config")
 async def get_config():
-    """Get current chat configuration."""
+    """Get current chat configuration.
+
+    Returns config snapshot plus demo mode status (without secrets).
+    """
     config = get_chat_config()
-    return {
+    response = {
         "config": config.get_snapshot(),
+        "demo": {
+            "enabled": config.demo.enabled if config.demo else False,
+            # Don't expose owner_secret - frontend validates locally
+        },
     }
+    return response
 
 
 # Static file serving for production (when SERVE_STATIC=true)
