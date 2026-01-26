@@ -171,12 +171,7 @@ export function BenchmarksPage() {
                   {BENCHMARK_RESULTS.levels.map((level) => (
                     <tr key={level.level} className="border-b last:border-0 hover:bg-muted/50">
                       <td className="py-3 px-4">
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium">Level {level.level}</span>
-                          {level.level === 1 && (
-                            <Badge variant="success" className="text-xs">Best</Badge>
-                          )}
-                        </div>
+                        <span className="font-medium">Level {level.level}</span>
                       </td>
                       <td className="text-right py-3 px-4 font-mono font-bold text-blue-600">
                         {level.accuracy.toFixed(1)}%
