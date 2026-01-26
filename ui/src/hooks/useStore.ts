@@ -447,3 +447,17 @@ export const useAgentRunState = (runId: string | null) => {
   const agentRunState = useStore((s) => s.agentRunState);
   return runId ? agentRunState[runId] : undefined;
 };
+
+/** Check if any run is currently active (agent or chat streaming) */
+export const useHasActiveRun = () => {
+  const agentRunState = useStore((s) => s.agentRunState);
+  const streamingRunId = useStore((s) => s.streamingRunId);
+
+  // Check if any agent run is active
+  const hasActiveAgent = Object.values(agentRunState).some((state) => state.isActive);
+
+  // Check if chat streaming is active
+  const hasActiveChat = streamingRunId !== null;
+
+  return hasActiveAgent || hasActiveChat;
+};
