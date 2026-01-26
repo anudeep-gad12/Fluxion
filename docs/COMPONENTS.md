@@ -39,6 +39,8 @@ Detailed documentation of every component in the Reasoner system.
 | `app` | FastAPI | Main application instance |
 | `lifespan` | async context manager | Startup/shutdown lifecycle |
 | `RequestLoggingMiddleware` | Middleware | Request ID correlation, timing |
+| `SecurityHeadersMiddleware` | Middleware | Security headers (X-Frame-Options, etc.) |
+| `RateLimitMiddleware` | Middleware | IP-based rate limiting for demo mode |
 
 **Endpoints**:
 - `GET /api/health` - Health check
@@ -75,6 +77,8 @@ async def lifespan(app: FastAPI):
 | `ChatModelConfig` | Model parameters (temp, max_tokens) |
 | `ChatContextConfig` | Conversation history limits |
 | `ThinkingConfig` | Thinking strategy settings |
+| `DemoConfig` | Demo mode settings (rate limiting, sidebar lock) |
+| `RateLimitConfig` | Rate limiting thresholds for demo mode |
 | `ChatConfig` | Root config combining all |
 
 **Key Functions**:
@@ -115,6 +119,48 @@ ${VAR:-default} # Optional with default
 - Request ID via contextvars
 - Secret redaction (API keys, passwords)
 - Dual output: console + file rotation
+
+---
+
+## Middleware Layer
+
+### `orchestrator/middleware/rate_limit.py`
+
+**Purpose**: IP-based rate limiting middleware for demo mode deployments.
+
+**Classes**:
+
+**`InMemoryRateLimiter`**
+- Tracks requests per IP per endpoint type
+- Sliding window algorithm
+- Returns (allowed, remaining, reset_seconds)
+
+**`RateLimitMiddleware`**
+- Only active when `demo.enabled=true` in config
+- Limits POST requests to expensive endpoints:
+  - `/api/agent/runs` → 10/hour (agent runs)
+  - `/api/runs` → 30/hour (chat runs)
+  - `/api/conversations/{id}/runs` → 30/hour (chat runs)
+- Returns 429 with retry info when limit exceeded
+- Adds X-RateLimit-* headers to responses
+- Whitelists localhost IPs by default
+
+**Key Function**:
+- `get_client_ip(request)` - Extracts client IP from X-Forwarded-For, X-Real-IP, or direct connection
+
+**Configuration** (via `chat_config.yaml`):
+```yaml
+demo:
+  enabled: ${DEMO_MODE:-false}
+  owner_secret: ${DEMO_OWNER_SECRET:-}
+  rate_limit:
+    max_agent_runs_per_hour: 10
+    max_chat_runs_per_hour: 30
+    window_seconds: 3600
+  whitelist_ips:
+    - "127.0.0.1"
+    - "::1"
+```
 
 ---
 
@@ -1012,6 +1058,21 @@ _EVENT_TYPE_MAP = {
 - Collapsible sidebar (200-500px)
 - Drag-to-resize handle
 - Detail panel toggle
+- **Demo Mode Support**:
+  - Sidebar locked (collapsed) for non-owners in demo mode
+  - Owner detection via URL param `?owner=<secret>`
+  - Secret stored in localStorage (`reasoner_owner_token`)
+  - New Chat button always visible in collapsed strip
+  - Expand button hidden for non-owners in demo mode
+
+**Demo Mode Flow**:
+1. Backend sets `demo.enabled=true` in config
+2. Frontend fetches `/api/config` to detect demo mode
+3. If `?owner=<secret>` in URL:
+   - Store secret in localStorage
+   - Clean URL (remove param)
+   - Enable sidebar controls
+4. Non-owners see collapsed sidebar with only New Chat button
 
 ### `ui/src/components/ConversationView.tsx`
 
