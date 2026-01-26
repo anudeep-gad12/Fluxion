@@ -207,7 +207,7 @@ function AppLayout() {
             size="icon"
             onClick={handleNewConversation}
             disabled={hasActiveRun}
-            title={hasActiveRun ? "Wait for current run to complete" : "New conversation"}
+            title={hasActiveRun ? "Active run in progress — cannot start new conversation until complete" : "New conversation"}
           >
             <Plus className="h-4 w-4" />
           </Button>
