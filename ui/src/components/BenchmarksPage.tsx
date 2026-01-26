@@ -1,10 +1,12 @@
 // Benchmarks page showing GAIA benchmark results
 
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Trophy, DollarSign, Cpu, ExternalLink } from 'lucide-react';
+import { ArrowLeft, Trophy, DollarSign, Cpu, ExternalLink, FileText } from 'lucide-react';
+import { TracesModal } from '@/components/TracesModal';
 
 // Benchmark data from docs/BENCHMARKS.md
 const BENCHMARK_RESULTS = {
@@ -36,6 +38,7 @@ const COMPARISON_DATA = [
 
 export function BenchmarksPage() {
   const navigate = useNavigate();
+  const [tracesModalOpen, setTracesModalOpen] = useState(false);
 
   return (
     <div className="h-screen flex flex-col bg-gradient-to-br from-slate-50 via-white to-blue-50">
@@ -306,6 +309,20 @@ export function BenchmarksPage() {
                   Results vary ~10-15% between runs.
                 </span>
               </li>
+              <li className="flex items-start gap-3">
+                <Badge variant="outline" className="mt-0.5 shrink-0">📊</Badge>
+                <span>
+                  Full evaluation traces with question-answer pairs and step-by-step execution logs
+                  were captured for all {BENCHMARK_RESULTS.totalQuestions} questions.{' '}
+                  <button
+                    onClick={() => setTracesModalOpen(true)}
+                    className="text-blue-500 hover:underline inline-flex items-center gap-1"
+                  >
+                    <FileText className="h-3 w-3" />
+                    View traces
+                  </button>
+                </span>
+              </li>
             </ul>
           </CardContent>
         </Card>
@@ -332,6 +349,9 @@ export function BenchmarksPage() {
         </div>
         </div>
       </main>
+
+      {/* Traces Modal */}
+      <TracesModal open={tracesModalOpen} onOpenChange={setTracesModalOpen} />
     </div>
   );
 }
