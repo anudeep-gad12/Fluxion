@@ -51,14 +51,16 @@ Made the entire Reasoner chat application mobile-friendly with progressive enhan
 2. **ConversationView.tsx** - Responsive chat interface
    - Chat bubbles: `max-w-[95%] sm:max-w-[85%] md:max-w-[80%] lg:max-w-[70%]`
    - Input area: `flex-col` on mobile, `sm:flex-row` on desktop
-   - Mode toggles with labels on mobile (h-11 touch targets)
+   - Mode toggles: Reduced from h-11 to h-9 (36px) for better space utilization
+   - Textarea: Increased from 2 to 3 rows for improved typing experience
    - Keyboard shortcuts hidden on mobile (`hidden md:inline`)
    - Responsive padding: `px-3 sm:px-4 md:px-6`
 
 3. **DetailPanel.tsx** - Bottom sheet modal
    - Mobile: Bottom sheet (85vh, slides up, drag handle)
    - Desktop: Right sidebar (400px, slides in from right)
-   - Floating button repositioned (bottom-20 on mobile vs centered on desktop)
+   - Floating button repositioned (bottom-40 on mobile to avoid input overlap)
+   - Fixed scrolling issue by converting to flexbox layout
    - Responsive controls with flex-wrap
 
 **Phase 2: Major Components**
@@ -79,6 +81,15 @@ Made the entire Reasoner chat application mobile-friendly with progressive enhan
    - Same responsive bubble widths as ConversationView
    - Responsive padding on message containers
    - Stats hidden on very small screens with `hidden sm:flex`
+
+**Mobile UX Refinements (Post-Initial Implementation):**
+- Removed duplicate "Reasoner" branding from mobile header
+- Added New Chat button to mobile header (right-aligned, disabled during active run)
+- Reduced button heights from h-11 (44px) to h-9 (36px) to maximize typing space
+- Removed text labels from mode toggle buttons on mobile (icon-only for space)
+- Increased Trace button spacing from bottom-20 to bottom-40 (160px) to prevent overlap
+- Enhanced textarea: 3 rows + flex-1 for better mobile typing experience
+- Fixed DetailPanel scroll by converting to flexbox (header/controls flex-shrink-0, content flex-1)
 
 **Breakpoint Strategy:**
 - **Base (0-639px)**: Mobile portrait - full-width layouts, vertical stacking, 44px touch targets
