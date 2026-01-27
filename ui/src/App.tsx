@@ -167,18 +167,31 @@ function AppLayout() {
     <div className="h-screen flex bg-gradient-to-br from-slate-50 via-white to-blue-50">
       {/* Mobile header - only show on mobile */}
       {isMobile && (
-        <header className="fixed top-0 left-0 right-0 h-14 bg-white border-b flex items-center px-4 z-40">
-          {/* Hamburger menu - respect demo mode restrictions */}
-          {(isOwner || !isDemoMode) && (
-            <button
-              onClick={() => handleSidebarToggle(false)}
-              className="p-2 -ml-2 hover:bg-slate-100 rounded-md transition-colors"
-              aria-label="Open menu"
+        <header className="fixed top-0 left-0 right-0 h-14 bg-white border-b flex items-center justify-between px-4 z-40">
+          <div className="flex items-center gap-2">
+            {/* Hamburger menu - respect demo mode restrictions */}
+            {(isOwner || !isDemoMode) && (
+              <button
+                onClick={() => handleSidebarToggle(false)}
+                className="p-2 -ml-2 hover:bg-slate-100 rounded-md transition-colors"
+                aria-label="Open menu"
+              >
+                <Menu className="h-6 w-6" />
+              </button>
+            )}
+          </div>
+          {/* New Chat button - disabled during active run */}
+          <span title={hasActiveRun ? "Active run in progress — cannot start new conversation until complete" : "New conversation"}>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleNewConversation}
+              disabled={hasActiveRun}
+              className="h-9 w-9"
             >
-              <Menu className="h-6 w-6" />
-            </button>
-          )}
-          <h1 className="ml-3 font-bold text-lg">Reasoner</h1>
+              <Plus className="h-5 w-5" />
+            </Button>
+          </span>
         </header>
       )}
 

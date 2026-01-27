@@ -261,9 +261,9 @@ export function DetailPanel() {
         <button
           className={cn(
             "fixed bg-slate-900 text-white px-3 py-2 rounded-md shadow-lg text-sm z-40",
-            // Mobile: bottom-right, above input
+            // Mobile: positioned higher to not overlap input (bottom-40 = 160px from bottom)
             isMobile
-              ? "right-4 bottom-20"
+              ? "right-4 bottom-40"
               : "right-4 top-1/2 -translate-y-1/2"
           )}
           onClick={() => {
@@ -280,7 +280,7 @@ export function DetailPanel() {
 
       <div
         className={cn(
-          "fixed bg-white shadow-xl transition-transform duration-300 z-50",
+          "fixed bg-white shadow-xl transition-transform duration-300 z-50 flex flex-col",
           // Mobile: bottom sheet (full width, slides up from bottom)
           isMobile
             ? cn(
@@ -302,7 +302,7 @@ export function DetailPanel() {
           </div>
         )}
 
-        <div className="flex items-center justify-between px-4 py-3 border-b bg-amber-50">
+        <div className="flex items-center justify-between px-4 py-3 border-b bg-amber-50 flex-shrink-0">
           <div>
             <h3 className="font-semibold text-sm flex items-center gap-2">
               <Bug className="h-4 w-4 text-amber-600" />
@@ -320,7 +320,7 @@ export function DetailPanel() {
           </Button>
         </div>
 
-        <div className="px-4 py-3 border-b space-y-2">
+        <div className="px-4 py-3 border-b space-y-2 flex-shrink-0">
           <div className="flex flex-wrap gap-2">
             <Button
               size="sm"
@@ -432,10 +432,7 @@ export function DetailPanel() {
           </div>
         </div>
 
-        <ScrollArea className={cn(
-          // Mobile: account for drag handle
-          isMobile ? "h-[calc(85vh-200px)]" : "h-[calc(100%-200px)]"
-        )}>
+        <ScrollArea className="flex-1 overflow-auto">
           <div className="p-4">
             {viewMode === 'event' && selectedEvent ? (
               <pre className="text-xs whitespace-pre-wrap break-words bg-slate-50 border rounded-md p-3">
