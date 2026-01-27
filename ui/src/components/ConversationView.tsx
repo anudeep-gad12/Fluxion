@@ -26,20 +26,20 @@ import type { Run, Conversation, ReasoningEffort } from '@/types';
 /** Preset questions showcasing multi-step agentic research capabilities */
 const PRESET_QUESTIONS = [
   {
-    label: 'Latest Nobel Prize in Physics',
-    query: 'Who won the most recent Nobel Prize in Physics and what was their discovery?',
-  },
-  {
-    label: 'Tallest buildings comparison',
-    query: 'Compare all the tallest buildings in the world - which is taller and by how much?',
-  },
-  {
     label: 'Hypothetical: Smaller hearts',
     query: 'What if humans have smaller hearts?',
   },
   {
-    label: 'Top grossing movie 2024',
-    query: 'What was the highest-grossing movie of 2024 worldwide and how much did it earn?',
+    label: 'Last 3 Nobel Prizes',
+    query: 'Who won the Nobel Prize in Physics for the last 3 years, what are their names and what topics did they receive it for?',
+  },
+  {
+    label: 'Birth rate declines',
+    query: 'What are the birth rate declines in recent years and what are the main causes?',
+  },
+  {
+    label: 'Top 5 tallest buildings',
+    query: 'What are the top 5 tallest buildings in the world, their heights, and how do they compare?',
   },
 ];
 
