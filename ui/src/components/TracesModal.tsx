@@ -5,7 +5,7 @@ import { Dialog, DialogHeader, DialogTitle, DialogDescription, DialogContent } f
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { X, FileText, Clock, Target, CheckCircle, XCircle } from 'lucide-react';
+import { X, FileText, Target, CheckCircle } from 'lucide-react';
 
 interface TraceMetadata {
   filename: string;
