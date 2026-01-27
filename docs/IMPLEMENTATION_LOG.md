@@ -90,6 +90,7 @@ Made the entire Reasoner chat application mobile-friendly with progressive enhan
 - Increased Trace button spacing from bottom-20 to bottom-40 (160px) to prevent overlap
 - Enhanced textarea: 3 rows + flex-1 for better mobile typing experience
 - Fixed DetailPanel scroll by converting to flexbox (header/controls flex-shrink-0, content flex-1)
+- **Fixed input area visibility on empty state view (Agent Mode landing page)**: Applied mobile fixes (`pb-6`, `flex-shrink-0`, `bg-white`) that were previously only on conversation view with messages. This ensures input buttons are always visible when starting a new conversation on mobile.
 
 **Breakpoint Strategy:**
 - **Base (0-639px)**: Mobile portrait - full-width layouts, vertical stacking, 44px touch targets
