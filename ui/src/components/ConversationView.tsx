@@ -34,8 +34,8 @@ const PRESET_QUESTIONS = [
     query: 'Compare all the tallest buildings in the world - which is taller and by how much?',
   },
   {
-    label: '100m world record',
-    query: 'Who holds the current world record for the 100m sprint, what is the time, and when was it set?',
+    label: 'Hypothetical: Smaller hearts',
+    query: 'What if humans have smaller hearts?',
   },
   {
     label: 'Top grossing movie 2024',
