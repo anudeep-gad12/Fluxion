@@ -549,7 +549,7 @@ export function ConversationView() {
         </h2>
         <button
           onClick={() => navigate('/benchmarks')}
-          className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white shadow-sm hover:shadow-md transition-all duration-200"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white shadow-sm hover:shadow-md transition-all duration-200"
           title="View GAIA benchmark results"
         >
           <BarChart3 className="h-3.5 w-3.5" />
