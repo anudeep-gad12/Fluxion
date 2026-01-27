@@ -31,7 +31,7 @@ const PRESET_QUESTIONS = [
   },
   {
     label: 'Tallest buildings comparison',
-    query: 'Compare the tallest buildings in New York and Dubai - which is taller and by how much?',
+    query: 'Compare all the tallest buildings in the world - which is taller and by how much?',
   },
   {
     label: '100m world record',
