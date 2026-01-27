@@ -147,7 +147,7 @@ export function TracesModal({ open, onOpenChange }: TracesModalProps) {
               <DialogDescription>
                 {selectedTrace
                   ? `${selectedTrace.summary.total_questions} questions · ${formatDate(selectedTrace.metadata.timestamp)}`
-                  : 'Full evaluation runs for each difficulty level with all question-answer pairs'}
+                  : 'Full evaluation runs for each difficulty level with aggregate statistics'}
               </DialogDescription>
             </div>
             <Button variant="ghost" size="icon" onClick={() => onOpenChange(false)}>
@@ -240,60 +240,6 @@ export function TracesModal({ open, onOpenChange }: TracesModalProps) {
                     {formatDuration(selectedTrace.summary.agent_avg_time_ms)}
                   </div>
                 </div>
-              </div>
-
-              {/* Results */}
-              <div className="space-y-3">
-                <h3 className="font-semibold">Question Results</h3>
-                {selectedTrace.results.map((result, idx) => (
-                  <div
-                    key={result.task_id}
-                    className={`p-4 rounded-lg border ${
-                      result.agent_correct ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
-                    }`}
-                  >
-                    <div className="flex items-start gap-3 mb-3">
-                      <div className="flex-shrink-0 mt-0.5">
-                        {result.agent_correct ? (
-                          <CheckCircle className="h-5 w-5 text-green-600" />
-                        ) : (
-                          <XCircle className="h-5 w-5 text-red-600" />
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-2">
-                          <Badge variant="outline" className="text-xs">
-                            Q{idx + 1}
-                          </Badge>
-                          <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                            <Clock className="h-3 w-3" />
-                            {formatDuration(result.agent_time_ms)}
-                          </span>
-                        </div>
-                        <p className="text-sm font-medium mb-2">{result.question}</p>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-                          <div>
-                            <span className="text-xs text-muted-foreground">Expected:</span>
-                            <div className="font-mono bg-white px-2 py-1 rounded border mt-1">
-                              {result.expected}
-                            </div>
-                          </div>
-                          <div>
-                            <span className="text-xs text-muted-foreground">Agent Answer:</span>
-                            <div className="font-mono bg-white px-2 py-1 rounded border mt-1">
-                              {result.agent_answer || '(no answer)'}
-                            </div>
-                          </div>
-                        </div>
-                        {result.error && (
-                          <div className="mt-2 text-xs text-red-700 bg-red-100 px-2 py-1 rounded">
-                            Error: {result.error}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                ))}
               </div>
             </div>
           )}
