@@ -83,7 +83,7 @@ export function AgentRunMessage({ run, onShowTrace }: AgentRunMessageProps) {
             </Badge>
             {agentState && (
               <span className="text-xs text-slate-500">
-                Step {agentState.currentStep}/{agentState.maxSteps}
+                Step {agentState.currentStep}
               </span>
             )}
           </div>
