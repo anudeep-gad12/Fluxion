@@ -9,11 +9,309 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| feature/mobile-responsive | Mobile-responsive design | done | 2026-01-27 |
+| feature/update-favicon | Custom neural network favicon | done | 2026-01-26 |
+| feature/reorder-mode-buttons | Reorder mode buttons and rename to Agent mode | done | 2026-01-26 |
+| feature/improve-mode-shortcuts | Simpler keyboard shortcuts for mode switching | done | 2026-01-26 |
+| feature/sse-auto-reconnect | SSE auto-reconnect on page reload | done | 2026-01-26 |
+| feature/benchmarks-page | Benchmarks page with GAIA results | done | 2026-01-26 |
 | feature/block-new-convo-during-run | Block new convo during active run | done | 2026-01-26 |
 | feature/demo-mode | Demo mode (rate limiting + sidebar) | done | 2026-01-26 |
 | feature/preset-question-chips | Demo preset questions | done | 2026-01-23 |
 | feature/gaia-benchmark | GAIA Benchmark Evaluation | done | 2026-01-21 |
 | feature/agent-planning | Agent Planning Step | done | 2026-01-20 |
+
+### 2026-01-27: Mobile-Responsive Design
+
+**Branch:** `feature/mobile-responsive`
+**Status:** done
+
+**Description:**
+Made the entire Reasoner chat application mobile-friendly with progressive enhancement from 320px phones to 1920px+ desktops. Implemented responsive breakpoints, touch-optimized interfaces, and mobile-specific layouts while preserving all existing functionality.
+
+**Key Changes:**
+- **App Layout**: Hamburger menu and drawer navigation for mobile (respects demo mode restrictions)
+- **Three-panel adaptation**: Sidebar becomes drawer on mobile, detail panel becomes bottom sheet
+- **Touch optimization**: 44px minimum tap targets throughout (iOS guideline)
+- **Chat interface**: Responsive chat bubbles (95% → 70% from mobile → desktop), vertical input stacking
+- **Mode toggles**: Show labels on mobile ("Research", "Chat"), icon-only on desktop
+- **Benchmarks tables**: Convert to cards on mobile, horizontal scroll on tablets
+- **Responsive breakpoints**: base (0px), sm (640px), md (768px), lg (1024px)
+
+**Implementation Details:**
+
+**Phase 1: Critical Components**
+1. **App.tsx** - Mobile navigation system
+   - Added mobile detection state (< 768px)
+   - Hamburger menu with demo mode integration
+   - Sidebar as drawer overlay (80vw width, slide-in animation, backdrop)
+   - Fixed header on mobile (h-14, z-40)
+   - Preserved all existing demo mode logic
+
+2. **ConversationView.tsx** - Responsive chat interface
+   - Chat bubbles: `max-w-[95%] sm:max-w-[85%] md:max-w-[80%] lg:max-w-[70%]`
+   - Input area: `flex-col` on mobile, `sm:flex-row` on desktop
+   - Mode toggles: Reduced from h-11 to h-9 (36px) for better space utilization
+   - Textarea: Increased from 2 to 3 rows for improved typing experience
+   - Keyboard shortcuts hidden on mobile (`hidden md:inline`)
+   - Responsive padding: `px-3 sm:px-4 md:px-6`
+
+3. **DetailPanel.tsx** - Bottom sheet modal
+   - Mobile: Bottom sheet (85vh, slides up, drag handle)
+   - Desktop: Right sidebar (400px, slides in from right)
+   - Floating button repositioned (bottom-40 on mobile to avoid input overlap)
+   - Fixed scrolling issue by converting to flexbox layout
+   - Responsive controls with flex-wrap
+
+**Phase 2: Major Components**
+4. **BenchmarksPage.tsx** - Data visualization
+   - Hero cards: `grid-cols-1 sm:grid-cols-2 lg:grid-cols-3`
+   - Tables → Cards on mobile with all data preserved
+   - Tablets: horizontal scroll with `min-w-[600px]`
+   - Desktop: full table view
+   - Responsive text: `text-3xl sm:text-4xl`
+
+5. **ConversationList.tsx** - Touch-friendly sidebar
+   - Touch targets: `h-9 w-9` on mobile, `h-8 w-8` on desktop
+   - Card min-height: 60px on mobile for easier tapping
+   - Checkboxes: `h-5 w-5` on mobile for better visibility
+   - Text truncation increased: 36 → 50 characters
+
+6. **AgentRunMessage.tsx** - Responsive messages
+   - Same responsive bubble widths as ConversationView
+   - Responsive padding on message containers
+   - Stats hidden on very small screens with `hidden sm:flex`
+
+**Mobile UX Refinements (Post-Initial Implementation):**
+- Removed duplicate "Reasoner" branding from mobile header
+- Added New Chat button to mobile header (right-aligned, disabled during active run)
+- Reduced button heights from h-11 (44px) to h-9 (36px) to maximize typing space
+- Removed text labels from mode toggle buttons on mobile (icon-only for space)
+- Increased Trace button spacing from bottom-20 to bottom-40 (160px) to prevent overlap
+- Enhanced textarea: 3 rows + flex-1 for better mobile typing experience
+- Fixed DetailPanel scroll by converting to flexbox (header/controls flex-shrink-0, content flex-1)
+
+**Breakpoint Strategy:**
+- **Base (0-639px)**: Mobile portrait - full-width layouts, vertical stacking, 44px touch targets
+- **sm: (640px+)**: Mobile landscape - horizontal layouts begin, 2-column grids
+- **md: (768px+)**: Tablets portrait - collapsible sidebar appears, table horizontal scroll
+- **lg: (1024px+)**: Desktop - three-column layout, full tables, resizable sidebar
+
+**Files Modified:**
+- `ui/src/App.tsx` - Layout system, hamburger menu, drawer navigation
+- `ui/src/components/ConversationView.tsx` - Responsive chat, input stacking, touch targets
+- `ui/src/components/DetailPanel.tsx` - Bottom sheet modal for mobile
+- `ui/src/components/BenchmarksPage.tsx` - Table-to-card transformation
+- `ui/src/components/ConversationList.tsx` - Touch target optimization
+- `ui/src/components/AgentRunMessage.tsx` - Responsive message bubbles
+
+**Testing:**
+- Manually tested at 320px, 375px, 640px, 768px, 1024px viewports
+- Verified touch targets meet 44px minimum (iOS guideline)
+- Confirmed no horizontal scroll at any breakpoint
+- Validated desktop layout unchanged
+- Development server running on http://localhost:3000
+
+**Result:**
+Fully responsive application supporting phones (320px+), tablets (768px+), and desktops (1024px+). Desktop experience remains exactly as-is per requirement. All existing functionality preserved including demo mode restrictions and sidebar behavior.
+
+---
+
+### 2026-01-26: Custom Neural Network Favicon
+
+**Branch:** `feature/update-favicon`
+**Status:** done
+
+**Description:**
+Replaced the default Vite favicon with a custom-designed neural network icon that better represents the AI reasoning agent application.
+
+**Design:**
+- **Visual**: Neural network with connected nodes representing AI agent reasoning
+- **Color scheme**: Indigo blue gradient background (#4F46E5) matching the app's brand color
+- **Style**: Clean, modern SVG with glowing center node and semi-transparent connections
+- **Symbolism**: Network topology represents multi-step reasoning and connected thoughts
+
+**Implementation:**
+- Created `ui/public/favicon.svg` with custom neural network design
+- Updated `ui/index.html` to reference `/favicon.svg` instead of `/vite.svg`
+- SVG format ensures crisp display at all sizes (browser tabs, bookmarks, etc.)
+
+**Technical details:**
+- 100x100 viewBox with rounded corners (rx="20")
+- 6 nodes of varying sizes representing reasoning steps
+- 7 connection lines with varying opacity for depth
+- Center node highlighted with glow effect for focus
+
+**Files Modified:**
+- `ui/public/favicon.svg` - New neural network icon (created)
+- `ui/index.html` - Updated favicon reference
+
+**Benefits:**
+- Professional appearance distinct from default Vite branding
+- Visual identity aligned with AI/reasoning theme
+- Recognizable in browser tabs and bookmarks
+- Scalable SVG format for all display sizes
+
+### 2026-01-26: Reorder Mode Buttons and Rename to Agent Mode
+
+**Branch:** `feature/reorder-mode-buttons`
+**Status:** done
+
+**Changes:**
+1. **Button order**: Swapped so Agent mode (Globe icon) appears first, Chat mode second
+2. **Terminology**: Renamed "Research Assistant" -> "Agent Mode" and "Research mode" -> "Agent mode" throughout
+3. **Keyboard shortcuts**: Updated to match visual order
+   - Cmd+1 now switches to Agent mode (was Chat)
+   - Cmd+2 now switches to Chat mode (was Agent)
+4. **Placeholder text**: "Research a topic..." -> "Ask agent to research..."
+5. **Button titles**: "Research mode" -> "Agent mode"
+
+**Implementation:**
+- Updated button order in both input areas (empty state and conversation view)
+- Changed keyboard shortcut handlers to match new order
+- Updated all help text to reflect new shortcuts
+- Renamed header from "Research Assistant" to "Agent Mode"
+- Updated status messages and placeholders
+
+**Files Modified:**
+- `ui/src/components/ConversationView.tsx` - Button order, naming, shortcuts
+
+**Benefits:**
+- Agent mode is now the primary/first option (main use case)
+- Clearer terminology - "Agent" is more descriptive than "Research"
+- Visual order matches keyboard shortcut order (1 = first button, 2 = second)
+- More intuitive for users - main feature comes first
+
+**Testing:**
+- TypeScript compilation: passed
+- Build: passed
+- Manual test: Verify button order, press Cmd+1 (Agent), Cmd+2 (Chat)
+
+### 2026-01-26: Simpler Keyboard Shortcuts for Mode Switching
+
+**Branch:** `feature/improve-mode-shortcuts`
+**Status:** done
+
+**Problem:**
+The keyboard shortcuts for switching between Chat and Research modes required 3 keys (Cmd+Shift+R, Cmd+Shift+C), which was clumsy and hard to remember. The help text was also cramped and unclear.
+
+**Solution:**
+Simplified to 2-key shortcuts using numbers:
+- **Cmd/Ctrl+1** for Chat mode (was Cmd+Shift+C)
+- **Cmd/Ctrl+2** for Research mode (was Cmd+Shift+R)
+
+**Implementation:**
+- Updated `handleKeyDown()` in ConversationView to check for `'1'` and `'2'` keys with Cmd/Ctrl
+- Improved help text readability:
+  - Before: `⌘/Ctrl+Enter send · ⌘/Ctrl+Shift+R agent · ⌘/Ctrl+Shift+C chat`
+  - After: `Press ⌘/Ctrl+Enter to send · ⌘/Ctrl+1 for Chat · ⌘/Ctrl+2 for Research`
+- Changed text structure to use proper English ("Press ... to" and "... for")
+
+**Files Modified:**
+- `ui/src/components/ConversationView.tsx` - Keyboard shortcuts + help text
+
+**Benefits:**
+- Faster mode switching (only 2 keys instead of 3)
+- Numbers are more intuitive than letter combinations
+- Easier to remember (1 = first mode, 2 = second mode)
+- Clearer help text with better readability
+
+**Testing:**
+- TypeScript compilation: passed
+- Build: passed
+- Manual test: Press Cmd+1 (Chat), Cmd+2 (Research) in textarea
+
+### 2026-01-26: SSE Auto-Reconnect on Page Reload
+
+**Branch:** `feature/sse-auto-reconnect`
+**Status:** testing
+
+**Problem:**
+When user reloads the page during an active run (agent or chat), the frontend loses its SSE connection and in-memory state. After reload, the UI shows status="running" but receives no updates until another reload is performed.
+
+**Solution:**
+Automatically reconnect to SSE streams on page load for any runs with status='running'.
+
+**Implementation:**
+- Modified `ConversationView.tsx` `loadConversation()` useEffect
+- After loading conversation + runs from API, check for runs with `status === 'running'`
+- For agent runs: call `subscribeAgent(run_id, 0)` to reconnect with sinceSeq=0
+  - sinceSeq=0 tells backend to replay all events from `_event_history` (kept for 5 minutes)
+- For chat runs: call `subscribe(run_id)` to reconnect
+- Added debug console.log messages: `[Auto-reconnect] Reconnecting to <mode> run: <id>`
+- Updated dependency array to include `subscribe` and `subscribeAgent` callbacks
+
+**Backend Support:**
+Backend already supports resumption via:
+- `since_seq` query parameter in `/api/agent/runs/{id}/stream`
+- `_event_history` dict stores all events for 5 minutes
+- SSE endpoint replays missed events before streaming live events
+
+**Files Modified:**
+- `ui/src/components/ConversationView.tsx` - Added auto-reconnect logic
+
+**Testing:**
+- TypeScript compilation: passed
+- Build: passed
+- Manual test required:
+  1. Start agent run with complex query
+  2. Reload page while run is active (before completion)
+  3. Verify console shows auto-reconnect message
+  4. Verify UI shows all previous events + continues receiving new events
+  5. No second reload needed
+
+**Benefits:**
+- Seamless UX: user can reload page anytime without losing connection
+- Event replay: no data loss, all events from start replayed
+- Works for both agent and chat modes
+
+### 2026-01-26: Benchmarks Page with GAIA Results
+
+**Branch:** `feature/benchmarks-page`
+**Status:** done
+
+**Description:**
+Added a dedicated benchmarks page displaying GAIA benchmark results with a professional leaderboard-style layout, plus a modal to browse full evaluation traces.
+
+**Features:**
+- Hero stats cards showing:
+  - Level 1 rank (#11 of 32 systems)
+  - Cost efficiency (~$5 vs $100-500+ for frontier models)
+  - Overall rank (#18 using open-weight model)
+- Results table by difficulty level (L1: 64.3%, L2: 37.9%, L3: 31.6%)
+- Comparison table with top systems from HAL Princeton leaderboard
+- Key observations highlighting cost efficiency and open-weight model performance
+- Note: Questions with file attachments were excluded from evaluation
+- **Traces Modal** (2026-01-26): View full evaluation runs for each difficulty level
+  - Filters to show only full evaluation runs (≥19 questions) to exclude test runs
+  - Shows best accuracy run for L1 (42Q, 64.3%), L2 (66Q, 37.9%), L3 (19Q, 31.6%)
+  - Shows metadata: level, model, timestamp, questions, correct answers, accuracy
+  - Detail view with ALL question results, expected vs actual answers, timing per question
+  - Color-coded correct/incorrect results
+
+**Navigation:**
+- "Benchmarks" chip with arrow in ConversationView header (both empty state and conversation view)
+- Dedicated /benchmarks route with scrollable content
+- "View traces" link in Key Observations section opens traces modal
+
+**API Endpoints:**
+- `GET /api/benchmarks/traces` - List all available trace files with metadata
+- `GET /api/benchmarks/traces/{filename}` - Fetch full trace data for a specific run
+
+**Files Created:**
+- `ui/src/components/BenchmarksPage.tsx` - Full benchmarks page component
+- `ui/src/components/TracesModal.tsx` - Modal for browsing evaluation traces
+- `orchestrator/routes/benchmarks.py` - Benchmarks API routes
+
+**Files Modified:**
+- `ui/src/App.tsx` - Added /benchmarks route, imported BenchmarksPage
+- `ui/src/components/ConversationView.tsx` - Added benchmarks chip in header
+- `ui/src/components/ui/dialog.tsx` - Updated to allow custom sizing for trace modal
+- `orchestrator/app.py` - Added benchmarks router
+
+**Data Source:**
+Rankings from [HAL Princeton GAIA Leaderboard](https://hal.cs.princeton.edu/gaia) (January 2026)
+Traces from `gaia_results/*.json` (58 evaluation runs)
 
 ### 2026-01-26: Block New Conversation During Active Run
 

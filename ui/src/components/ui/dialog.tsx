@@ -19,9 +19,7 @@ export function Dialog({ open, onOpenChange, children }: DialogProps) {
                 onClick={() => onOpenChange(false)}
             />
             {/* Content */}
-            <div className="relative bg-white rounded-lg shadow-xl max-w-md w-full mx-4 animate-in fade-in zoom-in-95">
-                {children}
-            </div>
+            {children}
         </div>
     );
 }
