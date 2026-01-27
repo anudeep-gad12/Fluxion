@@ -86,6 +86,7 @@ class DaytonaPythonTool:
         """
         start_time = time.perf_counter()
         sandbox = None
+        sandbox_id = None
 
         try:
             # Create sandbox and execute code
@@ -93,14 +94,31 @@ class DaytonaPythonTool:
             def run_in_sandbox():
                 client = self._get_client()
                 sb = client.create()
+
+                # Extract sandbox ID for logging
+                sb_id = getattr(sb, 'id', None) or getattr(sb, 'sandbox_id', None) or 'unknown'
+
+                logger.info(
+                    "Daytona sandbox created",
+                    extra={
+                        "sandbox_id": sb_id,
+                        "code_preview": code[:100] + "..." if len(code) > 100 else code,
+                        "code_length": len(code),
+                    }
+                )
+
                 try:
                     response = sb.process.code_run(code, timeout=self._timeout)
-                    return sb, response
-                except Exception:
+                    return sb, sb_id, response
+                except Exception as e:
+                    logger.error(
+                        "Daytona code execution failed",
+                        extra={"sandbox_id": sb_id, "error": str(e)}
+                    )
                     client.delete(sb)
                     raise
 
-            sandbox, response = await asyncio.wait_for(
+            sandbox, sandbox_id, response = await asyncio.wait_for(
                 asyncio.get_event_loop().run_in_executor(None, run_in_sandbox),
                 timeout=self._timeout + 10,  # Extra buffer for sandbox creation
             )
@@ -114,8 +132,25 @@ class DaytonaPythonTool:
 
             if has_error:
                 result_summary = f"Execution failed (exit code {exit_code})\n{stdout}"
+                logger.warning(
+                    "Daytona execution failed with non-zero exit code",
+                    extra={
+                        "sandbox_id": sandbox_id,
+                        "exit_code": exit_code,
+                        "duration_ms": duration_ms,
+                        "output_preview": stdout[:200] if stdout else None,
+                    }
+                )
             else:
                 result_summary = stdout.strip() if stdout.strip() else "(no output)"
+                logger.info(
+                    "Daytona execution completed successfully",
+                    extra={
+                        "sandbox_id": sandbox_id,
+                        "duration_ms": duration_ms,
+                        "output_length": len(stdout),
+                    }
+                )
 
             return ToolResult(
                 success=not has_error,
@@ -133,7 +168,11 @@ class DaytonaPythonTool:
             duration_ms = int((time.perf_counter() - start_time) * 1000)
             logger.warning(
                 "Daytona execution timed out",
-                extra={"timeout": self._timeout, "duration_ms": duration_ms},
+                extra={
+                    "sandbox_id": sandbox_id,
+                    "timeout": self._timeout,
+                    "duration_ms": duration_ms
+                },
             )
             return ToolResult(
                 success=False,
@@ -146,7 +185,12 @@ class DaytonaPythonTool:
             duration_ms = int((time.perf_counter() - start_time) * 1000)
             logger.error(
                 "Daytona execution failed",
-                extra={"error": str(e), "duration_ms": duration_ms},
+                extra={
+                    "sandbox_id": sandbox_id,
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "duration_ms": duration_ms
+                },
             )
             return ToolResult(
                 success=False,
@@ -159,15 +203,29 @@ class DaytonaPythonTool:
             # Always clean up sandbox
             if sandbox is not None:
                 try:
+                    logger.info(
+                        "Attempting to delete Daytona sandbox",
+                        extra={"sandbox_id": sandbox_id}
+                    )
 
                     def cleanup():
                         client = self._get_client()
                         client.delete(sandbox)
 
                     await asyncio.get_event_loop().run_in_executor(None, cleanup)
+
+                    logger.info(
+                        "Daytona sandbox deleted successfully",
+                        extra={"sandbox_id": sandbox_id}
+                    )
                 except Exception as e:
-                    logger.warning(
-                        "Failed to cleanup Daytona sandbox", extra={"error": str(e)}
+                    logger.error(
+                        "Failed to delete Daytona sandbox",
+                        extra={
+                            "sandbox_id": sandbox_id,
+                            "error": str(e),
+                            "error_type": type(e).__name__
+                        }
                     )
 
     async def health_check(self) -> bool:
