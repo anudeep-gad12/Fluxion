@@ -128,7 +128,7 @@ export function AgentStepsPanel({
           <Loader2 className="h-3 w-3 animate-spin text-indigo-500" />
         )}
         <span className="text-xs text-indigo-400">
-          Step {currentStep} of {agentState.maxSteps}
+          Step {currentStep}
         </span>
       </button>
 
