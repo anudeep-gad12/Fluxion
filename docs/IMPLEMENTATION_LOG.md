@@ -9,6 +9,7 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| feature/mobile-responsive | Mobile-responsive design | done | 2026-01-27 |
 | feature/update-favicon | Custom neural network favicon | done | 2026-01-26 |
 | feature/reorder-mode-buttons | Reorder mode buttons and rename to Agent mode | done | 2026-01-26 |
 | feature/improve-mode-shortcuts | Simpler keyboard shortcuts for mode switching | done | 2026-01-26 |
@@ -19,6 +20,91 @@
 | feature/preset-question-chips | Demo preset questions | done | 2026-01-23 |
 | feature/gaia-benchmark | GAIA Benchmark Evaluation | done | 2026-01-21 |
 | feature/agent-planning | Agent Planning Step | done | 2026-01-20 |
+
+### 2026-01-27: Mobile-Responsive Design
+
+**Branch:** `feature/mobile-responsive`
+**Status:** done
+
+**Description:**
+Made the entire Reasoner chat application mobile-friendly with progressive enhancement from 320px phones to 1920px+ desktops. Implemented responsive breakpoints, touch-optimized interfaces, and mobile-specific layouts while preserving all existing functionality.
+
+**Key Changes:**
+- **App Layout**: Hamburger menu and drawer navigation for mobile (respects demo mode restrictions)
+- **Three-panel adaptation**: Sidebar becomes drawer on mobile, detail panel becomes bottom sheet
+- **Touch optimization**: 44px minimum tap targets throughout (iOS guideline)
+- **Chat interface**: Responsive chat bubbles (95% → 70% from mobile → desktop), vertical input stacking
+- **Mode toggles**: Show labels on mobile ("Research", "Chat"), icon-only on desktop
+- **Benchmarks tables**: Convert to cards on mobile, horizontal scroll on tablets
+- **Responsive breakpoints**: base (0px), sm (640px), md (768px), lg (1024px)
+
+**Implementation Details:**
+
+**Phase 1: Critical Components**
+1. **App.tsx** - Mobile navigation system
+   - Added mobile detection state (< 768px)
+   - Hamburger menu with demo mode integration
+   - Sidebar as drawer overlay (80vw width, slide-in animation, backdrop)
+   - Fixed header on mobile (h-14, z-40)
+   - Preserved all existing demo mode logic
+
+2. **ConversationView.tsx** - Responsive chat interface
+   - Chat bubbles: `max-w-[95%] sm:max-w-[85%] md:max-w-[80%] lg:max-w-[70%]`
+   - Input area: `flex-col` on mobile, `sm:flex-row` on desktop
+   - Mode toggles with labels on mobile (h-11 touch targets)
+   - Keyboard shortcuts hidden on mobile (`hidden md:inline`)
+   - Responsive padding: `px-3 sm:px-4 md:px-6`
+
+3. **DetailPanel.tsx** - Bottom sheet modal
+   - Mobile: Bottom sheet (85vh, slides up, drag handle)
+   - Desktop: Right sidebar (400px, slides in from right)
+   - Floating button repositioned (bottom-20 on mobile vs centered on desktop)
+   - Responsive controls with flex-wrap
+
+**Phase 2: Major Components**
+4. **BenchmarksPage.tsx** - Data visualization
+   - Hero cards: `grid-cols-1 sm:grid-cols-2 lg:grid-cols-3`
+   - Tables → Cards on mobile with all data preserved
+   - Tablets: horizontal scroll with `min-w-[600px]`
+   - Desktop: full table view
+   - Responsive text: `text-3xl sm:text-4xl`
+
+5. **ConversationList.tsx** - Touch-friendly sidebar
+   - Touch targets: `h-9 w-9` on mobile, `h-8 w-8` on desktop
+   - Card min-height: 60px on mobile for easier tapping
+   - Checkboxes: `h-5 w-5` on mobile for better visibility
+   - Text truncation increased: 36 → 50 characters
+
+6. **AgentRunMessage.tsx** - Responsive messages
+   - Same responsive bubble widths as ConversationView
+   - Responsive padding on message containers
+   - Stats hidden on very small screens with `hidden sm:flex`
+
+**Breakpoint Strategy:**
+- **Base (0-639px)**: Mobile portrait - full-width layouts, vertical stacking, 44px touch targets
+- **sm: (640px+)**: Mobile landscape - horizontal layouts begin, 2-column grids
+- **md: (768px+)**: Tablets portrait - collapsible sidebar appears, table horizontal scroll
+- **lg: (1024px+)**: Desktop - three-column layout, full tables, resizable sidebar
+
+**Files Modified:**
+- `ui/src/App.tsx` - Layout system, hamburger menu, drawer navigation
+- `ui/src/components/ConversationView.tsx` - Responsive chat, input stacking, touch targets
+- `ui/src/components/DetailPanel.tsx` - Bottom sheet modal for mobile
+- `ui/src/components/BenchmarksPage.tsx` - Table-to-card transformation
+- `ui/src/components/ConversationList.tsx` - Touch target optimization
+- `ui/src/components/AgentRunMessage.tsx` - Responsive message bubbles
+
+**Testing:**
+- Manually tested at 320px, 375px, 640px, 768px, 1024px viewports
+- Verified touch targets meet 44px minimum (iOS guideline)
+- Confirmed no horizontal scroll at any breakpoint
+- Validated desktop layout unchanged
+- Development server running on http://localhost:3000
+
+**Result:**
+Fully responsive application supporting phones (320px+), tablets (768px+), and desktops (1024px+). Desktop experience remains exactly as-is per requirement. All existing functionality preserved including demo mode restrictions and sidebar behavior.
+
+---
 
 ### 2026-01-26: Custom Neural Network Favicon
 
