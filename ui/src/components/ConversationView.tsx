@@ -418,7 +418,7 @@ export function ConversationView() {
           </button>
         </div>
 
-        <div className="flex-1 flex flex-col items-center justify-center text-slate-500 gap-4 sm:gap-6 px-3 sm:px-4 md:px-6">
+        <div className="flex-1 flex flex-col items-center justify-center text-slate-500 gap-4 sm:gap-6 px-3 sm:px-4 md:px-6 overflow-y-auto min-h-0">
           <div className="text-center">
             <h2 className="text-lg font-semibold text-slate-700 mb-2">
               {mode === 'research' ? 'Agent Mode' : 'Chat Mode'}
@@ -452,7 +452,7 @@ export function ConversationView() {
             </div>
           )}
         </div>
-        <div className="border-t p-3 pb-6 sm:p-4 flex-shrink-0 bg-white">
+        <div className="border-t p-3 pb-20 sm:p-4 flex-shrink-0 bg-white">
           <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
             <Textarea
               placeholder={mode === 'research' ? 'Ask agent to research...' : 'Ask a question...'}
@@ -578,7 +578,7 @@ export function ConversationView() {
         </div>
       </div>
 
-      <div className="border-t p-3 pb-6 sm:p-4 flex-shrink-0 bg-white">
+      <div className="border-t p-3 pb-20 sm:p-4 flex-shrink-0 bg-white">
         <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
           <Textarea
             placeholder={mode === 'research' ? 'Ask agent to research...' : 'Ask a follow-up question...'}
