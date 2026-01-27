@@ -280,7 +280,7 @@ function AppLayout() {
       {/* Main content - Chat with Routes */}
       <main
         className={cn(
-          "flex-1 overflow-hidden transition-all duration-300",
+          "flex-1 overflow-hidden transition-all duration-300 flex flex-col",
           // Mobile: add top padding for fixed header
           isMobile && "pt-14",
           // Desktop: add right margin when detail panel is open
