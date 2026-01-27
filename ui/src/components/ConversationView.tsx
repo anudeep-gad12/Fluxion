@@ -453,14 +453,14 @@ export function ConversationView() {
           )}
         </div>
         <div className="border-t p-3 sm:p-4">
-          <div className="flex gap-3">
+          <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
             <Textarea
               placeholder={mode === 'research' ? 'Ask agent to research...' : 'Ask a question...'}
               value={message}
               onChange={(e) => setMessage(e.target.value)}
               onKeyDown={handleKeyDown}
-              rows={2}
-              className="resize-none"
+              rows={3}
+              className="resize-none flex-1"
               disabled={isSubmitting}
             />
             <div className="flex gap-2 sm:flex-col sm:gap-2 sm:self-end">
@@ -471,24 +471,22 @@ export function ConversationView() {
                   variant={mode === 'research' ? 'default' : 'outline'}
                   className={cn(
                     'flex-1 sm:flex-initial sm:h-8 sm:px-2',
-                    'h-11 min-w-[44px]',
+                    'h-9 min-w-[36px] px-2',
                     mode === 'research' && 'bg-indigo-600 hover:bg-indigo-700'
                   )}
                   onClick={() => setMode('research')}
-                  title="Agent mode"
+                  title="Research mode"
                 >
-                  <Globe className="h-3 w-3 sm:h-3 sm:w-3" />
-                  <span className="sm:hidden ml-2">Research</span>
+                  <Globe className="h-4 w-4" />
                 </Button>
                 <Button
                   size="sm"
                   variant={mode === 'chat' ? 'default' : 'outline'}
-                  className="flex-1 sm:flex-initial sm:h-8 sm:px-2 h-11 min-w-[44px]"
+                  className="flex-1 sm:flex-initial sm:h-8 sm:px-2 h-9 min-w-[36px] px-2"
                   onClick={() => setMode('chat')}
                   title="Chat mode"
                 >
-                  <MessageSquare className="h-3 w-3" />
-                  <span className="sm:hidden ml-2">Chat</span>
+                  <MessageSquare className="h-4 w-4" />
                 </Button>
               </div>
               {/* Reasoning effort - only show in chat mode */}
@@ -496,7 +494,7 @@ export function ConversationView() {
                 <select
                   value={reasoningEffort}
                   onChange={(e) => setReasoningEffort(e.target.value as ReasoningEffort)}
-                  className="h-11 sm:h-8 px-2 text-xs border border-slate-200 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="h-9 sm:h-8 px-2 text-xs border border-slate-200 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                   title="Reasoning effort: how deeply the model thinks"
                 >
                   <option value="low">⚡ Low</option>
@@ -505,9 +503,8 @@ export function ConversationView() {
                 </select>
               )}
               {isGenerating ? (
-                <Button onClick={handleStop} variant="destructive" className="h-11 sm:h-auto min-w-[44px]">
+                <Button onClick={handleStop} variant="destructive" className="h-9 sm:h-auto min-w-[36px] px-2">
                   <Square className="h-4 w-4 fill-current" />
-                  <span className="sm:hidden ml-2">Stop</span>
                 </Button>
               ) : (
                 <span title={hasActiveRun ? 'Active run in progress — cannot start new conversation until complete' : undefined}>
@@ -515,12 +512,11 @@ export function ConversationView() {
                     onClick={handleSubmit}
                     disabled={!message.trim() || isSubmitting || hasActiveRun}
                     className={cn(
-                      'h-11 sm:h-auto min-w-[44px]',
+                      'h-9 sm:h-auto min-w-[36px] px-2',
                       mode === 'research' ? 'bg-indigo-600 hover:bg-indigo-700' : ''
                     )}
                   >
                     {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                    <span className="sm:hidden ml-2">Send</span>
                   </Button>
                 </span>
               )}
@@ -589,8 +585,8 @@ export function ConversationView() {
             value={message}
             onChange={(e) => setMessage(e.target.value)}
             onKeyDown={handleKeyDown}
-            rows={2}
-            className="resize-none"
+            rows={3}
+            className="resize-none flex-1"
             disabled={isSubmitting}
           />
           <div className="flex gap-2 sm:flex-col sm:gap-2 sm:self-end">
@@ -601,24 +597,22 @@ export function ConversationView() {
                 variant={mode === 'research' ? 'default' : 'outline'}
                 className={cn(
                   'flex-1 sm:flex-initial sm:h-8 sm:px-2',
-                  'h-11 min-w-[44px]',
+                  'h-9 min-w-[36px] px-2',
                   mode === 'research' && 'bg-indigo-600 hover:bg-indigo-700'
                 )}
                 onClick={() => setMode('research')}
-                title="Agent mode"
+                title="Research mode"
               >
-                <Globe className="h-3 w-3" />
-                <span className="sm:hidden ml-2">Research</span>
+                <Globe className="h-4 w-4" />
               </Button>
               <Button
                 size="sm"
                 variant={mode === 'chat' ? 'default' : 'outline'}
-                className="flex-1 sm:flex-initial sm:h-8 sm:px-2 h-11 min-w-[44px]"
+                className="flex-1 sm:flex-initial sm:h-8 sm:px-2 h-9 min-w-[36px] px-2"
                 onClick={() => setMode('chat')}
                 title="Chat mode"
               >
-                <MessageSquare className="h-3 w-3" />
-                <span className="sm:hidden ml-2">Chat</span>
+                <MessageSquare className="h-4 w-4" />
               </Button>
             </div>
             {/* Reasoning effort - only show in chat mode */}
@@ -626,7 +620,7 @@ export function ConversationView() {
               <select
                 value={reasoningEffort}
                 onChange={(e) => setReasoningEffort(e.target.value as ReasoningEffort)}
-                className="h-11 sm:h-8 px-2 text-xs border border-slate-200 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="h-9 sm:h-8 px-2 text-xs border border-slate-200 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                 title="Reasoning effort: how deeply the model thinks"
               >
                 <option value="low">⚡ Low</option>
@@ -635,21 +629,19 @@ export function ConversationView() {
               </select>
             )}
             {isGenerating ? (
-              <Button onClick={handleStop} variant="destructive" className="h-11 sm:h-auto min-w-[44px]">
+              <Button onClick={handleStop} variant="destructive" className="h-9 sm:h-auto min-w-[36px] px-2">
                 <Square className="h-4 w-4 fill-current" />
-                <span className="sm:hidden ml-2">Stop</span>
               </Button>
             ) : (
               <Button
                 onClick={handleSubmit}
                 disabled={!message.trim() || isSubmitting}
                 className={cn(
-                  'h-11 sm:h-auto min-w-[44px]',
+                  'h-9 sm:h-auto min-w-[36px] px-2',
                   mode === 'research' ? 'bg-indigo-600 hover:bg-indigo-700' : ''
                 )}
               >
                 {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                <span className="sm:hidden ml-2">Send</span>
               </Button>
             )}
           </div>
