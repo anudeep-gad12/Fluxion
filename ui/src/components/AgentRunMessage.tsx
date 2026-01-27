@@ -53,7 +53,7 @@ export function AgentRunMessage({ run, onShowTrace }: AgentRunMessageProps) {
     <div className="space-y-3 animate-in fade-in slide-in-from-bottom-2">
       {/* User message */}
       <div className="flex justify-end">
-        <div className="max-w-[70%] rounded-2xl bg-indigo-600 text-white px-4 py-3 shadow-sm">
+        <div className="max-w-[95%] sm:max-w-[85%] md:max-w-[80%] lg:max-w-[70%] rounded-2xl bg-indigo-600 text-white px-3 sm:px-4 py-3 shadow-sm">
           <div className="flex items-center gap-2 mb-1">
             <Globe className="h-4 w-4" />
             <span className="text-xs font-medium opacity-80">
@@ -71,7 +71,7 @@ export function AgentRunMessage({ run, onShowTrace }: AgentRunMessageProps) {
 
       {/* Agent response */}
       <div className="flex justify-start">
-        <div className="max-w-[85%] rounded-2xl border border-indigo-200 bg-white px-4 py-3 shadow-sm">
+        <div className="max-w-full sm:max-w-[90%] md:max-w-[88%] lg:max-w-[85%] rounded-2xl border border-indigo-200 bg-white px-3 sm:px-4 py-3 shadow-sm">
           {/* Agent badge */}
           <div className="flex items-center gap-2 mb-3">
             <Badge
@@ -83,7 +83,7 @@ export function AgentRunMessage({ run, onShowTrace }: AgentRunMessageProps) {
             </Badge>
             {agentState && (
               <span className="text-xs text-slate-500">
-                Step {agentState.currentStep}/{agentState.maxSteps}
+                Step {agentState.currentStep}
               </span>
             )}
           </div>

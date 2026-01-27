@@ -5,9 +5,10 @@ import { Routes, Route, Navigate, useParams, useSearchParams, useNavigate } from
 import { ConversationList } from '@/components/ConversationList';
 import { ConversationView } from '@/components/ConversationView';
 import { DetailPanel } from '@/components/DetailPanel';
+import { BenchmarksPage } from '@/components/BenchmarksPage';
 import { useStore, useHasActiveRun } from '@/hooks/useStore';
 import { cn } from '@/lib/utils';
-import { PanelLeftClose, PanelLeft, GripVertical, Plus } from 'lucide-react';
+import { PanelLeftClose, PanelLeft, GripVertical, Plus, Menu, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 // LocalStorage keys for demo mode
@@ -73,6 +74,11 @@ function AppLayout() {
   const [sidebarWidth, setSidebarWidth] = useState(320); // default 320px
   const isResizing = useRef(false);
 
+  // Mobile detection - below md: breakpoint (768px)
+  const [isMobile, setIsMobile] = useState(() => {
+    return typeof window !== 'undefined' && window.innerWidth < 768;
+  });
+
   // Check for owner secret in URL params (?owner=<secret>)
   useEffect(() => {
     const ownerParam = searchParams.get('owner');
@@ -107,6 +113,15 @@ function AppLayout() {
       setSidebarCollapsed(true);
     }
   }, [isDemoMode, isOwner]);
+
+  // Mobile detection on resize
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   // Handle sidebar toggle with demo mode enforcement
   const handleSidebarToggle = useCallback(
@@ -150,45 +165,84 @@ function AppLayout() {
 
   return (
     <div className="h-screen flex bg-gradient-to-br from-slate-50 via-white to-blue-50">
+      {/* Mobile header - only show on mobile */}
+      {isMobile && (
+        <header className="fixed top-0 left-0 right-0 h-14 bg-white border-b flex items-center justify-between px-4 z-40">
+          <div className="flex items-center gap-2">
+            {/* Hamburger menu - respect demo mode restrictions */}
+            {(isOwner || !isDemoMode) && (
+              <button
+                onClick={() => handleSidebarToggle(false)}
+                className="p-2 -ml-2 hover:bg-slate-100 rounded-md transition-colors"
+                aria-label="Open menu"
+              >
+                <Menu className="h-6 w-6" />
+              </button>
+            )}
+          </div>
+          {/* New Chat button - disabled during active run */}
+          <span title={hasActiveRun ? "Active run in progress — cannot start new conversation until complete" : "New conversation"}>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleNewConversation}
+              disabled={hasActiveRun}
+              className="h-9 w-9"
+            >
+              <Plus className="h-5 w-5" />
+            </Button>
+          </span>
+        </header>
+      )}
+
       {/* Left Sidebar - Conversation List */}
       <aside
         className={cn(
-          "border-r flex flex-col flex-shrink-0 transition-all duration-300 relative",
-          sidebarCollapsed ? "w-0 overflow-hidden" : ""
+          "border-r flex flex-col flex-shrink-0 transition-all duration-300 relative bg-white",
+          // Mobile: fixed overlay drawer
+          isMobile && "fixed md:static inset-y-0 left-0 z-50 w-[80vw] max-w-[320px]",
+          isMobile && (sidebarCollapsed ? "-translate-x-full" : "translate-x-0"),
+          // Desktop: normal sidebar behavior
+          !isMobile && (sidebarCollapsed ? "w-0 overflow-hidden" : ""),
+          // Mobile: add padding for fixed header
+          isMobile && "pt-14"
         )}
-        style={{ width: sidebarCollapsed ? 0 : sidebarWidth }}
+        style={!isMobile && !sidebarCollapsed ? { width: sidebarWidth } : undefined}
       >
         <div className="p-4 border-b flex items-center justify-between">
           <div>
             <h1 className="text-lg font-bold">Reasoner</h1>
             <p className="text-xs text-muted-foreground">Local AI Chat</p>
           </div>
+          {/* Mobile: close button, Desktop: collapse button */}
           <Button
             variant="ghost"
             size="icon"
             onClick={() => handleSidebarToggle(true)}
             className="h-8 w-8"
           >
-            <PanelLeftClose className="h-4 w-4" />
+            {isMobile ? <X className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
           </Button>
         </div>
         <div className="flex-1 overflow-hidden">
           <ConversationList />
         </div>
 
-        {/* Resize handle */}
-        <div
-          className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-400 transition-colors group"
-          onMouseDown={handleMouseDown}
-        >
-          <div className="absolute right-0 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity">
-            <GripVertical className="h-6 w-6 text-blue-400" />
+        {/* Resize handle - only show on desktop */}
+        {!isMobile && (
+          <div
+            className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-400 transition-colors group"
+            onMouseDown={handleMouseDown}
+          >
+            <div className="absolute right-0 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity">
+              <GripVertical className="h-6 w-6 text-blue-400" />
+            </div>
           </div>
-        </div>
+        )}
       </aside>
 
-      {/* Collapsed sidebar strip with New Chat button */}
-      {sidebarCollapsed && (
+      {/* Collapsed sidebar strip with New Chat button - hide on mobile */}
+      {sidebarCollapsed && !isMobile && (
         <div className="border-r p-2 flex flex-col items-center gap-2">
           {/* Expand button - only show for owners or when not in demo mode */}
           {(isOwner || !isDemoMode) && (
@@ -215,10 +269,21 @@ function AppLayout() {
         </div>
       )}
 
+      {/* Mobile backdrop - overlay when sidebar is open */}
+      {isMobile && !sidebarCollapsed && (
+        <div
+          className="fixed inset-0 bg-black/20 z-40"
+          onClick={() => handleSidebarToggle(true)}
+        />
+      )}
+
       {/* Main content - Chat with Routes */}
       <main
         className={cn(
           "flex-1 overflow-hidden transition-all duration-300",
+          // Mobile: add top padding for fixed header
+          isMobile && "pt-14",
+          // Desktop: add right margin when detail panel is open
           detailPanelOpen && "lg:mr-[400px]"
         )}
       >
@@ -236,7 +301,12 @@ function AppLayout() {
 }
 
 function App() {
-  return <AppLayout />;
+  return (
+    <Routes>
+      <Route path="/benchmarks" element={<BenchmarksPage />} />
+      <Route path="/*" element={<AppLayout />} />
+    </Routes>
+  );
 }
 
 export default App;
