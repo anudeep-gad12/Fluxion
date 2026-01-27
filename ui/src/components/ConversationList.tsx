@@ -30,25 +30,26 @@ function ConversationCard({
   return (
     <div
       className={cn(
-        'rounded-lg border px-3 py-2 cursor-pointer transition-colors',
+        'rounded-lg border px-3 py-3 sm:py-2 cursor-pointer transition-colors',
+        'min-h-[60px] sm:min-h-0', // Ensure touch-friendly height on mobile
         isSelected ? 'border-blue-500 bg-blue-50' : 'hover:bg-slate-50',
         isChecked && 'bg-rose-50 border-rose-300'
       )}
       onClick={isSelectMode ? onToggleCheck : onClick}
     >
-      <div className="flex items-start justify-between gap-2">
+      <div className="flex items-start justify-between gap-3">
         {isSelectMode && (
-          <div className="pt-0.5">
+          <div className="pt-1">
             {isChecked ? (
-              <CheckSquare className="h-4 w-4 text-rose-500" />
+              <CheckSquare className="h-5 w-5 sm:h-4 sm:w-4 text-rose-500" />
             ) : (
-              <Square className="h-4 w-4 text-slate-400" />
+              <Square className="h-5 w-5 sm:h-4 sm:w-4 text-slate-400" />
             )}
           </div>
         )}
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium truncate">
-            {conversation.title ? truncate(conversation.title, 36) : 'New conversation'}
+            {conversation.title ? truncate(conversation.title, 50) : 'New conversation'}
           </p>
           <p className="text-xs text-muted-foreground mt-1">
             {formatRelativeTime(conversation.created_at)}
@@ -58,7 +59,7 @@ function ConversationCard({
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8"
+            className="h-9 w-9 sm:h-8 sm:w-8 flex-shrink-0"
             onClick={(e) => {
               e.stopPropagation();
               onDelete();
@@ -165,7 +166,7 @@ export function ConversationList() {
 
   return (
     <div className="h-full flex flex-col">
-      <div className="flex items-center justify-between px-4 py-3 border-b">
+      <div className="flex items-center justify-between px-3 sm:px-4 py-3 border-b">
         <div className="flex items-center gap-2">
           <MessageSquare className="h-4 w-4 text-slate-600" />
           <h2 className="font-semibold text-sm">Conversations</h2>
@@ -183,6 +184,7 @@ export function ConversationList() {
                 }
               }}
               title={selectedIds.size === conversations.length ? "Deselect all" : "Select all"}
+              className="h-9 sm:h-8"
             >
               {selectedIds.size === conversations.length ? 'None' : 'All'}
             </Button>
@@ -192,6 +194,7 @@ export function ConversationList() {
             variant={isSelectMode ? "secondary" : "ghost"}
             onClick={toggleSelectMode}
             title={isSelectMode ? "Cancel selection" : "Select conversations"}
+            className="h-9 w-9 sm:h-8 sm:w-8"
           >
             {isSelectMode ? <X className="h-4 w-4" /> : <CheckSquare className="h-4 w-4" />}
           </Button>
@@ -201,6 +204,7 @@ export function ConversationList() {
               variant="ghost"
               onClick={handleNewConversation}
               disabled={hasActiveRun}
+              className="h-9 sm:h-8"
             >
               <Plus className="h-4 w-4" />
               New
@@ -211,7 +215,7 @@ export function ConversationList() {
 
       {/* Bulk delete bar */}
       {isSelectMode && selectedIds.size > 0 && (
-        <div className="px-4 py-2 bg-rose-50 border-b flex items-center justify-between">
+        <div className="px-3 sm:px-4 py-2 bg-rose-50 border-b flex items-center justify-between">
           <span className="text-sm text-rose-700">
             {selectedIds.size} selected
           </span>
@@ -219,6 +223,7 @@ export function ConversationList() {
             size="sm"
             variant="destructive"
             onClick={() => setBulkDeleteModalOpen(true)}
+            className="h-9 sm:h-8"
           >
             <Trash2 className="h-4 w-4" />
             Delete
@@ -226,7 +231,7 @@ export function ConversationList() {
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-2">
+      <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-2">
         {isLoading && conversations.length === 0 ? (
           <div className="text-sm text-muted-foreground">Loading conversations...</div>
         ) : conversations.length === 0 ? (

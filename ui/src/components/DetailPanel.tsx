@@ -31,6 +31,11 @@ export function DetailPanel() {
   const [conversationEvents, setConversationEvents] = useState<Event[]>([]);
   const [loadingConvTraces, setLoadingConvTraces] = useState(false);
 
+  // Mobile detection - below lg: breakpoint (1024px)
+  const [isMobile, setIsMobile] = useState(() => {
+    return typeof window !== 'undefined' && window.innerWidth < 1024;
+  });
+
   // Track which runId we've loaded events for to prevent stale state
   const loadedRunIdRef = useRef<string | null>(null);
   const loadedConvIdRef = useRef<string | null>(null);
@@ -57,6 +62,15 @@ export function DetailPanel() {
       loadedConvIdRef.current = null;
     }
   }, [detailPanelOpen]);
+
+  // Mobile detection on resize
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth < 1024);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   useEffect(() => {
     if (!selectedRunId) {
@@ -245,7 +259,13 @@ export function DetailPanel() {
     <>
       {!detailPanelOpen && (
         <button
-          className="fixed right-4 top-1/2 -translate-y-1/2 bg-slate-900 text-white px-3 py-2 rounded-md shadow-lg text-sm"
+          className={cn(
+            "fixed bg-slate-900 text-white px-3 py-2 rounded-md shadow-lg text-sm z-40",
+            // Mobile: bottom-right, above input
+            isMobile
+              ? "right-4 bottom-20"
+              : "right-4 top-1/2 -translate-y-1/2"
+          )}
           onClick={() => {
             // Clear run selection so we show all conversation traces
             selectRun(null);
@@ -260,10 +280,28 @@ export function DetailPanel() {
 
       <div
         className={cn(
-          "fixed right-0 top-0 h-full w-[420px] border-l bg-white shadow-xl transition-transform duration-300 z-50",
-          detailPanelOpen ? "translate-x-0" : "translate-x-full"
+          "fixed bg-white shadow-xl transition-transform duration-300 z-50",
+          // Mobile: bottom sheet (full width, slides up from bottom)
+          isMobile
+            ? cn(
+                "inset-x-0 bottom-0 rounded-t-2xl border-t",
+                "h-[85vh]",
+                detailPanelOpen ? "translate-y-0" : "translate-y-full"
+              )
+            : cn(
+                // Desktop: right sidebar (fixed width, slides in from right)
+                "right-0 top-0 h-full w-[400px] border-l",
+                detailPanelOpen ? "translate-x-0" : "translate-x-full"
+              )
         )}
       >
+        {/* Mobile drag handle */}
+        {isMobile && (
+          <div className="flex justify-center pt-2 pb-1">
+            <div className="w-12 h-1 bg-slate-300 rounded-full" />
+          </div>
+        )}
+
         <div className="flex items-center justify-between px-4 py-3 border-b bg-amber-50">
           <div>
             <h3 className="font-semibold text-sm flex items-center gap-2">
@@ -283,11 +321,12 @@ export function DetailPanel() {
         </div>
 
         <div className="px-4 py-3 border-b space-y-2">
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button
               size="sm"
               variant={viewMode === 'trace' ? 'default' : 'outline'}
               onClick={() => setViewMode('trace')}
+              className="flex-1 sm:flex-initial"
             >
               Full Trace
             </Button>
@@ -296,6 +335,7 @@ export function DetailPanel() {
               variant={viewMode === 'event' ? 'default' : 'outline'}
               onClick={() => setViewMode('event')}
               disabled={!selectedEvent}
+              className="flex-1 sm:flex-initial"
             >
               Selected Event
             </Button>
@@ -392,7 +432,10 @@ export function DetailPanel() {
           </div>
         </div>
 
-        <ScrollArea className="h-[calc(100%-200px)]">
+        <ScrollArea className={cn(
+          // Mobile: account for drag handle
+          isMobile ? "h-[calc(85vh-200px)]" : "h-[calc(100%-200px)]"
+        )}>
           <div className="p-4">
             {viewMode === 'event' && selectedEvent ? (
               <pre className="text-xs whitespace-pre-wrap break-words bg-slate-50 border rounded-md p-3">
