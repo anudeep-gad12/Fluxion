@@ -20,26 +20,26 @@ import { useConversationRuns, useSelectedConversation, useStore, useHasActiveRun
 import { useSSE } from '@/hooks/useSSE';
 import { useAgentSSE } from '@/hooks/useAgentSSE';
 import { cn, formatRelativeTime } from '@/lib/utils';
-import { Eye, Loader2, Send, Square, Globe, MessageSquare, Sparkles } from 'lucide-react';
+import { Eye, Loader2, Send, Square, Globe, MessageSquare, Sparkles, BarChart3, ChevronRight } from 'lucide-react';
 import type { Run, Conversation, ReasoningEffort } from '@/types';
 
 /** Preset questions showcasing multi-step agentic research capabilities */
 const PRESET_QUESTIONS = [
   {
-    label: 'Latest Nobel Prize in Physics',
-    query: 'Who won the most recent Nobel Prize in Physics and what was their discovery?',
+    label: 'Hypothetical: Smaller hearts',
+    query: 'What if humans have smaller hearts?',
   },
   {
-    label: 'Tallest buildings comparison',
-    query: 'Compare the tallest buildings in New York and Dubai - which is taller and by how much?',
+    label: 'Last 3 Nobel Prizes',
+    query: 'Who won the Nobel Prize in Physics for the last 3 years, what are their names and what topics did they receive it for?',
   },
   {
-    label: '100m world record',
-    query: 'Who holds the current world record for the 100m sprint, what is the time, and when was it set?',
+    label: 'Birth rate declines',
+    query: 'What are the birth rate declines in recent years and what are the main causes?',
   },
   {
-    label: 'Top grossing movie 2024',
-    query: 'What was the highest-grossing movie of 2024 worldwide and how much did it earn?',
+    label: 'Top 5 tallest buildings',
+    query: 'What are the top 5 tallest buildings in the world, their heights, and how do they compare?',
   },
 ];
 
@@ -72,7 +72,7 @@ const RunMessage = memo(function RunMessage({
   return (
     <div className="space-y-3 animate-in fade-in slide-in-from-bottom-2">
       <div className="flex justify-end">
-        <div className="max-w-[70%] rounded-2xl bg-blue-600 text-white px-4 py-3 shadow-sm">
+        <div className="max-w-[95%] sm:max-w-[85%] md:max-w-[80%] lg:max-w-[70%] rounded-2xl bg-blue-600 text-white px-4 py-3 shadow-sm">
           <p className="text-sm leading-relaxed whitespace-pre-wrap">
             {run.user_message || run.prompt}
           </p>
@@ -83,7 +83,7 @@ const RunMessage = memo(function RunMessage({
       </div>
 
       <div className="flex justify-start">
-        <div className="max-w-[80%] rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+        <div className="max-w-full sm:max-w-[90%] md:max-w-[88%] lg:max-w-[80%] rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
           {/* Thinking Panel - shows while thinking or after completion with thinking data */}
           <ThinkingPanel
             summary={run.thinking_summary}
@@ -185,6 +185,22 @@ export function ConversationView() {
         const data = await getConversation(selectedConversationId!);
         updateConversation(selectedConversationId!, data.conversation);
         setRuns(selectedConversationId!, data.runs);
+
+        // Auto-reconnect to any active runs after page reload
+        // This handles the case where user refreshes during an ongoing run
+        for (const run of data.runs) {
+          if (run.status === 'running') {
+            if (run.mode === 'agent') {
+              // Reconnect to agent SSE stream with sinceSeq=0 to replay all events
+              console.log('[Auto-reconnect] Reconnecting to agent run:', run.run_id);
+              subscribeAgent(run.run_id, 0);
+            } else {
+              // Reconnect to chat SSE stream
+              console.log('[Auto-reconnect] Reconnecting to chat run:', run.run_id);
+              subscribe(run.run_id);
+            }
+          }
+        }
       } catch (error) {
         // Conversation might not exist (deleted) - silently ignore
         console.error('Failed to load conversation:', error);
@@ -192,7 +208,7 @@ export function ConversationView() {
     }
 
     loadConversation();
-  }, [selectedConversationId, setRuns, updateConversation]);
+  }, [selectedConversationId, setRuns, updateConversation, subscribe, subscribeAgent]);
 
   useEffect(() => {
     if (!scrollRef.current) return;
@@ -364,14 +380,14 @@ export function ConversationView() {
       handleSubmit();
       return;
     }
-    // Cmd/Ctrl + Shift + R for Research/Agent mode
-    if (e.key === 'r' && (e.metaKey || e.ctrlKey) && e.shiftKey) {
+    // Cmd/Ctrl + 1 for Agent mode
+    if (e.key === '1' && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       setMode('research');
       return;
     }
-    // Cmd/Ctrl + Shift + C for Chat mode
-    if (e.key === 'c' && (e.metaKey || e.ctrlKey) && e.shiftKey) {
+    // Cmd/Ctrl + 2 for Chat mode
+    if (e.key === '2' && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       setMode('chat');
       return;
@@ -389,63 +405,88 @@ export function ConversationView() {
   if (!conversation && runs.length === 0) {
     return (
       <div className="h-full flex flex-col">
-        <div className="flex-1 flex flex-col items-center justify-center text-slate-500 gap-6 px-6">
+        {/* Top banner with benchmarks link */}
+        <div className="border-b px-3 sm:px-4 py-2 flex items-center justify-end bg-gradient-to-r from-transparent to-slate-50">
+          <button
+            onClick={() => navigate('/benchmarks')}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white shadow-sm hover:shadow-md transition-all duration-200"
+            title="View GAIA benchmark results"
+          >
+            <BarChart3 className="h-3.5 w-3.5" />
+            <span className="font-semibold">Benchmarks</span>
+            <ChevronRight className="h-3.5 w-3.5" />
+          </button>
+        </div>
+
+        <div className="flex-1 flex flex-col items-center justify-center text-slate-500 gap-4 sm:gap-6 px-3 sm:px-4 md:px-6">
           <div className="text-center">
-            <h2 className="text-lg font-semibold text-slate-700 mb-2">Research Assistant</h2>
-            <p className="text-sm">Ask complex questions requiring multi-step research</p>
+            <h2 className="text-lg font-semibold text-slate-700 mb-2">
+              {mode === 'research' ? 'Agent Mode' : 'Chat Mode'}
+            </h2>
+            <p className="text-sm">
+              {mode === 'research'
+                ? 'Ask complex questions requiring multi-step research'
+                : 'Have a conversation with reasoning-capable AI'}
+            </p>
           </div>
 
-          {/* Preset Questions */}
-          <div className="w-full max-w-2xl">
-            <div className="flex items-center gap-2 mb-3">
-              <Sparkles className="h-4 w-4 text-indigo-500" />
-              <span className="text-xs font-medium text-slate-600">Try these examples</span>
+          {/* Preset Questions - only show in agent mode */}
+          {mode === 'research' && (
+            <div className="w-full max-w-2xl">
+              <div className="flex items-center gap-2 mb-3">
+                <Sparkles className="h-4 w-4 text-indigo-500" />
+                <span className="text-xs font-medium text-slate-600">Try these examples</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {PRESET_QUESTIONS.map((preset) => (
+                  <button
+                    key={preset.label}
+                    onClick={() => handlePresetClick(preset.query)}
+                    className="px-3 py-2 text-xs rounded-lg border border-slate-200 bg-white hover:bg-indigo-50 hover:border-indigo-300 hover:text-indigo-700 transition-colors text-slate-600 text-left"
+                    title={preset.query}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
             </div>
-            <div className="flex flex-wrap gap-2">
-              {PRESET_QUESTIONS.map((preset) => (
-                <button
-                  key={preset.label}
-                  onClick={() => handlePresetClick(preset.query)}
-                  className="px-3 py-1.5 text-xs rounded-full border border-slate-200 bg-white hover:bg-indigo-50 hover:border-indigo-300 hover:text-indigo-700 transition-colors text-slate-600 text-left"
-                  title={preset.query}
-                >
-                  {preset.label}
-                </button>
-              ))}
-            </div>
-          </div>
+          )}
         </div>
-        <div className="border-t p-4">
-          <div className="flex gap-3">
+        <div className="border-t p-3 sm:p-4">
+          <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
             <Textarea
-              placeholder={mode === 'research' ? 'Research a topic...' : 'Ask a question...'}
+              placeholder={mode === 'research' ? 'Ask agent to research...' : 'Ask a question...'}
               value={message}
               onChange={(e) => setMessage(e.target.value)}
               onKeyDown={handleKeyDown}
-              rows={2}
-              className="resize-none"
+              rows={3}
+              className="resize-none flex-1"
               disabled={isSubmitting}
             />
-            <div className="flex flex-col gap-2 self-end">
-              {/* Mode toggle */}
-              <div className="flex gap-1">
-                <Button
-                  size="sm"
-                  variant={mode === 'chat' ? 'default' : 'outline'}
-                  className="h-8 px-2"
-                  onClick={() => setMode('chat')}
-                  title="Chat mode"
-                >
-                  <MessageSquare className="h-3 w-3" />
-                </Button>
+            <div className="flex gap-2 sm:flex-col sm:gap-2 sm:self-end">
+              {/* Mode toggle - horizontal on mobile, vertical on desktop */}
+              <div className="flex gap-1 flex-1 sm:flex-initial">
                 <Button
                   size="sm"
                   variant={mode === 'research' ? 'default' : 'outline'}
-                  className={cn('h-8 px-2', mode === 'research' && 'bg-indigo-600 hover:bg-indigo-700')}
+                  className={cn(
+                    'flex-1 sm:flex-initial sm:h-8 sm:px-2',
+                    'h-9 min-w-[36px] px-2',
+                    mode === 'research' && 'bg-indigo-600 hover:bg-indigo-700'
+                  )}
                   onClick={() => setMode('research')}
                   title="Research mode"
                 >
-                  <Globe className="h-3 w-3" />
+                  <Globe className="h-4 w-4" />
+                </Button>
+                <Button
+                  size="sm"
+                  variant={mode === 'chat' ? 'default' : 'outline'}
+                  className="flex-1 sm:flex-initial sm:h-8 sm:px-2 h-9 min-w-[36px] px-2"
+                  onClick={() => setMode('chat')}
+                  title="Chat mode"
+                >
+                  <MessageSquare className="h-4 w-4" />
                 </Button>
               </div>
               {/* Reasoning effort - only show in chat mode */}
@@ -453,7 +494,7 @@ export function ConversationView() {
                 <select
                   value={reasoningEffort}
                   onChange={(e) => setReasoningEffort(e.target.value as ReasoningEffort)}
-                  className="h-8 px-2 text-xs border border-slate-200 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="h-9 sm:h-8 px-2 text-xs border border-slate-200 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                   title="Reasoning effort: how deeply the model thinks"
                 >
                   <option value="low">⚡ Low</option>
@@ -462,7 +503,7 @@ export function ConversationView() {
                 </select>
               )}
               {isGenerating ? (
-                <Button onClick={handleStop} variant="destructive">
+                <Button onClick={handleStop} variant="destructive" className="h-9 sm:h-auto min-w-[36px] px-2">
                   <Square className="h-4 w-4 fill-current" />
                 </Button>
               ) : (
@@ -470,7 +511,10 @@ export function ConversationView() {
                   <Button
                     onClick={handleSubmit}
                     disabled={!message.trim() || isSubmitting || hasActiveRun}
-                    className={mode === 'research' ? 'bg-indigo-600 hover:bg-indigo-700' : ''}
+                    className={cn(
+                      'h-9 sm:h-auto min-w-[36px] px-2',
+                      mode === 'research' ? 'bg-indigo-600 hover:bg-indigo-700' : ''
+                    )}
                   >
                     {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                   </Button>
@@ -482,13 +526,15 @@ export function ConversationView() {
             {hasActiveRun
               ? '⏳ Waiting for active run to complete...'
               : mode === 'research'
-                ? '🌐 Research mode: web search + analysis'
+                ? '🌐 Agent mode: web search + analysis'
                 : reasoningEffort === 'high'
                   ? '🔬 Deep reasoning'
                   : reasoningEffort === 'medium'
                     ? '🧠 Balanced'
-                    : '⚡ Fast'}{' '}
-            · ⌘/Ctrl+Enter send · ⌘/Ctrl+Shift+R agent · ⌘/Ctrl+Shift+C chat
+                    : '⚡ Fast'}
+            <span className="hidden md:inline">
+              {' '}· Press ⌘/Ctrl+Enter to send · ⌘/Ctrl+1 for Agent · ⌘/Ctrl+2 for Chat
+            </span>
           </p>
         </div>
       </div>
@@ -497,13 +543,22 @@ export function ConversationView() {
 
   return (
     <div className="h-full flex flex-col">
-      <div className="border-b px-6 py-4">
-        <h2 className="text-lg font-semibold">
+      <div className="border-b px-3 sm:px-4 md:px-6 py-3 sm:py-4 flex items-center justify-between">
+        <h2 className="text-base sm:text-lg font-semibold">
           {conversation?.title || 'Conversation'}
         </h2>
+        <button
+          onClick={() => navigate('/benchmarks')}
+          className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white shadow-sm hover:shadow-md transition-all duration-200"
+          title="View GAIA benchmark results"
+        >
+          <BarChart3 className="h-3.5 w-3.5" />
+          <span className="font-semibold">Benchmarks</span>
+          <ChevronRight className="h-3.5 w-3.5" />
+        </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-6 py-6" ref={scrollRef}>
+      <div className="flex-1 overflow-y-auto px-3 sm:px-4 md:px-6 py-4 sm:py-5 md:py-6" ref={scrollRef}>
         <div className="space-y-8">
           {runs.map((run) =>
             run.mode === 'agent' ? (
@@ -523,37 +578,41 @@ export function ConversationView() {
         </div>
       </div>
 
-      <div className="border-t p-4">
-        <div className="flex gap-3">
+      <div className="border-t p-3 sm:p-4">
+        <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
           <Textarea
-            placeholder={mode === 'research' ? 'Research a topic...' : 'Ask a follow-up question...'}
+            placeholder={mode === 'research' ? 'Ask agent to research...' : 'Ask a follow-up question...'}
             value={message}
             onChange={(e) => setMessage(e.target.value)}
             onKeyDown={handleKeyDown}
-            rows={2}
-            className="resize-none"
+            rows={3}
+            className="resize-none flex-1"
             disabled={isSubmitting}
           />
-          <div className="flex flex-col gap-2 self-end">
-            {/* Mode toggle */}
-            <div className="flex gap-1">
-              <Button
-                size="sm"
-                variant={mode === 'chat' ? 'default' : 'outline'}
-                className="h-8 px-2"
-                onClick={() => setMode('chat')}
-                title="Chat mode"
-              >
-                <MessageSquare className="h-3 w-3" />
-              </Button>
+          <div className="flex gap-2 sm:flex-col sm:gap-2 sm:self-end">
+            {/* Mode toggle - horizontal on mobile, vertical on desktop */}
+            <div className="flex gap-1 flex-1 sm:flex-initial">
               <Button
                 size="sm"
                 variant={mode === 'research' ? 'default' : 'outline'}
-                className={cn('h-8 px-2', mode === 'research' && 'bg-indigo-600 hover:bg-indigo-700')}
+                className={cn(
+                  'flex-1 sm:flex-initial sm:h-8 sm:px-2',
+                  'h-9 min-w-[36px] px-2',
+                  mode === 'research' && 'bg-indigo-600 hover:bg-indigo-700'
+                )}
                 onClick={() => setMode('research')}
                 title="Research mode"
               >
-                <Globe className="h-3 w-3" />
+                <Globe className="h-4 w-4" />
+              </Button>
+              <Button
+                size="sm"
+                variant={mode === 'chat' ? 'default' : 'outline'}
+                className="flex-1 sm:flex-initial sm:h-8 sm:px-2 h-9 min-w-[36px] px-2"
+                onClick={() => setMode('chat')}
+                title="Chat mode"
+              >
+                <MessageSquare className="h-4 w-4" />
               </Button>
             </div>
             {/* Reasoning effort - only show in chat mode */}
@@ -561,7 +620,7 @@ export function ConversationView() {
               <select
                 value={reasoningEffort}
                 onChange={(e) => setReasoningEffort(e.target.value as ReasoningEffort)}
-                className="h-8 px-2 text-xs border border-slate-200 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="h-9 sm:h-8 px-2 text-xs border border-slate-200 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                 title="Reasoning effort: how deeply the model thinks"
               >
                 <option value="low">⚡ Low</option>
@@ -570,14 +629,17 @@ export function ConversationView() {
               </select>
             )}
             {isGenerating ? (
-              <Button onClick={handleStop} variant="destructive">
+              <Button onClick={handleStop} variant="destructive" className="h-9 sm:h-auto min-w-[36px] px-2">
                 <Square className="h-4 w-4 fill-current" />
               </Button>
             ) : (
               <Button
                 onClick={handleSubmit}
                 disabled={!message.trim() || isSubmitting}
-                className={mode === 'research' ? 'bg-indigo-600 hover:bg-indigo-700' : ''}
+                className={cn(
+                  'h-9 sm:h-auto min-w-[36px] px-2',
+                  mode === 'research' ? 'bg-indigo-600 hover:bg-indigo-700' : ''
+                )}
               >
                 {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
               </Button>
@@ -586,13 +648,15 @@ export function ConversationView() {
         </div>
         <p className="text-xs text-slate-500 mt-2">
           {mode === 'research'
-            ? '🌐 Research mode: web search + analysis'
+            ? '🌐 Agent mode: web search + analysis'
             : reasoningEffort === 'high'
               ? '🔬 Deep reasoning'
               : reasoningEffort === 'medium'
                 ? '🧠 Balanced'
-                : '⚡ Fast'}{' '}
-          · ⌘/Ctrl+Enter send · ⌘/Ctrl+Shift+R agent · ⌘/Ctrl+Shift+C chat
+                : '⚡ Fast'}
+          <span className="hidden md:inline">
+            {' '}· Press ⌘/Ctrl+Enter to send · ⌘/Ctrl+1 for Agent · ⌘/Ctrl+2 for Chat
+          </span>
         </p>
       </div>
     </div>
