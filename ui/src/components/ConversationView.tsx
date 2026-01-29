@@ -428,6 +428,11 @@ export function ConversationView() {
                 ? 'Ask complex questions requiring multi-step research'
                 : 'Have a conversation with reasoning-capable AI'}
             </p>
+            {mode === 'research' && (
+              <p className="text-xs text-slate-400 mt-1">
+                120B open-weight MoE · web search · content extraction · code execution
+              </p>
+            )}
           </div>
 
           {/* Preset Questions - only show in agent mode */}
