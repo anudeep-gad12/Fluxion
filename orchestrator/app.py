@@ -268,11 +268,6 @@ if STATIC_DIR.exists() and os.environ.get("SERVE_STATIC", "false").lower() == "t
     # Serve static assets with caching
     app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
 
-    @app.get("/vite.svg")
-    async def serve_favicon():
-        """Serve Vite favicon."""
-        return FileResponse(STATIC_DIR / "vite.svg")
-
     @app.get("/{full_path:path}")
     async def serve_spa(full_path: str):
         """Serve SPA for all non-API routes."""
