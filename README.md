@@ -1,17 +1,18 @@
-# Reasoner
+# Is It Frontier?
 
-A local AI chat application with a FastAPI backend, React + Vite UI, and pluggable thinking system. It streams tokens in real time, stores full traces in SQLite, and exposes a REST + SSE API.
+An AI agent application with multi-step research, web search, Python execution, and reasoning capabilities. FastAPI backend + React/Vite frontend, backed by SQLite for full traceability.
 
 ## What It Does
 
-- Runs local or OpenAI-compatible LLMs via HTTP (LM Studio, vLLM, Ollama, OpenAI)
-- Provider abstraction layer with dual endpoint support (`/v1/responses` + `/v1/chat/completions`)
-- Two reasoning strategies: **direct** (single call) and **cot** (chain-of-thought with token budgets)
-- Native reasoning support for gpt-oss models via `reasoning_effort` parameter
-- Streams answer and thinking tokens over SSE
-- Persists conversations, runs, and trace events in SQLite
-- Provides a UI for chats, streaming, thinking display, and trace inspection
-- **Research Mode**: Agent with web search, content extraction, and Python execution
+- **Dual Mode**: Chat mode (conversational AI) and Agent mode (multi-step research with tools)
+- **Agent Framework**: Planning, web search, content extraction, Python execution, findings synthesis
+- **Streaming**: Real-time token streaming via Server-Sent Events (SSE) with auto-reconnect
+- **Provider Abstraction**: OpenAI-compatible providers (DeepInfra cloud default, supports local llama-server, vLLM, Ollama)
+- **Provider Failover**: Circuit breaker pattern with automatic provider switching
+- **Full Traceability**: Every LLM call, tool execution, and agent step recorded in SQLite
+- **Benchmarks**: GAIA benchmark evaluation with results dashboard
+- **Demo Mode**: Rate limiting and sidebar restrictions for public deployments
+- **Mobile-Responsive**: Progressive enhancement from 320px phones to 1920px+ desktops
 
 ## Documentation
 
@@ -19,31 +20,44 @@ Comprehensive documentation is available in the `docs/` folder:
 
 | Document | Description |
 |----------|-------------|
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Complete system architecture with diagrams |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System architecture with diagrams |
+| [docs/COMPONENTS.md](docs/COMPONENTS.md) | Every backend and frontend component |
 | [docs/DATA_MODELS.md](docs/DATA_MODELS.md) | Database schema, Pydantic models, TypeScript types |
 | [docs/DATA_FLOW.md](docs/DATA_FLOW.md) | Request lifecycle, streaming, provider failover |
-| [docs/COMPONENTS.md](docs/COMPONENTS.md) | Every backend and frontend component |
 | [docs/API_REFERENCE.md](docs/API_REFERENCE.md) | Complete REST API and SSE documentation |
+| [docs/BENCHMARKS.md](docs/BENCHMARKS.md) | GAIA benchmark results and methodology |
+| [docs/IMPLEMENTATION_LOG.md](docs/IMPLEMENTATION_LOG.md) | Feature tracking and change history |
+| [docs/WORKFLOW.md](docs/WORKFLOW.md) | Development process guide |
 
 ## Architecture Snapshot
 
 ```
 Browser (React + Vite)
-  - Conversation list, chat view, thinking panel, trace panel
-  - Zustand store, SSE hook
+  - Conversation list, chat view, agent steps panel
+  - Zustand store, SSE hooks (useSSE, useAgentSSE)
         |
         | HTTP + SSE
         v
 FastAPI Backend
-  - Routes: conversations, runs
+  - Routes: conversations, runs, agent/runs, benchmarks
   - ChatEngine: model orchestration + streaming
-  - ThinkingOrchestrator: strategy selection (direct, cot)
-  - Provider abstraction: LLMProvider protocol
-  - SQLite repositories (conversations, runs, trace_events)
+  - AgentEngine: planning, tool calling, synthesis
+  - ThinkingOrchestrator: strategy selection (direct)
+  - Provider layer: LLMProvider protocol + circuit breaker
+  - Middleware: rate limiting, security headers, request logging
+  - SQLite repositories (conversations, runs, trace_events,
+                         agent_steps, agent_tool_calls)
         |
         | OpenAI-compatible HTTP
         v
-LLM Server (LM Studio / vLLM / Ollama / OpenAI)
+LLM Provider (DeepInfra / llama-server / vLLM / Ollama)
+
+        |
+        | HTTP APIs
+        v
+External Tools
+  - Parallel.ai (web search + content extraction)
+  - Python execution (local subprocess or Daytona sandbox)
 ```
 
 ## Quick Start
@@ -66,17 +80,28 @@ Or:
 just install
 ```
 
-### 2) Start a model server
+### 2) Configure environment
 
-- **LM Studio** (default): Run a model on `http://127.0.0.1:1234`
-- **Ollama**: `ollama serve` on default port
-- **vLLM**: Start with OpenAI-compatible API enabled
+```bash
+# Required for cloud deployment (DeepInfra)
+export DEEPINFRA_API_KEY=your_key
+
+# Required for agent web search
+export PARALLEL_API_KEY=your_key
+
+# Optional overrides
+export LLM_BASE_URL=http://localhost:8080/v1  # For local llama-server
+export LLM_MODEL=your-model-name
+export LLM_ENDPOINT=chat_completions         # responses | chat_completions | auto
+```
 
 ### 3) Run the app
 
 ```bash
-# UI + API (Procfile)
-honcho start
+# UI + API
+just dev
+# or
+./dev.sh start
 ```
 
 Or separately:
@@ -88,51 +113,105 @@ cd ui && pnpm dev
 
 Open http://localhost:3000
 
+## Agent Framework
+
+The agent operates as a state machine with planning, tool execution, and synthesis:
+
+```
+Query -> Plan -> Execute Tools (loop) -> Synthesize Answer
+```
+
+### Available Tools
+
+| Tool | Description | Provider |
+|------|-------------|----------|
+| `web_search` | Search the web for information | Parallel.ai |
+| `web_extract` | Extract content from URLs | Parallel.ai |
+| `python_execute` | Run Python code for calculations | Local subprocess or Daytona |
+
+### Agent Features
+
+- **Planning Step**: Generates a structured research plan before executing (configurable)
+- **Query Classification**: Detects query type (calculation, research, general) for tool selection
+- **Findings Accumulator**: Extracts and tracks key findings across tool executions
+- **Context Pruning**: LLM-based summarization to stay within token budgets
+- **Crash Recovery**: Idempotency keys and execution attempt tracking
+- **Citation Tracking**: Sources from web search are linked in the final answer
+
 ## Repository Layout
 
 ```
 reasoner/
 ├── orchestrator/              # Backend (FastAPI)
-│   ├── app.py                 # FastAPI entrypoint, routers, CORS
+│   ├── app.py                 # FastAPI entrypoint, middleware, routers
 │   ├── config.py              # ChatConfig + loader for chat_config.yaml
-│   ├── chat_config.yaml       # Runtime settings (model, thinking, tracing)
+│   ├── chat_config.yaml       # Runtime settings (single source of truth)
 │   ├── schemas.py             # API request/response models
+│   ├── logging_config.py      # Structured JSON logging
 │   ├── engine/
 │   │   └── chat_engine.py     # Orchestrates model calls + streaming
+│   ├── agent/
+│   │   ├── agent_engine.py    # Agent loop with tool calling
+│   │   ├── state_machine.py   # Agent state management
+│   │   ├── context_pruner.py  # Token budget management
+│   │   ├── query_classifier.py# Query type classification
+│   │   ├── recovery.py        # Crash recovery support
+│   │   └── tools/
+│   │       ├── base.py        # BaseTool protocol
+│   │       ├── registry.py    # Tool registry
+│   │       ├── web_search.py  # Parallel.ai web search
+│   │       ├── web_extract.py # Content extraction
+│   │       ├── python_local.py    # Local Python execution
+│   │       ├── python_daytona.py  # Daytona cloud sandbox
+│   │       └── python_sandbox.py  # E2B sandbox (optional)
 │   ├── providers/             # LLM provider abstraction layer
-│   │   ├── base.py            # LLMProvider protocol, LLMResponse dataclass
-│   │   ├── factory.py         # Provider factory
+│   │   ├── base.py            # LLMProvider protocol, LLMResponse
+│   │   ├── factory.py         # Provider factory (single or chained)
 │   │   ├── openai_compat.py   # OpenAI-compatible client
+│   │   ├── chain.py           # Provider chain with failover
+│   │   ├── circuit_breaker.py # Circuit breaker implementation
 │   │   ├── request_builders.py
 │   │   └── response_parsers.py
 │   ├── thinking/              # Thinking strategies + orchestrator
 │   │   ├── base.py            # ThinkingStrategy, StreamParser, data models
 │   │   ├── orchestrator.py    # Strategy registry and routing
 │   │   └── strategies/
-│   │       ├── direct.py      # No explicit thinking (fastest)
-│   │       └── cot.py         # Chain-of-thought with token budgets
-│   ├── routes/                # API routes (conversations, runs)
+│   │       └── direct.py      # Single model call (fastest)
+│   ├── middleware/
+│   │   └── rate_limit.py      # IP-based rate limiting for demo mode
+│   ├── routes/
+│   │   ├── conversations.py   # Conversation CRUD
+│   │   ├── runs.py            # Chat runs + SSE streaming
+│   │   ├── agent_runs.py      # Agent runs + SSE streaming
+│   │   └── benchmarks.py      # GAIA benchmark results
 │   ├── storage/               # SQLite schema + repositories
 │   │   ├── db.py
 │   │   ├── schema.sql
 │   │   └── repositories/
 │   │       ├── conversation_repo.py
-│   │       └── trace_repo.py
+│   │       ├── trace_repo.py
+│   │       └── agent_repo.py
 │   ├── reporting/             # Report builder for runs
-│   └── utils/                 # Token counting, prompt helpers
+│   └── utils/                 # Token counting, sanitization, parsing
 ├── ui/                        # Frontend (React + Vite)
 │   └── src/
-│       ├── components/        # Conversation UI, thinking panel, trace panel
-│       ├── hooks/             # Zustand store, SSE hook
+│       ├── components/
+│       │   ├── ConversationView.tsx  # Chat interface + agent mode
+│       │   ├── ConversationList.tsx  # Sidebar conversation list
+│       │   ├── AgentRunMessage.tsx   # Agent run display
+│       │   ├── AgentStepsPanel.tsx   # Agent steps visualization
+│       │   ├── ToolCallCard.tsx      # Tool execution display
+│       │   ├── BenchmarksPage.tsx    # GAIA benchmark results
+│       │   ├── TracesModal.tsx       # Evaluation traces viewer
+│       │   ├── DetailPanel.tsx       # Trace/event inspector
+│       │   ├── ThinkingPanel.tsx     # Thinking display
+│       │   └── AnswerMarkdown.tsx    # Markdown rendering
+│       ├── hooks/             # Zustand store, SSE hooks
 │       ├── api/               # REST + SSE client
 │       └── types/             # Shared TS types
 ├── docs/                      # Comprehensive documentation
-│   ├── ARCHITECTURE.md        # System architecture
-│   ├── DATA_MODELS.md         # Data models reference
-│   ├── DATA_FLOW.md           # Data flow diagrams
-│   ├── COMPONENTS.md          # Component documentation
-│   └── API_REFERENCE.md       # API documentation
-├── ARCHITECTURE.md            # Architecture overview (see docs/ for details)
+├── tests/                     # Unit + integration tests
+├── scripts/                   # Dev and test scripts
 ├── Procfile                   # Dev process manager
 ├── justfile                   # Dev tasks
 └── var/                       # SQLite DB and runtime artifacts
@@ -140,26 +219,13 @@ reasoner/
 
 ## Thinking System
 
-The backend supports two reasoning strategies under `orchestrator/thinking/strategies/`:
+The backend supports reasoning strategies under `orchestrator/thinking/strategies/`:
 
 | Strategy | Description | Use Case |
 |----------|-------------|----------|
 | `direct` | Single model call, no explicit reasoning | Fast responses, gpt-oss with native reasoning |
-| `cot` | Chain-of-thought with `[THINK]...[/THINK]` tags | Models without native reasoning support |
 
 **Native Reasoning (gpt-oss)**: When using gpt-oss models, set `reasoning_effort` (low/medium/high) in config. The model's native reasoning is captured and displayed as `thinking_summary`.
-
-**Token Budgeting (TALE-EP)**: The CoT strategy uses token budgets to constrain thinking, achieving 67% token reduction while maintaining accuracy.
-
-The `ChatEngine` uses `ThinkingOrchestrator` to select a strategy based on config mapping:
-
-```yaml
-thinking:
-  mode_mapping:
-    default: "direct"    # Fast path
-    thinking: "direct"   # For gpt-oss (native reasoning)
-    # Use "cot" for thinking mode with non-gpt-oss models
-```
 
 ## Provider Abstraction
 
@@ -167,20 +233,23 @@ All LLM interactions go through the provider layer (`orchestrator/providers/`):
 
 - **Dual endpoint support**: Tries `/v1/responses` first, falls back to `/v1/chat/completions`
 - **Retry logic**: Exponential backoff with jitter for transient failures
+- **Circuit breaker**: Tracks provider health, auto-switches on repeated failures
+- **Provider chain**: Priority-based failover across multiple providers (e.g., DeepInfra -> Together AI)
 - **Native reasoning**: Captures gpt-oss reasoning via separate callback
 - **Tool support**: Structured tool calls with gpt-oss models
 
 ## Data & Tracing
 
-SQLite stores three core entities:
+SQLite stores these core entities:
 
 | Table | Description |
 |-------|-------------|
 | `conversations` | Chat sessions with title, summary, status |
 | `runs` | One run per user message, stores final answer + thinking summary |
 | `trace_events` | Granular timeline of LLM requests/responses/errors/thinking steps |
-
-Thinking steps are stored as trace_events with `event_type="thinking"`. The UI uses `thinking_summary` for display. Detailed traces are available via `/api/runs/{id}/timeline`.
+| `agent_steps` | Agent execution steps (plan, search, extract, synthesize) |
+| `agent_tool_calls` | Individual tool call results with idempotency keys |
+| `agent_citations` | Source citations from web research |
 
 ## API Summary
 
@@ -191,6 +260,7 @@ Thinking steps are stored as trace_events with `event_type="thinking"`. The UI u
 - `GET /api/conversations/{id}` - Get conversation + runs
 - `PATCH /api/conversations/{id}` - Update (title, summary, status)
 - `DELETE /api/conversations/{id}` - Delete conversation
+- `GET /api/conversations/{id}/traces` - Get all conversation traces
 
 ### Runs
 
@@ -203,6 +273,15 @@ Thinking steps are stored as trace_events with `event_type="thinking"`. The UI u
 - `GET /api/runs/{id}/timeline` - Get trace event timeline
 - `GET /api/runs/{id}/report` - Get markdown report
 - `GET /api/runs/{id}/thinking` - Get thinking traces
+- `POST /api/runs/{id}/abort` - Cancel run
+
+### Agent Runs
+
+- `POST /api/agent/runs` - Create agent run (query, max_steps)
+- `GET /api/agent/runs/{id}` - Get agent run status + steps
+- `GET /api/agent/runs/{id}/trace` - Get full agent trace
+- `GET /api/agent/runs/{id}/stream` - SSE stream (agent events)
+- `POST /api/agent/runs/{id}/cancel` - Cancel agent run
 
 ### System
 
@@ -215,34 +294,50 @@ All runtime settings live in `orchestrator/chat_config.yaml`:
 
 ```yaml
 provider:
-  base_url: ${LLM_BASE_URL:-http://127.0.0.1:1234}
-  api_key: ${LLM_API_KEY:-}
-  endpoint: "responses"       # responses | chat_completions | auto
+  base_url: ${LLM_BASE_URL:-https://api.deepinfra.com/v1/openai}
+  api_key: ${DEEPINFRA_API_KEY:-}
+  endpoint: ${LLM_ENDPOINT:-chat_completions}
   fallback_on_404: true
 
 model:
-  name: "openai/gpt-oss-20b"
+  name: ${LLM_MODEL:-openai/gpt-oss-120b}
   temperature: 1.0
   max_tokens: 4096
-  reasoning_effort: "medium"  # For gpt-oss: low | medium | high
+  reasoning_effort: "medium"    # For gpt-oss: low | medium | high
 
 context:
   max_messages: 50
-  max_tokens: 6000
+  max_tokens: 100000
 
-thinking:
-  mode_mapping:
-    default: "direct"
-    thinking: "direct"
+parallel:                       # Web search & extract (Parallel.ai)
+  api_key: ${PARALLEL_API_KEY:-}
+
+agent_planning:
+  enabled: true
+  max_plan_steps: 5
+
+demo:
+  enabled: ${DEMO_MODE:-false}
+  rate_limit:
+    max_agent_runs_per_hour: 10
+    max_chat_runs_per_hour: 30
 ```
 
-Environment variable syntax:
+### Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `DEEPINFRA_API_KEY` | DeepInfra API key | (none) |
+| `PARALLEL_API_KEY` | Parallel.ai API key (web search) | (none) |
+| `LLM_BASE_URL` | LLM provider base URL | `https://api.deepinfra.com/v1/openai` |
+| `LLM_MODEL` | Model name | `openai/gpt-oss-120b` |
+| `LLM_ENDPOINT` | Endpoint type | `chat_completions` |
+| `DEMO_MODE` | Enable demo mode | `false` |
+| `DEMO_OWNER_SECRET` | Owner bypass secret | (none) |
+| `DAYTONA_API_KEY` | Daytona sandbox API key | (none) |
+
+Environment variable syntax in config:
 - `${VAR}` - Required, errors if not set
 - `${VAR:-default}` - Optional with default value
 
 Changes require a backend restart.
-
-## Notes
-
-- Evaluation tables (`eval_runs`, `eval_samples`) exist in `schema.sql` but are not wired to routes yet
-- The `architecture-diagram.html` file provides a visual overview (open in browser)
