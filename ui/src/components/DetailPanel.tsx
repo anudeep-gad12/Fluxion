@@ -1,12 +1,12 @@
-// Detail panel - raw trace view for debugging (developer only)
-// This shows ALL events including internal state, for debugging purposes
+// Detail panel - execution trace viewer
+// Shows event timeline for runs including LLM requests, tool calls, and agent steps
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useRunEvents, useSelectedRun, useStore } from '@/hooks/useStore';
 import { cn } from '@/lib/utils';
-import { Copy, X, Bug, Eye, EyeOff, RefreshCw } from 'lucide-react';
+import { Copy, X, ListTree, Eye, EyeOff, RefreshCw } from 'lucide-react';
 import { getRun, getRunTimeline, getConversationTraces, type TraceEvent, type ConversationTraceEvent } from '@/api/client';
 import type { Event } from '@/types';
 
@@ -302,14 +302,11 @@ export function DetailPanel() {
           </div>
         )}
 
-        <div className="flex items-center justify-between px-4 py-3 border-b bg-amber-50 flex-shrink-0">
+        <div className="flex items-center justify-between px-4 py-3 border-b bg-slate-50 flex-shrink-0">
           <div>
             <h3 className="font-semibold text-sm flex items-center gap-2">
-              <Bug className="h-4 w-4 text-amber-600" />
-              Debug Trace
-              <span className="text-xs bg-amber-200 text-amber-800 px-1.5 py-0.5 rounded">
-                Dev Only
-              </span>
+              <ListTree className="h-4 w-4 text-slate-600" />
+              Execution Trace
             </h3>
             {selectedRunId && (
               <p className="text-xs text-slate-500 mt-1">Run {selectedRunId}</p>
