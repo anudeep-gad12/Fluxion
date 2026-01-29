@@ -1,5 +1,5 @@
-// Detail panel - raw trace view for debugging (developer only)
-// This shows ALL events including internal state, for debugging purposes
+// Detail panel - execution trace viewer
+// Shows event timeline for runs including LLM requests, tool calls, and agent steps
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';

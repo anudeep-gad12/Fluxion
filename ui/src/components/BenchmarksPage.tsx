@@ -32,9 +32,9 @@ const COMPARISON_DATA = [
   { system: 'HAL + GPT-5 Medium', overall: 59.4, l1: 67.9, l2: 58.1, l3: 46.2, cost: 105 },
   { system: 'HF + o4-mini Low', overall: 47.9, l1: 58.5, l2: 47.7, l3: 26.9, cost: 81 },
   { system: 'This Agent (gpt-oss-120b)', overall: 45.7, l1: 64.3, l2: 37.9, l3: 31.6, cost: 5, isOurs: true },
+  { system: 'HAL + Gemini 2.0 Flash', overall: 32.7, l1: 43.4, l2: 32.6, l3: 11.5, cost: 8 },
   { system: 'HAL + DeepSeek R1', overall: 30.3, l1: 43.4, l2: 27.9, l3: 11.5, cost: 73 },
   { system: 'HAL + DeepSeek V3', overall: 29.4, l1: 38.7, l2: 32.0, l3: 1.9, cost: 17 },
-  { system: 'HAL + Gemini 2.0 Flash', overall: 32.7, l1: 43.4, l2: 32.6, l3: 11.5, cost: 8 },
 ];
 
 export function BenchmarksPage() {
