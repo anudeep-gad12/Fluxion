@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Trophy, DollarSign, Cpu, ExternalLink, FileText } from 'lucide-react';
+import { ArrowLeft, Trophy, DollarSign, Cpu, ExternalLink, FileText, Play, Globe, Code, FileSearch } from 'lucide-react';
 import { TracesModal } from '@/components/TracesModal';
 
 // Benchmark data from docs/BENCHMARKS.md
@@ -32,6 +32,7 @@ const COMPARISON_DATA = [
   { system: 'HAL + GPT-5 Medium', overall: 59.4, l1: 67.9, l2: 58.1, l3: 46.2, cost: 105 },
   { system: 'HF + o4-mini Low', overall: 47.9, l1: 58.5, l2: 47.7, l3: 26.9, cost: 81 },
   { system: 'This Agent (gpt-oss-120b)', overall: 45.7, l1: 64.3, l2: 37.9, l3: 31.6, cost: 5, isOurs: true },
+  { system: 'HAL + Gemini 2.0 Flash', overall: 32.7, l1: 43.4, l2: 32.6, l3: 11.5, cost: 8 },
   { system: 'HAL + DeepSeek R1', overall: 30.3, l1: 43.4, l2: 27.9, l3: 11.5, cost: 73 },
   { system: 'HAL + DeepSeek V3', overall: 29.4, l1: 38.7, l2: 32.0, l3: 1.9, cost: 17 },
 ];
@@ -53,10 +54,18 @@ export function BenchmarksPage() {
           >
             <ArrowLeft className="h-4 w-4" />
           </Button>
-          <div>
+          <div className="flex-1">
             <h1 className="text-lg sm:text-xl font-bold">Benchmarks</h1>
             <p className="text-xs sm:text-sm text-muted-foreground">GAIA Benchmark Performance</p>
           </div>
+          <Button
+            onClick={() => navigate('/conversations')}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white gap-2"
+          >
+            <Play className="h-4 w-4" />
+            <span className="hidden sm:inline">Try the Agent</span>
+            <span className="sm:hidden">Try it</span>
+          </Button>
         </div>
       </header>
 
@@ -118,6 +127,37 @@ export function BenchmarksPage() {
             </CardContent>
           </Card>
         </section>
+
+        {/* About This Agent */}
+        <Card className="border-indigo-200 bg-gradient-to-br from-indigo-50/50 to-slate-50">
+          <CardHeader>
+            <CardTitle>About This Agent</CardTitle>
+            <CardDescription>
+              Full agent scaffold with planning, tool use, and execution tracing
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              End-to-end agent system powered by {BENCHMARK_RESULTS.model}, a 120B
+              Mixture-of-Experts open-weight reasoning model. Multi-step planning,
+              tool orchestration, execution tracing, and real-time streaming.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Badge variant="outline" className="border-indigo-200 text-indigo-700">
+                <Globe className="h-3 w-3 mr-1" />
+                Web Search
+              </Badge>
+              <Badge variant="outline" className="border-indigo-200 text-indigo-700">
+                <FileSearch className="h-3 w-3 mr-1" />
+                Content Extraction
+              </Badge>
+              <Badge variant="outline" className="border-indigo-200 text-indigo-700">
+                <Code className="h-3 w-3 mr-1" />
+                Python Execution
+              </Badge>
+            </div>
+          </CardContent>
+        </Card>
 
         {/* About GAIA */}
         <Card>
@@ -267,7 +307,7 @@ export function BenchmarksPage() {
           <CardHeader>
             <CardTitle>Comparison with Top Systems</CardTitle>
             <CardDescription>
-              Data from{' '}
+              Leaderboard data from{' '}
               <a
                 href="https://hal.cs.princeton.edu/gaia"
                 target="_blank"
@@ -276,7 +316,7 @@ export function BenchmarksPage() {
               >
                 HAL Princeton GAIA Leaderboard
               </a>
-              {' '}(January 2026)
+              {' '}(January 2026). This agent's results are self-evaluated on the same validation set.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -458,14 +498,14 @@ export function BenchmarksPage() {
               <li className="flex items-start gap-3">
                 <Badge variant="outline" className="mt-0.5 shrink-0">📊</Badge>
                 <span>
-                  Full evaluation traces with question-answer pairs and step-by-step execution logs
-                  were captured for all {BENCHMARK_RESULTS.totalQuestions} questions.{' '}
+                  Full evaluation traces were captured for all {BENCHMARK_RESULTS.totalQuestions} questions.
+                  Per GAIA guidelines, question-answer pairs are not published to prevent benchmark contamination.{' '}
                   <button
                     onClick={() => setTracesModalOpen(true)}
                     className="text-blue-500 hover:underline inline-flex items-center gap-1"
                   >
                     <FileText className="h-3 w-3" />
-                    View traces
+                    View results
                   </button>
                 </span>
               </li>
