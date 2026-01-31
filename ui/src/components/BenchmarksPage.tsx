@@ -8,34 +8,58 @@ import { Button } from '@/components/ui/button';
 import { ArrowLeft, Trophy, DollarSign, Cpu, ExternalLink, FileText, Play, Globe, Code, FileSearch } from 'lucide-react';
 import { TracesModal } from '@/components/TracesModal';
 
-// Benchmark data from docs/BENCHMARKS.md
-const BENCHMARK_RESULTS = {
-  model: 'gpt-oss-120b',
-  provider: 'DeepInfra',
-  date: 'January 2026',
-  totalQuestions: 127,
-  totalCorrect: 58,
-  overallAccuracy: 45.7,
-  overallRank: 18,
-  totalSystems: 32,
-  estimatedCost: 5,
-  levels: [
-    { level: 1, accuracy: 64.3, questions: 42, correct: 27, rank: 11 },
-    { level: 2, accuracy: 37.9, questions: 66, correct: 25, rank: 19 },
-    { level: 3, accuracy: 31.6, questions: 19, correct: 6, rank: 16 },
-  ],
-};
+// Benchmark data from gaia_results/best_runs/SUMMARY.md
+const MODELS = [
+  {
+    id: 'gpt-5-mini',
+    model: 'GPT-5-mini',
+    provider: 'OpenAI',
+    date: 'January 31, 2026',
+    totalQuestions: 127,
+    totalCorrect: 64,
+    overallAccuracy: 50.4,
+    estimatedCost: 8,
+    costPerQuestion: 0.065,
+    isDeployed: false,
+    levels: [
+      { level: 1, accuracy: 66.7, questions: 42, correct: 28 },
+      { level: 2, accuracy: 45.5, questions: 66, correct: 30 },
+      { level: 3, accuracy: 31.6, questions: 19, correct: 6 },
+    ],
+  },
+  {
+    id: 'gpt-oss-120b',
+    model: 'gpt-oss-120b',
+    provider: 'DeepInfra',
+    date: 'January 21-22, 2026',
+    totalQuestions: 127,
+    totalCorrect: 58,
+    overallAccuracy: 45.7,
+    estimatedCost: 4,
+    costPerQuestion: 0.031,
+    isDeployed: true,
+    levels: [
+      { level: 1, accuracy: 64.3, questions: 42, correct: 27 },
+      { level: 2, accuracy: 37.9, questions: 66, correct: 25 },
+      { level: 3, accuracy: 31.6, questions: 19, correct: 6 },
+    ],
+  },
+];
 
 const COMPARISON_DATA = [
   { system: 'HAL + Claude Sonnet 4.5', overall: 74.6, l1: 82.1, l2: 72.7, l3: 65.4, cost: 178 },
   { system: 'HAL + Claude Opus 4.1', overall: 68.5, l1: 71.7, l2: 70.9, l3: 53.9, cost: 562 },
   { system: 'HAL + GPT-5 Medium', overall: 59.4, l1: 67.9, l2: 58.1, l3: 46.2, cost: 105 },
+  { system: 'This Agent (GPT-5-mini)', overall: 50.4, l1: 66.7, l2: 45.5, l3: 31.6, cost: 8, isOurs: true },
   { system: 'HF + o4-mini Low', overall: 47.9, l1: 58.5, l2: 47.7, l3: 26.9, cost: 81 },
-  { system: 'This Agent (gpt-oss-120b)', overall: 45.7, l1: 64.3, l2: 37.9, l3: 31.6, cost: 5, isOurs: true },
+  { system: 'This Agent (gpt-oss-120b)', overall: 45.7, l1: 64.3, l2: 37.9, l3: 31.6, cost: 4, isOurs: true },
   { system: 'HAL + Gemini 2.0 Flash', overall: 32.7, l1: 43.4, l2: 32.6, l3: 11.5, cost: 8 },
   { system: 'HAL + DeepSeek R1', overall: 30.3, l1: 43.4, l2: 27.9, l3: 11.5, cost: 73 },
   { system: 'HAL + DeepSeek V3', overall: 29.4, l1: 38.7, l2: 32.0, l3: 1.9, cost: 17 },
 ];
+
+const bestModel = MODELS[0]; // GPT-5-mini (best results)
+const deployedModel = MODELS[1]; // gpt-oss-120b (deployed)
 
 export function BenchmarksPage() {
   const navigate = useNavigate();
@@ -77,16 +101,16 @@ export function BenchmarksPage() {
             <CardHeader className="pb-2">
               <CardDescription className="flex items-center gap-2">
                 <Trophy className="h-4 w-4 text-amber-600" />
-                Level 1 Rank
+                Best Accuracy
               </CardDescription>
-              <CardTitle className="text-3xl sm:text-4xl text-amber-700">#{BENCHMARK_RESULTS.levels[0].rank}</CardTitle>
+              <CardTitle className="text-3xl sm:text-4xl text-amber-700">{bestModel.overallAccuracy}%</CardTitle>
             </CardHeader>
             <CardContent>
               <p className="text-xs sm:text-sm text-amber-800">
-                {BENCHMARK_RESULTS.levels[0].accuracy}% accuracy on Level 1
+                {bestModel.totalCorrect}/{bestModel.totalQuestions} correct with {bestModel.model}
               </p>
               <p className="text-xs text-amber-600 mt-1">
-                Competitive with Claude-3.7 Sonnet
+                L1: {bestModel.levels[0].accuracy}% &middot; L2: {bestModel.levels[1].accuracy}% &middot; L3: {bestModel.levels[2].accuracy}%
               </p>
             </CardContent>
           </Card>
@@ -97,14 +121,14 @@ export function BenchmarksPage() {
                 <DollarSign className="h-4 w-4 text-emerald-600" />
                 Cost Efficiency
               </CardDescription>
-              <CardTitle className="text-3xl sm:text-4xl text-emerald-700">~${BENCHMARK_RESULTS.estimatedCost}</CardTitle>
+              <CardTitle className="text-3xl sm:text-4xl text-emerald-700">$4-8</CardTitle>
             </CardHeader>
             <CardContent>
               <p className="text-xs sm:text-sm text-emerald-800">
-                Per full evaluation run
+                Per full evaluation (127 questions)
               </p>
               <p className="text-xs text-emerald-600 mt-1">
-                vs $100-500+ for frontier models
+                10-100x cheaper than frontier systems
               </p>
             </CardContent>
           </Card>
@@ -113,16 +137,16 @@ export function BenchmarksPage() {
             <CardHeader className="pb-2">
               <CardDescription className="flex items-center gap-2">
                 <Cpu className="h-4 w-4 text-violet-600" />
-                Open-Weight Model
+                Two Models Tested
               </CardDescription>
-              <CardTitle className="text-3xl sm:text-4xl text-violet-700">#{BENCHMARK_RESULTS.overallRank}</CardTitle>
+              <CardTitle className="text-3xl sm:text-4xl text-violet-700">2</CardTitle>
             </CardHeader>
             <CardContent>
               <p className="text-xs sm:text-sm text-violet-800">
-                Overall rank of {BENCHMARK_RESULTS.totalSystems} systems
+                Same scaffold, different LLMs
               </p>
               <p className="text-xs text-violet-600 mt-1">
-                Using {BENCHMARK_RESULTS.model}
+                {bestModel.model} (best) &middot; {deployedModel.model} (deployed)
               </p>
             </CardContent>
           </Card>
@@ -133,14 +157,15 @@ export function BenchmarksPage() {
           <CardHeader>
             <CardTitle>About This Agent</CardTitle>
             <CardDescription>
-              Full agent scaffold with planning, tool use, and execution tracing
+              Single-agent scaffold with planning, tool use, and execution tracing
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              End-to-end agent system powered by {BENCHMARK_RESULTS.model}, a 120B
-              Mixture-of-Experts open-weight reasoning model. Multi-step planning,
-              tool orchestration, execution tracing, and real-time streaming.
+              End-to-end agent system with multi-step planning, tool orchestration,
+              execution tracing, and real-time streaming. The same scaffold runs with
+              different LLM backends — currently deployed with {deployedModel.model} (open-weight,
+              120B MoE reasoning model) and benchmarked with {bestModel.model} (OpenAI).
             </p>
             <div className="flex flex-wrap gap-2">
               <Badge variant="outline" className="border-indigo-200 text-indigo-700">
@@ -197,7 +222,7 @@ export function BenchmarksPage() {
           <CardHeader>
             <CardTitle>Results by Difficulty Level</CardTitle>
             <CardDescription>
-              Evaluated on {BENCHMARK_RESULTS.totalQuestions} questions from the validation set (no file attachments)
+              Evaluated on 127 questions from the validation set (no file attachments). Same scaffold, two different LLMs.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -207,97 +232,89 @@ export function BenchmarksPage() {
                 <thead>
                   <tr className="border-b">
                     <th className="text-left py-3 px-4 font-medium">Level</th>
-                    <th className="text-right py-3 px-4 font-medium">Accuracy</th>
-                    <th className="text-right py-3 px-4 font-medium">Correct</th>
-                    <th className="text-right py-3 px-4 font-medium">Total</th>
-                    <th className="text-right py-3 px-4 font-medium">Rank</th>
+                    {MODELS.map((m) => (
+                      <th key={m.id} className="text-right py-3 px-4 font-medium" colSpan={1}>
+                        {m.model}
+                        {m.isDeployed && <span className="text-xs text-muted-foreground ml-1">(deployed)</span>}
+                      </th>
+                    ))}
+                    <th className="text-right py-3 px-4 font-medium">Questions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {BENCHMARK_RESULTS.levels.map((level) => (
-                    <tr key={level.level} className="border-b last:border-0 hover:bg-muted/50">
+                  {[0, 1, 2].map((i) => (
+                    <tr key={i} className="border-b last:border-0 hover:bg-muted/50">
                       <td className="py-3 px-4">
-                        <span className="font-medium">Level {level.level}</span>
+                        <span className="font-medium">Level {i + 1}</span>
                       </td>
-                      <td className="text-right py-3 px-4 font-mono font-bold text-blue-600">
-                        {level.accuracy.toFixed(1)}%
-                      </td>
-                      <td className="text-right py-3 px-4 font-mono">{level.correct}</td>
+                      {MODELS.map((m) => (
+                        <td key={m.id} className="text-right py-3 px-4 font-mono">
+                          <span className="font-bold text-blue-600">{m.levels[i].accuracy.toFixed(1)}%</span>
+                          <span className="text-muted-foreground ml-1">({m.levels[i].correct})</span>
+                        </td>
+                      ))}
                       <td className="text-right py-3 px-4 font-mono text-muted-foreground">
-                        {level.questions}
-                      </td>
-                      <td className="text-right py-3 px-4">
-                        <Badge variant={level.rank <= 15 ? 'default' : 'secondary'}>
-                          #{level.rank}
-                        </Badge>
+                        {MODELS[0].levels[i].questions}
                       </td>
                     </tr>
                   ))}
                   <tr className="bg-muted/30 font-medium">
                     <td className="py-3 px-4">Overall</td>
-                    <td className="text-right py-3 px-4 font-mono font-bold text-blue-600">
-                      {BENCHMARK_RESULTS.overallAccuracy.toFixed(1)}%
-                    </td>
-                    <td className="text-right py-3 px-4 font-mono">{BENCHMARK_RESULTS.totalCorrect}</td>
-                    <td className="text-right py-3 px-4 font-mono text-muted-foreground">
-                      {BENCHMARK_RESULTS.totalQuestions}
-                    </td>
-                    <td className="text-right py-3 px-4">
-                      <Badge>#{BENCHMARK_RESULTS.overallRank}</Badge>
-                    </td>
+                    {MODELS.map((m) => (
+                      <td key={m.id} className="text-right py-3 px-4 font-mono">
+                        <span className="font-bold text-blue-600">{m.overallAccuracy.toFixed(1)}%</span>
+                        <span className="text-muted-foreground ml-1">({m.totalCorrect})</span>
+                      </td>
+                    ))}
+                    <td className="text-right py-3 px-4 font-mono text-muted-foreground">127</td>
+                  </tr>
+                  <tr className="bg-emerald-50/50">
+                    <td className="py-3 px-4 text-emerald-700">Cost</td>
+                    {MODELS.map((m) => (
+                      <td key={m.id} className="text-right py-3 px-4 font-mono text-emerald-700 font-medium">
+                        ${m.estimatedCost}
+                      </td>
+                    ))}
+                    <td className="text-right py-3 px-4 text-xs text-emerald-600">total</td>
                   </tr>
                 </tbody>
               </table>
             </div>
 
             {/* Mobile cards */}
-            <div className="md:hidden space-y-3">
-              {BENCHMARK_RESULTS.levels.map((level) => (
-                <div key={level.level} className="bg-slate-50 rounded-lg p-4 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="font-medium text-lg">Level {level.level}</span>
-                    <Badge variant={level.rank <= 15 ? 'default' : 'secondary'}>
-                      #{level.rank}
-                    </Badge>
+            <div className="md:hidden space-y-4">
+              {MODELS.map((m) => (
+                <div key={m.id} className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <h4 className="text-sm font-medium">{m.model}</h4>
+                    {m.isDeployed && <Badge variant="outline" className="text-xs">deployed</Badge>}
                   </div>
-                  <div className="grid grid-cols-2 gap-3 text-sm">
-                    <div>
-                      <div className="text-xs text-slate-500">Accuracy</div>
-                      <div className="font-mono font-bold text-blue-600">
-                        {level.accuracy.toFixed(1)}%
+                  {m.levels.map((level) => (
+                    <div key={level.level} className="bg-slate-50 rounded-lg p-3 space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium">Level {level.level}</span>
+                        <span className="font-mono font-bold text-blue-600 text-sm">
+                          {level.accuracy.toFixed(1)}%
+                        </span>
+                      </div>
+                      <div className="text-xs text-muted-foreground font-mono">
+                        {level.correct} / {level.questions} correct
                       </div>
                     </div>
-                    <div>
-                      <div className="text-xs text-slate-500">Correct / Total</div>
-                      <div className="font-mono">
-                        {level.correct} / {level.questions}
-                      </div>
+                  ))}
+                  <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium">Overall</span>
+                      <span className="font-mono font-bold text-blue-600">
+                        {m.overallAccuracy.toFixed(1)}%
+                      </span>
+                    </div>
+                    <div className="text-xs text-muted-foreground font-mono">
+                      {m.totalCorrect} / {m.totalQuestions} &middot; ${m.estimatedCost} total cost
                     </div>
                   </div>
                 </div>
               ))}
-
-              {/* Overall summary card */}
-              <div className="bg-blue-50 rounded-lg p-4 space-y-2 border-2 border-blue-200">
-                <div className="flex items-center justify-between">
-                  <span className="font-medium text-lg">Overall</span>
-                  <Badge>#{BENCHMARK_RESULTS.overallRank}</Badge>
-                </div>
-                <div className="grid grid-cols-2 gap-3 text-sm">
-                  <div>
-                    <div className="text-xs text-slate-500">Accuracy</div>
-                    <div className="font-mono font-bold text-blue-600">
-                      {BENCHMARK_RESULTS.overallAccuracy.toFixed(1)}%
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-slate-500">Correct / Total</div>
-                    <div className="font-mono">
-                      {BENCHMARK_RESULTS.totalCorrect} / {BENCHMARK_RESULTS.totalQuestions}
-                    </div>
-                  </div>
-                </div>
-              </div>
             </div>
           </CardContent>
         </Card>
@@ -475,31 +492,38 @@ export function BenchmarksPage() {
           <CardContent>
             <ul className="space-y-3 text-sm">
               <li className="flex items-start gap-3">
-                <Badge variant="success" className="mt-0.5 shrink-0">L1</Badge>
+                <Badge variant="success" className="mt-0.5 shrink-0">Best</Badge>
                 <span>
-                  This agent's 64.3% on Level 1 is competitive with systems using Claude-3.7 Sonnet and
-                  Haiku 4.5, despite using an open-weight model.
+                  GPT-5-mini reaches 50.4% overall — competitive with mid-tier leaderboard systems
+                  that use multi-agent frameworks and frontier models costing 10-100x more.
                 </span>
               </li>
               <li className="flex items-start gap-3">
                 <Badge variant="success" className="mt-0.5 shrink-0">Cost</Badge>
                 <span>
-                  Estimated ~$5 for full evaluation vs $100-500+ for frontier model systems —
-                  <strong className="text-emerald-600"> 20-100x more cost efficient</strong>.
+                  $4-8 for 127 questions vs $100-500+ for frontier systems —
+                  <strong className="text-emerald-600"> 10-100x more cost efficient</strong>.
+                  Just $0.03-0.07 per question.
                 </span>
               </li>
               <li className="flex items-start gap-3">
                 <Badge variant="default" className="mt-0.5 shrink-0">Open</Badge>
                 <span>
-                  This agent achieves GPT-4.1 tier performance using gpt-oss-120b, an open-weight reasoning model
-                  that can be self-hosted.
+                  gpt-oss-120b (open-weight, self-hostable) reaches 45.7% — only 4.7% behind GPT-5-mini
+                  at half the cost. Same scaffold, proving the architecture carries most of the value.
                 </span>
               </li>
               <li className="flex items-start gap-3">
-                <Badge variant="outline" className="mt-0.5 shrink-0">📊</Badge>
+                <Badge variant="outline" className="mt-0.5 shrink-0">L1</Badge>
                 <span>
-                  Full evaluation traces were captured for all {BENCHMARK_RESULTS.totalQuestions} questions.
-                  Per GAIA guidelines, question-answer pairs are not published to prevent benchmark contamination.{' '}
+                  Both models score 64-67% on Level 1, competitive with Claude-3.7 Sonnet and Haiku 4.5.
+                  The biggest gap is Level 2 where GPT-5-mini gains +7.6% over gpt-oss-120b.
+                </span>
+              </li>
+              <li className="flex items-start gap-3">
+                <Badge variant="outline" className="mt-0.5 shrink-0">Traces</Badge>
+                <span>
+                  Full evaluation traces captured for all 127 questions with both models.{' '}
                   <button
                     onClick={() => setTracesModalOpen(true)}
                     className="text-blue-500 hover:underline inline-flex items-center gap-1"
@@ -516,7 +540,7 @@ export function BenchmarksPage() {
         {/* Footer */}
         <div className="text-center text-sm text-muted-foreground pb-8">
           <p>
-            Model: {BENCHMARK_RESULTS.model} • Evaluated: {BENCHMARK_RESULTS.date}
+            Models: {MODELS.map(m => m.model).join(' · ')} • Evaluated: January 2026
           </p>
           <p className="mt-2 text-xs">
             * Questions with file attachments were excluded from this evaluation
