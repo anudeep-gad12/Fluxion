@@ -490,19 +490,31 @@ export function BenchmarksPage() {
             <CardTitle>Takeaways</CardTitle>
           </CardHeader>
           <CardContent>
-            <ul className="space-y-2.5 text-sm text-muted-foreground">
-              <li>$4-8 per full run vs $100-500+ for top leaderboard systems</li>
-              <li>Swapping the model from open-weight to GPT-5-mini only adds +4.7% — the scaffold does most of the work</li>
-              <li>Both models score 64-67% on Level 1; biggest delta is Level 2 (+7.6%)</li>
-              <li>
-                Full traces for all 127 questions.{' '}
-                <button
-                  onClick={() => setTracesModalOpen(true)}
-                  className="text-blue-500 hover:underline inline-flex items-center gap-1"
-                >
-                  <FileText className="h-3 w-3" />
-                  View results
-                </button>
+            <ul className="space-y-3 text-sm text-muted-foreground">
+              <li className="flex items-start gap-3">
+                <Badge variant="success" className="mt-0.5 shrink-0">Cost</Badge>
+                <span>$4-8 total vs $100-500+ for top leaderboard systems</span>
+              </li>
+              <li className="flex items-start gap-3">
+                <Badge variant="secondary" className="mt-0.5 shrink-0">Scaffold</Badge>
+                <span>Swapping models only adds +4.7% — the scaffold does most of the work</span>
+              </li>
+              <li className="flex items-start gap-3">
+                <Badge variant="outline" className="mt-0.5 shrink-0">Levels</Badge>
+                <span>64-67% on Level 1; biggest gap is Level 2 (+7.6%)</span>
+              </li>
+              <li className="flex items-start gap-3">
+                <Badge variant="default" className="mt-0.5 shrink-0">Traces</Badge>
+                <span>
+                  Full traces for all 127 questions.{' '}
+                  <button
+                    onClick={() => setTracesModalOpen(true)}
+                    className="text-blue-500 hover:underline inline-flex items-center gap-1"
+                  >
+                    <FileText className="h-3 w-3" />
+                    View results
+                  </button>
+                </span>
               </li>
             </ul>
           </CardContent>
