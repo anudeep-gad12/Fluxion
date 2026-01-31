@@ -21,8 +21,8 @@ provider:
   base_url: ${LLM_BASE_URL:-https://api.deepinfra.com/v1/openai}
 
   # API key - use env var for secrets (empty = no auth for local servers)
-  # Note: Nested ${} not supported. Use DEEPINFRA_API_KEY directly.
-  api_key: ${DEEPINFRA_API_KEY:-}
+  # Set LLM_API_KEY to your provider's key (OpenAI, DeepInfra, etc.)
+  api_key: ${LLM_API_KEY:-}
 
   # Endpoint selection: responses | chat_completions | auto
   # - chat_completions: Standard OpenAI format (recommended for llama-server, DeepInfra)
@@ -105,7 +105,7 @@ model:
   # DeepInfra: openai/gpt-oss-120b (supports reasoning_effort)
   # llama-server local: gpt-oss-20b (or whatever you're serving)
   name: ${LLM_MODEL:-openai/gpt-oss-120b}
-  temperature: 1.0            # Recommended for reasoning models
+  temperature: 1.0            # Required: 1.0 for reasoning models (gpt-oss, gpt-5-mini, o1, o3)
   max_tokens: 4096
   seed: null                  # Set to integer for reproducible outputs
   top_p: null
