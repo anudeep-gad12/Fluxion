@@ -9,6 +9,7 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| test | GPT-5-mini GAIA benchmark + reasoning model support | done | 2026-01-31 |
 | feature/mobile-responsive | Mobile-responsive design | done | 2026-01-27 |
 | feature/update-favicon | Custom neural network favicon | done | 2026-01-26 |
 | feature/reorder-mode-buttons | Reorder mode buttons and rename to Agent mode | done | 2026-01-26 |
@@ -20,6 +21,32 @@
 | feature/preset-question-chips | Demo preset questions | done | 2026-01-23 |
 | feature/gaia-benchmark | GAIA Benchmark Evaluation | done | 2026-01-21 |
 | feature/agent-planning | Agent Planning Step | done | 2026-01-20 |
+
+### 2026-01-31: GPT-5-mini GAIA Benchmark + Reasoning Model Support
+
+**Branch:** `test`
+**Status:** done
+
+**Description:**
+Ran GPT-5-mini (OpenAI) against the full GAIA benchmark validation set (127 questions, no file attachments) and added reasoning model compatibility to the provider layer. Conducted comprehensive analysis of results including cost modeling, error categorization, and root cause analysis.
+
+**Key Results:**
+- **GPT-5-mini**: 50.4% overall (L1: 66.7%, L2: 45.5%, L3: 31.6%) at $8.27 total
+- **vs gpt-oss-120b**: +4.7% accuracy improvement, 2.1x cost increase
+- **Cost efficiency**: $0.065/question — 10-100x cheaper than typical frontier agent systems
+
+**Code Changes:**
+- `orchestrator/providers/request_builders.py` — Added reasoning model detection for OpenAI models (gpt-5*, o1*, o3*, o4*): uses `max_completion_tokens` instead of `max_tokens`, skips `temperature` parameter
+- `orchestrator/chat_config.yaml` — Updated config comments for reasoning model compatibility
+
+**Analysis (in `gaia_results/best_runs/SUMMARY.md`):**
+- Overlap analysis: Oracle best-of-2 reaches 59.1% (75/127)
+- Error categorization: 79% wrong answers, 11% close-but-wrong, 6% incomplete, 3% null
+- Step efficiency: Correct answers avg 5.9 steps, wrong avg 9.7 steps; hitting max steps = 80% likely wrong
+- Root cause: 55% model-level failures, 25% scaffold-fixable (answer format + content access), 20% hard retrieval
+- Context pruning tested and found net negative — pruned summaries lose facts the model needs, causing re-fetches
+
+---
 
 ### 2026-01-27: Mobile-Responsive Design
 
