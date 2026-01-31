@@ -197,10 +197,17 @@ def build_chat_completions_request(
         else:
             payload["tool_choice"] = "auto"
 
-    if max_tokens:
-        payload["max_tokens"] = max_tokens
+    # OpenAI reasoning models (gpt-5*, o1*, o3*, o4*) use max_completion_tokens
+    # and don't support temperature parameter
+    _is_reasoning = model.startswith(("gpt-5", "o1", "o3", "o4"))
 
-    if temperature is not None:
+    if max_tokens:
+        if _is_reasoning:
+            payload["max_completion_tokens"] = max_tokens
+        else:
+            payload["max_tokens"] = max_tokens
+
+    if temperature is not None and not _is_reasoning:
         payload["temperature"] = temperature
 
     # Add optional parameters if provided

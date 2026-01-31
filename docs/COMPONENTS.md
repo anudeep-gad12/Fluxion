@@ -324,6 +324,7 @@ def create_provider(provider_config, model_config) -> LLMProvider:
 - Convert chat roles to response API format
 - Handle tool definitions
 - Include reasoning_effort for gpt-oss
+- **Reasoning model detection**: Models starting with `gpt-5`, `o1`, `o3`, `o4` automatically use `max_completion_tokens` (instead of `max_tokens`) and skip the `temperature` parameter, per OpenAI API requirements
 
 ### `orchestrator/providers/response_parsers.py`
 
