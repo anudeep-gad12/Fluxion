@@ -493,26 +493,26 @@ export function BenchmarksPage() {
             <ul className="space-y-3 text-sm text-muted-foreground">
               <li className="flex items-start gap-3">
                 <Badge variant="success" className="mt-0.5 shrink-0">Cost</Badge>
-                <span>$4-8 total vs $100-500+ for top leaderboard systems</span>
+                <span>$4-8 for 127 questions across both models</span>
               </li>
               <li className="flex items-start gap-3">
-                <Badge variant="secondary" className="mt-0.5 shrink-0">Scaffold</Badge>
-                <span>Swapping models only adds +4.7% — the scaffold does most of the work</span>
+                <Badge variant="secondary" className="mt-0.5 shrink-0">Models</Badge>
+                <span>+4.7% accuracy delta between open-weight and GPT-5-mini on the same scaffold</span>
               </li>
               <li className="flex items-start gap-3">
                 <Badge variant="outline" className="mt-0.5 shrink-0">Levels</Badge>
-                <span>64-67% on Level 1; biggest gap is Level 2 (+7.6%)</span>
+                <span>L1 and L3 within 3%; L2 shows the largest gap (+7.6%)</span>
               </li>
               <li className="flex items-start gap-3">
                 <Badge variant="default" className="mt-0.5 shrink-0">Traces</Badge>
                 <span>
-                  Full traces for all 127 questions.{' '}
+                  Evaluation traces with aggregate stats per run.{' '}
                   <button
                     onClick={() => setTracesModalOpen(true)}
                     className="text-blue-500 hover:underline inline-flex items-center gap-1"
                   >
                     <FileText className="h-3 w-3" />
-                    View results
+                    View traces
                   </button>
                 </span>
               </li>
