@@ -487,51 +487,22 @@ export function BenchmarksPage() {
         {/* Key Observations */}
         <Card>
           <CardHeader>
-            <CardTitle>Key Observations</CardTitle>
+            <CardTitle>Takeaways</CardTitle>
           </CardHeader>
           <CardContent>
-            <ul className="space-y-3 text-sm">
-              <li className="flex items-start gap-3">
-                <Badge variant="success" className="mt-0.5 shrink-0">Best</Badge>
-                <span>
-                  GPT-5-mini reaches 50.4% overall — competitive with mid-tier leaderboard systems
-                  that use multi-agent frameworks and frontier models costing 10-100x more.
-                </span>
-              </li>
-              <li className="flex items-start gap-3">
-                <Badge variant="success" className="mt-0.5 shrink-0">Cost</Badge>
-                <span>
-                  $4-8 for 127 questions vs $100-500+ for frontier systems —
-                  <strong className="text-emerald-600"> 10-100x more cost efficient</strong>.
-                  Just $0.03-0.07 per question.
-                </span>
-              </li>
-              <li className="flex items-start gap-3">
-                <Badge variant="default" className="mt-0.5 shrink-0">Open</Badge>
-                <span>
-                  gpt-oss-120b (open-weight, self-hostable) reaches 45.7% — only 4.7% behind GPT-5-mini
-                  at half the cost. Same scaffold, proving the architecture carries most of the value.
-                </span>
-              </li>
-              <li className="flex items-start gap-3">
-                <Badge variant="outline" className="mt-0.5 shrink-0">L1</Badge>
-                <span>
-                  Both models score 64-67% on Level 1, competitive with Claude-3.7 Sonnet and Haiku 4.5.
-                  The biggest gap is Level 2 where GPT-5-mini gains +7.6% over gpt-oss-120b.
-                </span>
-              </li>
-              <li className="flex items-start gap-3">
-                <Badge variant="outline" className="mt-0.5 shrink-0">Traces</Badge>
-                <span>
-                  Full evaluation traces captured for all 127 questions with both models.{' '}
-                  <button
-                    onClick={() => setTracesModalOpen(true)}
-                    className="text-blue-500 hover:underline inline-flex items-center gap-1"
-                  >
-                    <FileText className="h-3 w-3" />
-                    View results
-                  </button>
-                </span>
+            <ul className="space-y-2.5 text-sm text-muted-foreground">
+              <li>$4-8 per full run vs $100-500+ for top leaderboard systems</li>
+              <li>Swapping the model from open-weight to GPT-5-mini only adds +4.7% — the scaffold does most of the work</li>
+              <li>Both models score 64-67% on Level 1; biggest delta is Level 2 (+7.6%)</li>
+              <li>
+                Full traces for all 127 questions.{' '}
+                <button
+                  onClick={() => setTracesModalOpen(true)}
+                  className="text-blue-500 hover:underline inline-flex items-center gap-1"
+                >
+                  <FileText className="h-3 w-3" />
+                  View results
+                </button>
               </li>
             </ul>
           </CardContent>
