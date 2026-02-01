@@ -145,7 +145,7 @@ The FastAPI application initializes with:
 1. **Lifespan Management**: Startup loads config, initializes DB; shutdown handles cleanup
 2. **Middleware**:
    - `RequestLoggingMiddleware`: Request ID correlation and timing
-   - `SecurityHeadersMiddleware`: Security headers (X-Frame-Options, etc.)
+   - `SecurityHeadersMiddleware`: Security headers (X-Frame-Options, X-Content-Type-Options, Content-Security-Policy, etc.)
    - `RateLimitMiddleware`: IP-based rate limiting for demo mode
    - `CORSMiddleware`: Allows frontend at localhost:3000
 3. **Routers**: `/api/conversations`, `/api/runs`, `/api/agent/runs`, `/api/benchmarks`
@@ -329,9 +329,10 @@ The store (`useStore.ts`) manages all application state:
 - Clears streaming state on completion
 
 **`useAgentSSE.ts`** (Research Mode):
-- Subscribes to `/api/agent/runs/{id}/stream`
+- Subscribes to `/api/agent/runs/{id}/stream` with per-run stream token
 - Processes events: `step_start`, `thinking`, `tool_start`, `tool_result`, `answer`, `complete`
-- Supports resumption via `since_seq` parameter
+- Supports resumption via `since_seq` parameter and token-authenticated reconnection
+- Persists stream token in `localStorage` for page reload recovery
 - Updates `agentRunState` in store
 
 ---

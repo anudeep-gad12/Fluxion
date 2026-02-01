@@ -39,7 +39,7 @@ Detailed documentation of every component in the Reasoner system.
 | `app` | FastAPI | Main application instance |
 | `lifespan` | async context manager | Startup/shutdown lifecycle |
 | `RequestLoggingMiddleware` | Middleware | Request ID correlation, timing |
-| `SecurityHeadersMiddleware` | Middleware | Security headers (X-Frame-Options, etc.) |
+| `SecurityHeadersMiddleware` | Middleware | Security headers (X-Frame-Options, X-Content-Type-Options, CSP, etc.) |
 | `RateLimitMiddleware` | Middleware | IP-based rate limiting for demo mode |
 
 **Endpoints**:
@@ -1015,6 +1015,16 @@ async with self._seq_lock:
 | `GET` | `/api/agent/runs/{id}/stream` | SSE stream |
 | `POST` | `/api/agent/runs/{id}/cancel` | Cancel agent |
 
+**SSE Stream Token Auth**:
+- Each `POST /api/agent/runs` generates a per-run `secrets.token_urlsafe(16)` stored in `_run_tokens`
+- Stream endpoint validates token: rejects if a non-empty token is provided but doesn't match
+- Omitting the token is allowed as a fallback for reconnection before localStorage is restored
+- Token is cleaned up on run completion, error, or history cleanup
+
+**Event History & Reconnection**:
+- `_event_history` stores all SSE events per run for replay on reconnect
+- On reconnect, server replays history snapshot then streams live events with dedup
+
 **Event Type Mapping**:
 ```python
 _EVENT_TYPE_MAP = {
@@ -1123,9 +1133,10 @@ _EVENT_TYPE_MAP = {
 - Benchmarks navigation chip in header
 
 **State**:
-- Uses `useSSE` for chat streaming
-- Uses `useAgentSSE` for research streaming
+- Uses `useSSE` for chat streaming (only auto-subscribes to `activeChatRunId`, not agent runs)
+- Uses `useAgentSSE` for research streaming (with stream token from localStorage)
 - Lazy conversation creation on first message
+- Stores stream tokens in `localStorage` on agent run creation for page reload recovery
 
 ### `ui/src/components/ConversationList.tsx`
 
@@ -1396,12 +1407,14 @@ Loading placeholder.
 
 ### `ui/src/hooks/useAgentSSE.ts`
 
-**Purpose**: Agent mode SSE streaming.
+**Purpose**: Agent mode SSE streaming with token-authenticated reconnection.
 
 **Features**:
 - Resumption via `sinceSeq`
-- Event type processing
-- Agent state updates
+- Per-run stream token forwarding (stored in `streamTokenRef`)
+- `localStorage` persistence for stream tokens (key: `stream_token:{runId}`)
+- Token cleanup from localStorage on complete/error
+- Reconnection support via `reconnect()` method
 
 **Event Handlers**:
 - `agent_state` → Update state
@@ -1451,7 +1464,7 @@ Loading placeholder.
 | Function | Description |
 |----------|-------------|
 | `subscribeToRun()` | Chat mode SSE subscription |
-| `subscribeToAgentRun()` | Agent mode SSE with resumption |
+| `subscribeToAgentRun()` | Agent mode SSE with resumption and stream token auth |
 
 **Retry**: GET requests use `withRetry()` (3 retries, exponential backoff)
 
