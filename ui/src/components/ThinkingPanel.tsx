@@ -174,59 +174,61 @@ export function ThinkingPanel({
         )}
       </button>
 
-      {/* Expanded content */}
-      {expanded && (
-        <div className="px-3 py-3 space-y-3 max-h-[300px] overflow-y-auto">
-          {/* Streaming content (live) */}
-          {cleanStreamingContent && (
-            <div>
-              <ThinkingMarkdown content={cleanStreamingContent} />
-              {isStreaming && (
-                <span className="inline-block w-2 h-3 bg-indigo-400 animate-pulse ml-0.5" />
-              )}
-            </div>
-          )}
+      {/* Animated collapsible content */}
+      <div className="collapsible-content" data-expanded={expanded}>
+        <div>
+          <div className="px-3 py-3 space-y-3 max-h-[300px] overflow-y-auto">
+            {/* Streaming content (live) */}
+            {cleanStreamingContent && (
+              <div>
+                <ThinkingMarkdown content={cleanStreamingContent} />
+                {isStreaming && (
+                  <span className="inline-block w-2 h-3 bg-indigo-400 animate-pulse ml-0.5" />
+                )}
+              </div>
+            )}
 
-          {/* Completed steps */}
-          {steps.length > 0 && (
-            <div className="space-y-2">
-              {steps.map((step) => (
-                <div key={step.seq} className="text-xs">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className={cn(
-                      'px-1.5 py-0.5 rounded text-[10px] font-medium uppercase',
-                      step.status === 'done'
-                        ? 'bg-emerald-100 text-emerald-700'
-                        : step.status === 'thinking'
-                          ? 'bg-indigo-100 text-indigo-700'
-                          : 'bg-slate-100 text-slate-600'
-                    )}>
-                      {step.step_type}
-                    </span>
-                    <span className="text-slate-400">Step {step.seq}</span>
+            {/* Completed steps */}
+            {steps.length > 0 && (
+              <div className="space-y-2">
+                {steps.map((step) => (
+                  <div key={step.seq} className="text-xs">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className={cn(
+                        'px-1.5 py-0.5 rounded text-[10px] font-medium uppercase',
+                        step.status === 'done'
+                          ? 'bg-emerald-100 text-emerald-700'
+                          : step.status === 'thinking'
+                            ? 'bg-indigo-100 text-indigo-700'
+                            : 'bg-slate-100 text-slate-600'
+                      )}>
+                        {step.step_type}
+                      </span>
+                      <span className="text-slate-400">Step {step.seq}</span>
+                    </div>
+                    <div className="text-slate-600 pl-2 border-l-2 border-slate-200">
+                      <ThinkingMarkdown content={step.summary} />
+                    </div>
                   </div>
-                  <div className="text-slate-600 pl-2 border-l-2 border-slate-200">
-                    <ThinkingMarkdown content={step.summary} />
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+                ))}
+              </div>
+            )}
 
-          {/* Summary (if no steps) */}
-          {!cleanStreamingContent && steps.length === 0 && cleanSummary && (
-            <ThinkingMarkdown content={cleanSummary} />
-          )}
+            {/* Summary (if no steps) */}
+            {!cleanStreamingContent && steps.length === 0 && cleanSummary && (
+              <ThinkingMarkdown content={cleanSummary} />
+            )}
 
-          {/* Empty state */}
-          {!hasContent && isStreaming && (
-            <div className="flex items-center gap-2 text-sm text-slate-500">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Thinking...
-            </div>
-          )}
+            {/* Empty state */}
+            {!hasContent && isStreaming && (
+              <div className="flex items-center gap-2 text-sm text-slate-500">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Thinking...
+              </div>
+            )}
+          </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }
