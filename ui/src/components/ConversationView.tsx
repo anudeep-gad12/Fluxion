@@ -193,8 +193,9 @@ export function ConversationView() {
         for (const run of data.runs) {
           if (run.status === 'running') {
             if (run.mode === 'agent') {
-              // Reconnect to agent SSE stream with sinceSeq=0 to replay all events
-              subscribeAgent(run.run_id, 0);
+              // Reconnect to agent SSE stream with stored token
+              const streamToken = localStorage.getItem(`stream_token:${run.run_id}`) || undefined;
+              subscribeAgent(run.run_id, 0, streamToken);
             } else {
               // Reconnect to chat SSE stream
               subscribe(run.run_id);
@@ -285,8 +286,11 @@ export function ConversationView() {
 
         setPendingRunId(response.run_id);
 
-        // Subscribe to agent SSE stream
-        subscribeAgent(response.run_id);
+        // Store stream token for reconnection after page refresh
+        localStorage.setItem(`stream_token:${response.run_id}`, response.stream_token);
+
+        // Subscribe to agent SSE stream with auth token
+        subscribeAgent(response.run_id, 0, response.stream_token);
 
         const run: Run = {
           run_id: response.run_id,

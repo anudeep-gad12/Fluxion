@@ -100,6 +100,7 @@ def client(test_db, mock_agent_engine):
     agent_runs_module._active_runs.clear()
     agent_runs_module._abort_signals.clear()
     agent_runs_module._event_history.clear()
+    agent_runs_module._run_tokens.clear()
 
     async def mock_create_engine(**kwargs):
         return mock_agent_engine
@@ -113,6 +114,7 @@ def client(test_db, mock_agent_engine):
     agent_runs_module._active_runs.clear()
     agent_runs_module._abort_signals.clear()
     agent_runs_module._event_history.clear()
+    agent_runs_module._run_tokens.clear()
 
 
 @pytest.fixture
@@ -122,6 +124,7 @@ async def async_client(test_db, mock_agent_engine):
     agent_runs_module._active_runs.clear()
     agent_runs_module._abort_signals.clear()
     agent_runs_module._event_history.clear()
+    agent_runs_module._run_tokens.clear()
 
     async def mock_create_engine(**kwargs):
         return mock_agent_engine
@@ -135,6 +138,7 @@ async def async_client(test_db, mock_agent_engine):
     agent_runs_module._active_runs.clear()
     agent_runs_module._abort_signals.clear()
     agent_runs_module._event_history.clear()
+    agent_runs_module._run_tokens.clear()
 
 
 # =============================================================================
@@ -155,7 +159,9 @@ class TestCreateAgentRun:
         data = response.json()
         assert "run_id" in data
         assert data["status"] == "running"
-        assert data["stream_url"] == f"/api/agent/runs/{data['run_id']}/stream"
+        assert data["stream_url"].startswith(f"/api/agent/runs/{data['run_id']}/stream?token=")
+        assert "stream_token" in data
+        assert len(data["stream_token"]) > 0
 
     def test_validates_required_query_field(self, client):
         """Missing query field returns 422."""
