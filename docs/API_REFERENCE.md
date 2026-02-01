@@ -682,9 +682,12 @@ POST /api/agent/runs
 {
   "run_id": "agent_001",
   "status": "running",
-  "stream_url": "/api/agent/runs/agent_001/stream"
+  "stream_url": "/api/agent/runs/agent_001/stream?token=abc123...",
+  "stream_token": "abc123..."
 }
 ```
+
+The `stream_token` is a per-run secret (`secrets.token_urlsafe(16)`) used to authenticate SSE stream connections. Pass it as the `token` query parameter when connecting to the stream endpoint.
 
 ---
 
@@ -829,16 +832,21 @@ Subscribe to real-time agent events.
 
 **Request**:
 ```
-GET /api/agent/runs/{run_id}/stream?since_seq=0
+GET /api/agent/runs/{run_id}/stream?token=abc123&since_seq=0
 ```
 
 **Query Parameters**:
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
+| `token` | string | Stream token from create response (recommended) |
 | `since_seq` | int | Resume from sequence number |
 
 **Response**: Server-Sent Events stream
+
+**Authentication**: If a `token` is provided and it doesn't match the run's stream token, the server returns **403 Forbidden**. Omitting the token is allowed as a fallback (e.g., page reload before token is restored from localStorage).
+
+**Reconnection**: On reconnect (e.g., page reload), the server replays all past events from in-memory history, then continues streaming live events. Events already replayed are deduplicated by sequence number.
 
 See [SSE Streaming](#sse-streaming) for event format.
 
@@ -1082,15 +1090,20 @@ data: {"seq": 8, "type": "complete", "success": true, "final_answer": "Based on 
 
 ```
 
-### SSE Resumption
+### SSE Resumption & Reconnection
 
-Agent streams support resumption:
+Agent streams support resumption and reconnection:
 
 ```
-GET /api/agent/runs/{run_id}/stream?since_seq=5
+GET /api/agent/runs/{run_id}/stream?token=abc123&since_seq=5
 ```
 
-The server replays events with `seq > 5` and continues streaming.
+The server:
+1. Replays events from in-memory history with `seq > since_seq`
+2. Continues streaming live events from the queue
+3. Deduplicates events by sequence number to prevent overlap
+
+The `token` parameter authenticates the stream connection. If provided and invalid, the server returns 403. The token is optional to support reconnection after page reload (before localStorage token is restored).
 
 ---
 
@@ -1105,6 +1118,7 @@ The server replays events with `seq > 5` and continues streaming.
 | 400 | Bad Request - Invalid input |
 | 404 | Not Found - Resource doesn't exist |
 | 422 | Unprocessable Entity - Validation error |
+| 403 | Forbidden - Invalid stream token |
 | 500 | Internal Server Error |
 
 ### Error Response Format
