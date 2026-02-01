@@ -246,6 +246,7 @@ class CreateAgentRunResponse(BaseModel):
     run_id: str
     status: str
     stream_url: str
+    stream_token: str
 
 
 class AgentRunStatusResponse(BaseModel):

@@ -694,18 +694,29 @@ Connection opened
    Connection closed
 ```
 
-### SSE Resumption
+### SSE Resumption & Stream Token Auth
 
-Agent streams support resumption via `since_seq` parameter:
+Agent streams support resumption and token-authenticated reconnection:
 
 ```
-GET /api/agent/runs/{run_id}/stream?since_seq=15
+GET /api/agent/runs/{run_id}/stream?token=abc123&since_seq=15
 ```
 
-The server will:
-1. Replay events with `seq > 15`
-2. Continue streaming new events
-3. Client maintains `lastSeq` for reconnection
+**Stream Token Flow**:
+1. `POST /api/agent/runs` generates `secrets.token_urlsafe(16)` per run
+2. Frontend stores token in `localStorage` (`stream_token:{runId}`)
+3. On reconnect (page reload), frontend reads token from `localStorage`
+4. Token passed as `?token=` query parameter on SSE connection
+5. Server validates: rejects only if token provided but wrong (403)
+6. Token cleaned up from `localStorage` and server on complete/error
+
+**Reconnection Flow**:
+1. On page reload, `loadConversation()` detects running agent runs
+2. Reads stream token from `localStorage`
+3. Calls `subscribe(runId, 0, streamToken)` to reconnect
+4. Server replays all events from in-memory `_event_history` snapshot
+5. Live events from queue are deduplicated by sequence number (`event_seq > seq`)
+6. Client receives full state: past steps, thinking, tool calls, then live stream
 
 ---
 

@@ -10,6 +10,7 @@ This module provides REST API endpoints for the web research agent:
 
 import asyncio
 import json
+import secrets
 import time
 import uuid
 from datetime import datetime, timezone
@@ -50,6 +51,7 @@ router = APIRouter(prefix="/api/agent", tags=["agent"])
 _active_runs: Dict[str, asyncio.Queue] = {}
 _abort_signals: Dict[str, asyncio.Event] = {}
 _event_history: Dict[str, List[Dict[str, Any]]] = {}  # For SSE resumption
+_run_tokens: Dict[str, str] = {}  # Per-run stream auth tokens
 
 
 # =============================================================================
@@ -134,6 +136,7 @@ async def _cleanup_history(run_id: str, delay_seconds: float) -> None:
     """
     await asyncio.sleep(delay_seconds)
     _event_history.pop(run_id, None)
+    _run_tokens.pop(run_id, None)
     logger.debug("Cleaned up event history", extra={"run_id": run_id})
 
 
@@ -241,6 +244,8 @@ async def create_agent_run(request: CreateAgentRunRequest):
         _active_runs[run_id] = event_queue
         _abort_signals[run_id] = abort_signal
         _event_history[run_id] = []
+        stream_token = secrets.token_urlsafe(16)
+        _run_tokens[run_id] = stream_token
 
         # Create run record in database
         db = await get_db()
@@ -305,7 +310,8 @@ async def create_agent_run(request: CreateAgentRunRequest):
         return CreateAgentRunResponse(
             run_id=run_id,
             status="running",
-            stream_url=f"/api/agent/runs/{run_id}/stream",
+            stream_url=f"/api/agent/runs/{run_id}/stream?token={stream_token}",
+            stream_token=stream_token,
         )
 
     except Exception as e:
@@ -313,6 +319,7 @@ async def create_agent_run(request: CreateAgentRunRequest):
         _active_runs.pop(run_id, None)
         _abort_signals.pop(run_id, None)
         _event_history.pop(run_id, None)
+        _run_tokens.pop(run_id, None)
         logger.error("Failed to start agent run", extra={"error": str(e)}, exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to start agent run")
 
@@ -359,12 +366,20 @@ async def get_agent_run_status(run_id: str):
 async def stream_agent_events(
     run_id: str,
     since_seq: int = Query(0, description="Resume from this sequence number"),
+    token: str = Query("", description="Stream auth token from run creation"),
 ):
     """Stream agent events via Server-Sent Events.
 
     Supports resumption via since_seq parameter for reconnection.
+    Requires stream token for active runs (returned by POST /runs).
     Sends heartbeat every 30 seconds during idle.
     """
+    # Validate stream token: reject only if a non-empty token is provided but wrong.
+    # Empty token is allowed as fallback for reconnection (e.g. page reload where
+    # localStorage may not have persisted the token).
+    expected_token = _run_tokens.get(run_id)
+    if token and expected_token and token != expected_token:
+        raise HTTPException(status_code=403, detail="Invalid stream token")
     # Capture parent request ID for SSE context
     parent_request_id = get_request_id()
 
@@ -384,9 +399,12 @@ async def stream_agent_events(
         )
 
         try:
-            # Phase 1: Replay missed events if resuming
-            if since_seq > 0 and run_id in _event_history:
-                for event in _event_history[run_id]:
+            # Phase 1: Replay events from history.
+            # On reconnect (e.g. page reload), this rebuilds past steps/thinking/tools.
+            # Snapshot avoids issues with concurrent appends during async yields.
+            if run_id in _event_history:
+                history_snapshot = list(_event_history[run_id])
+                for event in history_snapshot:
                     event_seq = event.get("seq", 0)
                     if event_seq > since_seq:
                         chunk_count += 1
@@ -441,8 +459,11 @@ async def stream_agent_events(
                             }
                             break
                         else:
-                            seq = event.get("seq", seq + 1)
-                            yield _translate_event(event, seq)
+                            # Skip events already replayed from history
+                            event_seq = event.get("seq", seq + 1)
+                            if event_seq > seq:
+                                seq = event_seq
+                                yield _translate_event(event, event_seq)
 
                     except asyncio.TimeoutError:
                         yield {"event": "heartbeat", "data": "{}"}

@@ -131,8 +131,9 @@ async def create_conversation_run(conversation_id: str, request: CreateConversat
                     "thinking_summary": result.thinking_summary,
                 },
             })
-        except Exception as e:
-            event_queue.put_nowait({"type": "_STREAM_ERROR", "error": str(e)})
+        except Exception:
+            logger.exception("Chat run failed", extra={"run_id": run_id})
+            event_queue.put_nowait({"type": "_STREAM_ERROR", "error": "Internal server error"})
             # Immediate cleanup on error
             _active_runs.pop(run_id, None)
             return
@@ -200,8 +201,9 @@ async def create_run(request: CreateRunRequest):
                     "thinking_summary": result.thinking_summary,
                 },
             })
-        except Exception as e:
-            event_queue.put_nowait({"type": "_STREAM_ERROR", "error": str(e)})
+        except Exception:
+            logger.exception("Chat run failed", extra={"run_id": run_id})
+            event_queue.put_nowait({"type": "_STREAM_ERROR", "error": "Internal server error"})
             # Immediate cleanup on error
             _active_runs.pop(run_id, None)
             return
