@@ -299,8 +299,13 @@ export function subscribeToAgentRun(
   }) => void,
   onError: (error: string) => void,
   onCancelled?: () => void,
+  streamToken?: string,
 ): () => void {
-  const url = `${API_BASE}/agent/runs/${runId}/stream${sinceSeq > 0 ? `?since_seq=${sinceSeq}` : ''}`;
+  const params = new URLSearchParams();
+  if (sinceSeq > 0) params.set('since_seq', String(sinceSeq));
+  if (streamToken) params.set('token', streamToken);
+  const qs = params.toString();
+  const url = `${API_BASE}/agent/runs/${runId}/stream${qs ? `?${qs}` : ''}`;
   const eventSource = new EventSource(url);
 
   // Map of SSE event names to handlers

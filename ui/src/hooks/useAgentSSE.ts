@@ -20,6 +20,7 @@ import type {
 export function useAgentSSE(runId: string | null, maxSteps: number = 10) {
   const unsubscribeRef = useRef<(() => void) | null>(null);
   const lastSeqRef = useRef<number>(0);
+  const streamTokenRef = useRef<string | undefined>();
 
   // Store actions
   const initAgentRun = useStore((s) => s.initAgentRun);
@@ -34,7 +35,11 @@ export function useAgentSSE(runId: string | null, maxSteps: number = 10) {
   const updateRun = useStore((s) => s.updateRun);
 
   const subscribe = useCallback(
-    (id: string, sinceSeq: number = 0) => {
+    (id: string, sinceSeq: number = 0, streamToken?: string) => {
+      // Store token for reconnection
+      if (streamToken !== undefined) {
+        streamTokenRef.current = streamToken;
+      }
       // Unsubscribe from previous
       if (unsubscribeRef.current) {
         unsubscribeRef.current();
@@ -166,6 +171,9 @@ export function useAgentSSE(runId: string | null, maxSteps: number = 10) {
           status: result.success ? 'succeeded' : 'failed',
           final_answer: result.final_answer,
         });
+
+        // Clean up stored stream token
+        localStorage.removeItem(`stream_token:${id}`);
       };
 
       const handleError = (error: string) => {
@@ -177,6 +185,9 @@ export function useAgentSSE(runId: string | null, maxSteps: number = 10) {
           status: 'failed',
           error_detail: error,
         });
+
+        // Clean up stored stream token
+        localStorage.removeItem(`stream_token:${id}`);
       };
 
       const handleCancelled = () => {
@@ -196,7 +207,8 @@ export function useAgentSSE(runId: string | null, maxSteps: number = 10) {
         handleEvent,
         handleComplete,
         handleError,
-        handleCancelled
+        handleCancelled,
+        streamTokenRef.current
       );
     },
     [
@@ -223,7 +235,7 @@ export function useAgentSSE(runId: string | null, maxSteps: number = 10) {
 
   const reconnect = useCallback(() => {
     if (runId) {
-      subscribe(runId, lastSeqRef.current);
+      subscribe(runId, lastSeqRef.current, streamTokenRef.current);
     }
   }, [runId, subscribe]);
 

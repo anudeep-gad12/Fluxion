@@ -9,6 +9,7 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| feature/sse-stream-token | SSE stream token auth for agent runs | done | 2026-02-01 |
 | feature/security-hardening | Security hardening: error leakage, CSP header, console log cleanup | done | 2026-02-01 |
 | feature/ui-polish | UI polish, label updates, benchmark trace fixes, deployment fixes | done | 2026-02-01 |
 | test | GPT-5-mini GAIA benchmark + reasoning model support | done | 2026-01-31 |
@@ -23,6 +24,27 @@
 | feature/preset-question-chips | Demo preset questions | done | 2026-01-23 |
 | feature/gaia-benchmark | GAIA Benchmark Evaluation | done | 2026-01-21 |
 | feature/agent-planning | Agent Planning Step | done | 2026-01-20 |
+
+### 2026-02-01: SSE Stream Token Auth
+
+**Branch:** `feature/sse-stream-token` → merged to `test`
+**Status:** done
+
+**Description:**
+Per-run stream token auth for agent SSE endpoints. Prevents unauthorized replay/hijack of SSE streams even if run_id is known.
+
+**Changes:**
+- `orchestrator/routes/agent_runs.py` — Generate `secrets.token_urlsafe(16)` per run, store in `_run_tokens` dict, validate on stream endpoint (403 if mismatch), clean up on completion/error
+- `orchestrator/schemas.py` — Add `stream_token: str` field to `CreateAgentRunResponse`
+- `ui/src/types/agent.ts` — Add `stream_token` to `CreateAgentRunResponse` interface
+- `ui/src/api/client.ts` — Add `streamToken` param to `subscribeToAgentRun()`, build URL with URLSearchParams
+- `ui/src/hooks/useAgentSSE.ts` — Accept and forward stream token, store in ref for reconnect, clean up localStorage on complete/error
+- `ui/src/components/ConversationView.tsx` — Store token in localStorage on create, read on reconnect
+- `tests/routes/test_agent_runs.py` — Update `test_returns_run_id_and_stream_url` for new response format, clear `_run_tokens` in fixtures
+
+**Tests:** 652 passed, 6 pre-existing failures unrelated to changes.
+
+---
 
 ### 2026-02-01: Security Hardening
 
