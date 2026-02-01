@@ -71,8 +71,11 @@ export function TracesModal({ open, onOpenChange }: TracesModalProps) {
       const data = await response.json();
 
       // Filter to show only full evaluation runs (>= 19 questions)
+      // Exclude Mistral traces (deprecated model, not part of final benchmarks)
       // Then select the best (highest accuracy) for each model+level combination
-      const fullRuns = data.filter((trace: TraceMetadata) => trace.total_questions >= 19);
+      const fullRuns = data.filter((trace: TraceMetadata) =>
+        trace.total_questions >= 19 && !trace.model.toLowerCase().includes('mistral')
+      );
 
       const bestByModelLevel = new Map<string, TraceMetadata>();
       fullRuns.forEach((trace: TraceMetadata) => {
