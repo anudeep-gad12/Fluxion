@@ -86,6 +86,13 @@ Examples:
     )
 
     parser.add_argument(
+        "--task-ids",
+        type=str,
+        default=None,
+        help="Comma-separated list of task IDs to run (partial IDs OK, e.g. '46719c30,4b6bb5f7')",
+    )
+
+    parser.add_argument(
         "--max-steps",
         type=int,
         default=10,
@@ -151,12 +158,18 @@ async def main() -> int:
     # Determine mode
     mode = "compare" if args.compare else args.mode
 
+    # Parse task IDs if provided
+    task_ids = None
+    if args.task_ids:
+        task_ids = [tid.strip() for tid in args.task_ids.split(",") if tid.strip()]
+
     # Build config
     config = RunConfig(
         level=args.level,
         split=args.split,
         mode=mode,
         limit=args.limit,
+        task_ids=task_ids,
         max_steps=args.max_steps,
         timeout_seconds=args.timeout,
         skip_attachments=not args.include_attachments,
@@ -177,6 +190,8 @@ async def main() -> int:
         print(f"API: {config.api_url}")
         if config.concurrency > 1:
             print(f"Concurrency: {config.concurrency} parallel")
+        if config.task_ids:
+            print(f"Task IDs: {len(config.task_ids)} specific questions")
         if config.limit:
             print(f"Limit: {config.limit} questions")
         print("=" * 60)
