@@ -936,6 +936,32 @@ async with self._seq_lock:
 
 ## Routes Layer
 
+### `orchestrator/routes/benchmarks.py`
+
+**Purpose**: Benchmarks API for serving GAIA evaluation traces.
+
+**Endpoints**:
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/benchmarks/traces` | List all trace metadata (sorted by timestamp) |
+| `GET` | `/api/benchmarks/traces/{filename}` | Get full trace data for a specific run |
+
+**Key Constants**:
+
+| Constant | Description |
+|----------|-------------|
+| `GAIA_RESULTS_DIR` | Root `gaia_results/` directory |
+| `BEST_RUNS_DIR` | `gaia_results/best_runs/` subdirectory |
+
+**Helper Functions**:
+- `_collect_trace_files()` — Collects JSON files from both root and `best_runs/` directories with filename deduplication (root takes priority). Handles deployed environments where only `best_runs/` is available.
+- `_find_trace_file(filename)` — Locates a specific trace file, checking root first then `best_runs/`.
+
+**Security**: Path traversal protection on `GET /traces/{filename}` (rejects `/`, `\`, and `.` prefixes).
+
+---
+
 ### `orchestrator/routes/conversations.py`
 
 **Purpose**: Conversation CRUD endpoints.
@@ -1054,11 +1080,13 @@ _EVENT_TYPE_MAP = {
 - `/` → Redirect to `/conversations`
 - `/conversations` → New conversation view
 - `/conversations/:id` → Conversation view
+- `/benchmarks` → Benchmarks page with GAIA results
 
 **Features**:
 - Collapsible sidebar (200-500px)
 - Drag-to-resize handle
 - Detail panel toggle
+- Toast notifications via `<Toaster>` (sonner)
 - **Demo Mode Support**:
   - Sidebar locked (collapsed) for non-owners in demo mode
   - Owner detection via URL param `?owner=<secret>`
@@ -1081,14 +1109,18 @@ _EVENT_TYPE_MAP = {
 
 **Modes**:
 - **Chat Mode** - Normal conversational chat
-- **Research Mode** - Agent with tools
+- **Agent Mode** - Agent with tools (web search, code execution)
 
 **Features**:
-- Mode toggle in input form
+- Mode toggle in input form (labels: "Agent" / "Chat")
 - Reasoning effort selector (chat mode)
 - Message history display
 - Stop/cancel button while generating
-- Auto-scroll to latest
+- Auto-scroll during streaming (watches text length, scrolls when near bottom)
+- Textarea auto-resize (expands as you type, max 200px, resets on submit)
+- Toast error notifications for failed runs/aborts (via sonner)
+- Preset question chips on empty state
+- Benchmarks navigation chip in header
 
 **State**:
 - Uses `useSSE` for chat streaming
@@ -1150,6 +1182,7 @@ _EVENT_TYPE_MAP = {
 - LaTeX via KaTeX
 - Thinking tag stripping
 - JSON response unwrapping
+- Code block copy button (hover-reveal, click-to-copy with checkmark feedback)
 
 **Plugins**:
 - `remark-gfm`
@@ -1165,7 +1198,7 @@ _EVENT_TYPE_MAP = {
 **Purpose**: Collapsible thinking/reasoning display.
 
 **Features**:
-- Collapsible header
+- Animated expand/collapse using CSS grid transition (200ms ease-out, `.collapsible-content` class)
 - Step count display
 - Streaming indicator
 - Preview when collapsed
@@ -1205,7 +1238,7 @@ _EVENT_TYPE_MAP = {
 **Purpose**: Timeline of agent steps.
 
 **Features**:
-- Collapsible steps
+- Animated collapsible steps (CSS grid transition, 200ms ease-out)
 - Status icons (pending/running/complete/error)
 - Step number and decision
 - Inline thinking for current step
@@ -1251,6 +1284,38 @@ _EVENT_TYPE_MAP = {
   - Snippet preview
   - Source hostname
 - Click opens URL
+
+---
+
+## Benchmarks Components
+
+### `ui/src/components/BenchmarksPage.tsx`
+
+**Purpose**: Dedicated benchmarks page displaying GAIA evaluation results.
+
+**Features**:
+- Hero stats cards (Level 1 rank, cost efficiency, overall rank)
+- Results table by difficulty level with accuracy percentages
+- Comparison table with top systems from HAL Princeton leaderboard
+- Key observations/takeaways section
+- Responsive: tables convert to cards on mobile
+- Link to TracesModal for browsing full evaluation traces
+
+### `ui/src/components/TracesModal.tsx`
+
+**Purpose**: Modal for browsing GAIA evaluation trace results.
+
+**Features**:
+- Loads traces from `/api/benchmarks/traces` API endpoint
+- Filters to show only full evaluation runs (≥19 questions)
+- Filters out deprecated models (Mistral)
+- Groups best traces by model + level, sorted by accuracy
+- Shows metadata: level, model, timestamp, questions, correct answers, accuracy
+- Detail view with ALL question results, expected vs actual answers, timing
+- Color-coded correct/incorrect results
+- GPT-5-mini traces sorted first
+
+**Data Source**: `GET /api/benchmarks/traces` and `GET /api/benchmarks/traces/{filename}`
 
 ---
 
