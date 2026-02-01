@@ -13,8 +13,32 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/api/benchmarks", tags=["benchmarks"])
 
 
-# Path to GAIA results directory
+# Path to GAIA results directory and best_runs subdirectory
 GAIA_RESULTS_DIR = Path(__file__).parent.parent.parent / "gaia_results"
+BEST_RUNS_DIR = GAIA_RESULTS_DIR / "best_runs"
+
+
+def _find_trace_file(filename: str) -> Path | None:
+    """Find a trace file by name, checking both root and best_runs directories."""
+    for directory in [GAIA_RESULTS_DIR, BEST_RUNS_DIR]:
+        candidate = directory / filename
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _collect_trace_files() -> list[Path]:
+    """Collect all trace JSON files from root and best_runs directories."""
+    seen: set[str] = set()
+    files: list[Path] = []
+    for directory in [GAIA_RESULTS_DIR, BEST_RUNS_DIR]:
+        if not directory.exists():
+            continue
+        for trace_file in directory.glob("*.json"):
+            if trace_file.name not in seen:
+                seen.add(trace_file.name)
+                files.append(trace_file)
+    return files
 
 
 @router.get("/traces")
@@ -29,7 +53,7 @@ async def list_traces() -> list[dict[str, Any]]:
         return []
 
     traces = []
-    for trace_file in GAIA_RESULTS_DIR.glob("*.json"):
+    for trace_file in _collect_trace_files():
         try:
             with open(trace_file, "r") as f:
                 data = json.load(f)
@@ -69,9 +93,9 @@ async def get_trace(filename: str) -> dict[str, Any]:
     if "/" in filename or "\\" in filename or filename.startswith("."):
         raise HTTPException(status_code=400, detail="Invalid filename")
 
-    trace_file = GAIA_RESULTS_DIR / filename
+    trace_file = _find_trace_file(filename)
 
-    if not trace_file.exists():
+    if not trace_file:
         raise HTTPException(status_code=404, detail="Trace not found")
 
     try:
