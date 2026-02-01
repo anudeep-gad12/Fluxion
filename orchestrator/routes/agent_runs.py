@@ -374,9 +374,11 @@ async def stream_agent_events(
     Requires stream token for active runs (returned by POST /runs).
     Sends heartbeat every 30 seconds during idle.
     """
-    # Validate stream token for active runs
+    # Validate stream token: reject only if a non-empty token is provided but wrong.
+    # Empty token is allowed as fallback for reconnection (e.g. page reload where
+    # localStorage may not have persisted the token).
     expected_token = _run_tokens.get(run_id)
-    if expected_token and token != expected_token:
+    if token and expected_token and token != expected_token:
         raise HTTPException(status_code=403, detail="Invalid stream token")
     # Capture parent request ID for SSE context
     parent_request_id = get_request_id()

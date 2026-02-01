@@ -161,6 +161,7 @@ export function ConversationView() {
   const [pendingRunId, setPendingRunId] = useState<string | null>(null);
   const [pendingIsAgent, setPendingIsAgent] = useState(false);
 
+  // Track any active run (chat or agent) for UI purposes (auto-scroll, completion detection)
   const activeRunId = useMemo(() => {
     for (let i = runs.length - 1; i >= 0; i -= 1) {
       if (runs[i].status === 'running') {
@@ -170,8 +171,19 @@ export function ConversationView() {
     return null;
   }, [runs]);
 
+  // Only track chat (non-agent) runs for useSSE auto-subscribe.
+  // Agent runs are managed manually via useAgentSSE.
+  const activeChatRunId = useMemo(() => {
+    for (let i = runs.length - 1; i >= 0; i -= 1) {
+      if (runs[i].status === 'running' && runs[i].mode !== 'agent') {
+        return runs[i].run_id;
+      }
+    }
+    return null;
+  }, [runs]);
+
   // Get subscribe/unsubscribe functions from useSSE (chat mode)
-  const { subscribe, unsubscribe } = useSSE(activeRunId);
+  const { subscribe, unsubscribe } = useSSE(activeChatRunId);
 
   // Get subscribe/unsubscribe functions from useAgentSSE (research mode)
   const {
