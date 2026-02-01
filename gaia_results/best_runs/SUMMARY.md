@@ -5,7 +5,7 @@
 | Model | Provider | Level 1 | Level 2 | Level 3 | Overall | Cost |
 |-------|----------|---------|---------|---------|---------|------|
 | **gpt-5-mini** | **OpenAI** | **66.7%** | **45.5%** | **31.6%** | **~50.4%** | **$8.27** |
-| gpt-oss-120b | DeepInfra | 64.3% | 37.9% | 31.6% | ~46% | $3.89 |
+| gpt-oss-120b | DeepInfra | 64.3% | 37.9% | 31.6% | **45.7%** | $3.89 |
 
 ---
 
@@ -76,7 +76,7 @@ Default max_steps=10 is optimal — extra steps rarely help.
 | Level 1 | **64.3%** | 42 | 27 | 0.0* | 1.37h | level1_best_64.3pct.json |
 | Level 2 | **37.9%** | 66 | 25 | 6.9 | 3.58h | level2_best_37.9pct.json |
 | Level 3 | **31.6%** | 19 | 6 | 6.4 | 1.00h | level3_best_31.6pct.json |
-| **Overall** | **~46%** | **127** | **58** | - | **5.95h** | - |
+| **Overall** | **45.7%** | **127** | **58** | - | **5.95h** | - |
 
 *\*Level 1 step tracking was not recorded for this run.*
 
@@ -194,7 +194,7 @@ Agreement rate: 78% (99/127). When they agree, they're right 47.5% and wrong 52.
 | Incomplete (couldn't finish research) | 4 | 6.3% |
 | No answer (null/empty) | 2 | 3.2% |
 
-- **20.6% of failures (13/63)** are close-but-wrong — better answer extraction/normalization could recover some of these
+- **20.6% of failures (13/63)** are non-confident (close-but-wrong, incomplete, or empty). A re-run of 25 weakest questions (Feb 2026) flipped only 1, confirming these are hard failures, not extraction issues
 - **2 questions failed due to 429 rate limits** (OpenAI throttling during concurrent runs)
 - Only **8 tool call errors** out of 829 total tool calls (99% tool success rate)
 
@@ -254,7 +254,7 @@ Wrong answers consume **~2x more tool calls** — the agent thrashes through sea
 |------------|-------|---|---------------|
 | Multi-hop context loss | 21 | 33% | No — model must navigate long context |
 | Can't access content (YouTube, images, PDFs) | 14 | 22% | Partially — add new tools |
-| Answer format/precision | 9 | 14% | Yes — better extraction |
+| Answer format/precision | 9 | 14% | Minimal — re-run validated only 1/25 recoverable |
 | Wrong source found | 6 | 10% | No — model search strategy |
 | Reasoning error | 6 | 10% | No — model capability |
 | Gave up / ran out of steps | 5 | 8% | Marginal |
@@ -262,12 +262,12 @@ Wrong answers consume **~2x more tool calls** — the agent thrashes through sea
 
 **Key insight:** ~55% of failures (multi-hop + wrong source + reasoning) are model-level limitations — the scaffold can't fix them. The model either loses track across chained lookups, finds the wrong page, or reasons incorrectly from correct information. Context pruning was tested but is net negative: pruned summaries lose specific facts the model needs later, causing it to re-fetch (wasting a step).
 
-**Scaffold-fixable (~25%):** answer format issues (9) and content access gaps (14, partially). The remaining ~20% are hard retrieval problems where the information isn't easily searchable.
+**Scaffold-fixable (~15%):** content access gaps (14, partially) and rate limits (2). Answer format issues (9) were originally estimated as recoverable, but a targeted re-run (Feb 2026) showed only 1/25 weakest questions flipped — the model produces wrong answers deterministically, not format-fixable ones. The remaining ~20% are hard retrieval problems where the information isn't easily searchable.
 
 ### Actionable Improvements
 
-1. **Answer extraction** — 14% of failures are format issues; better normalization could recover ~5-8 questions
-2. **Content access tools** — 22% fail because tools can't reach YouTube transcripts, images, PDF footnotes, Wikipedia edit histories
+1. **Answer extraction** — 14% of failures were categorized as format issues, but a re-run of 25 weakest questions recovered only 1. The model gives wrong answers consistently, not extractable-but-misformatted ones. Marginal gains at best.
+2. **Content access tools** — 22% fail because tools can't reach YouTube transcripts, images, PDF footnotes, Wikipedia edit histories. Highest-impact scaffold improvement.
 3. **Ensemble routing** — Oracle best-of-2 hits 59.1%; even a simple confidence-based router could add +5-7 questions
 4. **Rate limit handling** — Add retry-with-backoff for 429s; 2 questions were lost to rate limits
 

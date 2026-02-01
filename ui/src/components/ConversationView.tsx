@@ -1,8 +1,9 @@
 // Conversation view - simple chat interface
 
 import { useEffect, useMemo, useRef, useState, useCallback, memo } from 'react';
-import type { KeyboardEvent } from 'react';
+import type { KeyboardEvent, ChangeEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { toast } from 'sonner';
 import { AnswerMarkdown, extractAnswer } from '@/components/AnswerMarkdown';
 import { ThinkingPanel } from '@/components/ThinkingPanel';
 import { AgentRunMessage } from '@/components/AgentRunMessage';
@@ -153,6 +154,7 @@ export function ConversationView() {
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>('medium');
   const [mode, setMode] = useState<ChatMode>('research');
   const scrollRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Stop generation state
   const [pendingMessage, setPendingMessage] = useState('');
@@ -210,10 +212,29 @@ export function ConversationView() {
     loadConversation();
   }, [selectedConversationId, setRuns, updateConversation, subscribe, subscribeAgent]);
 
+  // Scroll on new runs
   useEffect(() => {
     if (!scrollRef.current) return;
     scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [runs.length]);
+
+  // Auto-scroll during streaming - watch streaming text length for active run
+  const lastStreamLen = useStore((s) => {
+    if (!activeRunId) return 0;
+    const text = s.streamingText[activeRunId] ?? '';
+    const thinking = s.streamingThinking[activeRunId] ?? '';
+    return text.length + thinking.length;
+  });
+
+  useEffect(() => {
+    if (!scrollRef.current || !activeRunId) return;
+    const el = scrollRef.current;
+    // Only auto-scroll if user is near the bottom (within 150px)
+    const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 150;
+    if (isNearBottom) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [lastStreamLen, activeRunId]);
 
   const handleShowTrace = useCallback((runId: string) => {
     selectRun(runId);
@@ -313,6 +334,7 @@ export function ConversationView() {
       }
     } catch (error) {
       console.error('Failed to create run:', error);
+      toast.error('Failed to send message. Please try again.');
       // Restore message on error
       setMessage(messageToSend);
       setPendingMessage('');
@@ -365,6 +387,7 @@ export function ConversationView() {
       setIsSubmitting(false);
     } catch (error) {
       console.error('Failed to abort run:', error);
+      toast.error('Failed to stop generation.');
       // Even if abort fails, clean up UI state
       setPendingRunId(null);
       setPendingMessage('');
@@ -397,9 +420,31 @@ export function ConversationView() {
   // Determine if we should show Stop button
   const isGenerating = isSubmitting && pendingRunId;
 
+  // Auto-resize textarea
+  const resizeTextarea = useCallback(() => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    ta.style.height = 'auto';
+    ta.style.height = Math.min(ta.scrollHeight, 200) + 'px';
+  }, []);
+
+  const handleMessageChange = useCallback((e: ChangeEvent<HTMLTextAreaElement>) => {
+    setMessage(e.target.value);
+    // Resize on next frame after state update
+    requestAnimationFrame(resizeTextarea);
+  }, [resizeTextarea]);
+
+  // Reset textarea height when message is cleared (after submit)
+  useEffect(() => {
+    if (!message && textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+    }
+  }, [message]);
+
   const handlePresetClick = (query: string) => {
     setMessage(query);
     setMode('research'); // Preset questions are designed for research mode
+    requestAnimationFrame(resizeTextarea);
   };
 
   if (!conversation && runs.length === 0) {
@@ -460,11 +505,12 @@ export function ConversationView() {
         <div className="border-t p-3 pb-20 sm:p-4 flex-shrink-0 bg-white">
           <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
             <Textarea
+              ref={textareaRef}
               placeholder={mode === 'research' ? 'Ask agent to research...' : 'Ask a question...'}
               value={message}
-              onChange={(e) => setMessage(e.target.value)}
+              onChange={handleMessageChange}
               onKeyDown={handleKeyDown}
-              rows={3}
+              rows={2}
               className="resize-none flex-1"
               disabled={isSubmitting}
             />
@@ -483,6 +529,7 @@ export function ConversationView() {
                   title="Research mode"
                 >
                   <Globe className="h-4 w-4" />
+                  <span className="hidden sm:inline ml-1">Agent</span>
                 </Button>
                 <Button
                   size="sm"
@@ -492,6 +539,7 @@ export function ConversationView() {
                   title="Chat mode"
                 >
                   <MessageSquare className="h-4 w-4" />
+                  <span className="hidden sm:inline ml-1">Chat</span>
                 </Button>
               </div>
               {/* Reasoning effort - only show in chat mode */}
@@ -586,11 +634,12 @@ export function ConversationView() {
       <div className="border-t p-3 pb-20 sm:p-4 flex-shrink-0 bg-white">
         <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
           <Textarea
+            ref={textareaRef}
             placeholder={mode === 'research' ? 'Ask agent to research...' : 'Ask a follow-up question...'}
             value={message}
-            onChange={(e) => setMessage(e.target.value)}
+            onChange={handleMessageChange}
             onKeyDown={handleKeyDown}
-            rows={3}
+            rows={2}
             className="resize-none flex-1"
             disabled={isSubmitting}
           />
@@ -609,6 +658,7 @@ export function ConversationView() {
                 title="Research mode"
               >
                 <Globe className="h-4 w-4" />
+                <span className="hidden sm:inline ml-1">Agent</span>
               </Button>
               <Button
                 size="sm"
@@ -618,6 +668,7 @@ export function ConversationView() {
                 title="Chat mode"
               >
                 <MessageSquare className="h-4 w-4" />
+                <span className="hidden sm:inline ml-1">Chat</span>
               </Button>
             </div>
             {/* Reasoning effort - only show in chat mode */}

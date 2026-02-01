@@ -323,7 +323,10 @@ class OpenAICompatProvider:
                     temperature=temperature,
                     **kwargs,
                 )
-            except (httpx.RemoteProtocolError, httpx.ReadError) as e:
+            except (httpx.RemoteProtocolError, httpx.ReadError, httpx.HTTPStatusError) as e:
+                # Only retry HTTP errors with retryable status codes
+                if isinstance(e, httpx.HTTPStatusError) and e.response.status_code not in self._retryable_statuses:
+                    raise
                 last_error = e
                 if attempt < self._max_retries:
                     delay = min(self._base_delay * (2 ** attempt), self._max_delay)
@@ -423,6 +426,11 @@ class OpenAICompatProvider:
                     else:
                         response.raise_for_status()
                 elif response.status_code >= 400:
+                    error_body = await response.aread()
+                    logger.error(
+                        "API error response",
+                        extra={"status": response.status_code, "body": error_body.decode()[:2000]},
+                    )
                     response.raise_for_status()
 
                 async for line in response.aiter_lines():
@@ -484,8 +492,24 @@ class OpenAICompatProvider:
 
                     # Emit callbacks
                     if delta["content"]:
-                        full_content.append(delta["content"])
-                        on_token(delta["content"])
+                        # Ensure content is a string (Mistral can return list of content blocks)
+                        raw_content = delta["content"]
+                        if isinstance(raw_content, str):
+                            content_str = raw_content
+                        elif isinstance(raw_content, list):
+                            # Extract text from content blocks like [{"type": "text", "text": "..."}]
+                            parts = []
+                            for block in raw_content:
+                                if isinstance(block, dict) and block.get("type") == "text":
+                                    parts.append(block.get("text", ""))
+                                elif isinstance(block, str):
+                                    parts.append(block)
+                            content_str = "".join(parts)
+                        else:
+                            content_str = str(raw_content)
+                        if content_str:
+                            full_content.append(content_str)
+                            on_token(content_str)
 
                     if delta["reasoning"] and on_reasoning:
                         full_reasoning.append(delta["reasoning"])
@@ -563,6 +587,21 @@ class OpenAICompatProvider:
                         "Skipped streaming tool call with empty arguments",
                         extra={"tool_name": acc["name"], "tool_id": acc["id"]},
                     )
+
+        # Deduplicate tool call IDs (some models like Mistral generate duplicates)
+        if tool_calls:
+            seen_ids: set[str] = set()
+            for tc in tool_calls:
+                tc_id = tc.get("id", "")
+                if tc_id in seen_ids:
+                    import uuid
+                    new_id = uuid.uuid4().hex[:9]
+                    logger.warning(
+                        "Duplicate tool_call id, reassigning",
+                        extra={"old_id": tc_id, "new_id": new_id, "tool": tc.get("function", {}).get("name")},
+                    )
+                    tc["id"] = new_id
+                seen_ids.add(tc["id"])
 
         return LLMResponse(
             text="".join(full_content),
@@ -741,6 +780,12 @@ class OpenAICompatProvider:
         usage: Dict[str, int] = {}
 
         async with self._client.stream("POST", url, json=payload) as response:
+            if response.status_code >= 400:
+                error_body = await response.aread()
+                logger.error(
+                    "API error response",
+                    extra={"status": response.status_code, "body": error_body.decode()[:2000]},
+                )
             response.raise_for_status()
 
             async for line in response.aiter_lines():

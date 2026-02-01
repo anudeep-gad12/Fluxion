@@ -9,6 +9,7 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| feature/ui-polish | UI polish: auto-scroll, auto-resize, toasts, animations, copy button | done | 2026-02-01 |
 | test | GPT-5-mini GAIA benchmark + reasoning model support | done | 2026-01-31 |
 | feature/mobile-responsive | Mobile-responsive design | done | 2026-01-27 |
 | feature/update-favicon | Custom neural network favicon | done | 2026-01-26 |
@@ -21,6 +22,25 @@
 | feature/preset-question-chips | Demo preset questions | done | 2026-01-23 |
 | feature/gaia-benchmark | GAIA Benchmark Evaluation | done | 2026-01-21 |
 | feature/agent-planning | Agent Planning Step | done | 2026-01-20 |
+
+### 2026-02-01: UI Polish
+
+**Branch:** `feature/ui-polish`
+**Status:** done
+
+**Description:**
+Visual and UX improvements across the chat interface. No functionality changes.
+
+**Changes:**
+- `ui/src/components/ConversationView.tsx` — Auto-scroll during streaming (watches streaming text length, scrolls when near bottom); textarea auto-resize (expands as you type, max 200px, resets on submit); mode button labels on desktop ("Research" / "Chat" text visible on sm+ breakpoint); toast error notifications for failed runs/aborts
+- `ui/src/components/AnswerMarkdown.tsx` — Code block copy button (hover-reveal, click-to-copy with checkmark feedback)
+- `ui/src/components/ThinkingPanel.tsx` — Animated expand/collapse using CSS grid transition (200ms ease-out)
+- `ui/src/components/AgentStepsPanel.tsx` — Same animated expand/collapse
+- `ui/src/App.tsx` — Added `<Toaster>` from sonner for toast notifications
+- `ui/src/index.css` — Custom thin scrollbars (6px, slate-colored); `.collapsible-content` CSS utility for grid-row animation
+- `ui/package.json` — Added `sonner` dependency for toast notifications
+
+---
 
 ### 2026-01-31: GPT-5-mini GAIA Benchmark + Reasoning Model Support
 

@@ -71,19 +71,29 @@ export function TracesModal({ open, onOpenChange }: TracesModalProps) {
       const data = await response.json();
 
       // Filter to show only full evaluation runs (>= 19 questions)
-      // Then select the best (highest accuracy) for each level
-      const fullRuns = data.filter((trace: TraceMetadata) => trace.total_questions >= 19);
+      // Exclude Mistral traces (deprecated model, not part of final benchmarks)
+      // Then select the best (highest accuracy) for each model+level combination
+      const fullRuns = data.filter((trace: TraceMetadata) =>
+        trace.total_questions >= 19 && !trace.model.toLowerCase().includes('mistral')
+      );
 
-      const bestByLevel = new Map<number, TraceMetadata>();
+      const bestByModelLevel = new Map<string, TraceMetadata>();
       fullRuns.forEach((trace: TraceMetadata) => {
-        const existing = bestByLevel.get(trace.level);
+        const key = `${trace.model}__${trace.level}`;
+        const existing = bestByModelLevel.get(key);
         if (!existing || trace.accuracy > existing.accuracy) {
-          bestByLevel.set(trace.level, trace);
+          bestByModelLevel.set(key, trace);
         }
       });
 
-      // Convert to array and sort by level
-      const bestTraces = Array.from(bestByLevel.values()).sort((a, b) => a.level - b.level);
+      // Convert to array and sort by model (GPT-5-mini first) then level
+      const bestTraces = Array.from(bestByModelLevel.values()).sort((a, b) => {
+        // GPT-5-mini first, then gpt-oss-120b
+        if (a.model !== b.model) {
+          return a.model?.includes('5-mini') ? -1 : 1;
+        }
+        return a.level - b.level;
+      });
       setTraces(bestTraces);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load traces');
@@ -173,40 +183,48 @@ export function TracesModal({ open, onOpenChange }: TracesModalProps) {
 
           {/* Traces List View */}
           {!selectedTrace && !loading && traces.length > 0 && (
-            <div className="space-y-2">
-              {traces.map((trace) => (
-                <button
-                  key={trace.filename}
-                  onClick={() => handleTraceClick(trace)}
-                  className="w-full text-left p-4 rounded-lg border hover:bg-slate-50 transition-colors"
-                >
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-2">
-                        <Badge variant="default">
-                          Level {trace.level}
-                        </Badge>
-                        <span className="text-sm text-muted-foreground">{formatDate(trace.timestamp)}</span>
-                      </div>
-                      <div className="text-xs text-muted-foreground mb-1">{trace.model}</div>
-                      <div className="flex items-center gap-4 text-sm">
-                        <span className="flex items-center gap-1">
-                          <Target className="h-3 w-3" />
-                          {trace.total_questions} questions
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <CheckCircle className="h-3 w-3 text-green-600" />
-                          {trace.correct} correct
-                        </span>
-                        <span className="font-medium text-blue-600">
-                          {(trace.accuracy * 100).toFixed(1)}%
-                        </span>
-                      </div>
-                    </div>
-                    <FileText className="h-5 w-5 text-slate-400" />
+            <div className="space-y-4">
+              {/* Group traces by model */}
+              {(() => {
+                const models = [...new Set(traces.map(t => t.model))];
+                return models.map((model) => (
+                  <div key={model} className="space-y-2">
+                    <h3 className="text-sm font-medium text-muted-foreground px-1">{model}</h3>
+                    {traces.filter(t => t.model === model).map((trace) => (
+                      <button
+                        key={trace.filename}
+                        onClick={() => handleTraceClick(trace)}
+                        className="w-full text-left p-4 rounded-lg border hover:bg-slate-50 transition-colors"
+                      >
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-2">
+                              <Badge variant="default">
+                                Level {trace.level}
+                              </Badge>
+                              <span className="text-sm text-muted-foreground">{formatDate(trace.timestamp)}</span>
+                            </div>
+                            <div className="flex items-center gap-4 text-sm">
+                              <span className="flex items-center gap-1">
+                                <Target className="h-3 w-3" />
+                                {trace.total_questions} questions
+                              </span>
+                              <span className="flex items-center gap-1">
+                                <CheckCircle className="h-3 w-3 text-green-600" />
+                                {trace.correct} correct
+                              </span>
+                              <span className="font-medium text-blue-600">
+                                {(trace.accuracy * 100).toFixed(1)}%
+                              </span>
+                            </div>
+                          </div>
+                          <FileText className="h-5 w-5 text-slate-400" />
+                        </div>
+                      </button>
+                    ))}
                   </div>
-                </button>
-              ))}
+                ));
+              })()}
             </div>
           )}
 

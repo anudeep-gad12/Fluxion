@@ -140,3 +140,47 @@
     @apply text-lg;
   }
 }
+
+/* Custom scrollbars */
+@layer base {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(215 20% 80%) transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background-color: hsl(215 20% 80%);
+    border-radius: 3px;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: hsl(215 20% 65%);
+  }
+}
+
+/* Collapsible panel animation */
+@layer utilities {
+  .collapsible-content {
+    display: grid;
+    grid-template-rows: 0fr;
+    transition: grid-template-rows 200ms ease-out;
+  }
+
+  .collapsible-content[data-expanded="true"] {
+    grid-template-rows: 1fr;
+  }
+
+  .collapsible-content > div {
+    overflow: hidden;
+    min-height: 0;
+  }
+}
