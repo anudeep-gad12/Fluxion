@@ -585,8 +585,8 @@ export function ConversationView() {
                   : reasoningEffort === 'medium'
                     ? '🧠 Balanced'
                     : '⚡ Fast'}
-            <span className="hidden md:inline">
-              {' '}· Press ⌘/Ctrl+Enter to send · ⌘/Ctrl+1 for Agent · ⌘/Ctrl+2 for Chat
+            <span className="hidden md:inline text-slate-400">
+              {' · ⌘+Enter send · ⌘+1 agent · ⌘+2 chat'}
             </span>
           </p>
         </div>
@@ -710,8 +710,8 @@ export function ConversationView() {
               : reasoningEffort === 'medium'
                 ? '🧠 Balanced'
                 : '⚡ Fast'}
-          <span className="hidden md:inline">
-            {' '}· Press ⌘/Ctrl+Enter to send · ⌘/Ctrl+1 for Agent · ⌘/Ctrl+2 for Chat
+          <span className="hidden md:inline text-slate-400">
+            {' · ⌘+Enter send · ⌘+1 agent · ⌘+2 chat'}
           </span>
         </p>
       </div>
