@@ -1,8 +1,10 @@
+import { useState, useCallback } from 'react';
 import 'katex/dist/katex.min.css';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
+import { Check, Copy } from 'lucide-react';
 
 /**
  * Fix common LaTeX issues that cause KaTeX parsing errors.
@@ -153,6 +155,45 @@ export function extractAnswer(rawAnswer: string): string {
   return stripThinkingTags(content);
 }
 
+function CodeBlock({ children }: { children: React.ReactNode }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback(() => {
+    const text = extractTextFromChildren(children);
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }, [children]);
+
+  return (
+    <div className="group relative my-4">
+      <pre className="overflow-x-auto rounded-lg bg-slate-900 p-4 text-sm text-slate-100">
+        {children}
+      </pre>
+      <button
+        onClick={handleCopy}
+        className="absolute right-2 top-2 p-1.5 rounded-md bg-slate-700/80 text-slate-300 opacity-0 group-hover:opacity-100 hover:bg-slate-600 hover:text-white transition-all"
+        title="Copy code"
+      >
+        {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+      </button>
+    </div>
+  );
+}
+
+/** Recursively extract text content from React children. */
+function extractTextFromChildren(children: React.ReactNode): string {
+  if (typeof children === 'string') return children;
+  if (typeof children === 'number') return String(children);
+  if (!children) return '';
+  if (Array.isArray(children)) return children.map(extractTextFromChildren).join('');
+  if (typeof children === 'object' && 'props' in children) {
+    return extractTextFromChildren(children.props.children);
+  }
+  return '';
+}
+
 export function AnswerMarkdown({ content }: { content: string }) {
   const safeContent = content || '';
   const normalizedContent = normalizeMathDelimiters(safeContent);
@@ -164,8 +205,6 @@ export function AnswerMarkdown({ content }: { content: string }) {
         rehypePlugins={[rehypeKatex]}
         components={{
           code({ className, children, ...props }) {
-            // In react-markdown v9, inline detection is based on whether
-            // the code is wrapped in a <pre> (handled separately)
             const isInline = !className;
             if (isInline) {
               return (
@@ -181,11 +220,7 @@ export function AnswerMarkdown({ content }: { content: string }) {
             );
           },
           pre({ children }) {
-            return (
-              <pre className="my-4 overflow-x-auto rounded-lg bg-slate-900 p-4 text-sm text-slate-100">
-                {children}
-              </pre>
-            );
+            return <CodeBlock>{children}</CodeBlock>;
           },
         }}
       >

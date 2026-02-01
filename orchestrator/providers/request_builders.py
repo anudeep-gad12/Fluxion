@@ -176,9 +176,16 @@ def build_chat_completions_request(
     Note:
         reasoning_effort is NOT supported by chat/completions and is ignored.
     """
+    # Strip internal metadata fields that strict APIs (e.g. Mistral) reject
+    _internal_keys = {"_plan", "_step", "_pruned", "_llm_summary"}
+    clean_messages = [
+        {k: v for k, v in msg.items() if k not in _internal_keys}
+        for msg in messages
+    ]
+
     payload: Dict[str, Any] = {
         "model": model,
-        "messages": messages,
+        "messages": clean_messages,
         "stream": stream,
     }
 
