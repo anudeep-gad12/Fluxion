@@ -53,6 +53,7 @@ class RunConfig:
     split: str = "validation"
     mode: str = "agent"
     limit: Optional[int] = None
+    task_ids: Optional[List[str]] = None
     max_steps: int = 15
     timeout_seconds: int = 1800  # 30 minutes - eliminate timeout as a failure cause
     skip_attachments: bool = True
@@ -469,6 +470,15 @@ async def run_evaluation(config: RunConfig) -> EvaluationResults:
         hf_token=config.hf_token,
         skip_attachments=config.skip_attachments,
     )
+
+    # Filter by specific task IDs if provided (supports partial ID prefixes)
+    if config.task_ids:
+        id_set = set(config.task_ids)
+        def _matches_any(task_id: str) -> bool:
+            return task_id in id_set or any(task_id.startswith(prefix) for prefix in id_set)
+        questions = [q for q in questions if _matches_any(q.task_id)]
+        if config.verbose:
+            print(f"Filtered to {len(questions)} questions by task_ids")
 
     if config.limit:
         questions = questions[:config.limit]
