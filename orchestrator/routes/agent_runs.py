@@ -399,9 +399,12 @@ async def stream_agent_events(
         )
 
         try:
-            # Phase 1: Replay missed events if resuming
-            if since_seq > 0 and run_id in _event_history:
-                for event in _event_history[run_id]:
+            # Phase 1: Replay events from history.
+            # On reconnect (e.g. page reload), this rebuilds past steps/thinking/tools.
+            # Snapshot avoids issues with concurrent appends during async yields.
+            if run_id in _event_history:
+                history_snapshot = list(_event_history[run_id])
+                for event in history_snapshot:
                     event_seq = event.get("seq", 0)
                     if event_seq > since_seq:
                         chunk_count += 1
@@ -456,8 +459,11 @@ async def stream_agent_events(
                             }
                             break
                         else:
-                            seq = event.get("seq", seq + 1)
-                            yield _translate_event(event, seq)
+                            # Skip events already replayed from history
+                            event_seq = event.get("seq", seq + 1)
+                            if event_seq > seq:
+                                seq = event_seq
+                                yield _translate_event(event, event_seq)
 
                     except asyncio.TimeoutError:
                         yield {"event": "heartbeat", "data": "{}"}
