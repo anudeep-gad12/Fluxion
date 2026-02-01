@@ -8,9 +8,10 @@ Complete documentation of all API endpoints in the Reasoner system.
 2. [Conversations](#conversations)
 3. [Runs](#runs)
 4. [Agent Runs](#agent-runs)
-5. [System](#system)
-6. [SSE Streaming](#sse-streaming)
-7. [Error Handling](#error-handling)
+5. [Benchmarks](#benchmarks)
+6. [System](#system)
+7. [SSE Streaming](#sse-streaming)
+8. [Error Handling](#error-handling)
 
 ---
 
@@ -840,6 +841,89 @@ GET /api/agent/runs/{run_id}/stream?since_seq=0
 **Response**: Server-Sent Events stream
 
 See [SSE Streaming](#sse-streaming) for event format.
+
+---
+
+## Benchmarks
+
+### List Benchmark Traces
+
+Get metadata for all GAIA evaluation traces.
+
+**Request**:
+```
+GET /api/benchmarks/traces
+```
+
+**Response** (200 OK):
+```json
+[
+  {
+    "filename": "gpt5mini_level1_best_66.7pct.json",
+    "timestamp": "2026-01-31T10:00:00Z",
+    "level": "1",
+    "model": "openai/gpt-5-mini",
+    "total_questions": 42,
+    "correct": 28,
+    "accuracy": 66.7
+  },
+  ...
+]
+```
+
+Traces are sorted by timestamp (newest first). Searches both `gaia_results/` and `gaia_results/best_runs/` directories.
+
+---
+
+### Get Benchmark Trace
+
+Get full evaluation data for a specific trace file.
+
+**Request**:
+```
+GET /api/benchmarks/traces/{filename}
+```
+
+**Response** (200 OK):
+```json
+{
+  "metadata": {
+    "timestamp": "2026-01-31T10:00:00Z",
+    "level": "1",
+    "model_name": "openai/gpt-5-mini",
+    ...
+  },
+  "summary": {
+    "total_questions": 42,
+    "agent_correct": 28,
+    "agent_accuracy": 66.7,
+    ...
+  },
+  "results": [
+    {
+      "question": "...",
+      "expected_answer": "...",
+      "agent_answer": "...",
+      "agent_correct": true,
+      ...
+    }
+  ]
+}
+```
+
+**Error** (400 Bad Request):
+```json
+{
+  "detail": "Invalid filename"
+}
+```
+
+**Error** (404 Not Found):
+```json
+{
+  "detail": "Trace not found"
+}
+```
 
 ---
 

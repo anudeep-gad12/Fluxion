@@ -9,7 +9,7 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
-| feature/ui-polish | UI polish: auto-scroll, auto-resize, toasts, animations, copy button | done | 2026-02-01 |
+| feature/ui-polish | UI polish, label updates, benchmark trace fixes, deployment fixes | done | 2026-02-01 |
 | test | GPT-5-mini GAIA benchmark + reasoning model support | done | 2026-01-31 |
 | feature/mobile-responsive | Mobile-responsive design | done | 2026-01-27 |
 | feature/update-favicon | Custom neural network favicon | done | 2026-01-26 |
@@ -23,22 +23,33 @@
 | feature/gaia-benchmark | GAIA Benchmark Evaluation | done | 2026-01-21 |
 | feature/agent-planning | Agent Planning Step | done | 2026-01-20 |
 
-### 2026-02-01: UI Polish
+### 2026-02-01: UI Polish, Label Updates, Benchmark & Deployment Fixes
 
-**Branch:** `feature/ui-polish`
+**Branch:** `feature/ui-polish` → merged to `test`
 **Status:** done
 
 **Description:**
-Visual and UX improvements across the chat interface. No functionality changes.
+Visual/UX improvements, terminology updates, benchmark trace filtering, and deployment fixes.
 
-**Changes:**
-- `ui/src/components/ConversationView.tsx` — Auto-scroll during streaming (watches streaming text length, scrolls when near bottom); textarea auto-resize (expands as you type, max 200px, resets on submit); mode button labels on desktop ("Research" / "Chat" text visible on sm+ breakpoint); toast error notifications for failed runs/aborts
+**UI Polish (initial):**
+- `ui/src/components/ConversationView.tsx` — Auto-scroll during streaming (watches streaming text length, scrolls when near bottom); textarea auto-resize (expands as you type, max 200px, resets on submit); mode button labels on desktop; toast error notifications for failed runs/aborts
 - `ui/src/components/AnswerMarkdown.tsx` — Code block copy button (hover-reveal, click-to-copy with checkmark feedback)
 - `ui/src/components/ThinkingPanel.tsx` — Animated expand/collapse using CSS grid transition (200ms ease-out)
 - `ui/src/components/AgentStepsPanel.tsx` — Same animated expand/collapse
 - `ui/src/App.tsx` — Added `<Toaster>` from sonner for toast notifications
 - `ui/src/index.css` — Custom thin scrollbars (6px, slate-colored); `.collapsible-content` CSS utility for grid-row animation
 - `ui/package.json` — Added `sonner` dependency for toast notifications
+
+**Label & Branding Updates:**
+- `ui/src/components/ConversationView.tsx` — Mode button label changed from "Research" to "Agent" (both input areas)
+- `ui/src/App.tsx` — Removed "Local AI Chat" subtitle from sidebar header (just shows "Reasoner" now)
+
+**Benchmark Fixes:**
+- `ui/src/components/TracesModal.tsx` — Added filter to exclude Mistral traces from comparison modal (`!trace.model.toLowerCase().includes('mistral')`)
+- `orchestrator/routes/benchmarks.py` — Fixed deployed benchmarks showing "No evaluation traces found". Root cause: `.gitignore` excludes `gaia_results/` except `gaia_results/best_runs/`, but the API only searched the root directory. Added `_collect_trace_files()` and `_find_trace_file()` helpers to search both `gaia_results/` and `gaia_results/best_runs/` with filename deduplication.
+
+**Deployment Fix (Railway):**
+- Fixed 403 Forbidden from DeepInfra on both staging and production. Root cause: Railway had `DEEPINFRA_API_KEY` env var set but config uses `${LLM_API_KEY:-}` which defaults to empty. Set `LLM_API_KEY` on both Railway environments.
 
 ---
 
@@ -1278,6 +1289,6 @@ Status: succeeded
 
 | Metric | Value |
 |--------|-------|
-| Features this session | 6 |
+| Features this session | 8 |
 | Total tests added | 53 |
-| PRs to main | 0 |
+| PRs to main | 2 |
