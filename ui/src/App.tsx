@@ -2,6 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { Routes, Route, Navigate, useParams, useSearchParams, useNavigate } from 'react-router-dom';
+import { Toaster } from 'sonner';
 import { ConversationList } from '@/components/ConversationList';
 import { ConversationView } from '@/components/ConversationView';
 import { DetailPanel } from '@/components/DetailPanel';
@@ -210,10 +211,7 @@ function AppLayout() {
         style={!isMobile && !sidebarCollapsed ? { width: sidebarWidth } : undefined}
       >
         <div className="p-4 border-b flex items-center justify-between">
-          <div>
-            <h1 className="text-lg font-bold">Reasoner</h1>
-            <p className="text-xs text-muted-foreground">Local AI Chat</p>
-          </div>
+          <h1 className="text-lg font-bold">Reasoner</h1>
           {/* Mobile: close button, Desktop: collapse button */}
           <Button
             variant="ghost"
@@ -302,10 +300,13 @@ function AppLayout() {
 
 function App() {
   return (
-    <Routes>
-      <Route path="/benchmarks" element={<BenchmarksPage />} />
-      <Route path="/*" element={<AppLayout />} />
-    </Routes>
+    <>
+      <Toaster position="top-right" richColors closeButton duration={4000} />
+      <Routes>
+        <Route path="/benchmarks" element={<BenchmarksPage />} />
+        <Route path="/*" element={<AppLayout />} />
+      </Routes>
+    </>
   );
 }
 
