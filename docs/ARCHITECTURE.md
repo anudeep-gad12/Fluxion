@@ -104,6 +104,7 @@ orchestrator/
 │
 ├── agent/
 │   ├── agent_engine.py       # Agent loop with tool calling
+│   ├── planner.py            # Research plan generation
 │   ├── state_machine.py      # Agent state management
 │   ├── context_pruner.py     # Token budget management
 │   ├── query_classifier.py   # Query type classification
@@ -114,12 +115,14 @@ orchestrator/
 │       ├── web_search.py     # Parallel.ai web search
 │       ├── web_extract.py    # Content extraction
 │       ├── python_local.py   # Local Python execution
-│       └── python_sandbox.py # E2B sandbox (optional)
+│       ├── python_daytona.py # Daytona cloud sandbox
+│       └── python_sandbox.py # E2B sandbox (deprecated)
 │
 ├── routes/
 │   ├── conversations.py      # Conversation CRUD
 │   ├── runs.py               # Chat runs + SSE streaming
-│   └── agent_runs.py         # Agent runs + SSE streaming
+│   ├── agent_runs.py         # Agent runs + SSE streaming
+│   └── benchmarks.py         # GAIA benchmark traces API
 │
 ├── storage/
 │   ├── db.py                 # Async SQLite wrapper
@@ -145,7 +148,7 @@ The FastAPI application initializes with:
    - `SecurityHeadersMiddleware`: Security headers (X-Frame-Options, etc.)
    - `RateLimitMiddleware`: IP-based rate limiting for demo mode
    - `CORSMiddleware`: Allows frontend at localhost:3000
-3. **Routers**: `/api/conversations`, `/api/runs`, `/api/agent/runs`
+3. **Routers**: `/api/conversations`, `/api/runs`, `/api/agent/runs`, `/api/benchmarks`
 4. **Health/Config Endpoints**: `/api/health`, `/api/config`
 
 ```python
@@ -161,6 +164,7 @@ app.add_middleware(
 app.include_router(conversations.router, prefix="/api")
 app.include_router(runs.router, prefix="/api")
 app.include_router(agent_runs.router, prefix="/api")
+app.include_router(benchmarks.router)  # prefix="/api/benchmarks" in router
 ```
 
 ### Chat Engine (`engine/chat_engine.py`)
@@ -224,14 +228,16 @@ ui/src/
 ├── App.tsx                   # Main layout + routing
 │
 ├── components/
-│   ├── ConversationView.tsx  # Chat interface (dual mode: chat/research)
+│   ├── ConversationView.tsx  # Chat interface (dual mode: chat/agent)
 │   ├── ConversationList.tsx  # Sidebar with conversation list
 │   ├── DetailPanel.tsx       # Debug trace viewer
-│   ├── AgentRunMessage.tsx   # Research mode message display
-│   ├── AgentStepsPanel.tsx   # Research progress timeline
-│   ├── AnswerMarkdown.tsx    # Markdown + LaTeX rendering
+│   ├── BenchmarksPage.tsx    # GAIA benchmark results page
+│   ├── TracesModal.tsx       # Evaluation trace browser modal
+│   ├── AgentRunMessage.tsx   # Agent mode message display
+│   ├── AgentStepsPanel.tsx   # Agent progress timeline
+│   ├── AnswerMarkdown.tsx    # Markdown + LaTeX rendering + copy button
 │   ├── AnswerWithCitations.tsx  # Answer with source citations
-│   ├── ThinkingPanel.tsx     # Collapsible thinking display
+│   ├── ThinkingPanel.tsx     # Collapsible thinking display (animated)
 │   ├── ToolCallCard.tsx      # Tool execution card
 │   ├── CitationInline.tsx    # Inline citation badge
 │   └── ui/                   # Shadcn-style primitives
@@ -722,7 +728,7 @@ Single source of truth for all runtime settings:
 provider:
   # Default: DeepInfra cloud. Override with LLM_BASE_URL for local providers.
   base_url: ${LLM_BASE_URL:-https://api.deepinfra.com/v1/openai}
-  api_key: ${DEEPINFRA_API_KEY:-}
+  api_key: ${LLM_API_KEY:-}
   endpoint: ${LLM_ENDPOINT:-chat_completions}  # chat_completions | responses | auto
   fallback_on_404: true
   fail_on_tool_fallback: true   # Raise error if tools unavailable
