@@ -43,9 +43,6 @@ export function useSSE(runId: string | null) {
       // TOKEN events have content directly on the event object
       const rawEvent = event as unknown as { type: string; content?: string };
 
-      // Debug: Log ALL events received
-      console.log('[useSSE] Event:', rawEvent.type, rawEvent.content ? `"${rawEvent.content.slice(0, 30)}..."` : '(no content)');
-
       if (rawEvent.type === 'TOKEN' && rawEvent.content) {
         appendStreamingText(id, rawEvent.content);
         return; // Don't add TOKEN events to event list
@@ -53,7 +50,6 @@ export function useSSE(runId: string | null) {
 
       // Handle THINKING_TOKEN events for streaming thinking content
       if (rawEvent.type === 'THINKING_TOKEN' && rawEvent.content) {
-        console.log('[useSSE] → Appending to streamingThinking');
         appendStreamingThinking(id, rawEvent.content);
         return; // Don't add THINKING_TOKEN events to event list
       }

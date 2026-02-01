@@ -161,6 +161,7 @@ export function ConversationView() {
   const [pendingRunId, setPendingRunId] = useState<string | null>(null);
   const [pendingIsAgent, setPendingIsAgent] = useState(false);
 
+  // Track any active run (chat or agent) for UI purposes (auto-scroll, completion detection)
   const activeRunId = useMemo(() => {
     for (let i = runs.length - 1; i >= 0; i -= 1) {
       if (runs[i].status === 'running') {
@@ -170,8 +171,19 @@ export function ConversationView() {
     return null;
   }, [runs]);
 
+  // Only track chat (non-agent) runs for useSSE auto-subscribe.
+  // Agent runs are managed manually via useAgentSSE.
+  const activeChatRunId = useMemo(() => {
+    for (let i = runs.length - 1; i >= 0; i -= 1) {
+      if (runs[i].status === 'running' && runs[i].mode !== 'agent') {
+        return runs[i].run_id;
+      }
+    }
+    return null;
+  }, [runs]);
+
   // Get subscribe/unsubscribe functions from useSSE (chat mode)
-  const { subscribe, unsubscribe } = useSSE(activeRunId);
+  const { subscribe, unsubscribe } = useSSE(activeChatRunId);
 
   // Get subscribe/unsubscribe functions from useAgentSSE (research mode)
   const {
@@ -193,12 +205,11 @@ export function ConversationView() {
         for (const run of data.runs) {
           if (run.status === 'running') {
             if (run.mode === 'agent') {
-              // Reconnect to agent SSE stream with sinceSeq=0 to replay all events
-              console.log('[Auto-reconnect] Reconnecting to agent run:', run.run_id);
-              subscribeAgent(run.run_id, 0);
+              // Reconnect to agent SSE stream with stored token
+              const streamToken = localStorage.getItem(`stream_token:${run.run_id}`) || undefined;
+              subscribeAgent(run.run_id, 0, streamToken);
             } else {
               // Reconnect to chat SSE stream
-              console.log('[Auto-reconnect] Reconnecting to chat run:', run.run_id);
               subscribe(run.run_id);
             }
           }
@@ -287,8 +298,11 @@ export function ConversationView() {
 
         setPendingRunId(response.run_id);
 
-        // Subscribe to agent SSE stream
-        subscribeAgent(response.run_id);
+        // Store stream token for reconnection after page refresh
+        localStorage.setItem(`stream_token:${response.run_id}`, response.stream_token);
+
+        // Subscribe to agent SSE stream with auth token
+        subscribeAgent(response.run_id, 0, response.stream_token);
 
         const run: Run = {
           run_id: response.run_id,
@@ -585,8 +599,8 @@ export function ConversationView() {
                   : reasoningEffort === 'medium'
                     ? '🧠 Balanced'
                     : '⚡ Fast'}
-            <span className="hidden md:inline">
-              {' '}· Press ⌘/Ctrl+Enter to send · ⌘/Ctrl+1 for Agent · ⌘/Ctrl+2 for Chat
+            <span className="hidden md:inline text-slate-400">
+              {' · ⌘+Enter send · ⌘+1 agent · ⌘+2 chat'}
             </span>
           </p>
         </div>
@@ -710,8 +724,8 @@ export function ConversationView() {
               : reasoningEffort === 'medium'
                 ? '🧠 Balanced'
                 : '⚡ Fast'}
-          <span className="hidden md:inline">
-            {' '}· Press ⌘/Ctrl+Enter to send · ⌘/Ctrl+1 for Agent · ⌘/Ctrl+2 for Chat
+          <span className="hidden md:inline text-slate-400">
+            {' · ⌘+Enter send · ⌘+1 agent · ⌘+2 chat'}
           </span>
         </p>
       </div>
