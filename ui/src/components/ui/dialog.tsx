@@ -18,8 +18,10 @@ export function Dialog({ open, onOpenChange, children }: DialogProps) {
                 className="fixed inset-0 bg-black/50 backdrop-blur-sm"
                 onClick={() => onOpenChange(false)}
             />
-            {/* Content */}
-            {children}
+            {/* Content - relative z-10 to sit above backdrop */}
+            <div className="relative z-10 bg-white rounded-lg shadow-xl w-full max-w-md mx-4">
+                {children}
+            </div>
         </div>
     );
 }
