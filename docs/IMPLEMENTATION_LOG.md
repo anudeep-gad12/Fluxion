@@ -9,6 +9,7 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| feature/security-hardening | Security hardening: error leakage, CSP header, console log cleanup | done | 2026-02-01 |
 | feature/ui-polish | UI polish, label updates, benchmark trace fixes, deployment fixes | done | 2026-02-01 |
 | test | GPT-5-mini GAIA benchmark + reasoning model support | done | 2026-01-31 |
 | feature/mobile-responsive | Mobile-responsive design | done | 2026-01-27 |
@@ -22,6 +23,25 @@
 | feature/preset-question-chips | Demo preset questions | done | 2026-01-23 |
 | feature/gaia-benchmark | GAIA Benchmark Evaluation | done | 2026-01-21 |
 | feature/agent-planning | Agent Planning Step | done | 2026-01-20 |
+
+### 2026-02-01: Security Hardening
+
+**Branch:** `feature/security-hardening` → merged to `test`
+**Status:** done
+
+**Description:**
+Security audit findings — safe, non-breaking fixes only.
+
+**Changes:**
+- `orchestrator/routes/conversations.py` — Replace `detail=str(e)` with generic "Internal server error", use structured logger instead of print/traceback
+- `orchestrator/routes/runs.py` — Same fix in two SSE error handlers (chat run error paths)
+- `orchestrator/app.py` — Add `Content-Security-Policy` header to `SecurityHeadersMiddleware`
+- `ui/src/hooks/useSSE.ts` — Remove debug `console.log` lines (were logging all SSE events in production)
+- `ui/src/components/ConversationView.tsx` — Remove auto-reconnect `console.log` lines
+
+**Tests:** 652 passed, 6 pre-existing failures unrelated to changes.
+
+---
 
 ### 2026-02-01: UI Polish, Label Updates, Benchmark & Deployment Fixes
 
