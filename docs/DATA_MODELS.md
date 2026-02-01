@@ -365,6 +365,12 @@ class CreateAgentRunRequest(BaseModel):
     query: str
     conversation_id: Optional[str] = None
     max_steps: int = 10
+
+class CreateAgentRunResponse(BaseModel):
+    run_id: str
+    status: str
+    stream_url: str        # Includes token query param
+    stream_token: str      # Per-run secret for SSE auth
 ```
 
 #### Response Models

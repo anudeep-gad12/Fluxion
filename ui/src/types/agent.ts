@@ -87,6 +87,7 @@ export interface CreateAgentRunResponse {
   run_id: string;
   status: string;
   stream_url: string;
+  stream_token: string;
 }
 
 /** Agent run status response */

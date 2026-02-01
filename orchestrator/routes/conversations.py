@@ -5,6 +5,10 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
+from orchestrator.logging_config import get_logger
+
+logger = get_logger(__name__)
+
 from orchestrator.schemas import (
     ConversationResponse,
     ConversationListResponse,
@@ -89,11 +93,9 @@ async def delete_conversation(conversation_id: str):
         return {"status": "deleted", "conversation_id": conversation_id}
     except HTTPException:
         raise
-    except Exception as e:
-        import traceback
-        print(f"Delete error for {conversation_id}: {e}")
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        logger.exception("Delete conversation failed", extra={"conversation_id": conversation_id})
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.patch("/{conversation_id}", response_model=ConversationResponse)
