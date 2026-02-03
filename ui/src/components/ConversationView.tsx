@@ -24,6 +24,9 @@ import { cn, formatRelativeTime } from '@/lib/utils';
 import { Eye, Loader2, Send, Square, Globe, MessageSquare, Sparkles, BarChart3, ChevronRight } from 'lucide-react';
 import type { Run, Conversation, ReasoningEffort } from '@/types';
 
+/** Maximum characters allowed in the input textarea (~2000 tokens) */
+const MAX_INPUT_CHARS = 8000;
+
 /** Preset questions showcasing multi-step agentic research capabilities */
 const PRESET_QUESTIONS = [
   {
@@ -443,7 +446,11 @@ export function ConversationView() {
   }, []);
 
   const handleMessageChange = useCallback((e: ChangeEvent<HTMLTextAreaElement>) => {
-    setMessage(e.target.value);
+    const value = e.target.value;
+    // Enforce character limit
+    if (value.length <= MAX_INPUT_CHARS) {
+      setMessage(value);
+    }
     // Resize on next frame after state update
     requestAnimationFrame(resizeTextarea);
   }, [resizeTextarea]);
@@ -589,20 +596,28 @@ export function ConversationView() {
               )}
             </div>
           </div>
-          <p className="text-xs text-slate-500 mt-2">
-            {hasActiveRun
-              ? '⏳ Waiting for active run to complete...'
-              : mode === 'research'
-                ? '🌐 Agent mode: web search + analysis'
-                : reasoningEffort === 'high'
-                  ? '🔬 Deep reasoning'
-                  : reasoningEffort === 'medium'
-                    ? '🧠 Balanced'
-                    : '⚡ Fast'}
-            <span className="hidden md:inline text-slate-400">
-              {' · ⌘+Enter send · ⌘+1 agent · ⌘+2 chat'}
+          <div className="flex items-center justify-between mt-2">
+            <p className="text-xs text-slate-500">
+              {hasActiveRun
+                ? '⏳ Waiting for active run to complete...'
+                : mode === 'research'
+                  ? '🌐 Agent mode: web search + analysis'
+                  : reasoningEffort === 'high'
+                    ? '🔬 Deep reasoning'
+                    : reasoningEffort === 'medium'
+                      ? '🧠 Balanced'
+                      : '⚡ Fast'}
+              <span className="hidden md:inline text-slate-400">
+                {' · ⌘+Enter send · ⌘+1 agent · ⌘+2 chat'}
+              </span>
+            </p>
+            <span className={cn(
+              'text-xs',
+              message.length > MAX_INPUT_CHARS * 0.9 ? 'text-amber-600' : 'text-slate-400'
+            )}>
+              {message.length.toLocaleString()}/{MAX_INPUT_CHARS.toLocaleString()}
             </span>
-          </p>
+          </div>
         </div>
       </div>
     );
@@ -716,18 +731,26 @@ export function ConversationView() {
             )}
           </div>
         </div>
-        <p className="text-xs text-slate-500 mt-2">
-          {mode === 'research'
-            ? '🌐 Agent mode: web search + analysis'
-            : reasoningEffort === 'high'
-              ? '🔬 Deep reasoning'
-              : reasoningEffort === 'medium'
-                ? '🧠 Balanced'
-                : '⚡ Fast'}
-          <span className="hidden md:inline text-slate-400">
-            {' · ⌘+Enter send · ⌘+1 agent · ⌘+2 chat'}
+        <div className="flex items-center justify-between mt-2">
+          <p className="text-xs text-slate-500">
+            {mode === 'research'
+              ? '🌐 Agent mode: web search + analysis'
+              : reasoningEffort === 'high'
+                ? '🔬 Deep reasoning'
+                : reasoningEffort === 'medium'
+                  ? '🧠 Balanced'
+                  : '⚡ Fast'}
+            <span className="hidden md:inline text-slate-400">
+              {' · ⌘+Enter send · ⌘+1 agent · ⌘+2 chat'}
+            </span>
+          </p>
+          <span className={cn(
+            'text-xs',
+            message.length > MAX_INPUT_CHARS * 0.9 ? 'text-amber-600' : 'text-slate-400'
+          )}>
+            {message.length.toLocaleString()}/{MAX_INPUT_CHARS.toLocaleString()}
           </span>
-        </p>
+        </div>
       </div>
     </div>
   );
