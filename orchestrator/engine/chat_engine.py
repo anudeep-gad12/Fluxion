@@ -134,7 +134,10 @@ class ChatEngine:
         
         # Log if debug
         if self.config.tracing.log_level == "debug":
-            print(f"[ChatEngine] Messages: {len(messages)}, Endpoint: {self.config.endpoint}")
+            logger.debug(
+                "ChatEngine starting",
+                extra={"message_count": len(messages), "endpoint": self.config.endpoint},
+            )
         
         # Create trace record (status: running)
         await trace_repo.create_conversation_trace(
