@@ -513,9 +513,10 @@ async def stream_agent_events(
                                     "chunk_count": chunk_count,
                                 },
                             )
+                            # Don't leak internal error details to client
                             yield {
                                 "event": "error",
-                                "data": json.dumps({"error": event.get("error")}),
+                                "data": json.dumps({"error": "Internal server error"}),
                             }
                             break
                         elif event.get("type") == "_STREAM_ABORTED":
