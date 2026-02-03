@@ -9,6 +9,7 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| feature/session-scoping | Cookie-based session isolation for demo mode | done | 2026-02-03 |
 | feature/sse-stream-token | SSE stream token auth for agent runs | done | 2026-02-01 |
 | feature/security-hardening | Security hardening: error leakage, CSP header, console log cleanup | done | 2026-02-01 |
 | feature/ui-polish | UI polish, label updates, benchmark trace fixes, deployment fixes | done | 2026-02-01 |
@@ -24,6 +25,36 @@
 | feature/preset-question-chips | Demo preset questions | done | 2026-01-23 |
 | feature/gaia-benchmark | GAIA Benchmark Evaluation | done | 2026-01-21 |
 | feature/agent-planning | Agent Planning Step | done | 2026-01-20 |
+
+### 2026-02-03: Cookie-Based Session Scoping
+
+**Branch:** `feature/session-scoping` → merging to `test`
+**Status:** done
+
+**Description:**
+Session isolation for demo mode. Each demo user gets a unique session cookie, and can only see their own conversations/runs. Owner can bypass via `?owner=<secret>` query param or `X-Owner-Token` header.
+
+**Changes:**
+- `orchestrator/middleware/session.py` (new) — SessionMiddleware that mints `demo_session` cookie (30-day TTL), sets `request.state.session_id` and `request.state.is_owner`
+- `orchestrator/storage/db.py` — Migration 4: Add `session_id` column to `conversations` and `runs` tables
+- `orchestrator/storage/repositories/conversation_repo.py` — Add `session_id` param to `create()`, session filtering to `list()`, new `get_with_session_check()` method
+- `orchestrator/storage/repositories/trace_repo.py` — Add `session_id` param to `create_run()`, session filtering to `list_runs()`, new `get_run_with_session_check()` method
+- `orchestrator/routes/conversations.py` — All endpoints extract session context and verify ownership
+- `orchestrator/routes/runs.py` — All endpoints verify session ownership, in-memory `_run_sessions` dict for SSE validation
+- `orchestrator/routes/agent_runs.py` — All endpoints verify session ownership, in-memory `_run_sessions` dict
+- `orchestrator/app.py` — Register SessionMiddleware
+- `orchestrator/engine/chat_engine.py` — Accept and pass `session_id` to trace creation
+- `scripts/sanity_test.sh` — Use cookie jar for session persistence, read LLM config from env vars (config endpoint no longer exposes sensitive settings)
+
+**Security Design:**
+- Unknown conversation_id → 404 (no existence leak)
+- Known ID, wrong session → 404 (same as unknown)
+- NULL session_id in DB → Owner-only (legacy data)
+- Each curl request without cookie → different session (isolated)
+
+**Tests:** Sanity test 55/55 passed, pytest 650/658 passed (8 pre-existing failures unrelated).
+
+---
 
 ### 2026-02-01: SSE Stream Token Auth
 
