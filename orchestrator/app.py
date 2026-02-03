@@ -256,19 +256,13 @@ async def health_check():
 
 @app.get("/api/config")
 async def get_config():
-    """Get current chat configuration.
-
-    Returns config snapshot plus demo mode status (without secrets).
-    """
+    """Get demo mode status for frontend."""
     config = get_chat_config()
-    response = {
-        "config": config.get_snapshot(),
+    return {
         "demo": {
             "enabled": config.demo.enabled if config.demo else False,
-            # Don't expose owner_secret - frontend validates locally
-        },
+        }
     }
-    return response
 
 
 # Static file serving for production (when SERVE_STATIC=true)
