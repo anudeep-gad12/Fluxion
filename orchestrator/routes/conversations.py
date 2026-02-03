@@ -1,9 +1,9 @@
 """Conversation routes."""
 
 import uuid
-from typing import Optional
+from typing import Optional, Tuple
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 
 from orchestrator.logging_config import get_logger
 
@@ -27,9 +27,25 @@ from orchestrator.storage.repositories.trace_repo import TraceRepo
 router = APIRouter(prefix="/api/conversations", tags=["conversations"])
 
 
+def get_session_context(request: Request) -> Tuple[Optional[str], bool]:
+    """Extract session context from request.
+
+    Returns:
+        Tuple of (session_id, is_owner).
+    """
+    session_id = getattr(request.state, "session_id", None)
+    is_owner = getattr(request.state, "is_owner", True)
+    return session_id, is_owner
+
+
 @router.post("", response_model=CreateConversationResponse)
-async def create_conversation(request: CreateConversationRequest):
+async def create_conversation(
+    request: CreateConversationRequest,
+    http_request: Request,
+):
     """Create a new conversation."""
+    session_id, is_owner = get_session_context(http_request)
+
     db = await get_db()
     conv_repo = ConversationRepo(db)
 
@@ -37,21 +53,31 @@ async def create_conversation(request: CreateConversationRequest):
     await conv_repo.create(
         conversation_id=conversation_id,
         title=request.title,
+        session_id=session_id,
     )
     return CreateConversationResponse(conversation_id=conversation_id)
 
 
 @router.get("", response_model=ConversationListResponse)
 async def list_conversations(
+    http_request: Request,
     status: Optional[str] = Query(None, description="Filter by status"),
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
     """List conversations with optional filtering."""
+    session_id, is_owner = get_session_context(http_request)
+
     db = await get_db()
     conv_repo = ConversationRepo(db)
 
-    conversations = await conv_repo.list(status=status, limit=limit, offset=offset)
+    conversations = await conv_repo.list(
+        status=status,
+        limit=limit,
+        offset=offset,
+        session_id=session_id,
+        is_owner=is_owner,
+    )
     return ConversationListResponse(
         conversations=[ConversationResponse(**c) for c in conversations],
         total=len(conversations),
@@ -59,13 +85,19 @@ async def list_conversations(
 
 
 @router.get("/{conversation_id}", response_model=ConversationDetailResponse)
-async def get_conversation(conversation_id: str):
+async def get_conversation(conversation_id: str, http_request: Request):
     """Get a conversation and its runs."""
+    session_id, is_owner = get_session_context(http_request)
+
     db = await get_db()
     conv_repo = ConversationRepo(db)
     trace_repo = TraceRepo(db)
 
-    conversation = await conv_repo.get(conversation_id)
+    conversation = await conv_repo.get_with_session_check(
+        conversation_id,
+        session_id=session_id,
+        is_owner=is_owner,
+    )
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
@@ -79,13 +111,19 @@ async def get_conversation(conversation_id: str):
 
 
 @router.delete("/{conversation_id}")
-async def delete_conversation(conversation_id: str):
+async def delete_conversation(conversation_id: str, http_request: Request):
     """Delete a conversation and all its runs."""
+    session_id, is_owner = get_session_context(http_request)
+
     try:
         db = await get_db()
         conv_repo = ConversationRepo(db)
 
-        conversation = await conv_repo.get(conversation_id)
+        conversation = await conv_repo.get_with_session_check(
+            conversation_id,
+            session_id=session_id,
+            is_owner=is_owner,
+        )
         if not conversation:
             raise HTTPException(status_code=404, detail="Conversation not found")
 
@@ -99,12 +137,22 @@ async def delete_conversation(conversation_id: str):
 
 
 @router.patch("/{conversation_id}", response_model=ConversationResponse)
-async def update_conversation(conversation_id: str, request: UpdateConversationRequest):
+async def update_conversation(
+    conversation_id: str,
+    request: UpdateConversationRequest,
+    http_request: Request,
+):
     """Update conversation metadata (title, status)."""
+    session_id, is_owner = get_session_context(http_request)
+
     db = await get_db()
     conv_repo = ConversationRepo(db)
 
-    conversation = await conv_repo.get(conversation_id)
+    conversation = await conv_repo.get_with_session_check(
+        conversation_id,
+        session_id=session_id,
+        is_owner=is_owner,
+    )
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
@@ -119,17 +167,23 @@ async def update_conversation(conversation_id: str, request: UpdateConversationR
 
 
 @router.get("/{conversation_id}/traces")
-async def get_conversation_traces(conversation_id: str):
+async def get_conversation_traces(conversation_id: str, http_request: Request):
     """Get all trace events for all runs in a conversation.
 
     Returns trace events across all runs in chronological order,
     useful for viewing the complete conversation trace history.
     """
+    session_id, is_owner = get_session_context(http_request)
+
     db = await get_db()
     conv_repo = ConversationRepo(db)
     trace_repo = TraceRepo(db)
 
-    conversation = await conv_repo.get(conversation_id)
+    conversation = await conv_repo.get_with_session_check(
+        conversation_id,
+        session_id=session_id,
+        is_owner=is_owner,
+    )
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
