@@ -32,33 +32,48 @@ class TraceRepo:
         model_config: dict,
         user_message: Optional[str] = None,
         system_prompt: Optional[str] = None,
+        session_id: Optional[str] = None,
     ) -> dict[str, Any]:
-        """Start a new run."""
+        """Start a new run.
+
+        Args:
+            run_id: Unique identifier for the run.
+            conversation_id: Associated conversation ID.
+            profile_name: Chat profile name.
+            mode: Run mode (chat, eval, agent).
+            model_config: Model configuration dict.
+            user_message: User's input message.
+            system_prompt: System prompt used.
+            session_id: Session ID for demo mode isolation.
+
+        Returns:
+            Created run dict.
+        """
         now = datetime.now(timezone.utc).isoformat()
         config_snapshot = json.dumps(model_config, ensure_ascii=False)
-        
+
         # Initial empty usage stats
         usage_stats = json.dumps({"input_tokens": 0, "output_tokens": 0, "latency_ms": 0})
-        
+
         await self.db.conn.execute(
             """
             INSERT INTO runs (
-                run_id, conversation_id, created_at, 
-                user_message, system_prompt_snapshot, 
-                profile_name, mode, model_config_snapshot, 
-                status, usage_stats
+                run_id, conversation_id, created_at,
+                user_message, system_prompt_snapshot,
+                profile_name, mode, model_config_snapshot,
+                status, usage_stats, session_id
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 run_id, conversation_id, now,
                 user_message, system_prompt,
                 profile_name, mode, config_snapshot,
-                "running", usage_stats
+                "running", usage_stats, session_id
             ),
         )
         await self.db.conn.commit()
-        return {"run_id": run_id, "status": "running"}
+        return {"run_id": run_id, "status": "running", "session_id": session_id}
 
     # Alias for backward compatibility
     async def create_conversation_trace(self, *args, **kwargs):
@@ -121,20 +136,84 @@ class TraceRepo:
     async def get_conversation_trace(self, run_id: str):
         return await self.get_run(run_id)
 
+    async def get_run_with_session_check(
+        self,
+        run_id: str,
+        session_id: Optional[str] = None,
+        is_owner: bool = False,
+    ) -> Optional[dict[str, Any]]:
+        """Get a run with session ownership verification.
+
+        Returns None if:
+        - Run doesn't exist
+        - User is not owner AND session_id doesn't match
+        - Run has NULL session_id (legacy/owner-only data) AND user is not owner
+
+        Args:
+            run_id: ID of the run to get.
+            session_id: Session ID of the requesting user.
+            is_owner: If True, bypass session check.
+
+        Returns:
+            Run dict if found and accessible, None otherwise.
+        """
+        run = await self.get_run(run_id)
+        if not run:
+            return None
+
+        # Owner bypasses all checks
+        if is_owner:
+            return run
+
+        # Check session ownership
+        run_session = run.get("session_id")
+
+        # NULL session_id = owner-only (legacy data)
+        if run_session is None:
+            return None
+
+        # Must match session
+        if run_session != session_id:
+            return None
+
+        return run
+
     async def list_runs(
-        self, 
+        self,
         conversation_id: Optional[str] = None,
         limit: int = 50,
-        offset: int = 0
+        offset: int = 0,
+        session_id: Optional[str] = None,
+        is_owner: bool = False,
     ) -> List[dict[str, Any]]:
-        """List runs, optionally filtering by conversation."""
+        """List runs with optional session scoping.
+
+        Args:
+            conversation_id: Filter by conversation.
+            limit: Maximum number of results.
+            offset: Offset for pagination.
+            session_id: Session ID for filtering (demo mode).
+            is_owner: If True, bypass session filtering and show all.
+
+        Returns:
+            List of run dicts.
+        """
         query = "SELECT * FROM runs"
-        params = []
-        
+        params: List[Any] = []
+        conditions = []
+
         if conversation_id:
-            query += " WHERE conversation_id = ?"
+            conditions.append("conversation_id = ?")
             params.append(conversation_id)
-            
+
+        # Session scoping: only show user's runs (unless owner)
+        if not is_owner and session_id:
+            conditions.append("session_id = ?")
+            params.append(session_id)
+
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+
         query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
         params.extend([limit, offset])
 

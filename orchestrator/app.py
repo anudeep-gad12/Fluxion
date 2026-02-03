@@ -26,6 +26,7 @@ from orchestrator.logging_config import (
 from orchestrator.storage.db import get_db
 from orchestrator.routes import conversations, runs, agent_runs, benchmarks
 from orchestrator.middleware.rate_limit import RateLimitMiddleware
+from orchestrator.middleware.session import SessionMiddleware
 
 
 logger = get_logger(__name__)
@@ -240,6 +241,9 @@ app.add_middleware(RequestLoggingMiddleware)
 
 # Rate limiting middleware (only active when demo mode enabled)
 app.add_middleware(RateLimitMiddleware)
+
+# Session middleware for demo mode user isolation
+app.add_middleware(SessionMiddleware)
 
 # Include routers
 app.include_router(conversations.router)
