@@ -15,17 +15,29 @@ class ConversationRepo:
         title: Optional[str] = None,
         status: str = "active",
         metadata: Optional[dict[str, Any]] = None,
+        session_id: Optional[str] = None,
     ) -> dict[str, Any]:
-        """Create a new conversation."""
+        """Create a new conversation.
+
+        Args:
+            conversation_id: Unique identifier for the conversation.
+            title: Optional title for the conversation.
+            status: Conversation status (default: "active").
+            metadata: Optional metadata dict.
+            session_id: Session ID for demo mode isolation.
+
+        Returns:
+            Created conversation dict.
+        """
         now = datetime.now(timezone.utc).isoformat()
         metadata_json = json.dumps(metadata or {}, ensure_ascii=False)
-        
+
         await self.db.conn.execute(
             """
-            INSERT INTO conversations (conversation_id, created_at, title, status, metadata_json)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO conversations (conversation_id, created_at, title, status, metadata_json, session_id)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (conversation_id, now, title, status, metadata_json),
+            (conversation_id, now, title, status, metadata_json, session_id),
         )
         await self.db.conn.commit()
         return {
@@ -34,6 +46,7 @@ class ConversationRepo:
             "title": title,
             "status": status,
             "metadata": metadata or {},
+            "session_id": session_id,
         }
 
     async def get(self, conversation_id: str) -> Optional[dict[str, Any]]:
@@ -50,20 +63,85 @@ class ConversationRepo:
                 return convo
         return None
 
+    async def get_with_session_check(
+        self,
+        conversation_id: str,
+        session_id: Optional[str] = None,
+        is_owner: bool = False,
+    ) -> Optional[dict[str, Any]]:
+        """Get a conversation with session ownership verification.
+
+        Returns None if:
+        - Conversation doesn't exist
+        - User is not owner AND session_id doesn't match
+        - Conversation has NULL session_id (legacy/owner-only data) AND user is not owner
+
+        Args:
+            conversation_id: ID of the conversation to get.
+            session_id: Session ID of the requesting user.
+            is_owner: If True, bypass session check.
+
+        Returns:
+            Conversation dict if found and accessible, None otherwise.
+        """
+        conversation = await self.get(conversation_id)
+        if not conversation:
+            return None
+
+        # Owner bypasses all checks
+        if is_owner:
+            return conversation
+
+        # Check session ownership
+        conv_session = conversation.get("session_id")
+
+        # NULL session_id = owner-only (legacy data)
+        if conv_session is None:
+            return None
+
+        # Must match session
+        if conv_session != session_id:
+            return None
+
+        return conversation
+
     async def list(
         self,
         status: Optional[str] = None,
         limit: int = 50,
         offset: int = 0,
+        session_id: Optional[str] = None,
+        is_owner: bool = False,
     ) -> List[dict[str, Any]]:
-        """List conversations."""
+        """List conversations with optional session scoping.
+
+        Args:
+            status: Filter by conversation status.
+            limit: Maximum number of results.
+            offset: Offset for pagination.
+            session_id: Session ID for filtering (demo mode).
+            is_owner: If True, bypass session filtering and show all.
+
+        Returns:
+            List of conversation dicts.
+        """
         query = "SELECT * FROM conversations"
-        params = []
-        
+        params: List[Any] = []
+        conditions = []
+
         if status:
-            query += " WHERE status = ?"
+            conditions.append("status = ?")
             params.append(status)
-            
+
+        # Session scoping: only show user's conversations (unless owner)
+        if not is_owner and session_id:
+            # Show conversations owned by this session
+            conditions.append("session_id = ?")
+            params.append(session_id)
+
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+
         query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
         params.extend([limit, offset])
 
@@ -72,7 +150,6 @@ class ConversationRepo:
             conversations = []
             for row in rows:
                 convo = dict(row)
-                # convo["conversation_id"] present
                 convo["metadata"] = json.loads(convo.pop("metadata_json", "{}") or "{}")
                 conversations.append(convo)
             return conversations

@@ -47,6 +47,9 @@ class Database:
         await self._add_column_if_not_exists("runs", "current_step", "INTEGER DEFAULT 0")
         await self._add_column_if_not_exists("runs", "max_steps", "INTEGER DEFAULT 10")
         await self._add_column_if_not_exists("runs", "updated_at", "TEXT")
+        # Migration 4: Session scoping for demo mode user isolation
+        await self._add_column_if_not_exists("conversations", "session_id", "TEXT")
+        await self._add_column_if_not_exists("runs", "session_id", "TEXT")
 
     async def _add_column_if_not_exists(
         self, table: str, column: str, column_type: str

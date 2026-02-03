@@ -4,9 +4,9 @@ import asyncio
 import json
 import time
 import uuid
-from typing import Optional
+from typing import Optional, Tuple
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from sse_starlette.sse import EventSourceResponse
 
 from orchestrator.config import get_chat_config
@@ -42,6 +42,20 @@ _active_runs: dict[str, asyncio.Queue] = {}
 # When set, the background task should stop generating and clean up
 _abort_signals: dict[str, asyncio.Event] = {}
 
+# Track session_id for active runs (for SSE stream validation)
+_run_sessions: dict[str, str] = {}
+
+
+def get_session_context(request: Request) -> Tuple[Optional[str], bool]:
+    """Extract session context from request.
+
+    Returns:
+        Tuple of (session_id, is_owner).
+    """
+    session_id = getattr(request.state, "session_id", None)
+    is_owner = getattr(request.state, "is_owner", True)
+    return session_id, is_owner
+
 
 def _append_turn_to_summary(existing_summary: str, user_msg: str, assistant_msg: str, max_chars: int = 2000) -> str:
     """Append a single turn to existing summary incrementally."""
@@ -68,13 +82,23 @@ def _mode_to_strategy(thinking_mode: str, mode_mapping: dict) -> str:
 
 
 @router.post("/conversations/{conversation_id}/runs", response_model=CreateRunResponse)
-async def create_conversation_run(conversation_id: str, request: CreateConversationRunRequest):
+async def create_conversation_run(
+    conversation_id: str,
+    request: CreateConversationRunRequest,
+    http_request: Request,
+):
     """Send a message to a conversation and get a response."""
+    session_id, is_owner = get_session_context(http_request)
+
     db = await get_db()
     conv_repo = ConversationRepo(db)
     trace_repo = TraceRepo(db)
 
-    conversation = await conv_repo.get(conversation_id)
+    conversation = await conv_repo.get_with_session_check(
+        conversation_id,
+        session_id=session_id,
+        is_owner=is_owner,
+    )
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
@@ -82,10 +106,17 @@ async def create_conversation_run(conversation_id: str, request: CreateConversat
     event_queue: asyncio.Queue = asyncio.Queue(maxsize=1000)
     _active_runs[run_id] = event_queue
 
+    # Track session for SSE validation
+    if session_id:
+        _run_sessions[run_id] = session_id
+
     # Auto-title from first message
     if not conversation.get("title") or conversation.get("title") == "New conversation":
         title = _conversation_title_from_message(request.message)
         await conv_repo.update(conversation_id, title=title)
+
+    # Capture session_id for background task
+    run_session_id = session_id
 
     async def run_chat():
         config = get_chat_config()
@@ -108,6 +139,7 @@ async def create_conversation_run(conversation_id: str, request: CreateConversat
                 event_callback=event_callback,
                 thinking_strategy=strategy,
                 reasoning_effort=request.reasoning_effort,
+                session_id=run_session_id,
             )
 
             # Update conversation summary
@@ -136,6 +168,7 @@ async def create_conversation_run(conversation_id: str, request: CreateConversat
             event_queue.put_nowait({"type": "_STREAM_ERROR", "error": "Internal server error"})
             # Immediate cleanup on error
             _active_runs.pop(run_id, None)
+            _run_sessions.pop(run_id, None)
             return
         finally:
             # Always close the engine to release HTTP connections
@@ -143,6 +176,7 @@ async def create_conversation_run(conversation_id: str, request: CreateConversat
         # Delay cleanup on success for late joiners
         await asyncio.sleep(2)
         _active_runs.pop(run_id, None)
+        _run_sessions.pop(run_id, None)
 
     asyncio.create_task(run_chat())
 
@@ -153,25 +187,35 @@ async def create_conversation_run(conversation_id: str, request: CreateConversat
 
 
 @router.post("/runs", response_model=CreateRunResponse)
-async def create_run(request: CreateRunRequest):
+async def create_run(request: CreateRunRequest, http_request: Request):
     """Create a new standalone chat run.
 
     Returns immediately with run_id and stream URL.
     Creates an ephemeral conversation for the run.
     """
+    session_id, is_owner = get_session_context(http_request)
+
     db = await get_db()
     conv_repo = ConversationRepo(db)
 
-    # Create ephemeral conversation
+    # Create ephemeral conversation with session_id
     conversation_id = str(uuid.uuid4())
     await conv_repo.create(
         conversation_id=conversation_id,
         title=_conversation_title_from_message(request.prompt),
+        session_id=session_id,
     )
 
     run_id = str(uuid.uuid4())
     event_queue: asyncio.Queue = asyncio.Queue(maxsize=1000)
     _active_runs[run_id] = event_queue
+
+    # Track session for SSE validation
+    if session_id:
+        _run_sessions[run_id] = session_id
+
+    # Capture session_id for background task
+    run_session_id = session_id
 
     async def run_chat():
         config = get_chat_config()
@@ -189,6 +233,7 @@ async def create_run(request: CreateRunRequest):
                 message=request.prompt,
                 run_id=run_id,
                 event_callback=event_callback,
+                session_id=run_session_id,
             )
 
             event_queue.put_nowait({
@@ -206,6 +251,7 @@ async def create_run(request: CreateRunRequest):
             event_queue.put_nowait({"type": "_STREAM_ERROR", "error": "Internal server error"})
             # Immediate cleanup on error
             _active_runs.pop(run_id, None)
+            _run_sessions.pop(run_id, None)
             return
         finally:
             # Always close the engine to release HTTP connections
@@ -213,6 +259,7 @@ async def create_run(request: CreateRunRequest):
         # Delay cleanup on success for late joiners
         await asyncio.sleep(2)
         _active_runs.pop(run_id, None)
+        _run_sessions.pop(run_id, None)
 
     asyncio.create_task(run_chat())
 
@@ -223,8 +270,28 @@ async def create_run(request: CreateRunRequest):
 
 
 @router.get("/runs/{run_id}/stream")
-async def stream_run_events(run_id: str):
+async def stream_run_events(run_id: str, http_request: Request):
     """Stream events for a run using Server-Sent Events."""
+    session_id, is_owner = get_session_context(http_request)
+
+    # Verify session ownership for active runs
+    if not is_owner and run_id in _run_sessions:
+        run_session = _run_sessions.get(run_id)
+        if run_session and run_session != session_id:
+            raise HTTPException(status_code=404, detail="Run not found")
+
+    # For completed runs, check DB
+    if run_id not in _active_runs:
+        db = await get_db()
+        trace_repo = TraceRepo(db)
+        run = await trace_repo.get_run_with_session_check(
+            run_id,
+            session_id=session_id,
+            is_owner=is_owner,
+        )
+        if not run:
+            raise HTTPException(status_code=404, detail="Run not found")
+
     # Capture parent request ID for SSE context
     parent_request_id = get_request_id()
 
@@ -329,7 +396,7 @@ async def stream_run_events(run_id: str):
 
 
 @router.post("/runs/{run_id}/abort")
-async def abort_run(run_id: str):
+async def abort_run(run_id: str, http_request: Request):
     """Abort a running generation and void the run.
 
     This immediately:
@@ -338,6 +405,14 @@ async def abort_run(run_id: str):
     3. Removes the run from active tracking
     4. Deletes the run from DB (no partial data saved)
     """
+    session_id, is_owner = get_session_context(http_request)
+
+    # Verify session ownership
+    if not is_owner and run_id in _run_sessions:
+        run_session = _run_sessions.get(run_id)
+        if run_session and run_session != session_id:
+            raise HTTPException(status_code=404, detail="Run not found")
+
     if run_id not in _active_runs:
         raise HTTPException(status_code=404, detail="Run not found or already completed")
 
@@ -357,8 +432,9 @@ async def abort_run(run_id: str):
         # Signal abort to any listening SSE clients
         queue.put_nowait({"type": "_STREAM_ABORTED"})
 
-    # Clean up abort signal
+    # Clean up abort signal and session tracking
     _abort_signals.pop(run_id, None)
+    _run_sessions.pop(run_id, None)
 
     # Delete the run from DB (void - no partial save)
     db = await get_db()
@@ -370,12 +446,15 @@ async def abort_run(run_id: str):
 
 @router.get("/runs", response_model=RunListResponse)
 async def list_runs(
+    http_request: Request,
     status: Optional[str] = Query(None, description="Filter by status"),
     conversation_id: Optional[str] = Query(None, description="Filter by conversation ID"),
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
     """List all runs with optional filtering."""
+    session_id, is_owner = get_session_context(http_request)
+
     db = await get_db()
     trace_repo = TraceRepo(db)
 
@@ -383,6 +462,8 @@ async def list_runs(
         conversation_id=conversation_id,
         limit=limit,
         offset=offset,
+        session_id=session_id,
+        is_owner=is_owner,
     )
 
     runs = []
@@ -394,12 +475,18 @@ async def list_runs(
 
 
 @router.get("/runs/{run_id}", response_model=RunResponse)
-async def get_run(run_id: str):
+async def get_run(run_id: str, http_request: Request):
     """Get details of a specific run."""
+    session_id, is_owner = get_session_context(http_request)
+
     db = await get_db()
     trace_repo = TraceRepo(db)
 
-    trace = await trace_repo.get_run(run_id)
+    trace = await trace_repo.get_run_with_session_check(
+        run_id,
+        session_id=session_id,
+        is_owner=is_owner,
+    )
     if not trace:
         raise HTTPException(status_code=404, detail="Run not found")
 
@@ -409,13 +496,20 @@ async def get_run(run_id: str):
 @router.get("/runs/{run_id}/events")
 async def get_run_events(
     run_id: str,
+    http_request: Request,
     since_seq: Optional[int] = Query(None, description="Get events after this sequence number"),
 ):
     """Get events for a run."""
+    session_id, is_owner = get_session_context(http_request)
+
     db = await get_db()
     trace_repo = TraceRepo(db)
 
-    trace = await trace_repo.get_run(run_id)
+    trace = await trace_repo.get_run_with_session_check(
+        run_id,
+        session_id=session_id,
+        is_owner=is_owner,
+    )
     if not trace:
         raise HTTPException(status_code=404, detail="Run not found")
 
@@ -446,12 +540,18 @@ async def get_run_events(
 
 
 @router.get("/runs/{run_id}/report")
-async def get_run_report(run_id: str):
+async def get_run_report(run_id: str, http_request: Request):
     """Get human-readable report for a run."""
+    session_id, is_owner = get_session_context(http_request)
+
     db = await get_db()
     trace_repo = TraceRepo(db)
 
-    trace = await trace_repo.get_run(run_id)
+    trace = await trace_repo.get_run_with_session_check(
+        run_id,
+        session_id=session_id,
+        is_owner=is_owner,
+    )
     if not trace:
         raise HTTPException(status_code=404, detail="Run not found")
 
@@ -481,6 +581,7 @@ async def get_run_report(run_id: str):
 @router.get("/runs/{run_id}/thinking")
 async def get_run_thinking(
     run_id: str,
+    http_request: Request,
     detail: str = Query("user", description="Detail level: user, internal, or full"),
 ):
     """Get thinking trace for a run.
@@ -495,6 +596,8 @@ async def get_run_thinking(
     Returns:
         Thinking trace data based on detail level.
     """
+    session_id, is_owner = get_session_context(http_request)
+
     if detail not in ("user", "internal", "full"):
         raise HTTPException(
             status_code=400,
@@ -503,6 +606,15 @@ async def get_run_thinking(
 
     db = await get_db()
     trace_repo = TraceRepo(db)
+
+    # Verify session ownership first
+    run = await trace_repo.get_run_with_session_check(
+        run_id,
+        session_id=session_id,
+        is_owner=is_owner,
+    )
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
 
     thinking = await trace_repo.get_thinking(run_id, detail=detail)
 
@@ -513,14 +625,25 @@ async def get_run_thinking(
 
 
 @router.get("/runs/{run_id}/timeline", response_model=RunTimelineResponse)
-async def get_run_timeline(run_id: str):
+async def get_run_timeline(run_id: str, http_request: Request):
     """Get complete timeline for a run with all trace events.
 
     Returns chronologically ordered trace events for debugging and observability.
     Events include: llm_request, llm_response, reasoning, tool_call, tool_response, error, retry.
     """
+    session_id, is_owner = get_session_context(http_request)
+
     db = await get_db()
     trace_repo = TraceRepo(db)
+
+    # Verify session ownership first
+    run = await trace_repo.get_run_with_session_check(
+        run_id,
+        session_id=session_id,
+        is_owner=is_owner,
+    )
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
 
     timeline = await trace_repo.get_run_timeline(run_id)
 
