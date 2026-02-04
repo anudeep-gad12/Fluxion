@@ -162,6 +162,39 @@ demo:
     - "::1"
 ```
 
+### `orchestrator/middleware/session.py`
+
+**Purpose**: Cookie-based session isolation for demo mode user separation.
+
+**Classes**:
+
+**`SessionMiddleware`**
+- Only active when `demo.enabled=true` in config
+- Mints `demo_session` cookie (UUID, 30-day TTL) for new visitors
+- Sets `request.state.session_id` and `request.state.is_owner` for route handlers
+- Owner detection via `?owner=<secret>` query param or `X-Owner-Token` header
+- Cookie attributes: HttpOnly, Secure (in production), SameSite=lax
+
+**Session Isolation Logic**:
+- Each user gets unique session ID stored in cookie
+- Conversations and runs are tagged with `session_id` at creation
+- List endpoints filter by session (non-owners only see their own data)
+- Direct access endpoints return 404 for wrong session (no existence leak)
+- NULL `session_id` in DB = owner-only (legacy data protection)
+
+**Key Functions**:
+- `_is_secure_context()` - Detects HTTPS for Secure cookie flag
+- `_set_session_cookie()` - Sets cookie with all security attributes
+- `_check_owner()` - Validates owner secret from query param or header
+
+**Security Design**:
+| Scenario | Behavior |
+|----------|----------|
+| Unknown conversation_id | 404 |
+| Known ID, wrong session | 404 (same as unknown) |
+| NULL session_id in DB | Owner-only |
+| Forged cookie | Gets different session |
+
 ---
 
 ## Engine Layer
