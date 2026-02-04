@@ -14,9 +14,9 @@ import secrets
 import time
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from sse_starlette.sse import EventSourceResponse
 
 from orchestrator.logging_config import (
@@ -52,6 +52,18 @@ _active_runs: Dict[str, asyncio.Queue] = {}
 _abort_signals: Dict[str, asyncio.Event] = {}
 _event_history: Dict[str, List[Dict[str, Any]]] = {}  # For SSE resumption
 _run_tokens: Dict[str, str] = {}  # Per-run stream auth tokens
+_run_sessions: Dict[str, str] = {}  # Per-run session IDs for access control
+
+
+def get_session_context(request: Request) -> Tuple[Optional[str], bool]:
+    """Extract session context from request.
+
+    Returns:
+        Tuple of (session_id, is_owner).
+    """
+    session_id = getattr(request.state, "session_id", None)
+    is_owner = getattr(request.state, "is_owner", True)
+    return session_id, is_owner
 
 
 # =============================================================================
@@ -121,6 +133,7 @@ async def _cleanup_run(run_id: str, delay_seconds: float = 5.0) -> None:
     await asyncio.sleep(delay_seconds)
     _active_runs.pop(run_id, None)
     _abort_signals.pop(run_id, None)
+    _run_sessions.pop(run_id, None)
     logger.debug("Cleaned up run state", extra={"run_id": run_id})
 
     # Schedule history cleanup (keep longer for resumption)
@@ -225,7 +238,7 @@ async def _run_agent_task(
 
 
 @router.post("/runs", response_model=CreateAgentRunResponse)
-async def create_agent_run(request: CreateAgentRunRequest):
+async def create_agent_run(request: CreateAgentRunRequest, http_request: Request):
     """Start a new agent research run.
 
     The agent executes asynchronously in a background task.
@@ -234,6 +247,8 @@ async def create_agent_run(request: CreateAgentRunRequest):
     Returns:
         run_id and stream_url for SSE events.
     """
+    session_id, is_owner = get_session_context(http_request)
+
     run_id = str(uuid.uuid4())
 
     try:
@@ -246,6 +261,10 @@ async def create_agent_run(request: CreateAgentRunRequest):
         _event_history[run_id] = []
         stream_token = secrets.token_urlsafe(16)
         _run_tokens[run_id] = stream_token
+
+        # Track session for access control
+        if session_id:
+            _run_sessions[run_id] = session_id
 
         # Create run record in database
         db = await get_db()
@@ -262,7 +281,20 @@ async def create_agent_run(request: CreateAgentRunRequest):
             conversation_id = str(uuid.uuid4())
             # Create ephemeral conversation for standalone agent runs
             title = request.query[:64] + "..." if len(request.query) > 64 else request.query
-            await conv_repo.create(conversation_id=conversation_id, title=title)
+            await conv_repo.create(
+                conversation_id=conversation_id,
+                title=title,
+                session_id=session_id,
+            )
+        else:
+            # Verify ownership of existing conversation
+            conversation = await conv_repo.get_with_session_check(
+                conversation_id,
+                session_id=session_id,
+                is_owner=is_owner,
+            )
+            if not conversation:
+                raise HTTPException(status_code=404, detail="Conversation not found")
 
         # Create model config snapshot for agent
         model_config = {
@@ -277,6 +309,7 @@ async def create_agent_run(request: CreateAgentRunRequest):
             profile_name="agent",
             model_config=model_config,
             user_message=request.query,
+            session_id=session_id,
         )
 
         # Update agent-specific fields
@@ -314,28 +347,43 @@ async def create_agent_run(request: CreateAgentRunRequest):
             stream_token=stream_token,
         )
 
+    except HTTPException:
+        # Clean up on HTTP error (like 404)
+        _active_runs.pop(run_id, None)
+        _abort_signals.pop(run_id, None)
+        _event_history.pop(run_id, None)
+        _run_tokens.pop(run_id, None)
+        _run_sessions.pop(run_id, None)
+        raise
     except Exception as e:
         # Clean up on failure
         _active_runs.pop(run_id, None)
         _abort_signals.pop(run_id, None)
         _event_history.pop(run_id, None)
         _run_tokens.pop(run_id, None)
+        _run_sessions.pop(run_id, None)
         logger.error("Failed to start agent run", extra={"error": str(e)}, exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to start agent run")
 
 
 @router.get("/runs/{run_id}", response_model=AgentRunStatusResponse)
-async def get_agent_run_status(run_id: str):
+async def get_agent_run_status(run_id: str, http_request: Request):
     """Get current status of an agent run.
 
     Returns run metadata, current state, step count, and result if complete.
     """
+    session_id, is_owner = get_session_context(http_request)
+
     db = await get_db()
     trace_repo = TraceRepo(db)
     agent_repo = AgentRepo(db)
 
-    # Get run from trace_repo (base run info)
-    run = await trace_repo.get_run(run_id)
+    # Get run from trace_repo with session check
+    run = await trace_repo.get_run_with_session_check(
+        run_id,
+        session_id=session_id,
+        is_owner=is_owner,
+    )
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
 
@@ -365,6 +413,7 @@ async def get_agent_run_status(run_id: str):
 @router.get("/runs/{run_id}/stream")
 async def stream_agent_events(
     run_id: str,
+    http_request: Request,
     since_seq: int = Query(0, description="Resume from this sequence number"),
     token: str = Query("", description="Stream auth token from run creation"),
 ):
@@ -374,12 +423,33 @@ async def stream_agent_events(
     Requires stream token for active runs (returned by POST /runs).
     Sends heartbeat every 30 seconds during idle.
     """
+    session_id, is_owner = get_session_context(http_request)
+
     # Validate stream token: reject only if a non-empty token is provided but wrong.
     # Empty token is allowed as fallback for reconnection (e.g. page reload where
     # localStorage may not have persisted the token).
     expected_token = _run_tokens.get(run_id)
     if token and expected_token and token != expected_token:
         raise HTTPException(status_code=403, detail="Invalid stream token")
+
+    # Session-based access control for active runs
+    if not is_owner and run_id in _run_sessions:
+        run_session = _run_sessions.get(run_id)
+        if run_session and run_session != session_id:
+            raise HTTPException(status_code=404, detail="Run not found")
+
+    # For completed runs, check DB
+    if run_id not in _active_runs:
+        db = await get_db()
+        trace_repo = TraceRepo(db)
+        run = await trace_repo.get_run_with_session_check(
+            run_id,
+            session_id=session_id,
+            is_owner=is_owner,
+        )
+        if not run:
+            raise HTTPException(status_code=404, detail="Run not found")
+
     # Capture parent request ID for SSE context
     parent_request_id = get_request_id()
 
@@ -443,9 +513,10 @@ async def stream_agent_events(
                                     "chunk_count": chunk_count,
                                 },
                             )
+                            # Don't leak internal error details to client
                             yield {
                                 "event": "error",
-                                "data": json.dumps({"error": event.get("error")}),
+                                "data": json.dumps({"error": "Internal server error"}),
                             }
                             break
                         elif event.get("type") == "_STREAM_ABORTED":
@@ -506,12 +577,20 @@ async def stream_agent_events(
 
 
 @router.post("/runs/{run_id}/cancel")
-async def cancel_agent_run(run_id: str):
+async def cancel_agent_run(run_id: str, http_request: Request):
     """Cancel an active agent run.
 
     Signals the background task to stop, drains the queue,
     and sends a cancelled event to SSE clients.
     """
+    session_id, is_owner = get_session_context(http_request)
+
+    # Verify session ownership for active runs
+    if not is_owner and run_id in _run_sessions:
+        run_session = _run_sessions.get(run_id)
+        if run_session and run_session != session_id:
+            raise HTTPException(status_code=404, detail="Run not found")
+
     if run_id not in _active_runs:
         raise HTTPException(
             status_code=404, detail="Run not found or already completed"
@@ -536,6 +615,9 @@ async def cancel_agent_run(run_id: str):
         except asyncio.QueueFull:
             pass
 
+    # Clean up session tracking
+    _run_sessions.pop(run_id, None)
+
     # Update database status
     try:
         db = await get_db()
@@ -553,17 +635,23 @@ async def cancel_agent_run(run_id: str):
 
 
 @router.get("/runs/{run_id}/trace", response_model=AgentRunTraceResponse)
-async def get_agent_run_trace(run_id: str):
+async def get_agent_run_trace(run_id: str, http_request: Request):
     """Get full execution trace for an agent run.
 
     Returns all steps, tool calls, and citations for detailed analysis.
     """
+    session_id, is_owner = get_session_context(http_request)
+
     db = await get_db()
     trace_repo = TraceRepo(db)
     agent_repo = AgentRepo(db)
 
-    # Get base run info
-    run = await trace_repo.get_run(run_id)
+    # Get base run info with session check
+    run = await trace_repo.get_run_with_session_check(
+        run_id,
+        session_id=session_id,
+        is_owner=is_owner,
+    )
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
 
