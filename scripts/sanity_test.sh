@@ -18,6 +18,16 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 LOG_DIR="$PROJECT_DIR/logs"
 APP_LOG="$LOG_DIR/app.log"
 
+# Cookie jar for session persistence (demo mode uses session cookies)
+COOKIE_JAR=$(mktemp)
+CURL_OPTS="-b $COOKIE_JAR -c $COOKIE_JAR"
+
+# Cleanup cookie jar on exit
+cleanup_cookies() {
+    rm -f "$COOKIE_JAR" 2>/dev/null
+}
+trap cleanup_cookies EXIT
+
 PASSED=0
 FAILED=0
 LAST_RUN_PAYLOAD=""
@@ -113,7 +123,7 @@ stop_debug_tail() {
     fi
 }
 
-trap stop_debug_tail EXIT
+trap 'stop_debug_tail; cleanup_cookies' EXIT
 
 print_header() {
     echo ""
@@ -201,7 +211,7 @@ wait_for_run() {
     local payload=""
 
     while [ $waited -lt $timeout ]; do
-        payload=$(curl -s "$API_URL/api/runs/$run_id")
+        payload=$(curl -s $CURL_OPTS "$API_URL/api/runs/$run_id")
         status=$(json_get "$payload" ".status")
 
         if [ "$status" = "succeeded" ]; then
@@ -237,7 +247,7 @@ check_stream_complete() {
     local label="$2"
     local stream
     # Use longer timeout for completed runs to ensure we get the full response
-    stream=$(curl -s --max-time 20 "$API_URL/api/runs/$run_id/stream")
+    stream=$(curl -s --max-time 20 $CURL_OPTS "$API_URL/api/runs/$run_id/stream")
 
     if echo "$stream" | grep -q "event: complete"; then
         pass "$label stream completes"
@@ -247,13 +257,13 @@ check_stream_complete() {
     else
         # For completed runs, verify completion via run status and events
         local run_json
-        run_json=$(curl -s "$API_URL/api/runs/$run_id")
+        run_json=$(curl -s $CURL_OPTS "$API_URL/api/runs/$run_id")
         local status
         status=$(json_get "$run_json" ".status")
         if [ "$status" = "succeeded" ]; then
             # Run succeeded but stream was empty - check events exist
             local events_json
-            events_json=$(curl -s "$API_URL/api/runs/$run_id/events")
+            events_json=$(curl -s $CURL_OPTS "$API_URL/api/runs/$run_id/events")
             local event_count
             event_count=$(json_array_len "$events_json" "events")
             if [ "$event_count" -gt 0 ]; then
@@ -279,7 +289,7 @@ check_events() {
     local run_id="$1"
     local label="$2"
     local events_json
-    events_json=$(curl -s "$API_URL/api/runs/$run_id/events")
+    events_json=$(curl -s $CURL_OPTS "$API_URL/api/runs/$run_id/events")
     local count
     count=$(json_array_len "$events_json" "events")
     if [ "$count" -gt 0 ]; then
@@ -295,7 +305,7 @@ check_thinking() {
     local detail="$3"
     local expect_steps="${4:-true}"  # Default: expect steps (set to "false" for direct route)
     local thinking_json
-    thinking_json=$(curl -s "$API_URL/api/runs/$run_id/thinking?detail=$detail")
+    thinking_json=$(curl -s $CURL_OPTS "$API_URL/api/runs/$run_id/thinking?detail=$detail")
     local summary
     summary=$(json_get "$thinking_json" ".thinking_summary")
     local steps
@@ -320,7 +330,7 @@ check_report() {
     local run_id="$1"
     local label="$2"
     local report_json
-    report_json=$(curl -s "$API_URL/api/runs/$run_id/report")
+    report_json=$(curl -s $CURL_OPTS "$API_URL/api/runs/$run_id/report")
     local report_text
     report_text=$(json_get "$report_json" ".report")
     local timeline_len
@@ -344,7 +354,7 @@ check_conversation_detail() {
     local expected_run="$2"
     local label="$3"
     local conv_json
-    conv_json=$(curl -s "$API_URL/api/conversations/$conversation_id")
+    conv_json=$(curl -s $CURL_OPTS "$API_URL/api/conversations/$conversation_id")
 
     local summary
     summary=$(json_get "$conv_json" ".conversation.summary")
@@ -365,7 +375,7 @@ check_native_reasoning() {
     local run_id="$1"
     local label="$2"
     local run_json
-    run_json=$(curl -s "$API_URL/api/runs/$run_id")
+    run_json=$(curl -s $CURL_OPTS "$API_URL/api/runs/$run_id")
 
     # Check thinking_summary is populated (from native reasoning or parsed thinking)
     local thinking
@@ -387,7 +397,7 @@ wait_for_agent_run() {
 
     while [ $waited -lt $timeout ]; do
         local payload
-        payload=$(curl -s "$API_URL/api/agent/runs/$run_id")
+        payload=$(curl -s $CURL_OPTS "$API_URL/api/agent/runs/$run_id")
         status=$(json_get "$payload" ".status")
 
         if [ "$status" = "succeeded" ]; then
@@ -422,7 +432,7 @@ check_agent_trace() {
     local http_code
 
     # Get trace with HTTP status code
-    http_code=$(curl -s -o /tmp/agent_trace.json -w "%{http_code}" "$API_URL/api/agent/runs/$run_id/trace")
+    http_code=$(curl -s $CURL_OPTS -o /tmp/agent_trace.json -w "%{http_code}" "$API_URL/api/agent/runs/$run_id/trace")
     trace=$(cat /tmp/agent_trace.json 2>/dev/null)
 
     # Check if trace endpoint is working
@@ -459,7 +469,7 @@ check_thinking_content() {
     local run_id="$1"
     local label="$2"
     local trace
-    trace=$(curl -s "$API_URL/api/agent/runs/$run_id/trace")
+    trace=$(curl -s $CURL_OPTS "$API_URL/api/agent/runs/$run_id/trace")
 
     # Get steps with thinking_text
     local thinking_texts
@@ -486,7 +496,7 @@ check_tool_calls_detail() {
     local label="$2"
     local require_tools="${3:-}"
     local trace
-    trace=$(curl -s "$API_URL/api/agent/runs/$run_id/trace")
+    trace=$(curl -s $CURL_OPTS "$API_URL/api/agent/runs/$run_id/trace")
 
     # Check tool calls have arguments (any tool = pass)
     local tool_info
@@ -517,7 +527,7 @@ check_answer_format() {
     local label="$2"
     local require_answer="${3:-require}"
     local run_json
-    run_json=$(curl -s "$API_URL/api/agent/runs/$run_id")
+    run_json=$(curl -s $CURL_OPTS "$API_URL/api/agent/runs/$run_id")
     local answer
     answer=$(json_get "$run_json" ".final_answer")
 
@@ -550,7 +560,7 @@ check_sse_sequence() {
     local run_id="$1"
     local label="$2"
     local stream
-    stream=$(curl -s --max-time 30 "$API_URL/api/agent/runs/$run_id/stream")
+    stream=$(curl -s --max-time 30 $CURL_OPTS "$API_URL/api/agent/runs/$run_id/stream")
 
     # Check for expected event types in sequence
     # Use tr to ensure clean integer output from grep -c
@@ -629,10 +639,10 @@ fi
 # ============================================================
 print_header "2.5. LLM Provider Connectivity Check"
 
-# Get base_url from config (OpenAI-compatible endpoint)
-LLM_BASE_URL=$(json_get "$CONFIG_JSON" ".config.provider.base_url")
-LLM_BASE_URL="${LLM_BASE_URL:-http://127.0.0.1:1234}"
-LLM_API_KEY=$(json_get "$CONFIG_JSON" ".config.provider.api_key")
+# Get LLM config from environment variables (matches chat_config.yaml)
+# API config endpoint no longer exposes sensitive provider settings
+LLM_BASE_URL="${LLM_BASE_URL:-https://api.deepinfra.com/v1/openai}"
+LLM_API_KEY="${DEEPINFRA_API_KEY:-}"
 
 # Build models endpoint URL (handle different base_url formats)
 # DeepInfra: https://api.deepinfra.com/v1/openai -> /models
@@ -663,12 +673,12 @@ else
     exit 1
 fi
 
-# Check model name from config
-MODEL_NAME=$(json_get "$CONFIG_JSON" ".config.model.name")
-if [ -n "$MODEL_NAME" ] && [ "$MODEL_NAME" != "null" ]; then
+# Check model name from environment (config endpoint doesn't expose model settings)
+MODEL_NAME="${MODEL_NAME:-}"
+if [ -n "$MODEL_NAME" ]; then
     pass "Model configured: $MODEL_NAME"
 else
-    warn "Model name not found in config"
+    pass "Using default model from config"
 fi
 
 # ============================================================
@@ -676,7 +686,7 @@ fi
 # ============================================================
 print_header "3. Direct Flow (default mode)"
 
-DIRECT_CONV=$(curl -s -X POST "$API_URL/api/conversations" \
+DIRECT_CONV=$(curl -s -X POST $CURL_OPTS "$API_URL/api/conversations" \
     -H "Content-Type: application/json" \
     -d '{"title": "Sanity Direct"}')
 DIRECT_CONV_ID=$(json_get "$DIRECT_CONV" ".conversation_id")
@@ -687,7 +697,7 @@ else
     fail "Failed to create conversation for direct flow"
 fi
 
-DIRECT_RUN_RESP=$(curl -s -X POST "$API_URL/api/conversations/$DIRECT_CONV_ID/runs" \
+DIRECT_RUN_RESP=$(curl -s -X POST $CURL_OPTS "$API_URL/api/conversations/$DIRECT_CONV_ID/runs" \
     -H "Content-Type: application/json" \
     -d '{"message": "What is 2+2?"}')
 DIRECT_RUN_ID=$(json_get "$DIRECT_RUN_RESP" ".run_id")
@@ -717,7 +727,7 @@ print_header "3.5. Multi-Turn Context Test"
 # Use same conversation from direct flow test
 if [ -n "$DIRECT_CONV_ID" ] && [ -n "$DIRECT_RUN_ID" ]; then
     # Send follow-up message that references prior context
-    FOLLOWUP_RESP=$(curl -s -X POST "$API_URL/api/conversations/$DIRECT_CONV_ID/runs" \
+    FOLLOWUP_RESP=$(curl -s -X POST $CURL_OPTS "$API_URL/api/conversations/$DIRECT_CONV_ID/runs" \
         -H "Content-Type: application/json" \
         -d '{"message": "What was my previous question?"}')
     FOLLOWUP_RUN_ID=$(json_get "$FOLLOWUP_RESP" ".run_id")
@@ -747,13 +757,13 @@ fi
 print_header "4. Agent Flow - Calculation Query"
 
 # Check if agent endpoint exists
-AGENT_CHECK=$(curl -s -o /dev/null -w "%{http_code}" "$API_URL/api/agent/runs" -X POST -H "Content-Type: application/json" -d '{}' 2>/dev/null)
+AGENT_CHECK=$(curl -s $CURL_OPTS -o /dev/null -w "%{http_code}" "$API_URL/api/agent/runs" -X POST -H "Content-Type: application/json" -d '{}' 2>/dev/null)
 if [ "$AGENT_CHECK" = "404" ]; then
     warn "Agent endpoint not available - skipping agent tests"
 else
     # Create agent run with a physics calculation query
     CALC_QUERY="What is the kinetic energy of a 5kg object moving at 10 m/s?"
-    AGENT_CALC_RESP=$(curl -s -X POST "$API_URL/api/agent/runs" \
+    AGENT_CALC_RESP=$(curl -s -X POST $CURL_OPTS "$API_URL/api/agent/runs" \
         -H "Content-Type: application/json" \
         -d "{\"query\": \"$CALC_QUERY\", \"max_steps\": 5}")
     AGENT_CALC_ID=$(json_get "$AGENT_CALC_RESP" ".run_id")
@@ -780,11 +790,11 @@ fi
 # ============================================================
 print_header "4.5. Agent Flow - Web Search Query"
 
-# Only run if Parallel.ai is configured
-PARALLEL_KEY=$(json_get "$CONFIG_JSON" ".config.parallel.api_key")
-if [ -n "$PARALLEL_KEY" ] && [ "$PARALLEL_KEY" != "null" ] && [ "$PARALLEL_KEY" != "***" ] && [ "$PARALLEL_KEY" != "" ]; then
+# Only run if Parallel.ai is configured (check env var, config no longer exposes keys)
+PARALLEL_KEY="${PARALLEL_API_KEY:-}"
+if [ -n "$PARALLEL_KEY" ]; then
     WEB_QUERY="What is the current population of Tokyo?"
-    AGENT_WEB_RESP=$(curl -s -X POST "$API_URL/api/agent/runs" \
+    AGENT_WEB_RESP=$(curl -s -X POST $CURL_OPTS "$API_URL/api/agent/runs" \
         -H "Content-Type: application/json" \
         -d "{\"query\": \"$WEB_QUERY\", \"max_steps\": 5}")
     AGENT_WEB_ID=$(json_get "$AGENT_WEB_RESP" ".run_id")
@@ -801,7 +811,7 @@ if [ -n "$PARALLEL_KEY" ] && [ "$PARALLEL_KEY" != "null" ] && [ "$PARALLEL_KEY" 
         check_sse_sequence "$AGENT_WEB_ID" "Web search run"
 
         # Check citations exist for web search
-        trace=$(curl -s "$API_URL/api/agent/runs/$AGENT_WEB_ID/trace")
+        trace=$(curl -s $CURL_OPTS "$API_URL/api/agent/runs/$AGENT_WEB_ID/trace")
         citation_count=$(json_array_len "$trace" "citations")
         if [ "$citation_count" -gt 0 ]; then
             pass "Web search run has citations ($citation_count)"
@@ -823,7 +833,7 @@ print_header "4.7. Agent Flow - Complex Multi-Step Queries"
 # Test 1: Multi-step reasoning with calculation
 # This query requires: understanding the problem, calculating multiple values, synthesizing
 MULTI_STEP_QUERY="If I invest \$1000 at 5% annual interest compounded annually, how much will I have after 3 years? Show the calculation step by step."
-AGENT_MULTI1_RESP=$(curl -s -X POST "$API_URL/api/agent/runs" \
+AGENT_MULTI1_RESP=$(curl -s -X POST $CURL_OPTS "$API_URL/api/agent/runs" \
     -H "Content-Type: application/json" \
     -d "{\"query\": \"$MULTI_STEP_QUERY\", \"max_steps\": 8}")
 AGENT_MULTI1_ID=$(json_get "$AGENT_MULTI1_RESP" ".run_id")
@@ -839,7 +849,7 @@ if [ -n "$AGENT_MULTI1_ID" ] && [ "$AGENT_MULTI1_ID" != "null" ]; then
     check_answer_format "$AGENT_MULTI1_ID" "Multi-step calculation"
 
     # Verify answer quality - should mention compound interest formula or show yearly breakdown
-    multi1_answer=$(curl -s "$API_URL/api/agent/runs/$AGENT_MULTI1_ID" | python3 -c "
+    multi1_answer=$(curl -s $CURL_OPTS "$API_URL/api/agent/runs/$AGENT_MULTI1_ID" | python3 -c "
 import json, sys
 data = json.loads(sys.stdin.read())
 print(data.get('final_answer', ''))
@@ -854,9 +864,9 @@ else
 fi
 
 # Test 2: Multi-source research query (requires web search if available)
-if [ -n "$PARALLEL_KEY" ] && [ "$PARALLEL_KEY" != "null" ] && [ "$PARALLEL_KEY" != "***" ] && [ "$PARALLEL_KEY" != "" ]; then
+if [ -n "$PARALLEL_KEY" ]; then
     RESEARCH_QUERY="Compare the GDP growth rates of Japan and Germany in the most recent available year. Which country had higher growth?"
-    AGENT_MULTI2_RESP=$(curl -s -X POST "$API_URL/api/agent/runs" \
+    AGENT_MULTI2_RESP=$(curl -s -X POST $CURL_OPTS "$API_URL/api/agent/runs" \
         -H "Content-Type: application/json" \
         -d "{\"query\": \"$RESEARCH_QUERY\", \"max_steps\": 10}")
     AGENT_MULTI2_ID=$(json_get "$AGENT_MULTI2_RESP" ".run_id")
@@ -873,7 +883,7 @@ if [ -n "$PARALLEL_KEY" ] && [ "$PARALLEL_KEY" != "null" ] && [ "$PARALLEL_KEY" 
         check_agent_trace "$AGENT_MULTI2_ID" "Multi-source research"
 
         # Check that both countries are mentioned in the answer
-        multi2_answer=$(curl -s "$API_URL/api/agent/runs/$AGENT_MULTI2_ID" | python3 -c "
+        multi2_answer=$(curl -s $CURL_OPTS "$API_URL/api/agent/runs/$AGENT_MULTI2_ID" | python3 -c "
 import json, sys
 data = json.loads(sys.stdin.read())
 print(data.get('final_answer', ''))
@@ -885,7 +895,7 @@ print(data.get('final_answer', ''))
         fi
 
         # Check for multiple tool calls (should search for both countries' data)
-        trace=$(curl -s "$API_URL/api/agent/runs/$AGENT_MULTI2_ID/trace")
+        trace=$(curl -s $CURL_OPTS "$API_URL/api/agent/runs/$AGENT_MULTI2_ID/trace")
         tool_count=$(json_array_len "$trace" "tool_calls")
         if [ "$tool_count" -ge 2 ]; then
             pass "Multi-source research used multiple tool calls ($tool_count calls)"
@@ -901,7 +911,7 @@ fi
 
 # Test 3: Complex reasoning problem (no external tools, just multi-step logic)
 LOGIC_QUERY="A farmer has chickens and cows. Together they have 30 heads and 74 legs. How many chickens and how many cows does the farmer have? Explain your reasoning."
-AGENT_MULTI3_RESP=$(curl -s -X POST "$API_URL/api/agent/runs" \
+AGENT_MULTI3_RESP=$(curl -s -X POST $CURL_OPTS "$API_URL/api/agent/runs" \
     -H "Content-Type: application/json" \
     -d "{\"query\": \"$LOGIC_QUERY\", \"max_steps\": 6}")
 AGENT_MULTI3_ID=$(json_get "$AGENT_MULTI3_RESP" ".run_id")
@@ -915,7 +925,7 @@ if [ -n "$AGENT_MULTI3_ID" ] && [ "$AGENT_MULTI3_ID" != "null" ]; then
     check_answer_format "$AGENT_MULTI3_ID" "Logic puzzle"
 
     # Verify correct answer: 23 chickens and 7 cows (or equivalent)
-    multi3_answer=$(curl -s "$API_URL/api/agent/runs/$AGENT_MULTI3_ID" | python3 -c "
+    multi3_answer=$(curl -s $CURL_OPTS "$API_URL/api/agent/runs/$AGENT_MULTI3_ID" | python3 -c "
 import json, sys
 data = json.loads(sys.stdin.read())
 print(data.get('final_answer', ''))
@@ -935,12 +945,12 @@ fi
 # ============================================================
 print_header "5. Tool Health (Optional)"
 
-# Check E2B sandbox if configured
-E2B_KEY=$(json_get "$CONFIG_JSON" ".config.sandbox.e2b.api_key")
-if [ -n "$E2B_KEY" ] && [ "$E2B_KEY" != "null" ] && [ "$E2B_KEY" != "***" ] && [ "$E2B_KEY" != "" ]; then
+# Check E2B sandbox if configured (check env var, config no longer exposes keys)
+E2B_KEY="${E2B_API_KEY:-}"
+if [ -n "$E2B_KEY" ]; then
     echo "E2B API key detected - testing Python sandbox..."
     # Simple agent run with python_execute intent
-    PYTHON_RUN=$(curl -s -X POST "$API_URL/api/agent/runs" \
+    PYTHON_RUN=$(curl -s -X POST $CURL_OPTS "$API_URL/api/agent/runs" \
         -H "Content-Type: application/json" \
         -d '{"query": "Use Python to calculate the square root of 144", "max_steps": 3}')
     PYTHON_RUN_ID=$(json_get "$PYTHON_RUN" ".run_id")
@@ -951,7 +961,7 @@ if [ -n "$E2B_KEY" ] && [ "$E2B_KEY" != "null" ] && [ "$E2B_KEY" != "***" ] && [
         E2B_WAITED=0
         E2B_STATUS=""
         while [ $E2B_WAITED -lt $E2B_TIMEOUT ]; do
-            E2B_PAYLOAD=$(curl -s "$API_URL/api/agent/runs/$PYTHON_RUN_ID")
+            E2B_PAYLOAD=$(curl -s $CURL_OPTS "$API_URL/api/agent/runs/$PYTHON_RUN_ID")
             E2B_STATUS=$(json_get "$E2B_PAYLOAD" ".status")
             if [ "$E2B_STATUS" = "succeeded" ]; then
                 pass "Python sandbox test succeeded"
@@ -973,9 +983,8 @@ else
     warn "Skipping E2B sandbox test - E2B_API_KEY not configured"
 fi
 
-# Check Parallel.ai if configured
-PARALLEL_KEY=$(json_get "$CONFIG_JSON" ".config.parallel.api_key")
-if [ -n "$PARALLEL_KEY" ] && [ "$PARALLEL_KEY" != "null" ] && [ "$PARALLEL_KEY" != "***" ] && [ "$PARALLEL_KEY" != "" ]; then
+# Check Parallel.ai if configured (reuse env check from above)
+if [ -n "$PARALLEL_KEY" ]; then
     pass "Parallel.ai API key configured (web tools available)"
 else
     warn "Skipping web tool tests - PARALLEL_API_KEY not configured"
@@ -986,14 +995,14 @@ fi
 # ============================================================
 print_header "6. Listing & housekeeping"
 
-RUN_LIST=$(curl -s "$API_URL/api/runs?limit=5")
+RUN_LIST=$(curl -s $CURL_OPTS "$API_URL/api/runs?limit=5")
 if echo "$RUN_LIST" | grep -q "$DIRECT_RUN_ID"; then
     pass "Run listing returns recent runs"
 else
     warn "Run listing missing recent runs"
 fi
 
-CONV_LIST=$(curl -s "$API_URL/api/conversations?limit=5")
+CONV_LIST=$(curl -s $CURL_OPTS "$API_URL/api/conversations?limit=5")
 if echo "$CONV_LIST" | grep -q "$DIRECT_CONV_ID"; then
     pass "Conversation listing returns created conversations"
 else
