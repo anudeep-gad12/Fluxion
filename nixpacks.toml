@@ -2,7 +2,7 @@
 # https://nixpacks.com/docs/configuration/file
 
 [phases.setup]
-nixPkgs = ["nodejs_20", "python311", "gcc"]
+nixPkgs = ["nodejs_20", "python311", "gcc", "sqlite"]
 
 [phases.build]
 cmds = [
