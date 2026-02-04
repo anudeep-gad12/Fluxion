@@ -26,6 +26,7 @@ from orchestrator.logging_config import (
 from orchestrator.storage.db import get_db
 from orchestrator.routes import conversations, runs, agent_runs, benchmarks
 from orchestrator.middleware.rate_limit import RateLimitMiddleware
+from orchestrator.middleware.session import SessionMiddleware
 
 
 logger = get_logger(__name__)
@@ -215,12 +216,19 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down Reasoner API server")
 
 
+# Disable OpenAPI docs in production (SERVE_STATIC=true indicates Railway/production)
+_is_production = os.environ.get("SERVE_STATIC", "false").lower() == "true"
+
 # Create FastAPI app
 app = FastAPI(
     title="Reasoner",
     description="Local AI Chat",
     version="0.2.0",
     lifespan=lifespan,
+    # Disable docs in production to avoid exposing API schema
+    docs_url=None if _is_production else "/docs",
+    redoc_url=None if _is_production else "/redoc",
+    openapi_url=None if _is_production else "/openapi.json",
 )
 
 # CORS middleware (configurable via CORS_ORIGINS env var)
@@ -240,6 +248,9 @@ app.add_middleware(RequestLoggingMiddleware)
 
 # Rate limiting middleware (only active when demo mode enabled)
 app.add_middleware(RateLimitMiddleware)
+
+# Session middleware for demo mode user isolation
+app.add_middleware(SessionMiddleware)
 
 # Include routers
 app.include_router(conversations.router)

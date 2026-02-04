@@ -79,6 +79,7 @@ class ChatEngine:
         thinking_strategy: Optional[str] = None,
         thinking_params: Optional[dict] = None,
         reasoning_effort: Optional[str] = None,  # "low", "medium", "high" for native reasoning
+        session_id: Optional[str] = None,  # Session ID for demo mode isolation
     ) -> ChatResult:
         """Send a message and get a response.
 
@@ -92,6 +93,7 @@ class ChatEngine:
             thinking_params: Optional parameters for the thinking strategy.
             reasoning_effort: Optional reasoning effort for native reasoning models.
                              Overrides config value if provided. Values: "low", "medium", "high".
+            session_id: Optional session ID for demo mode user isolation.
 
         Returns:
             ChatResult with the response.
@@ -132,7 +134,10 @@ class ChatEngine:
         
         # Log if debug
         if self.config.tracing.log_level == "debug":
-            print(f"[ChatEngine] Messages: {len(messages)}, Endpoint: {self.config.endpoint}")
+            logger.debug(
+                "ChatEngine starting",
+                extra={"message_count": len(messages), "endpoint": self.config.endpoint},
+            )
         
         # Create trace record (status: running)
         await trace_repo.create_conversation_trace(
@@ -143,6 +148,7 @@ class ChatEngine:
             model_config=self.config.model.model_dump(),
             user_message=message,
             system_prompt=self.config.system_prompt,
+            session_id=session_id,
         )
         
         # Emit event
