@@ -11,7 +11,7 @@ An AI agent application with multi-step research, web search, Python execution, 
 - **Provider Failover**: Circuit breaker pattern with automatic provider switching
 - **Full Traceability**: Every LLM call, tool execution, and agent step recorded in SQLite
 - **Benchmarks**: GAIA benchmark evaluation with results dashboard
-- **Demo Mode**: Rate limiting and sidebar restrictions for public deployments
+- **Demo Mode**: Rate limiting, session isolation, and sidebar restrictions for public deployments
 - **Mobile-Responsive**: Progressive enhancement from 320px phones to 1920px+ desktops
 
 ## Documentation
@@ -44,7 +44,7 @@ FastAPI Backend
   - AgentEngine: planning, tool calling, synthesis
   - ThinkingOrchestrator: strategy selection (direct)
   - Provider layer: LLMProvider protocol + circuit breaker
-  - Middleware: rate limiting, security headers, request logging
+  - Middleware: rate limiting, session isolation, security headers, request logging
   - SQLite repositories (conversations, runs, trace_events,
                          agent_steps, agent_tool_calls)
         |
@@ -178,7 +178,8 @@ reasoner/
 │   │   └── strategies/
 │   │       └── direct.py      # Single model call (fastest)
 │   ├── middleware/
-│   │   └── rate_limit.py      # IP-based rate limiting for demo mode
+│   │   ├── rate_limit.py      # IP-based rate limiting for demo mode
+│   │   └── session.py         # Cookie-based session isolation
 │   ├── routes/
 │   │   ├── conversations.py   # Conversation CRUD
 │   │   ├── runs.py            # Chat runs + SSE streaming
