@@ -54,6 +54,25 @@ Session isolation for demo mode. Each demo user gets a unique session cookie, an
 
 **Tests:** Sanity test 55/55 passed, pytest 650/658 passed (8 pre-existing failures unrelated).
 
+### Follow-up: Security Hardening (2026-02-04)
+
+**Commits:**
+- `56f5add` - fix(security): disable OpenAPI docs in production
+- `c94b567` - fix(security): remove config snapshot from /api/config endpoint
+
+**Security Fixes:**
+1. **OpenAPI docs disabled in production**: `/docs`, `/redoc`, `/openapi.json` now return SPA fallback when `SERVE_STATIC=true` (Railway/production)
+2. **Config endpoint sanitized**: `/api/config` only returns `{"demo":{"enabled":true}}` - no model, provider, or key exposure
+
+**Production Verification (isitfrontier.live):**
+All 16 security checks passed:
+- OpenAPI docs blocked (returns SPA HTML)
+- Session isolation working (404 on cross-session access)
+- Cookie security: HttpOnly, Secure, SameSite=lax
+- Security headers: CSP, X-Frame-Options, X-Content-Type-Options, X-XSS-Protection
+- SQL injection protected (parameterized queries)
+- Error messages sanitized (no stack traces leaked)
+
 ---
 
 ### 2026-02-01: SSE Stream Token Auth
