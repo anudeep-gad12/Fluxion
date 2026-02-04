@@ -216,12 +216,19 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down Reasoner API server")
 
 
+# Disable OpenAPI docs in production (SERVE_STATIC=true indicates Railway/production)
+_is_production = os.environ.get("SERVE_STATIC", "false").lower() == "true"
+
 # Create FastAPI app
 app = FastAPI(
     title="Reasoner",
     description="Local AI Chat",
     version="0.2.0",
     lifespan=lifespan,
+    # Disable docs in production to avoid exposing API schema
+    docs_url=None if _is_production else "/docs",
+    redoc_url=None if _is_production else "/redoc",
+    openapi_url=None if _is_production else "/openapi.json",
 )
 
 # CORS middleware (configurable via CORS_ORIGINS env var)
