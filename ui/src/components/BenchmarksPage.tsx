@@ -1,12 +1,16 @@
 // Benchmarks page showing GAIA benchmark results
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Trophy, DollarSign, Cpu, ExternalLink, FileText, Play, Globe, Code, FileSearch } from 'lucide-react';
+import { ArrowLeft, Trophy, DollarSign, Cpu, ExternalLink, FileText, Play, Globe, Code, FileSearch, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { TracesModal } from '@/components/TracesModal';
+import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList } from 'recharts';
+
+type SortColumn = 'rank' | 'overall' | 'l1' | 'l2' | 'l3' | 'cost';
+type SortDirection = 'asc' | 'desc';
 
 // Benchmark data from gaia_results/best_runs/SUMMARY.md
 const MODELS = [
@@ -46,16 +50,43 @@ const MODELS = [
   },
 ];
 
+// HAL Princeton GAIA Leaderboard data (February 2026)
+// Source: https://hal.cs.princeton.edu/gaia
 const COMPARISON_DATA = [
-  { system: 'HAL + Claude Sonnet 4.5', overall: 74.6, l1: 82.1, l2: 72.7, l3: 65.4, cost: 178 },
-  { system: 'HAL + Claude Opus 4.1', overall: 68.5, l1: 71.7, l2: 70.9, l3: 53.9, cost: 562 },
-  { system: 'HAL + GPT-5 Medium', overall: 59.4, l1: 67.9, l2: 58.1, l3: 46.2, cost: 105 },
-  { system: 'This Agent (GPT-5-mini)', overall: 50.4, l1: 66.7, l2: 45.5, l3: 31.6, cost: 8, isOurs: true },
-  { system: 'HF + o4-mini Low', overall: 47.9, l1: 58.5, l2: 47.7, l3: 26.9, cost: 81 },
-  { system: 'This Agent (gpt-oss-120b)', overall: 45.7, l1: 64.3, l2: 37.9, l3: 31.6, cost: 4, isOurs: true },
-  { system: 'HAL + Gemini 2.0 Flash', overall: 32.7, l1: 43.4, l2: 32.6, l3: 11.5, cost: 8 },
-  { system: 'HAL + DeepSeek R1', overall: 30.3, l1: 43.4, l2: 27.9, l3: 11.5, cost: 73 },
-  { system: 'HAL + DeepSeek V3', overall: 29.4, l1: 38.7, l2: 32.0, l3: 1.9, cost: 17 },
+  { rank: 1, system: 'HAL + Claude Sonnet 4.5', overall: 74.55, l1: 82.07, l2: 72.68, l3: 65.39, cost: 178 },
+  { rank: 2, system: 'HAL + Claude Sonnet 4.5 High', overall: 70.91, l1: 77.36, l2: 74.42, l3: 46.15, cost: 180 },
+  { rank: 3, system: 'HAL + Claude Opus 4.1 High', overall: 68.48, l1: 71.70, l2: 70.93, l3: 53.85, cost: 562 },
+  { rank: 4, system: 'HAL + Claude Opus 4 High', overall: 64.85, l1: 71.70, l2: 67.44, l3: 42.31, cost: 666 },
+  { rank: 5, system: 'HAL + Claude-3.7 Sonnet High', overall: 64.24, l1: 67.92, l2: 63.95, l3: 57.69, cost: 122 },
+  { rank: 6, system: 'HAL + Claude Opus 4.1', overall: 64.24, l1: 71.70, l2: 66.28, l3: 42.31, cost: 642 },
+  { rank: 7, system: 'HF + GPT-5 Medium', overall: 62.80, l1: 73.58, l2: 62.79, l3: 38.46, cost: 360 },
+  { rank: 8, system: 'HAL + GPT-5 Medium', overall: 59.39, l1: 67.92, l2: 58.14, l3: 46.15, cost: 105 },
+  { rank: 9, system: 'HAL + o4-mini Low', overall: 58.18, l1: 71.70, l2: 51.16, l3: 53.85, cost: 73 },
+  { rank: 10, system: 'HF + Claude Opus 4', overall: 57.58, l1: 66.04, l2: 56.98, l3: 42.31, cost: 1686 },
+  { rank: 11, system: 'HAL + Claude-3.7 Sonnet', overall: 56.36, l1: 62.26, l2: 55.81, l3: 46.15, cost: 131 },
+  { rank: 12, system: 'HAL + Claude Haiku 4.5', overall: 56.36, l1: 62.26, l2: 51.16, l3: 61.54, cost: 131 },
+  { rank: 13, system: 'HF + o4-mini High', overall: 55.76, l1: 69.81, l2: 51.16, l3: 42.31, cost: 185 },
+  { rank: 14, system: 'HAL + o4-mini High', overall: 54.55, l1: 60.38, l2: 53.49, l3: 46.15, cost: 59 },
+  { rank: 15, system: 'HF + GPT-4.1', overall: 50.30, l1: 58.49, l2: 50.00, l3: 34.62, cost: 110 },
+  { rank: '~15', system: 'This Agent (GPT-5-mini)', overall: 50.4, l1: 66.7, l2: 45.5, l3: 31.6, cost: 8, isOurs: true },
+  { rank: 16, system: 'HAL + GPT-4.1', overall: 49.70, l1: 52.83, l2: 55.81, l3: 23.08, cost: 74 },
+  { rank: 17, system: 'HF + o4-mini Low', overall: 47.88, l1: 58.49, l2: 47.67, l3: 26.92, cost: 81 },
+  { rank: '~18', system: 'This Agent (gpt-oss-120b)', overall: 45.7, l1: 64.3, l2: 37.9, l3: 31.6, cost: 4, isOurs: true },
+  { rank: 18, system: 'HF + Claude-3.7 Sonnet', overall: 36.97, l1: 39.62, l2: 39.53, l3: 23.08, cost: 415 },
+  { rank: 19, system: 'HF + Claude-3.7 Sonnet High', overall: 35.76, l1: 45.28, l2: 33.72, l3: 23.08, cost: 114 },
+  { rank: 20, system: 'HAL + Gemini 2.0 Flash', overall: 32.73, l1: 43.40, l2: 32.56, l3: 11.54, cost: 8 },
+  { rank: 21, system: 'HF + o3 Medium', overall: 32.73, l1: 39.62, l2: 31.40, l3: 23.08, cost: 136 },
+  { rank: 22, system: 'HF + Claude Sonnet 4.5', overall: 30.91, l1: 37.74, l2: 31.40, l3: 15.38, cost: 452 },
+  { rank: 23, system: 'HF + Claude Sonnet 4.5 High', overall: 30.91, l1: 39.62, l2: 27.91, l3: 23.08, cost: 535 },
+  { rank: 24, system: 'HAL + DeepSeek R1', overall: 30.30, l1: 43.40, l2: 27.91, l3: 11.54, cost: 73 },
+  { rank: 25, system: 'HAL + Claude Opus 4', overall: 30.30, l1: 33.96, l2: 27.91, l3: 30.77, cost: 273 },
+  { rank: 26, system: 'HAL + DeepSeek V3', overall: 29.39, l1: 38.68, l2: 31.97, l3: 1.93, cost: 17 },
+  { rank: 27, system: 'HF + DeepSeek V3', overall: 28.48, l1: 35.85, l2: 30.23, l3: 7.69, cost: 77 },
+  { rank: 28, system: 'HF + Claude Opus 4.1', overall: 28.48, l1: 41.51, l2: 24.42, l3: 15.38, cost: 1307 },
+  { rank: 29, system: 'HAL + o3 Medium', overall: 28.48, l1: 37.74, l2: 26.74, l3: 15.38, cost: 2829 },
+  { rank: 30, system: 'HF + Claude Opus 4.1 High', overall: 25.45, l1: 35.85, l2: 23.26, l3: 11.54, cost: 1474 },
+  { rank: 31, system: 'HF + DeepSeek R1', overall: 24.85, l1: 30.19, l2: 24.42, l3: 15.38, cost: 143 },
+  { rank: 32, system: 'HF + Gemini 2.0 Flash', overall: 19.39, l1: 24.53, l2: 19.77, l3: 7.69, cost: 19 },
 ];
 
 const bestModel = MODELS[0]; // GPT-5-mini (best results)
@@ -64,6 +95,73 @@ const deployedModel = MODELS[1]; // gpt-oss-120b (deployed)
 export function BenchmarksPage() {
   const navigate = useNavigate();
   const [tracesModalOpen, setTracesModalOpen] = useState(false);
+  const [sortColumn, setSortColumn] = useState<SortColumn>('rank');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+
+  const handleSort = (column: SortColumn) => {
+    if (sortColumn === column) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortColumn(column);
+      // Default: rank ascending, others descending (higher is better for accuracy)
+      setSortDirection(column === 'rank' || column === 'cost' ? 'asc' : 'desc');
+    }
+  };
+
+  // Helper to extract numeric rank
+  const getRankNumber = (rank: number | string): number => {
+    return typeof rank === 'string' ? parseFloat(rank.replace('~', '')) : rank;
+  };
+
+  // Filter to ranks 10-24 for focused comparison view
+  const filteredData = useMemo(() => {
+    return COMPARISON_DATA.filter((row) => {
+      const numRank = getRankNumber(row.rank);
+      return numRank >= 10 && numRank <= 24;
+    });
+  }, []);
+
+  const sortedData = useMemo(() => {
+    return [...filteredData].sort((a, b) => {
+      let aVal: number;
+      let bVal: number;
+
+      if (sortColumn === 'rank') {
+        // Handle string ranks like "~15" by extracting the number
+        aVal = getRankNumber(a.rank);
+        bVal = getRankNumber(b.rank);
+      } else {
+        aVal = a[sortColumn];
+        bVal = b[sortColumn];
+      }
+
+      if (sortDirection === 'asc') {
+        return aVal - bVal;
+      } else {
+        return bVal - aVal;
+      }
+    });
+  }, [filteredData, sortColumn, sortDirection]);
+
+  const SortHeader = ({ column, label }: { column: SortColumn; label: string }) => (
+    <th
+      className="text-right py-3 px-4 font-medium cursor-pointer hover:bg-muted/50 select-none"
+      onClick={() => handleSort(column)}
+    >
+      <div className="flex items-center justify-end gap-1">
+        {label}
+        {sortColumn === column ? (
+          sortDirection === 'asc' ? (
+            <ArrowUp className="h-3 w-3" />
+          ) : (
+            <ArrowDown className="h-3 w-3" />
+          )
+        ) : (
+          <ArrowUpDown className="h-3 w-3 text-muted-foreground/50" />
+        )}
+      </div>
+    </th>
+  );
 
   return (
     <div className="h-screen flex flex-col bg-gradient-to-br from-slate-50 via-white to-blue-50">
@@ -319,12 +417,111 @@ export function BenchmarksPage() {
           </CardContent>
         </Card>
 
+        {/* Accuracy vs Cost Chart */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Accuracy vs Cost</CardTitle>
+            <CardDescription>
+              Our systems (blue) achieve competitive accuracy at a fraction of the cost.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="h-[400px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <ScatterChart margin={{ top: 20, right: 30, bottom: 60, left: 20 }}>
+                  <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+                  <XAxis
+                    type="number"
+                    dataKey="cost"
+                    name="Cost"
+                    scale="log"
+                    domain={[1, 3000]}
+                    ticks={[1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500]}
+                    tickFormatter={(value) => `$${value}`}
+                    label={{ value: 'Cost ($)', position: 'bottom', offset: 40 }}
+                  />
+                  <YAxis
+                    type="number"
+                    dataKey="overall"
+                    name="Accuracy"
+                    domain={[15, 80]}
+                    tickFormatter={(value) => `${value}%`}
+                    label={{ value: 'Overall Accuracy (%)', angle: -90, position: 'insideLeft', offset: 10 }}
+                  />
+                  <Tooltip
+                    content={({ active, payload }) => {
+                      if (active && payload && payload.length) {
+                        const data = payload[0].payload;
+                        return (
+                          <div className="bg-white border rounded-lg shadow-lg p-3 text-sm">
+                            <p className="font-medium">{data.system}</p>
+                            <p className="text-muted-foreground">Accuracy: <span className="font-mono">{data.overall}%</span></p>
+                            <p className="text-muted-foreground">Cost: <span className="font-mono">${data.cost}</span></p>
+                          </div>
+                        );
+                      }
+                      return null;
+                    }}
+                  />
+                  {/* Other systems */}
+                  <Scatter
+                    name="Other Systems"
+                    data={COMPARISON_DATA.filter(d => !d.isOurs)}
+                    fill="#94a3b8"
+                    fillOpacity={0.6}
+                  >
+                    <LabelList
+                      dataKey="system"
+                      position="top"
+                      offset={8}
+                      className="text-[10px] fill-slate-500"
+                      formatter={(value) => {
+                        const v = String(value || '');
+                        // Only label top performers and notable systems
+                        if (v.includes('Claude Sonnet 4.5') && !v.includes('High') && v.startsWith('HAL')) return 'Claude Sonnet 4.5';
+                        if (v.includes('GPT-5 Medium') && v.startsWith('HAL')) return 'GPT-5 Medium';
+                        if (v.includes('o4-mini Low') && v.startsWith('HAL')) return 'o4-mini';
+                        if (v.includes('Gemini 2.0 Flash') && v.startsWith('HAL')) return 'Gemini Flash';
+                        if (v.includes('o3 Medium') && v.startsWith('HAL')) return 'o3 Medium';
+                        return '';
+                      }}
+                    />
+                  </Scatter>
+                  {/* Our systems - on top with labels */}
+                  <Scatter
+                    name="Our Systems"
+                    data={COMPARISON_DATA.filter(d => d.isOurs)}
+                    fill="#3b82f6"
+                    fillOpacity={1}
+                    shape={(props: { cx?: number; cy?: number }) => (
+                      <circle cx={props.cx} cy={props.cy} r={8} fill="#3b82f6" stroke="#1d4ed8" strokeWidth={2} />
+                    )}
+                  >
+                    <LabelList
+                      dataKey="system"
+                      position="right"
+                      offset={12}
+                      className="text-xs fill-blue-700 font-medium"
+                      formatter={(value) => {
+                        const v = String(value || '');
+                        if (v.includes('GPT-5-mini')) return 'This Scaffold (GPT-5-mini)';
+                        if (v.includes('gpt-oss-120b')) return 'This Scaffold (gpt-oss-120b)';
+                        return 'This Scaffold';
+                      }}
+                    />
+                  </Scatter>
+                </ScatterChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Comparison with Top Systems */}
         <Card>
           <CardHeader>
-            <CardTitle>Comparison with Top Systems</CardTitle>
+            <CardTitle>Leaderboard Snapshot (Ranks 10-24)</CardTitle>
             <CardDescription>
-              Leaderboard data from{' '}
+              From{' '}
               <a
                 href="https://hal.cs.princeton.edu/gaia"
                 target="_blank"
@@ -333,7 +530,7 @@ export function BenchmarksPage() {
               >
                 HAL Princeton GAIA Leaderboard
               </a>
-              {' '}(January 2026). This agent's results are self-evaluated on the same validation set.
+              {' '}(February 2026, 32 total entries). Our results are self-evaluated on the same validation set.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -342,22 +539,38 @@ export function BenchmarksPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b">
+                    <th
+                      className="text-center py-3 px-2 font-medium w-12 cursor-pointer hover:bg-muted/50 select-none"
+                      onClick={() => handleSort('rank')}
+                    >
+                      <div className="flex items-center justify-center gap-1">
+                        #
+                        {sortColumn === 'rank' ? (
+                          sortDirection === 'asc' ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />
+                        ) : (
+                          <ArrowUpDown className="h-3 w-3 text-muted-foreground/50" />
+                        )}
+                      </div>
+                    </th>
                     <th className="text-left py-3 px-4 font-medium">System</th>
-                    <th className="text-right py-3 px-4 font-medium">Overall</th>
-                    <th className="text-right py-3 px-4 font-medium">L1</th>
-                    <th className="text-right py-3 px-4 font-medium">L2</th>
-                    <th className="text-right py-3 px-4 font-medium">L3</th>
-                    <th className="text-right py-3 px-4 font-medium">Cost</th>
+                    <SortHeader column="overall" label="Overall" />
+                    <SortHeader column="l1" label="L1" />
+                    <SortHeader column="l2" label="L2" />
+                    <SortHeader column="l3" label="L3" />
+                    <SortHeader column="cost" label="Cost" />
                   </tr>
                 </thead>
                 <tbody>
-                  {COMPARISON_DATA.map((row) => (
+                  {sortedData.map((row) => (
                     <tr
                       key={row.system}
                       className={`border-b last:border-0 hover:bg-muted/50 ${
                         row.isOurs ? 'bg-blue-50 font-medium' : ''
                       }`}
                     >
+                      <td className="text-center py-3 px-2 text-muted-foreground font-mono text-xs">
+                        {row.rank}
+                      </td>
                       <td className="py-3 px-4">
                         <div className="flex items-center gap-2">
                           {row.system}
@@ -383,25 +596,41 @@ export function BenchmarksPage() {
 
             {/* Tablet horizontal scroll */}
             <div className="hidden md:block lg:hidden overflow-x-auto">
-              <table className="w-full text-sm min-w-[600px]">
+              <table className="w-full text-sm min-w-[650px]">
                 <thead>
                   <tr className="border-b">
+                    <th
+                      className="text-center py-3 px-2 font-medium w-12 cursor-pointer hover:bg-muted/50 select-none"
+                      onClick={() => handleSort('rank')}
+                    >
+                      <div className="flex items-center justify-center gap-1">
+                        #
+                        {sortColumn === 'rank' ? (
+                          sortDirection === 'asc' ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />
+                        ) : (
+                          <ArrowUpDown className="h-3 w-3 text-muted-foreground/50" />
+                        )}
+                      </div>
+                    </th>
                     <th className="text-left py-3 px-4 font-medium">System</th>
-                    <th className="text-right py-3 px-4 font-medium">Overall</th>
-                    <th className="text-right py-3 px-4 font-medium">L1</th>
-                    <th className="text-right py-3 px-4 font-medium">L2</th>
-                    <th className="text-right py-3 px-4 font-medium">L3</th>
-                    <th className="text-right py-3 px-4 font-medium">Cost</th>
+                    <SortHeader column="overall" label="Overall" />
+                    <SortHeader column="l1" label="L1" />
+                    <SortHeader column="l2" label="L2" />
+                    <SortHeader column="l3" label="L3" />
+                    <SortHeader column="cost" label="Cost" />
                   </tr>
                 </thead>
                 <tbody>
-                  {COMPARISON_DATA.map((row) => (
+                  {sortedData.map((row) => (
                     <tr
                       key={row.system}
                       className={`border-b last:border-0 hover:bg-muted/50 ${
                         row.isOurs ? 'bg-blue-50 font-medium' : ''
                       }`}
                     >
+                      <td className="text-center py-3 px-2 text-muted-foreground font-mono text-xs">
+                        {row.rank}
+                      </td>
                       <td className="py-3 px-4">
                         <div className="flex items-center gap-2">
                           {row.system}
@@ -427,7 +656,27 @@ export function BenchmarksPage() {
 
             {/* Mobile cards */}
             <div className="md:hidden space-y-3">
-              {COMPARISON_DATA.map((row) => (
+              {/* Mobile sort selector */}
+              <div className="flex items-center gap-2 text-sm">
+                <span className="text-muted-foreground">Sort by:</span>
+                <select
+                  value={`${sortColumn}-${sortDirection}`}
+                  onChange={(e) => {
+                    const [col, dir] = e.target.value.split('-') as [SortColumn, SortDirection];
+                    setSortColumn(col);
+                    setSortDirection(dir);
+                  }}
+                  className="border rounded px-2 py-1 text-sm bg-white"
+                >
+                  <option value="rank-asc">Rank (best first)</option>
+                  <option value="overall-desc">Overall % (highest)</option>
+                  <option value="cost-asc">Cost (lowest)</option>
+                  <option value="l1-desc">L1 % (highest)</option>
+                  <option value="l2-desc">L2 % (highest)</option>
+                  <option value="l3-desc">L3 % (highest)</option>
+                </select>
+              </div>
+              {sortedData.map((row) => (
                 <div
                   key={row.system}
                   className={`rounded-lg p-4 space-y-3 ${
@@ -438,6 +687,7 @@ export function BenchmarksPage() {
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1">
+                      <span className="text-xs text-muted-foreground font-mono mr-2">#{row.rank}</span>
                       <div className="font-medium text-sm">{row.system}</div>
                       {row.isOurs && (
                         <Badge variant="default" className="text-xs mt-1">
