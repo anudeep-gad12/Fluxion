@@ -530,7 +530,7 @@ export function BenchmarksPage() {
               >
                 HAL Princeton GAIA Leaderboard
               </a>
-              {' '}(February 2026, 32 total entries). Our results are self-evaluated on the same validation set.
+              {' '}(February 2026). Our results are self-evaluated on the same validation set.
             </CardDescription>
           </CardHeader>
           <CardContent>
