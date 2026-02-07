@@ -235,85 +235,20 @@ export function BenchmarksPage() {
             <CardHeader className="pb-2">
               <CardDescription className="flex items-center gap-2">
                 <Cpu className="h-4 w-4 text-violet-600" />
-                Two Models Tested
+                Leaderboard Rank
               </CardDescription>
-              <CardTitle className="text-3xl sm:text-4xl text-violet-700">2</CardTitle>
+              <CardTitle className="text-3xl sm:text-4xl text-violet-700">~15</CardTitle>
             </CardHeader>
             <CardContent>
               <p className="text-xs sm:text-sm text-violet-800">
-                Same scaffold, different LLMs
+                of 32 systems on GAIA with {bestModel.model}
               </p>
               <p className="text-xs text-violet-600 mt-1">
-                {bestModel.model} (best) &middot; {deployedModel.model} (deployed)
+                Same scaffold, two LLMs tested
               </p>
             </CardContent>
           </Card>
         </section>
-
-        {/* About This Agent */}
-        <Card className="border-indigo-200 bg-gradient-to-br from-indigo-50/50 to-slate-50">
-          <CardHeader>
-            <CardTitle>About This Agent</CardTitle>
-            <CardDescription>
-              Single-agent scaffold with planning, tool use, and execution tracing
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              End-to-end agent system with multi-step planning, tool orchestration,
-              execution tracing, and real-time streaming. The same scaffold runs with
-              different LLM backends — currently deployed with {deployedModel.model} (open-weight,
-              120B MoE reasoning model) and benchmarked with {bestModel.model} (OpenAI).
-            </p>
-            <div className="flex flex-wrap gap-2">
-              <Badge variant="outline" className="border-indigo-200 text-indigo-700">
-                <Globe className="h-3 w-3 mr-1" />
-                Web Search
-              </Badge>
-              <Badge variant="outline" className="border-indigo-200 text-indigo-700">
-                <FileSearch className="h-3 w-3 mr-1" />
-                Content Extraction
-              </Badge>
-              <Badge variant="outline" className="border-indigo-200 text-indigo-700">
-                <Code className="h-3 w-3 mr-1" />
-                Python Execution
-              </Badge>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* About GAIA */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              About GAIA Benchmark
-              <a
-                href="https://arxiv.org/abs/2311.12983"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-blue-500 hover:text-blue-700"
-              >
-                <ExternalLink className="h-4 w-4" />
-              </a>
-            </CardTitle>
-            <CardDescription>
-              General AI Assistants - A benchmark for real-world AI assistant capabilities
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              GAIA proposes real-world questions requiring fundamental abilities such as reasoning,
-              multi-modality handling, web browsing, and tool-use proficiency. Questions are
-              conceptually simple for humans (92% accuracy) yet challenging for most advanced AIs.
-            </p>
-            <div className="flex flex-wrap gap-2">
-              <Badge variant="outline">Reasoning</Badge>
-              <Badge variant="outline">Web Browsing</Badge>
-              <Badge variant="outline">Tool Use</Badge>
-              <Badge variant="outline">Multi-step Tasks</Badge>
-            </div>
-          </CardContent>
-        </Card>
 
         {/* Results by Level */}
         <Card>
@@ -734,6 +669,65 @@ export function BenchmarksPage() {
           </CardContent>
         </Card>
 
+        {/* About Section - Agent + GAIA combined */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Card className="border-indigo-200 bg-gradient-to-br from-indigo-50/50 to-slate-50">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">About This Agent</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Single-agent scaffold with multi-step planning, tool orchestration,
+                and execution tracing. Same scaffold, different LLM backends —
+                deployed with {deployedModel.model} (open-weight 120B MoE) and benchmarked
+                with {bestModel.model} (OpenAI).
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Badge variant="outline" className="border-indigo-200 text-indigo-700">
+                  <Globe className="h-3 w-3 mr-1" />
+                  Web Search
+                </Badge>
+                <Badge variant="outline" className="border-indigo-200 text-indigo-700">
+                  <FileSearch className="h-3 w-3 mr-1" />
+                  Content Extraction
+                </Badge>
+                <Badge variant="outline" className="border-indigo-200 text-indigo-700">
+                  <Code className="h-3 w-3 mr-1" />
+                  Python Execution
+                </Badge>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base flex items-center gap-2">
+                About GAIA Benchmark
+                <a
+                  href="https://arxiv.org/abs/2311.12983"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-500 hover:text-blue-700"
+                >
+                  <ExternalLink className="h-4 w-4" />
+                </a>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Real-world questions requiring reasoning, web browsing, and tool use.
+                Conceptually simple for humans (92% accuracy) yet challenging for most advanced AIs.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Badge variant="outline">Reasoning</Badge>
+                <Badge variant="outline">Web Browsing</Badge>
+                <Badge variant="outline">Tool Use</Badge>
+                <Badge variant="outline">Multi-step Tasks</Badge>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
         {/* Key Observations */}
         <Card>
           <CardHeader>
@@ -743,20 +737,20 @@ export function BenchmarksPage() {
             <ul className="space-y-3 text-sm text-muted-foreground">
               <li className="flex items-start gap-3">
                 <Badge variant="success" className="mt-0.5 shrink-0">Cost</Badge>
-                <span>$4-8 for 127 questions across both models</span>
+                <span>Full 127-question evaluation for $4-8 — most competing systems cost $100-2800</span>
               </li>
               <li className="flex items-start gap-3">
                 <Badge variant="secondary" className="mt-0.5 shrink-0">Models</Badge>
-                <span>+4.7% accuracy delta between open-weight and GPT-5-mini on the same scaffold</span>
+                <span>Swapping the LLM from open-weight to GPT-5-mini gives +4.7% accuracy on the same scaffold</span>
               </li>
               <li className="flex items-start gap-3">
-                <Badge variant="outline" className="mt-0.5 shrink-0">Levels</Badge>
-                <span>L1 and L3 within 3%; L2 shows the largest gap (+7.6%)</span>
+                <Badge variant="outline" className="mt-0.5 shrink-0">Difficulty</Badge>
+                <span>Strongest on Level 1 (66.7%); Level 2 multi-hop questions are the biggest opportunity</span>
               </li>
               <li className="flex items-start gap-3">
                 <Badge variant="default" className="mt-0.5 shrink-0">Traces</Badge>
                 <span>
-                  Evaluation traces with aggregate stats per run.{' '}
+                  Every evaluation run is recorded with per-question results.{' '}
                   <button
                     onClick={() => setTracesModalOpen(true)}
                     className="text-blue-500 hover:underline inline-flex items-center gap-1"
