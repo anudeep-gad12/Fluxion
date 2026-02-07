@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Trophy, DollarSign, Cpu, ExternalLink, FileText, Play, Globe, Code, FileSearch, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { ArrowLeft, Trophy, DollarSign, ExternalLink, FileText, Play, Globe, Code, FileSearch, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { TracesModal } from '@/components/TracesModal';
 import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList } from 'recharts';
 
@@ -194,7 +194,7 @@ export function BenchmarksPage() {
       <main className="flex-1 overflow-y-auto">
         <div className="max-w-6xl mx-auto px-3 sm:px-4 py-4 sm:py-6 md:py-8 space-y-6 sm:space-y-8">
         {/* Hero Stats */}
-        <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+        <section className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
           <Card className="bg-gradient-to-br from-amber-50 to-orange-50 border-amber-200">
             <CardHeader className="pb-2">
               <CardDescription className="flex items-center gap-2">
@@ -227,24 +227,6 @@ export function BenchmarksPage() {
               </p>
               <p className="text-xs text-emerald-600 mt-1">
                 10-100x cheaper than frontier systems
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-gradient-to-br from-violet-50 to-purple-50 border-violet-200">
-            <CardHeader className="pb-2">
-              <CardDescription className="flex items-center gap-2">
-                <Cpu className="h-4 w-4 text-violet-600" />
-                Leaderboard Rank
-              </CardDescription>
-              <CardTitle className="text-3xl sm:text-4xl text-violet-700">~15</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-xs sm:text-sm text-violet-800">
-                of 32 systems on GAIA with {bestModel.model}
-              </p>
-              <p className="text-xs text-violet-600 mt-1">
-                Same scaffold, two LLMs tested
               </p>
             </CardContent>
           </Card>
