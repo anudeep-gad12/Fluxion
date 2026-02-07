@@ -436,9 +436,9 @@ export function BenchmarksPage() {
         {/* Comparison with Top Systems */}
         <Card>
           <CardHeader>
-            <CardTitle>Leaderboard Snapshot (Ranks 10-24)</CardTitle>
+            <CardTitle>Comparison with Top Systems</CardTitle>
             <CardDescription>
-              From{' '}
+              Leaderboard data from{' '}
               <a
                 href="https://hal.cs.princeton.edu/gaia"
                 target="_blank"
@@ -447,7 +447,7 @@ export function BenchmarksPage() {
               >
                 HAL Princeton GAIA Leaderboard
               </a>
-              {' '}(February 2026). Our results are self-evaluated on the same validation set.
+              {' '}(January 2026). This agent's results are self-evaluated on the same validation set.
             </CardDescription>
           </CardHeader>
           <CardContent>
