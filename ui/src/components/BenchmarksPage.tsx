@@ -719,20 +719,20 @@ export function BenchmarksPage() {
             <ul className="space-y-3 text-sm text-muted-foreground">
               <li className="flex items-start gap-3">
                 <Badge variant="success" className="mt-0.5 shrink-0">Cost</Badge>
-                <span>Full 127-question evaluation for $4-8 — most competing systems cost $100-2800</span>
+                <span>$4-8 for 127 questions across both models</span>
               </li>
               <li className="flex items-start gap-3">
                 <Badge variant="secondary" className="mt-0.5 shrink-0">Models</Badge>
-                <span>Swapping the LLM from open-weight to GPT-5-mini gives +4.7% accuracy on the same scaffold</span>
+                <span>+4.7% accuracy delta between open-weight and GPT-5-mini on the same scaffold</span>
               </li>
               <li className="flex items-start gap-3">
-                <Badge variant="outline" className="mt-0.5 shrink-0">Difficulty</Badge>
-                <span>Strongest on Level 1 (66.7%); Level 2 multi-hop questions are the biggest opportunity</span>
+                <Badge variant="outline" className="mt-0.5 shrink-0">Levels</Badge>
+                <span>L1 and L3 within 3%; L2 shows the largest gap (+7.6%)</span>
               </li>
               <li className="flex items-start gap-3">
                 <Badge variant="default" className="mt-0.5 shrink-0">Traces</Badge>
                 <span>
-                  Every evaluation run is recorded with per-question results.{' '}
+                  Evaluation traces with aggregate stats per run.{' '}
                   <button
                     onClick={() => setTracesModalOpen(true)}
                     className="text-blue-500 hover:underline inline-flex items-center gap-1"
