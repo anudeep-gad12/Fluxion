@@ -469,7 +469,7 @@ export function BenchmarksPage() {
               >
                 HAL Princeton GAIA Leaderboard
               </a>
-              {' '}(January 2026). This agent's results are self-evaluated on the same validation set.
+              {' '}(January 2026). This agent is not on the official leaderboard — results are self-evaluated on the same validation set, ranked by overall accuracy.
             </CardDescription>
           </CardHeader>
           <CardContent>
