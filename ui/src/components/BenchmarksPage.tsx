@@ -1,11 +1,11 @@
 // Benchmarks page showing GAIA benchmark results
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Trophy, DollarSign, Cpu, ExternalLink, FileText, Play, Globe, Code, FileSearch, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { ArrowLeft, Trophy, DollarSign, ExternalLink, FileText, Play, Globe, Code, FileSearch, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { TracesModal } from '@/components/TracesModal';
 import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList } from 'recharts';
 
@@ -50,7 +50,7 @@ const MODELS = [
   },
 ];
 
-// HAL Princeton GAIA Leaderboard data (February 2026)
+// HAL Princeton GAIA Leaderboard data (January 2026)
 // Source: https://hal.cs.princeton.edu/gaia
 const COMPARISON_DATA = [
   { rank: 1, system: 'HAL + Claude Sonnet 4.5', overall: 74.55, l1: 82.07, l2: 72.68, l3: 65.39, cost: 178 },
@@ -95,8 +95,16 @@ const deployedModel = MODELS[1]; // gpt-oss-120b (deployed)
 export function BenchmarksPage() {
   const navigate = useNavigate();
   const [tracesModalOpen, setTracesModalOpen] = useState(false);
-  const [sortColumn, setSortColumn] = useState<SortColumn>('rank');
+  const [sortColumn, setSortColumn] = useState<SortColumn>('cost');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+  const mobileBreakpoint = 768;
+  const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' && window.innerWidth < mobileBreakpoint);
+  const [showAllMobile, setShowAllMobile] = useState(false);
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < mobileBreakpoint);
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, [mobileBreakpoint]);
 
   const handleSort = (column: SortColumn) => {
     if (sortColumn === column) {
@@ -194,7 +202,7 @@ export function BenchmarksPage() {
       <main className="flex-1 overflow-y-auto">
         <div className="max-w-6xl mx-auto px-3 sm:px-4 py-4 sm:py-6 md:py-8 space-y-6 sm:space-y-8">
         {/* Hero Stats */}
-        <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+        <section className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
           <Card className="bg-gradient-to-br from-amber-50 to-orange-50 border-amber-200">
             <CardHeader className="pb-2">
               <CardDescription className="flex items-center gap-2">
@@ -230,90 +238,7 @@ export function BenchmarksPage() {
               </p>
             </CardContent>
           </Card>
-
-          <Card className="bg-gradient-to-br from-violet-50 to-purple-50 border-violet-200">
-            <CardHeader className="pb-2">
-              <CardDescription className="flex items-center gap-2">
-                <Cpu className="h-4 w-4 text-violet-600" />
-                Two Models Tested
-              </CardDescription>
-              <CardTitle className="text-3xl sm:text-4xl text-violet-700">2</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-xs sm:text-sm text-violet-800">
-                Same scaffold, different LLMs
-              </p>
-              <p className="text-xs text-violet-600 mt-1">
-                {bestModel.model} (best) &middot; {deployedModel.model} (deployed)
-              </p>
-            </CardContent>
-          </Card>
         </section>
-
-        {/* About This Agent */}
-        <Card className="border-indigo-200 bg-gradient-to-br from-indigo-50/50 to-slate-50">
-          <CardHeader>
-            <CardTitle>About This Agent</CardTitle>
-            <CardDescription>
-              Single-agent scaffold with planning, tool use, and execution tracing
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              End-to-end agent system with multi-step planning, tool orchestration,
-              execution tracing, and real-time streaming. The same scaffold runs with
-              different LLM backends — currently deployed with {deployedModel.model} (open-weight,
-              120B MoE reasoning model) and benchmarked with {bestModel.model} (OpenAI).
-            </p>
-            <div className="flex flex-wrap gap-2">
-              <Badge variant="outline" className="border-indigo-200 text-indigo-700">
-                <Globe className="h-3 w-3 mr-1" />
-                Web Search
-              </Badge>
-              <Badge variant="outline" className="border-indigo-200 text-indigo-700">
-                <FileSearch className="h-3 w-3 mr-1" />
-                Content Extraction
-              </Badge>
-              <Badge variant="outline" className="border-indigo-200 text-indigo-700">
-                <Code className="h-3 w-3 mr-1" />
-                Python Execution
-              </Badge>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* About GAIA */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              About GAIA Benchmark
-              <a
-                href="https://arxiv.org/abs/2311.12983"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-blue-500 hover:text-blue-700"
-              >
-                <ExternalLink className="h-4 w-4" />
-              </a>
-            </CardTitle>
-            <CardDescription>
-              General AI Assistants - A benchmark for real-world AI assistant capabilities
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              GAIA proposes real-world questions requiring fundamental abilities such as reasoning,
-              multi-modality handling, web browsing, and tool-use proficiency. Questions are
-              conceptually simple for humans (92% accuracy) yet challenging for most advanced AIs.
-            </p>
-            <div className="flex flex-wrap gap-2">
-              <Badge variant="outline">Reasoning</Badge>
-              <Badge variant="outline">Web Browsing</Badge>
-              <Badge variant="outline">Tool Use</Badge>
-              <Badge variant="outline">Multi-step Tasks</Badge>
-            </div>
-          </CardContent>
-        </Card>
 
         {/* Results by Level */}
         <Card>
@@ -422,13 +347,13 @@ export function BenchmarksPage() {
           <CardHeader>
             <CardTitle>Accuracy vs Cost</CardTitle>
             <CardDescription>
-              Our systems (blue) achieve competitive accuracy at a fraction of the cost.
+              This scaffold (blue) compared to HAL and HuggingFace agent scaffolds on the GAIA leaderboard.
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="h-[400px] w-full">
+            <div className="h-[300px] sm:h-[400px] w-full">
               <ResponsiveContainer width="100%" height="100%">
-                <ScatterChart margin={{ top: 20, right: 30, bottom: 60, left: 20 }}>
+                <ScatterChart margin={isMobile ? { top: 10, right: 15, bottom: 20, left: 5 } : { top: 20, right: 30, bottom: 60, left: 20 }}>
                   <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
                   <XAxis
                     type="number"
@@ -436,9 +361,10 @@ export function BenchmarksPage() {
                     name="Cost"
                     scale="log"
                     domain={[1, 3000]}
-                    ticks={[1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500]}
+                    ticks={isMobile ? [5, 50, 500] : [1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500]}
                     tickFormatter={(value) => `$${value}`}
-                    label={{ value: 'Cost ($)', position: 'bottom', offset: 40 }}
+                    tick={{ fontSize: isMobile ? 10 : 12 }}
+                    label={isMobile ? undefined : { value: 'Cost ($)', position: 'bottom', offset: 40 }}
                   />
                   <YAxis
                     type="number"
@@ -446,7 +372,8 @@ export function BenchmarksPage() {
                     name="Accuracy"
                     domain={[15, 80]}
                     tickFormatter={(value) => `${value}%`}
-                    label={{ value: 'Overall Accuracy (%)', angle: -90, position: 'insideLeft', offset: 10 }}
+                    tick={{ fontSize: isMobile ? 10 : 12 }}
+                    label={isMobile ? undefined : { value: 'Overall Accuracy (%)', angle: -90, position: 'insideLeft', offset: 10 }}
                   />
                   <Tooltip
                     content={({ active, payload }) => {
@@ -477,12 +404,20 @@ export function BenchmarksPage() {
                       className="text-[10px] fill-slate-500"
                       formatter={(value) => {
                         const v = String(value || '');
-                        // Only label top performers and notable systems
-                        if (v.includes('Claude Sonnet 4.5') && !v.includes('High') && v.startsWith('HAL')) return 'Claude Sonnet 4.5';
-                        if (v.includes('GPT-5 Medium') && v.startsWith('HAL')) return 'GPT-5 Medium';
+                        // Above us
+                        if (v.includes('Claude Sonnet 4.5') && !v.includes('High') && v.startsWith('HAL')) return isMobile ? 'Sonnet 4.5' : 'Claude Sonnet 4.5';
+                        if (v.includes('GPT-5 Medium') && v.startsWith('HAL')) return isMobile ? 'GPT-5 Med' : 'GPT-5 Medium';
                         if (v.includes('o4-mini Low') && v.startsWith('HAL')) return 'o4-mini';
-                        if (v.includes('Gemini 2.0 Flash') && v.startsWith('HAL')) return 'Gemini Flash';
-                        if (v.includes('o3 Medium') && v.startsWith('HAL')) return 'o3 Medium';
+                        // Below us — systems we beat
+                        if (v === 'HAL + o3 Medium') return isMobile ? 'o3 $2.8k' : 'o3 Medium ($2.8k)';
+                        if (v === 'HAL + Claude Opus 4') return isMobile ? 'Opus 4' : 'Claude Opus 4';
+                        if (v.includes('Gemini 2.0 Flash') && v.startsWith('HAL')) return isMobile ? 'Gemini' : 'Gemini Flash';
+                        // Desktop-only — more systems we beat
+                        if (isMobile) return '';
+                        if (v === 'HF + Claude Opus 4.1 High') return 'Claude Opus 4.1 High';
+                        if (v === 'HF + Claude Opus 4.1') return 'Claude Opus 4.1';
+                        if (v === 'HF + Claude-3.7 Sonnet') return 'Claude-3.7 Sonnet';
+                        if (v === 'HAL + DeepSeek R1') return 'DeepSeek R1';
                         return '';
                       }}
                     />
@@ -499,11 +434,16 @@ export function BenchmarksPage() {
                   >
                     <LabelList
                       dataKey="system"
-                      position="right"
-                      offset={12}
-                      className="text-xs fill-blue-700 font-medium"
+                      position={isMobile ? 'top' : 'right'}
+                      offset={isMobile ? 8 : 12}
+                      className={isMobile ? 'text-[10px] fill-blue-700 font-medium' : 'text-xs fill-blue-700 font-medium'}
                       formatter={(value) => {
                         const v = String(value || '');
+                        if (isMobile) {
+                          if (v.includes('GPT-5-mini')) return 'GPT-5-mini';
+                          if (v.includes('gpt-oss-120b')) return 'gpt-oss-120b';
+                          return 'Ours';
+                        }
                         if (v.includes('GPT-5-mini')) return 'This Scaffold (GPT-5-mini)';
                         if (v.includes('gpt-oss-120b')) return 'This Scaffold (gpt-oss-120b)';
                         return 'This Scaffold';
@@ -519,9 +459,9 @@ export function BenchmarksPage() {
         {/* Comparison with Top Systems */}
         <Card>
           <CardHeader>
-            <CardTitle>Leaderboard Snapshot (Ranks 10-24)</CardTitle>
+            <CardTitle>Comparison with Top Systems</CardTitle>
             <CardDescription>
-              From{' '}
+              Leaderboard data from{' '}
               <a
                 href="https://hal.cs.princeton.edu/gaia"
                 target="_blank"
@@ -530,7 +470,7 @@ export function BenchmarksPage() {
               >
                 HAL Princeton GAIA Leaderboard
               </a>
-              {' '}(February 2026). Our results are self-evaluated on the same validation set.
+              {' '}(January 2026). This agent's results are self-evaluated on the same validation set.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -572,12 +512,7 @@ export function BenchmarksPage() {
                         {row.rank}
                       </td>
                       <td className="py-3 px-4">
-                        <div className="flex items-center gap-2">
-                          {row.system}
-                          {row.isOurs && (
-                            <Badge variant="default" className="text-xs">This System</Badge>
-                          )}
-                        </div>
+                        {row.system}
                       </td>
                       <td className="text-right py-3 px-4 font-mono">{row.overall}%</td>
                       <td className="text-right py-3 px-4 font-mono">{row.l1}%</td>
@@ -632,12 +567,7 @@ export function BenchmarksPage() {
                         {row.rank}
                       </td>
                       <td className="py-3 px-4">
-                        <div className="flex items-center gap-2">
-                          {row.system}
-                          {row.isOurs && (
-                            <Badge variant="default" className="text-xs">This System</Badge>
-                          )}
-                        </div>
+                        {row.system}
                       </td>
                       <td className="text-right py-3 px-4 font-mono">{row.overall}%</td>
                       <td className="text-right py-3 px-4 font-mono">{row.l1}%</td>
@@ -654,10 +584,10 @@ export function BenchmarksPage() {
               </table>
             </div>
 
-            {/* Mobile cards */}
-            <div className="md:hidden space-y-3">
+            {/* Mobile compact list */}
+            <div className="md:hidden space-y-0.5">
               {/* Mobile sort selector */}
-              <div className="flex items-center gap-2 text-sm">
+              <div className="flex items-center gap-2 text-sm mb-2">
                 <span className="text-muted-foreground">Sort by:</span>
                 <select
                   value={`${sortColumn}-${sortDirection}`}
@@ -668,71 +598,112 @@ export function BenchmarksPage() {
                   }}
                   className="border rounded px-2 py-1 text-sm bg-white"
                 >
+                  <option value="cost-asc">Cost (lowest)</option>
                   <option value="rank-asc">Rank (best first)</option>
                   <option value="overall-desc">Overall % (highest)</option>
-                  <option value="cost-asc">Cost (lowest)</option>
                   <option value="l1-desc">L1 % (highest)</option>
                   <option value="l2-desc">L2 % (highest)</option>
                   <option value="l3-desc">L3 % (highest)</option>
                 </select>
               </div>
-              {sortedData.map((row) => (
+              {/* Column headers */}
+              <div className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] text-muted-foreground font-medium border-b">
+                <span className="w-6 shrink-0">#</span>
+                <span className="flex-1">System</span>
+                <span className="w-14 text-right shrink-0">Score</span>
+                <span className="w-10 text-right shrink-0">Cost</span>
+              </div>
+              {sortedData
+                .filter((row, i) => showAllMobile || row.isOurs || i < 5)
+                .map((row) => (
                 <div
                   key={row.system}
-                  className={`rounded-lg p-4 space-y-3 ${
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded text-[13px] ${
                     row.isOurs
-                      ? 'bg-blue-50 border-2 border-blue-200'
-                      : 'bg-slate-50'
+                      ? 'bg-blue-50 border border-blue-200 font-medium'
+                      : ''
                   }`}
                 >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex-1">
-                      <span className="text-xs text-muted-foreground font-mono mr-2">#{row.rank}</span>
-                      <div className="font-medium text-sm">{row.system}</div>
-                      {row.isOurs && (
-                        <Badge variant="default" className="text-xs mt-1">
-                          This System
-                        </Badge>
-                      )}
-                    </div>
-                    <div className="text-right">
-                      <div className="text-xs text-slate-500">Overall</div>
-                      <div className="font-mono font-bold text-base">
-                        {row.overall}%
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-2 text-xs">
-                    <div>
-                      <div className="text-slate-500">L1</div>
-                      <div className="font-mono">{row.l1}%</div>
-                    </div>
-                    <div>
-                      <div className="text-slate-500">L2</div>
-                      <div className="font-mono">{row.l2}%</div>
-                    </div>
-                    <div>
-                      <div className="text-slate-500">L3</div>
-                      <div className="font-mono">{row.l3}%</div>
-                    </div>
-                  </div>
-
-                  <div className="pt-2 border-t border-slate-200">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-slate-500">Cost</span>
-                      <span className={`font-mono font-medium ${
-                        row.isOurs ? 'text-emerald-600' : 'text-slate-600'
-                      }`}>
-                        ${row.cost}
-                      </span>
-                    </div>
-                  </div>
+                  <span className="text-[11px] text-muted-foreground font-mono w-6 shrink-0">{row.rank}</span>
+                  <span className="flex-1 truncate">
+                    {row.system.replace(/^(HAL|HF) \+ /, '')}
+                  </span>
+                  <span className="font-mono font-bold text-[13px] w-14 text-right shrink-0">{row.overall}%</span>
+                  <span className={`font-mono text-xs w-10 text-right shrink-0 ${
+                    row.isOurs ? 'text-emerald-600 font-bold' : 'text-muted-foreground'
+                  }`}>${row.cost}</span>
                 </div>
               ))}
+              {!showAllMobile && sortedData.length > 5 && (
+                <button
+                  onClick={() => setShowAllMobile(true)}
+                  className="text-sm text-blue-500 hover:underline w-full text-center py-2"
+                >
+                  Show more
+                </button>
+              )}
             </div>
           </CardContent>
         </Card>
+
+        {/* About Section - Agent + GAIA combined */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Card className="border-indigo-200 bg-gradient-to-br from-indigo-50/50 to-slate-50">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">About This Agent</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Single-agent scaffold with multi-step planning, tool orchestration,
+                and execution tracing. Same scaffold, different LLM backends —
+                deployed with {deployedModel.model} (open-weight 120B MoE) and benchmarked
+                with {bestModel.model} (OpenAI).
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Badge variant="outline" className="border-indigo-200 text-indigo-700">
+                  <Globe className="h-3 w-3 mr-1" />
+                  Web Search
+                </Badge>
+                <Badge variant="outline" className="border-indigo-200 text-indigo-700">
+                  <FileSearch className="h-3 w-3 mr-1" />
+                  Content Extraction
+                </Badge>
+                <Badge variant="outline" className="border-indigo-200 text-indigo-700">
+                  <Code className="h-3 w-3 mr-1" />
+                  Python Execution
+                </Badge>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base flex items-center gap-2">
+                About GAIA Benchmark
+                <a
+                  href="https://arxiv.org/abs/2311.12983"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-500 hover:text-blue-700"
+                >
+                  <ExternalLink className="h-4 w-4" />
+                </a>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Real-world questions requiring reasoning, web browsing, and tool use.
+                Conceptually simple for humans (92% accuracy) yet challenging for most advanced AIs.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Badge variant="outline">Reasoning</Badge>
+                <Badge variant="outline">Web Browsing</Badge>
+                <Badge variant="outline">Tool Use</Badge>
+                <Badge variant="outline">Multi-step Tasks</Badge>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
 
         {/* Key Observations */}
         <Card>

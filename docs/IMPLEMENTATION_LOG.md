@@ -9,6 +9,7 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| feature/benchmarks-page-polish | Benchmarks page reorder and content polish | done | 2026-02-07 |
 | feature/session-scoping | Cookie-based session isolation for demo mode | done | 2026-02-03 |
 | feature/sse-stream-token | SSE stream token auth for agent runs | done | 2026-02-01 |
 | feature/security-hardening | Security hardening: error leakage, CSP header, console log cleanup | done | 2026-02-01 |
@@ -25,6 +26,31 @@
 | feature/preset-question-chips | Demo preset questions | done | 2026-01-23 |
 | feature/gaia-benchmark | GAIA Benchmark Evaluation | done | 2026-01-21 |
 | feature/agent-planning | Agent Planning Step | done | 2026-01-20 |
+
+### 2026-02-07: Benchmarks Page Polish
+
+**Branch:** `feature/benchmarks-page-polish` → merging to `test`
+**Status:** done
+
+**Description:**
+Reordered and polished the benchmarks page for better first impressions. Results now come first, context second.
+
+**Changes:**
+- `ui/src/components/BenchmarksPage.tsx`:
+  - Replaced "Two Models Tested" hero card (giant "2" stat) with "Leaderboard Rank ~15" — more impressive
+  - Moved Results by Level, Accuracy vs Cost chart, and Leaderboard above the About sections
+  - Collapsed two full-width About cards (Agent + GAIA) into a compact side-by-side grid
+  - Rewrote Takeaways to be less jargony — added cost context ("most systems cost $100-2800"), clearer language
+
+**Section order before:**
+Hero Stats → About Agent → About GAIA → Results → Chart → Leaderboard → Takeaways
+
+**Section order after:**
+Hero Stats → Results → Chart → Leaderboard → About (compact) → Takeaways
+
+**Tests:** TypeScript type check passed, production build succeeded.
+
+---
 
 ### 2026-02-03: Cookie-Based Session Scoping
 
