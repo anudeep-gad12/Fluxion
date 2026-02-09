@@ -50,7 +50,7 @@ const MODELS = [
   },
 ];
 
-// HAL Princeton GAIA Leaderboard data (February 2026)
+// HAL Princeton GAIA Leaderboard data (January 2026)
 // Source: https://hal.cs.princeton.edu/gaia
 const COMPARISON_DATA = [
   { rank: 1, system: 'HAL + Claude Sonnet 4.5', overall: 74.55, l1: 82.07, l2: 72.68, l3: 65.39, cost: 178 },
@@ -97,13 +97,14 @@ export function BenchmarksPage() {
   const [tracesModalOpen, setTracesModalOpen] = useState(false);
   const [sortColumn, setSortColumn] = useState<SortColumn>('cost');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
-  const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' && window.innerWidth < 640);
+  const mobileBreakpoint = 768;
+  const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' && window.innerWidth < mobileBreakpoint);
   const [showAllMobile, setShowAllMobile] = useState(false);
   useEffect(() => {
-    const check = () => setIsMobile(window.innerWidth < 640);
+    const check = () => setIsMobile(window.innerWidth < mobileBreakpoint);
     window.addEventListener('resize', check);
     return () => window.removeEventListener('resize', check);
-  }, []);
+  }, [mobileBreakpoint]);
 
   const handleSort = (column: SortColumn) => {
     if (sortColumn === column) {
@@ -600,6 +601,9 @@ export function BenchmarksPage() {
                   <option value="cost-asc">Cost (lowest)</option>
                   <option value="rank-asc">Rank (best first)</option>
                   <option value="overall-desc">Overall % (highest)</option>
+                  <option value="l1-desc">L1 % (highest)</option>
+                  <option value="l2-desc">L2 % (highest)</option>
+                  <option value="l3-desc">L3 % (highest)</option>
                 </select>
               </div>
               {/* Column headers */}
