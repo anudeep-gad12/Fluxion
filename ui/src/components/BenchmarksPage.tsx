@@ -99,7 +99,7 @@ export function BenchmarksPage() {
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const mobileBreakpoint = 768;
   const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' && window.innerWidth < mobileBreakpoint);
-  const [showAllMobile, setShowAllMobile] = useState(false);
+  const [showAll, setShowAll] = useState(false);
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < mobileBreakpoint);
     window.addEventListener('resize', check);
@@ -121,16 +121,8 @@ export function BenchmarksPage() {
     return typeof rank === 'string' ? parseFloat(rank.replace('~', '')) : rank;
   };
 
-  // Filter to ranks 10-24 for focused comparison view
-  const filteredData = useMemo(() => {
-    return COMPARISON_DATA.filter((row) => {
-      const numRank = getRankNumber(row.rank);
-      return numRank >= 10 && numRank <= 24;
-    });
-  }, []);
-
   const sortedData = useMemo(() => {
-    return [...filteredData].sort((a, b) => {
+    return [...COMPARISON_DATA].sort((a, b) => {
       let aVal: number;
       let bVal: number;
 
@@ -149,7 +141,14 @@ export function BenchmarksPage() {
         return bVal - aVal;
       }
     });
-  }, [filteredData, sortColumn, sortDirection]);
+  }, [sortColumn, sortDirection]);
+
+  // Show rows up to and including our systems + a few more for context, rest behind "Show more"
+  const defaultVisible = 8;
+  const visibleData = useMemo(() => {
+    if (showAll) return sortedData;
+    return sortedData.filter((row, i) => row.isOurs || i < defaultVisible);
+  }, [sortedData, showAll]);
 
   const SortHeader = ({ column, label }: { column: SortColumn; label: string }) => (
     <th
@@ -470,7 +469,7 @@ export function BenchmarksPage() {
               >
                 HAL Princeton GAIA Leaderboard
               </a>
-              {' '}(January 2026). This agent's results are self-evaluated on the same validation set.
+              {' '}(January 2026). This agent is not on the official leaderboard — results are self-evaluated on the same validation set, ranked by overall accuracy.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -501,7 +500,7 @@ export function BenchmarksPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {sortedData.map((row) => (
+                  {visibleData.map((row) => (
                     <tr
                       key={row.system}
                       className={`border-b last:border-0 hover:bg-muted/50 ${
@@ -527,6 +526,14 @@ export function BenchmarksPage() {
                   ))}
                 </tbody>
               </table>
+              {!showAll && sortedData.length > defaultVisible && (
+                <button
+                  onClick={() => setShowAll(true)}
+                  className="text-sm text-blue-500 hover:underline w-full text-center py-3"
+                >
+                  Show more
+                </button>
+              )}
             </div>
 
             {/* Tablet horizontal scroll */}
@@ -556,7 +563,7 @@ export function BenchmarksPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {sortedData.map((row) => (
+                  {visibleData.map((row) => (
                     <tr
                       key={row.system}
                       className={`border-b last:border-0 hover:bg-muted/50 ${
@@ -582,6 +589,14 @@ export function BenchmarksPage() {
                   ))}
                 </tbody>
               </table>
+              {!showAll && sortedData.length > defaultVisible && (
+                <button
+                  onClick={() => setShowAll(true)}
+                  className="text-sm text-blue-500 hover:underline w-full text-center py-3"
+                >
+                  Show more
+                </button>
+              )}
             </div>
 
             {/* Mobile compact list */}
@@ -601,9 +616,6 @@ export function BenchmarksPage() {
                   <option value="cost-asc">Cost (lowest)</option>
                   <option value="rank-asc">Rank (best first)</option>
                   <option value="overall-desc">Overall % (highest)</option>
-                  <option value="l1-desc">L1 % (highest)</option>
-                  <option value="l2-desc">L2 % (highest)</option>
-                  <option value="l3-desc">L3 % (highest)</option>
                 </select>
               </div>
               {/* Column headers */}
@@ -613,9 +625,7 @@ export function BenchmarksPage() {
                 <span className="w-14 text-right shrink-0">Score</span>
                 <span className="w-10 text-right shrink-0">Cost</span>
               </div>
-              {sortedData
-                .filter((row, i) => showAllMobile || row.isOurs || i < 5)
-                .map((row) => (
+              {visibleData.map((row) => (
                 <div
                   key={row.system}
                   className={`flex items-center gap-1.5 px-3 py-2 rounded text-[13px] ${
@@ -634,9 +644,9 @@ export function BenchmarksPage() {
                   }`}>${row.cost}</span>
                 </div>
               ))}
-              {!showAllMobile && sortedData.length > 5 && (
+              {!showAll && sortedData.length > defaultVisible && (
                 <button
-                  onClick={() => setShowAllMobile(true)}
+                  onClick={() => setShowAll(true)}
                   className="text-sm text-blue-500 hover:underline w-full text-center py-2"
                 >
                   Show more
