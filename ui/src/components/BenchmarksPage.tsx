@@ -665,9 +665,7 @@ export function BenchmarksPage() {
             <CardContent className="space-y-3">
               <p className="text-sm text-muted-foreground">
                 Single-agent scaffold with multi-step planning, tool orchestration,
-                and execution tracing. Same scaffold, different LLM backends —
-                deployed with {deployedModel.model} (open-weight 120B MoE) and benchmarked
-                with {bestModel.model} (OpenAI).
+                and execution tracing.
               </p>
               <div className="flex flex-wrap gap-2">
                 <Badge variant="outline" className="border-indigo-200 text-indigo-700">
