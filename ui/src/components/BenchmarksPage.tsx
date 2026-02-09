@@ -90,7 +90,6 @@ const COMPARISON_DATA = [
 ];
 
 const bestModel = MODELS[0]; // GPT-5-mini (best results)
-const deployedModel = MODELS[1]; // gpt-oss-120b (deployed)
 
 export function BenchmarksPage() {
   const navigate = useNavigate();
