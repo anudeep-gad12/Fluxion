@@ -9,6 +9,7 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| fix/owner-token-api-client | Wire owner token into API client for full owner access | done | 2026-02-10 |
 | feature/benchmarks-page-polish | Benchmarks page reorder and content polish | done | 2026-02-07 |
 | feature/session-scoping | Cookie-based session isolation for demo mode | done | 2026-02-03 |
 | feature/sse-stream-token | SSE stream token auth for agent runs | done | 2026-02-01 |
@@ -26,6 +27,29 @@
 | feature/preset-question-chips | Demo preset questions | done | 2026-01-23 |
 | feature/gaia-benchmark | GAIA Benchmark Evaluation | done | 2026-01-21 |
 | feature/agent-planning | Agent Planning Step | done | 2026-01-20 |
+
+### 2026-02-10: Owner Token Wired into API Client
+
+**Branch:** `fix/owner-token-api-client` → merging to `test`
+**Status:** done
+
+**Description:**
+Fixed a bug where the frontend stored the owner token in localStorage (from `?owner=` URL param) but never sent it on subsequent API calls. The backend treated the owner as a regular session user, so they could only see their own conversations instead of all conversations.
+
+**Changes:**
+- `ui/src/api/client.ts`:
+  - Added `getOwnerToken()` helper to read from `localStorage`
+  - `fetchJson()` now attaches `X-Owner-Token` header on all API requests when token is present
+  - `subscribeToRun()` SSE connection appends `?owner=` query param (EventSource doesn't support headers)
+  - `subscribeToAgentRun()` SSE connection appends `?owner=` query param
+- `docs/IMPLEMENTATION_LOG.md`: Added this entry
+
+**Tests:** TypeScript type check passed, production build succeeded. Sanity test 55/55 passed. 650/658 pytest passed (8 pre-existing failures unrelated).
+
+**Security follow-up:**
+- `orchestrator/app.py`: Redact `owner=` query param in `RequestLoggingMiddleware` before writing to logs. Confirmed 0 raw secret occurrences in `logs/app.log` after fix.
+
+---
 
 ### 2026-02-07: Benchmarks Page Polish
 
