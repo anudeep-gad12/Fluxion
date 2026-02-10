@@ -70,14 +70,21 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         set_request_id(request_id)
         set_component("http")
 
-        # Log request start
+        # Log request start (redact sensitive query params)
         start_time = time.time()
+        raw_query = str(request.query_params) if request.query_params else None
+        if raw_query and "owner=" in raw_query:
+            from urllib.parse import parse_qs, urlencode
+            params = parse_qs(raw_query, keep_blank_values=True)
+            if "owner" in params:
+                params["owner"] = ["[REDACTED]"]
+            raw_query = urlencode(params, doseq=True)
         logger.info(
             f"{request.method} {request.url.path}",
             extra={
                 "method": request.method,
                 "path": str(request.url.path),
-                "query": str(request.query_params) if request.query_params else None,
+                "query": raw_query,
             }
         )
 

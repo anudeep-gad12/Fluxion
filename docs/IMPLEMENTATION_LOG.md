@@ -44,7 +44,10 @@ Fixed a bug where the frontend stored the owner token in localStorage (from `?ow
   - `subscribeToAgentRun()` SSE connection appends `?owner=` query param
 - `docs/IMPLEMENTATION_LOG.md`: Added this entry
 
-**Tests:** TypeScript type check passed, production build succeeded. 650/658 pytest passed (8 pre-existing failures unrelated).
+**Tests:** TypeScript type check passed, production build succeeded. Sanity test 55/55 passed. 650/658 pytest passed (8 pre-existing failures unrelated).
+
+**Security follow-up:**
+- `orchestrator/app.py`: Redact `owner=` query param in `RequestLoggingMiddleware` before writing to logs. Confirmed 0 raw secret occurrences in `logs/app.log` after fix.
 
 ---
 
