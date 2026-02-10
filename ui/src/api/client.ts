@@ -14,6 +14,11 @@ import type {
 import { withRetry } from '@/lib/retry';
 
 const API_BASE = '/api';
+const OWNER_TOKEN_KEY = 'reasoner_owner_token';
+
+function getOwnerToken(): string | null {
+  return localStorage.getItem(OWNER_TOKEN_KEY);
+}
 
 class ApiError extends Error {
   constructor(public status: number, message: string) {
@@ -23,12 +28,16 @@ class ApiError extends Error {
 }
 
 async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
+  const ownerToken = getOwnerToken();
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(ownerToken ? { 'X-Owner-Token': ownerToken } : {}),
+    ...(options?.headers as Record<string, string>),
+  };
+
   const response = await fetch(url, {
     ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options?.headers,
-    },
+    headers,
   });
 
   if (!response.ok) {
@@ -173,7 +182,9 @@ export function subscribeToRun(
   onError: (error: string) => void,
   onAbort?: () => void,
 ): () => void {
-  const eventSource = new EventSource(`${API_BASE}/runs/${runId}/stream`);
+  const ownerToken = getOwnerToken();
+  const params = ownerToken ? `?owner=${encodeURIComponent(ownerToken)}` : '';
+  const eventSource = new EventSource(`${API_BASE}/runs/${runId}/stream${params}`);
 
   eventSource.addEventListener('event', (e) => {
     try {
@@ -304,6 +315,8 @@ export function subscribeToAgentRun(
   const params = new URLSearchParams();
   if (sinceSeq > 0) params.set('since_seq', String(sinceSeq));
   if (streamToken) params.set('token', streamToken);
+  const ownerToken = getOwnerToken();
+  if (ownerToken) params.set('owner', ownerToken);
   const qs = params.toString();
   const url = `${API_BASE}/agent/runs/${runId}/stream${qs ? `?${qs}` : ''}`;
   const eventSource = new EventSource(url);
