@@ -9,6 +9,7 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| docs/update-stale-docs | Update stale docs: BENCHMARKS, DATA_MODELS, ARCHITECTURE | done | 2026-02-14 |
 | fix/owner-token-api-client | Wire owner token into API client for full owner access | done | 2026-02-10 |
 | feature/benchmarks-page-polish | Benchmarks page reorder and content polish | done | 2026-02-07 |
 | feature/session-scoping | Cookie-based session isolation for demo mode | done | 2026-02-03 |
@@ -27,6 +28,22 @@
 | feature/preset-question-chips | Demo preset questions | done | 2026-01-23 |
 | feature/gaia-benchmark | GAIA Benchmark Evaluation | done | 2026-01-21 |
 | feature/agent-planning | Agent Planning Step | done | 2026-01-20 |
+
+### 2026-02-14: Documentation Audit & Update
+
+**Branch:** `docs/update-stale-docs`
+**Status:** done
+
+**Description:**
+Audited all 9 docs against the codebase. 6 were up to date; 3 needed fixes.
+
+**Changes:**
+- `docs/BENCHMARKS.md`: Added GPT-5-mini results (50.4% overall, ~#15 rank), restructured to show both models side-by-side, updated leaderboard comparison table and key observations
+- `docs/DATA_MODELS.md`: Added `session_id` column to conversations and runs table definitions and ERD diagram (Migration 4 from session scoping feature)
+- `docs/ARCHITECTURE.md`: Added `SessionMiddleware` to middleware list, added `session_id` to database schema overview diagram, added new "Session Isolation (Demo Mode)" section documenting cookie-based sessions, owner bypass, and security properties
+- `docs/IMPLEMENTATION_LOG.md`: Added this entry
+
+---
 
 ### 2026-02-10: Owner Token Wired into API Client
 

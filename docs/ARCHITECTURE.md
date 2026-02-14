@@ -144,7 +144,8 @@ The FastAPI application initializes with:
 
 1. **Lifespan Management**: Startup loads config, initializes DB; shutdown handles cleanup
 2. **Middleware**:
-   - `RequestLoggingMiddleware`: Request ID correlation and timing
+   - `SessionMiddleware`: Cookie-based session isolation for demo mode (mints `demo_session` cookie, sets `request.state.session_id` and `request.state.is_owner`)
+   - `RequestLoggingMiddleware`: Request ID correlation and timing (redacts owner tokens from logs)
    - `SecurityHeadersMiddleware`: Security headers (X-Frame-Options, X-Content-Type-Options, Content-Security-Policy, etc.)
    - `RateLimitMiddleware`: IP-based rate limiting for demo mode
    - `CORSMiddleware`: Allows frontend at localhost:3000
@@ -678,9 +679,9 @@ The agent tracks total tokens used across all LLM calls:
 │ status          │  │    │ final_answer    │       │ event_type      │  │
 │ created_at      │  │    │ thinking_summary│       │ event_status    │  │
 │ metadata_json   │  │    │ status          │       │ content_json    │  │
-└─────────────────┘  │    │ usage_stats     │       │ duration_ms     │  │
-                     │    └─────────────────┘       │ parent_event_id │──┘
-                     │                              └─────────────────┘
+│ session_id      │  │    │ usage_stats     │       │ duration_ms     │  │
+└─────────────────┘  │    │ session_id      │       │ parent_event_id │──┘
+                     │    └─────────────────┘       └─────────────────┘
                      │
                      │    ┌─────────────────┐       ┌─────────────────┐
                      │    │  agent_steps    │       │agent_tool_calls │
@@ -836,6 +837,32 @@ Variables are resolved before Pydantic validation.
 | `PythonConfig` | Local Python execution settings |
 | `SandboxConfig` | Python sandbox with `E2BConfig` (not currently used) |
 | `DemoConfig` | Demo mode with `RateLimitConfig` for rate limiting and sidebar lock |
+
+---
+
+## Session Isolation (Demo Mode)
+
+When demo mode is enabled, each user gets isolated data via cookie-based sessions.
+
+### How It Works
+
+1. **SessionMiddleware** (`orchestrator/middleware/session.py`) runs on every request:
+   - Reads or mints a `demo_session` cookie (UUID, 30-day TTL, httponly)
+   - Sets `request.state.session_id` and `request.state.is_owner`
+2. **Database scoping**: `session_id` column on `conversations` and `runs` tables (Migration 4)
+   - All list/get queries filter by `session_id`
+   - Unknown `conversation_id` returns 404 (no existence leak)
+3. **Owner bypass**: Owner authenticates via `?owner=<secret>` query param or `X-Owner-Token` header
+   - Uses `secrets.compare_digest()` for timing-safe comparison
+   - Owner sees all conversations/runs across sessions
+   - Owner token is redacted from request logs by `RequestLoggingMiddleware`
+
+### Security Properties
+
+- Identity without authentication (cookie-based, not signed)
+- Session cookie: `httponly`, `samesite=lax`, `secure` in production
+- SSE streams validate session ownership via in-memory `_run_sessions` dict
+- When demo mode is disabled, all requests get `is_owner=True` (full access)
 
 ---
 
