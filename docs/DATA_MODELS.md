@@ -31,6 +31,7 @@ Location: `orchestrator/storage/schema.sql`
 │    status           │                                      │
 │    created_at       │                                      │
 │    metadata_json    │                                      │
+│    session_id       │ (demo mode isolation)                │
 └─────────────────────┘                                      │
          │                                                   │
          │ 1:N                                               │
@@ -56,6 +57,7 @@ Location: `orchestrator/storage/schema.sql`
 │    agent_state      │                      │
 │    current_step     │                      │
 │    max_steps        │                      │
+│    session_id       │ (demo mode isolation)│
 │    created_at       │                      │
 │    updated_at       │                      │
 └─────────────────────┘                      │
@@ -151,6 +153,7 @@ Stores conversation metadata.
 | `status` | TEXT | `active`, `archived`, `closed` |
 | `created_at` | TEXT | ISO 8601 timestamp |
 | `metadata_json` | TEXT | Additional metadata (JSON) |
+| `session_id` | TEXT | Session UUID for demo mode isolation (Migration 4) |
 
 #### runs
 
@@ -175,6 +178,7 @@ One record per user message/response exchange.
 | `current_step` | INTEGER | Current agent step |
 | `max_steps` | INTEGER | Maximum agent steps |
 | `created_at` | TEXT | ISO 8601 timestamp |
+| `session_id` | TEXT | Session UUID for demo mode isolation (Migration 4) |
 | `updated_at` | TEXT | ISO 8601 timestamp |
 
 #### trace_events
