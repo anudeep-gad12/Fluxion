@@ -170,7 +170,7 @@ export function BenchmarksPage() {
   );
 
   return (
-    <div className="h-screen flex flex-col bg-gradient-to-br from-slate-50 via-white to-blue-50">
+    <div className="theme-light h-screen flex flex-col bg-gradient-to-br from-slate-50 via-white to-blue-50">
       {/* Header */}
       <header className="border-b bg-white/80 backdrop-blur-sm flex-shrink-0">
         <div className="max-w-6xl mx-auto px-3 sm:px-4 py-3 sm:py-4 flex items-center gap-3 sm:gap-4">
