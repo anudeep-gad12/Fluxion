@@ -165,16 +165,16 @@ function AppLayout() {
   }, [handleMouseMove]);
 
   return (
-    <div className="h-screen flex bg-gradient-to-br from-slate-50 via-white to-blue-50">
+    <div className="h-screen flex bg-background">
       {/* Mobile header - only show on mobile */}
       {isMobile && (
-        <header className="fixed top-0 left-0 right-0 h-14 bg-white border-b flex items-center justify-between px-4 z-40">
+        <header className="fixed top-0 left-0 right-0 h-14 bg-background border-b border-border flex items-center justify-between px-4 z-40">
           <div className="flex items-center gap-2">
             {/* Hamburger menu - respect demo mode restrictions */}
             {(isOwner || !isDemoMode) && (
               <button
                 onClick={() => handleSidebarToggle(false)}
-                className="p-2 -ml-2 hover:bg-slate-100 rounded-md transition-colors"
+                className="p-2 -ml-2 hover:bg-accent rounded-none transition-colors"
                 aria-label="Open menu"
               >
                 <Menu className="h-6 w-6" />
@@ -199,7 +199,7 @@ function AppLayout() {
       {/* Left Sidebar - Conversation List */}
       <aside
         className={cn(
-          "border-r flex flex-col flex-shrink-0 transition-all duration-300 relative bg-white",
+          "border-r flex flex-col flex-shrink-0 transition-all duration-300 relative bg-card",
           // Mobile: fixed overlay drawer
           isMobile && "fixed md:static inset-y-0 left-0 z-50 w-[80vw] max-w-[320px]",
           isMobile && (sidebarCollapsed ? "-translate-x-full" : "translate-x-0"),
@@ -211,7 +211,7 @@ function AppLayout() {
         style={!isMobile && !sidebarCollapsed ? { width: sidebarWidth } : undefined}
       >
         <div className="p-4 border-b flex items-center justify-between">
-          <h1 className="text-lg font-bold">Reasoner</h1>
+          <h1 className="text-lg font-bold text-zinc-100 font-mono">reasoner&gt;</h1>
           {/* Mobile: close button, Desktop: collapse button */}
           <Button
             variant="ghost"
@@ -229,11 +229,11 @@ function AppLayout() {
         {/* Resize handle - only show on desktop */}
         {!isMobile && (
           <div
-            className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-400 transition-colors group"
+            className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-zinc-600 transition-colors group"
             onMouseDown={handleMouseDown}
           >
             <div className="absolute right-0 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity">
-              <GripVertical className="h-6 w-6 text-blue-400" />
+              <GripVertical className="h-6 w-6 text-zinc-500" />
             </div>
           </div>
         )}
@@ -241,7 +241,7 @@ function AppLayout() {
 
       {/* Collapsed sidebar strip with New Chat button - hide on mobile */}
       {sidebarCollapsed && !isMobile && (
-        <div className="border-r p-2 flex flex-col items-center gap-2">
+        <div className="border-r p-2 flex flex-col items-center gap-2 bg-card">
           {/* Expand button - only show for owners or when not in demo mode */}
           {(isOwner || !isDemoMode) && (
             <Button
@@ -270,7 +270,7 @@ function AppLayout() {
       {/* Mobile backdrop - overlay when sidebar is open */}
       {isMobile && !sidebarCollapsed && (
         <div
-          className="fixed inset-0 bg-black/20 z-40"
+          className="fixed inset-0 bg-black/60 z-40"
           onClick={() => handleSidebarToggle(true)}
         />
       )}
@@ -301,7 +301,7 @@ function AppLayout() {
 function App() {
   return (
     <>
-      <Toaster position="top-right" richColors closeButton duration={4000} />
+      <Toaster position="top-right" richColors closeButton duration={4000} theme="dark" />
       <Routes>
         <Route path="/benchmarks" element={<BenchmarksPage />} />
         <Route path="/*" element={<AppLayout />} />

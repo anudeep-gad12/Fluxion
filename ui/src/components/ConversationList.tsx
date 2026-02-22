@@ -30,10 +30,10 @@ function ConversationCard({
   return (
     <div
       className={cn(
-        'rounded-lg border px-3 py-3 sm:py-2 cursor-pointer transition-colors',
+        'rounded-none border px-3 py-3 sm:py-2 cursor-pointer transition-colors',
         'min-h-[60px] sm:min-h-0', // Ensure touch-friendly height on mobile
-        isSelected ? 'border-blue-500 bg-blue-50' : 'hover:bg-slate-50',
-        isChecked && 'bg-rose-50 border-rose-300'
+        isSelected ? 'border-zinc-400 bg-zinc-900' : 'hover:bg-zinc-800',
+        isChecked && 'bg-zinc-800 border-zinc-500'
       )}
       onClick={isSelectMode ? onToggleCheck : onClick}
     >
@@ -41,9 +41,9 @@ function ConversationCard({
         {isSelectMode && (
           <div className="pt-1">
             {isChecked ? (
-              <CheckSquare className="h-5 w-5 sm:h-4 sm:w-4 text-rose-500" />
+              <CheckSquare className="h-5 w-5 sm:h-4 sm:w-4 text-zinc-400" />
             ) : (
-              <Square className="h-5 w-5 sm:h-4 sm:w-4 text-slate-400" />
+              <Square className="h-5 w-5 sm:h-4 sm:w-4 text-zinc-600" />
             )}
           </div>
         )}
@@ -65,7 +65,7 @@ function ConversationCard({
               onDelete();
             }}
           >
-            <Trash2 className="h-4 w-4 text-slate-500" />
+            <Trash2 className="h-4 w-4 text-zinc-500 hover:text-zinc-200" />
           </Button>
         )}
       </div>
@@ -168,7 +168,7 @@ export function ConversationList() {
     <div className="h-full flex flex-col">
       <div className="flex items-center justify-between px-3 sm:px-4 py-3 border-b">
         <div className="flex items-center gap-2">
-          <MessageSquare className="h-4 w-4 text-slate-600" />
+          <MessageSquare className="h-4 w-4 text-zinc-400" />
           <h2 className="font-semibold text-sm">Conversations</h2>
         </div>
         <div className="flex items-center gap-1">
@@ -215,8 +215,8 @@ export function ConversationList() {
 
       {/* Bulk delete bar */}
       {isSelectMode && selectedIds.size > 0 && (
-        <div className="px-3 sm:px-4 py-2 bg-rose-50 border-b flex items-center justify-between">
-          <span className="text-sm text-rose-700">
+        <div className="px-3 sm:px-4 py-2 bg-zinc-800 border-b flex items-center justify-between">
+          <span className="text-sm text-zinc-300">
             {selectedIds.size} selected
           </span>
           <Button

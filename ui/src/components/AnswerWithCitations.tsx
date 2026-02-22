@@ -68,7 +68,7 @@ export function AnswerWithCitations({
     return (
       <div>
         <AnswerMarkdown content={content} />
-        <span className="inline-block w-2 h-4 bg-indigo-400 animate-pulse ml-0.5" />
+        <span className="inline-block w-2 h-4 bg-zinc-400 animate-pulse ml-0.5" />
       </div>
     );
   }
@@ -119,8 +119,8 @@ function CitationsList({ citations }: { citations: AgentCitation[] }) {
   const hiddenCount = citations.length - INITIAL_SOURCES_SHOWN;
 
   return (
-    <div className="mt-4 pt-4 border-t border-slate-200">
-      <div className="text-xs font-medium text-slate-500 mb-2">Sources</div>
+    <div className="mt-4 pt-4 border-t border-zinc-800">
+      <div className="text-xs font-medium text-zinc-500 mb-2">Sources</div>
       <div className="space-y-1">
         {visibleCitations.map((citation, i) => {
           let hostname = '';
@@ -136,13 +136,12 @@ function CitationsList({ citations }: { citations: AgentCitation[] }) {
               href={citation.source_url}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-start gap-2 text-xs text-slate-600 hover:text-indigo-600"
+              className="flex items-start gap-2 text-xs text-zinc-400 hover:text-zinc-200"
             >
               <span
-                className="flex-shrink-0 w-4 h-4 bg-indigo-100 text-indigo-700
-                               rounded-full flex items-center justify-center text-[10px]"
+                className="flex-shrink-0 text-zinc-400 bg-transparent text-[10px] font-mono"
               >
-                {i + 1}
+                [{i + 1}]
               </span>
               <span className="line-clamp-1">
                 {citation.title || hostname}
@@ -154,7 +153,7 @@ function CitationsList({ citations }: { citations: AgentCitation[] }) {
       {hasMore && (
         <button
           onClick={() => setExpanded(!expanded)}
-          className="mt-2 text-xs text-indigo-600 hover:text-indigo-800 font-medium"
+          className="mt-2 text-xs text-zinc-400 hover:text-zinc-200 font-medium"
         >
           {expanded ? 'Show less' : `+${hiddenCount} more sources`}
         </button>

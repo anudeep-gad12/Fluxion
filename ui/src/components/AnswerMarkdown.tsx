@@ -168,12 +168,12 @@ function CodeBlock({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="group relative my-4">
-      <pre className="overflow-x-auto rounded-lg bg-slate-900 p-4 text-sm text-slate-100">
+      <pre className="overflow-x-auto rounded-none bg-zinc-900 border border-zinc-800 p-4 text-sm text-zinc-100">
         {children}
       </pre>
       <button
         onClick={handleCopy}
-        className="absolute right-2 top-2 p-1.5 rounded-md bg-slate-700/80 text-slate-300 opacity-0 group-hover:opacity-100 hover:bg-slate-600 hover:text-white transition-all"
+        className="absolute right-2 top-2 p-1.5 rounded-none bg-zinc-800 text-zinc-400 opacity-0 group-hover:opacity-100 hover:bg-zinc-700 hover:text-zinc-100 transition-all"
         title="Copy code"
       >
         {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
@@ -208,7 +208,7 @@ export function AnswerMarkdown({ content }: { content: string }) {
             const isInline = !className;
             if (isInline) {
               return (
-                <code className="rounded bg-slate-100 px-1 py-0.5 text-sm text-slate-800" {...props}>
+                <code className="rounded-none bg-zinc-800 px-1 py-0.5 text-sm text-zinc-300" {...props}>
                   {children}
                 </code>
               );

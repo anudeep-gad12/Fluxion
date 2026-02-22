@@ -260,7 +260,7 @@ export function DetailPanel() {
       {!detailPanelOpen && (
         <button
           className={cn(
-            "fixed bg-slate-900 text-white px-3 py-2 rounded-md shadow-lg text-sm z-40",
+            "fixed bg-zinc-800 border border-zinc-600 text-zinc-300 px-3 py-2 rounded-none shadow-none text-sm z-40",
             // Mobile: positioned higher to not overlap input (bottom-40 = 160px from bottom)
             isMobile
               ? "right-4 bottom-40"
@@ -280,17 +280,17 @@ export function DetailPanel() {
 
       <div
         className={cn(
-          "fixed bg-white shadow-xl transition-transform duration-300 z-50 flex flex-col",
+          "fixed bg-background shadow-none transition-transform duration-300 z-50 flex flex-col",
           // Mobile: bottom sheet (full width, slides up from bottom)
           isMobile
             ? cn(
-                "inset-x-0 bottom-0 rounded-t-2xl border-t",
+                "inset-x-0 bottom-0 rounded-none border-t border-border",
                 "h-[85vh]",
                 detailPanelOpen ? "translate-y-0" : "translate-y-full"
               )
             : cn(
                 // Desktop: right sidebar (fixed width, slides in from right)
-                "right-0 top-0 h-full w-[400px] border-l",
+                "right-0 top-0 h-full w-[400px] border-l border-border",
                 detailPanelOpen ? "translate-x-0" : "translate-x-full"
               )
         )}
@@ -298,18 +298,18 @@ export function DetailPanel() {
         {/* Mobile drag handle */}
         {isMobile && (
           <div className="flex justify-center pt-2 pb-1">
-            <div className="w-12 h-1 bg-slate-300 rounded-full" />
+            <div className="w-12 h-1 bg-zinc-600 rounded-none" />
           </div>
         )}
 
-        <div className="flex items-center justify-between px-4 py-3 border-b bg-slate-50 flex-shrink-0">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-card flex-shrink-0">
           <div>
             <h3 className="font-semibold text-sm flex items-center gap-2">
-              <ListTree className="h-4 w-4 text-slate-600" />
+              <ListTree className="h-4 w-4 text-zinc-400" />
               Execution Trace
             </h3>
             {selectedRunId && (
-              <p className="text-xs text-slate-500 mt-1">Run {selectedRunId}</p>
+              <p className="text-xs text-zinc-500 mt-1">Run {selectedRunId}</p>
             )}
           </div>
           <Button variant="ghost" size="icon" onClick={() => setDetailPanelOpen(false)}>
@@ -348,13 +348,13 @@ export function DetailPanel() {
               {loadingConvTraces ? 'Loading...' : showAllRuns ? 'All Runs' : 'Single Run'}
             </Button>
             {showAllRuns && (
-              <span className="text-xs text-slate-500">
+              <span className="text-xs text-zinc-600">
                 {conversationEvents.length} events across all runs
               </span>
             )}
           </div>
           {selectedRun && (
-            <div className="text-xs text-slate-600 space-y-1">
+            <div className="text-xs text-zinc-400 space-y-1">
               {selectedRun.user_message && (
                 <div>
                   <span className="font-medium">User:</span> {selectedRun.user_message}
@@ -368,7 +368,7 @@ export function DetailPanel() {
             </div>
           )}
           {stageSummary && (
-            <div className="text-xs text-slate-500">
+            <div className="text-xs text-zinc-600">
               Stages: {stageSummary}
             </div>
           )}
@@ -432,45 +432,45 @@ export function DetailPanel() {
         <ScrollArea className="flex-1 overflow-auto">
           <div className="p-4">
             {viewMode === 'event' && selectedEvent ? (
-              <pre className="text-xs whitespace-pre-wrap break-words bg-slate-50 border rounded-md p-3">
+              <pre className="text-xs whitespace-pre-wrap break-words bg-zinc-900 border border-zinc-800 rounded-none p-3">
                 {eventJson}
               </pre>
             ) : showAllRuns && selectedConversationId ? (
               loadingConvTraces ? (
-                <div className="text-sm text-slate-500">Loading traces...</div>
+                <div className="text-sm text-zinc-500">Loading traces...</div>
               ) : eventsByRun.length > 0 ? (
                 <div className="space-y-4">
                   {eventsByRun.map((group, idx) => (
-                    <div key={group.runId} className="border rounded-md overflow-hidden">
-                      <div className="bg-blue-50 px-3 py-2 border-b">
-                        <div className="text-xs font-medium text-blue-800">
+                    <div key={group.runId} className="border border-zinc-800 rounded-none overflow-hidden">
+                      <div className="bg-zinc-800 px-3 py-2 border-b border-zinc-700">
+                        <div className="text-xs font-medium text-zinc-300">
                           Message {idx + 1}
                         </div>
-                        <div className="text-sm text-slate-700 truncate">
+                        <div className="text-sm text-zinc-400 truncate">
                           {group.userMessage}
                         </div>
                       </div>
-                      <pre className="text-xs whitespace-pre-wrap break-words bg-slate-50 p-3 max-h-[300px] overflow-auto">
+                      <pre className="text-xs whitespace-pre-wrap break-words bg-zinc-900 p-3 max-h-[300px] overflow-auto">
                         {JSON.stringify(group.events, null, 2)}
                       </pre>
                     </div>
                   ))}
                 </div>
               ) : (
-                <div className="text-sm text-slate-500">No traces found.</div>
+                <div className="text-sm text-zinc-500">No traces found.</div>
               )
             ) : selectedRunId ? (
               loadingRunTrace ? (
-                <div className="text-sm text-slate-500">Loading trace...</div>
+                <div className="text-sm text-zinc-500">Loading trace...</div>
               ) : events.length > 0 ? (
-                <pre className="text-xs whitespace-pre-wrap break-words bg-slate-50 border rounded-md p-3">
+                <pre className="text-xs whitespace-pre-wrap break-words bg-zinc-900 border border-zinc-800 rounded-none p-3">
                   {traceJson}
                 </pre>
               ) : (
-                <div className="text-sm text-slate-500">No trace events found.</div>
+                <div className="text-sm text-zinc-500">No trace events found.</div>
               )
             ) : (
-              <div className="text-sm text-slate-500">
+              <div className="text-sm text-zinc-500">
                 Select a message to see its trace data.
               </div>
             )}
@@ -480,7 +480,7 @@ export function DetailPanel() {
 
       {detailPanelOpen && (
         <div
-          className="fixed inset-0 bg-black/20 z-40"
+          className="fixed inset-0 bg-black/60 z-40"
           onClick={() => setDetailPanelOpen(false)}
         />
       )}
