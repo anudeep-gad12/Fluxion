@@ -42,38 +42,38 @@ const STATUS_CONFIG: Record<
 > = {
   pending: {
     icon: Clock,
-    color: 'text-slate-500',
-    bgColor: 'bg-slate-100',
+    color: 'text-zinc-500',
+    bgColor: 'bg-transparent',
     label: 'Pending',
   },
   running: {
     icon: Loader2,
-    color: 'text-blue-500',
-    bgColor: 'bg-blue-50',
+    color: 'text-zinc-300',
+    bgColor: 'bg-transparent',
     label: 'Running',
   },
   success: {
     icon: CheckCircle2,
-    color: 'text-emerald-500',
-    bgColor: 'bg-emerald-50',
+    color: 'text-zinc-400',
+    bgColor: 'bg-transparent',
     label: 'Success',
   },
   error: {
     icon: XCircle,
-    color: 'text-red-500',
-    bgColor: 'bg-red-50',
+    color: 'text-zinc-400',
+    bgColor: 'bg-transparent',
     label: 'Error',
   },
   timeout: {
     icon: Clock,
-    color: 'text-amber-500',
-    bgColor: 'bg-amber-50',
+    color: 'text-zinc-500',
+    bgColor: 'bg-transparent',
     label: 'Timeout',
   },
   interrupted: {
     icon: XCircle,
-    color: 'text-slate-500',
-    bgColor: 'bg-slate-50',
+    color: 'text-zinc-600',
+    bgColor: 'bg-transparent',
     label: 'Interrupted',
   },
 };
@@ -99,22 +99,22 @@ function PythonCodeBlock({ code, output }: { code: string; output?: string }) {
   return (
     <div className="space-y-2">
       {/* Code Input */}
-      <div className="bg-slate-900 rounded-md overflow-hidden">
-        <div className="px-3 py-1.5 bg-slate-800 text-slate-400 text-xs font-medium border-b border-slate-700">
+      <div className="bg-zinc-900 rounded-none overflow-hidden">
+        <div className="px-3 py-1.5 bg-zinc-800 text-zinc-500 text-xs font-medium border-b border-zinc-700">
           Python Code
         </div>
-        <pre className="p-3 text-xs text-slate-100 overflow-x-auto font-mono leading-relaxed">
+        <pre className="p-3 text-xs text-zinc-200 overflow-x-auto font-mono leading-relaxed">
           <code>{code}</code>
         </pre>
       </div>
 
       {/* Output */}
       {output && (
-        <div className="bg-slate-800 rounded-md overflow-hidden">
-          <div className="px-3 py-1.5 bg-slate-700 text-slate-300 text-xs font-medium border-b border-slate-600">
+        <div className="bg-zinc-800 rounded-none overflow-hidden">
+          <div className="px-3 py-1.5 bg-zinc-800 text-zinc-400 text-xs font-medium border-b border-zinc-700">
             Output
           </div>
-          <pre className="p-3 text-xs text-emerald-300 overflow-x-auto font-mono leading-relaxed whitespace-pre-wrap">
+          <pre className="p-3 text-xs text-zinc-300 overflow-x-auto font-mono leading-relaxed whitespace-pre-wrap">
             <code>{output}</code>
           </pre>
         </div>
@@ -159,7 +159,7 @@ export function ToolCallCard({ toolCall }: ToolCallCardProps) {
           </div>
           <div className="flex items-center gap-2">
             {toolCall.duration_ms && (
-              <span className="text-xs text-slate-500">
+              <span className="text-xs text-zinc-600">
                 {toolCall.duration_ms}ms
               </span>
             )}
@@ -185,7 +185,7 @@ export function ToolCallCard({ toolCall }: ToolCallCardProps) {
 
         {/* Arguments (non-python tools) */}
         {!isPython && (
-          <div className="text-xs text-slate-600 mb-2 font-mono bg-white/50 rounded px-2 py-1">
+          <div className="text-xs text-zinc-400 mb-2 font-mono bg-zinc-800/50 rounded-none px-2 py-1">
             {formatArguments(toolCall.tool_name, toolCall.arguments)}
           </div>
         )}
@@ -195,7 +195,7 @@ export function ToolCallCard({ toolCall }: ToolCallCardProps) {
           <div className="mt-2">
             <div
               className={cn(
-                'text-xs text-slate-700 bg-white/70 rounded p-2',
+                'text-xs text-zinc-300 bg-zinc-800/50 rounded-none p-2',
                 !expanded && 'line-clamp-3'
               )}
             >
@@ -226,7 +226,7 @@ export function ToolCallCard({ toolCall }: ToolCallCardProps) {
 
         {/* Error */}
         {toolCall.error_message && (
-          <div className="mt-2 text-xs text-red-600 bg-red-50 rounded p-2">
+          <div className="mt-2 text-xs text-zinc-400 bg-zinc-800 rounded-none p-2">
             {toolCall.error_message}
           </div>
         )}
