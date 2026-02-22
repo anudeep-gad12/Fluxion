@@ -15,11 +15,11 @@ export function Dialog({ open, onOpenChange, children }: DialogProps) {
         <div className="fixed inset-0 z-50 flex items-center justify-center">
             {/* Backdrop */}
             <div
-                className="fixed inset-0 bg-black/50 backdrop-blur-sm"
+                className="fixed inset-0 bg-black/70"
                 onClick={() => onOpenChange(false)}
             />
             {/* Content - relative z-10 to sit above backdrop */}
-            <div className="relative z-10 bg-white rounded-lg shadow-xl w-full max-w-md mx-4">
+            <div className="relative z-10 bg-card rounded-none shadow-none border border-border w-full max-w-md mx-4">
                 {children}
             </div>
         </div>
