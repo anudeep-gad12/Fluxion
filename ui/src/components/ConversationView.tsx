@@ -162,6 +162,9 @@ export function ConversationView() {
 
   // Stop generation state
   const [pendingMessage, setPendingMessage] = useState('');
+  // Track run IDs we already subscribed to in handleSubmit, so
+  // loadConversation doesn't open a second EventSource for the same run.
+  const subscribedRunRef = useRef<string | null>(null);
   const [pendingRunId, setPendingRunId] = useState<string | null>(null);
   const [pendingIsAgent, setPendingIsAgent] = useState(false);
 
@@ -204,12 +207,16 @@ export function ConversationView() {
         updateConversation(selectedConversationId!, data.conversation);
         setRuns(selectedConversationId!, data.runs);
 
-        // Auto-reconnect to any active runs after page reload
-        // This handles the case where user refreshes during an ongoing run
+        // Auto-reconnect to any active runs after page reload.
+        // Skip if we already subscribed in handleSubmit (prevents double EventSource).
         for (const run of data.runs) {
           if (run.status === 'running') {
             if (run.mode === 'agent') {
-              // Reconnect to agent SSE stream with stored token
+              if (subscribedRunRef.current === run.run_id) {
+                // Already subscribed from handleSubmit — don't open a second connection
+                continue;
+              }
+              // Reconnect to agent SSE stream with stored token (e.g. after page reload)
               const streamToken = localStorage.getItem(`stream_token:${run.run_id}`) || undefined;
               subscribeAgent(run.run_id, 0, streamToken);
             } else {
@@ -257,14 +264,7 @@ export function ConversationView() {
   }, [selectRun, setDetailPanelOpen]);
 
   const handleSubmit = async () => {
-    if (!message.trim() || isSubmitting) return;
-
-    // Block new conversation creation if there's an active run (prevents queue overflow)
-    // This only blocks UI - API/curl can still create conversations for testing
-    if (!selectedConversationId && hasActiveRun) {
-      console.warn('Blocked new conversation: active run in progress');
-      return;
-    }
+    if (!message.trim() || isSubmitting || hasActiveRun) return;
 
     const messageToSend = message.trim();
     setIsSubmitting(true);
@@ -272,6 +272,10 @@ export function ConversationView() {
     setMessage('');
     setPendingIsAgent(mode === 'research');
     let conversationId = selectedConversationId;
+
+    // Track whether we need to navigate after setup (deferred to prevent
+    // useEffect from re-subscribing while handleSubmit is still in flight)
+    let needsNavigate = false;
 
     try {
       // Create conversation if needed
@@ -288,8 +292,7 @@ export function ConversationView() {
         };
         addConversation(newConversation);
         setRuns(conversationId, []);
-        // Navigate to the new conversation URL
-        navigate(`/conversations/${conversationId}`);
+        needsNavigate = true;
       }
 
       if (mode === 'research') {
@@ -305,7 +308,9 @@ export function ConversationView() {
         // Store stream token for reconnection after page refresh
         localStorage.setItem(`stream_token:${response.run_id}`, response.stream_token);
 
-        // Subscribe to agent SSE stream with auth token
+        // Subscribe to agent SSE stream with auth token BEFORE navigate
+        // to prevent loadConversation from opening a duplicate connection
+        subscribedRunRef.current = response.run_id;
         subscribeAgent(response.run_id, 0, response.stream_token);
 
         const run: Run = {
@@ -322,7 +327,11 @@ export function ConversationView() {
 
         addRun(conversationId!, run);
         setEvents(response.run_id, []);
-        setIsSubmitting(false);
+
+        // Navigate AFTER subscription so the useEffect guard works
+        if (needsNavigate) {
+          navigate(`/conversations/${conversationId}`);
+        }
       } else {
         // Chat mode: use regular conversation API
         const response = await createConversationRun(conversationId!, {
@@ -351,6 +360,11 @@ export function ConversationView() {
         addRun(conversationId!, run);
         setEvents(response.run_id, []);
         setIsSubmitting(false);
+
+        // Navigate AFTER subscription for chat mode too
+        if (needsNavigate) {
+          navigate(`/conversations/${conversationId}`);
+        }
       }
     } catch (error) {
       console.error('Failed to create run:', error);
@@ -365,15 +379,21 @@ export function ConversationView() {
     }
   };
 
-  // Handle stream completion - clear pending state
+  // Handle stream completion - clear pending state.
+  // Guard: only fire when we have a selected conversation (prevents false
+  // triggers when selectedConversationId is still null during new-convo creation,
+  // which causes activeRunId to be null → premature clear of isSubmitting).
   useEffect(() => {
-    if (pendingRunId && activeRunId !== pendingRunId) {
+    if (!selectedConversationId || !pendingRunId) return;
+    if (activeRunId !== pendingRunId) {
       // The run we started is no longer active (completed or failed)
       setPendingMessage('');
       setPendingRunId(null);
       setPendingIsAgent(false);
+      setIsSubmitting(false);
+      subscribedRunRef.current = null;
     }
-  }, [activeRunId, pendingRunId]);
+  }, [selectedConversationId, activeRunId, pendingRunId]);
 
   const handleStop = async () => {
     if (!pendingRunId) return;
@@ -535,7 +555,7 @@ export function ConversationView() {
               onKeyDown={handleKeyDown}
               rows={2}
               className="resize-none flex-1"
-              disabled={isSubmitting}
+              disabled={isSubmitting || hasActiveRun}
             />
             <div className="flex gap-2 sm:flex-col sm:gap-2 sm:self-end">
               {/* Mode toggle - horizontal on mobile, vertical on desktop */}
@@ -672,7 +692,7 @@ export function ConversationView() {
             onKeyDown={handleKeyDown}
             rows={2}
             className="resize-none flex-1"
-            disabled={isSubmitting}
+            disabled={isSubmitting || hasActiveRun}
           />
           <div className="flex gap-2 sm:flex-col sm:gap-2 sm:self-end">
             {/* Mode toggle - horizontal on mobile, vertical on desktop */}
@@ -722,26 +742,28 @@ export function ConversationView() {
             ) : (
               <Button
                 onClick={handleSubmit}
-                disabled={!message.trim() || isSubmitting}
+                disabled={!message.trim() || isSubmitting || hasActiveRun}
                 className={cn(
                   'h-9 sm:h-auto min-w-[36px] px-2',
                   mode === 'research' ? '' : ''
                 )}
               >
-                {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                {(isSubmitting || hasActiveRun) ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
               </Button>
             )}
           </div>
         </div>
         <div className="flex items-center justify-between mt-2">
           <p className="text-xs text-zinc-500">
-            {mode === 'research'
-              ? '> agent mode'
-              : reasoningEffort === 'high'
-                ? '> deep reasoning'
-                : reasoningEffort === 'medium'
-                  ? '> balanced'
-                  : '> fast'}
+            {hasActiveRun
+              ? '> waiting for active run...'
+              : mode === 'research'
+                ? '> agent mode'
+                : reasoningEffort === 'high'
+                  ? '> deep reasoning'
+                  : reasoningEffort === 'medium'
+                    ? '> balanced'
+                    : '> fast'}
             <span className="hidden md:inline text-zinc-600">
               {' · ⌘+Enter send · ⌘+1 agent · ⌘+2 chat'}
             </span>

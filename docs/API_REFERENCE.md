@@ -846,7 +846,7 @@ GET /api/agent/runs/{run_id}/stream?token=abc123&since_seq=0
 
 **Authentication**: If a `token` is provided and it doesn't match the run's stream token, the server returns **403 Forbidden**. Omitting the token is allowed as a fallback (e.g., page reload before token is restored from localStorage).
 
-**Reconnection**: On reconnect (e.g., page reload), the server replays all past events from in-memory history, then continues streaming live events. Events already replayed are deduplicated by sequence number.
+**Reconnection**: On reconnect (e.g., page reload), the server creates a new SSE generator with its own read cursor into the append-only `_event_history` log. All past events are replayed from the cursor position, then the generator waits for new live events. Events with `seq <= since_seq` are skipped for deduplication. Multiple concurrent clients each maintain independent cursors, so they never interfere with each other.
 
 See [SSE Streaming](#sse-streaming) for event format.
 

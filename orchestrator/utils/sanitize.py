@@ -7,11 +7,15 @@ import re
 from typing import Optional
 
 
-def sanitize_harmony_tokens(text: Optional[str]) -> str:
+def sanitize_harmony_tokens(text: Optional[str], *, streaming: bool = False) -> str:
     """Remove Harmony format control tokens from text.
 
     Args:
         text: Raw text that may contain Harmony control tokens.
+        streaming: If True, preserve whitespace for token-by-token streaming.
+            When processing individual streaming tokens, stripping whitespace
+            would destroy inter-token spacing (e.g. " We " → "We" causing
+            words to run together).
 
     Returns:
         Cleaned text with all control tokens removed.
@@ -69,8 +73,10 @@ def sanitize_harmony_tokens(text: Optional[str]) -> str:
     # Remove [THINK]...[/THINK] blocks
     cleaned = re.sub(r"\[THINK\].*?\[/THINK\]", "", cleaned, flags=re.DOTALL | re.IGNORECASE)
 
-    # Clean up whitespace
-    cleaned = re.sub(r"[ \t]+", " ", cleaned)
-    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    if not streaming:
+        # Clean up whitespace (only for complete text, not streaming tokens)
+        cleaned = re.sub(r"[ \t]+", " ", cleaned)
+        cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+        return cleaned.strip()
 
-    return cleaned.strip()
+    return cleaned

@@ -48,9 +48,10 @@ router = APIRouter(prefix="/api/agent", tags=["agent"])
 
 # WARNING: These are in-memory, single-process only.
 # For multi-worker deployment, use Redis pub/sub or durable event bus.
-_active_runs: Dict[str, asyncio.Queue] = {}
+_active_runs: Dict[str, bool] = {}  # run_id -> is_active (no queue; pub/sub via history + notify)
 _abort_signals: Dict[str, asyncio.Event] = {}
-_event_history: Dict[str, List[Dict[str, Any]]] = {}  # For SSE resumption
+_event_history: Dict[str, List[Dict[str, Any]]] = {}  # Append-only event log per run
+_event_notify: Dict[str, asyncio.Event] = {}  # Notifies SSE generators of new events
 _run_tokens: Dict[str, str] = {}  # Per-run stream auth tokens
 _run_sessions: Dict[str, str] = {}  # Per-run session IDs for access control
 
@@ -133,6 +134,7 @@ async def _cleanup_run(run_id: str, delay_seconds: float = 5.0) -> None:
     await asyncio.sleep(delay_seconds)
     _active_runs.pop(run_id, None)
     _abort_signals.pop(run_id, None)
+    _event_notify.pop(run_id, None)
     _run_sessions.pop(run_id, None)
     logger.debug("Cleaned up run state", extra={"run_id": run_id})
 
@@ -173,27 +175,30 @@ async def _run_agent_task(
     from orchestrator.agent.factory import create_agent_engine
 
     abort_signal = _abort_signals.get(run_id)
-    event_queue = _active_runs.get(run_id)
 
-    if not event_queue:
-        logger.error("No event queue for run", extra={"run_id": run_id})
+    if run_id not in _active_runs:
+        logger.error("Run not active", extra={"run_id": run_id})
         return
 
     seq = 0
 
     def event_callback(event: Dict[str, Any]) -> None:
-        """Callback for engine events."""
+        """Callback for engine events.
+
+        Appends to the shared event history (append-only log) and notifies
+        all SSE generators via the asyncio.Event.  Each generator tracks its
+        own read cursor so multiple clients never steal events from each other.
+        """
         nonlocal seq
         if abort_signal and abort_signal.is_set():
             return
-        try:
-            seq += 1
-            event["seq"] = seq
-            event_queue.put_nowait(event)
-            # Store in history for resumption
-            _event_history.setdefault(run_id, []).append(event.copy())
-        except asyncio.QueueFull:
-            logger.warning("Event queue full", extra={"run_id": run_id})
+        seq += 1
+        event["seq"] = seq
+        _event_history.setdefault(run_id, []).append(event.copy())
+        # Wake up all SSE generators waiting for new events
+        notify = _event_notify.get(run_id)
+        if notify:
+            notify.set()
 
     try:
         # Create engine and run (pass query for classification)
@@ -206,20 +211,22 @@ async def _run_agent_task(
         )
 
         if abort_signal and not abort_signal.is_set():
-            event_queue.put_nowait(
-                {
-                    "type": "_STREAM_END",
-                    "result": {
-                        "run_id": result.run_id,
-                        "success": result.success,
-                        "final_answer": result.final_answer,
-                        "citations": result.citations,
-                        "total_steps": result.total_steps,
-                        "timing_ms": result.timing_ms,
-                        "total_tokens": result.total_tokens,
-                    },
-                }
-            )
+            end_event = {
+                "type": "_STREAM_END",
+                "result": {
+                    "run_id": result.run_id,
+                    "success": result.success,
+                    "final_answer": result.final_answer,
+                    "citations": result.citations,
+                    "total_steps": result.total_steps,
+                    "timing_ms": result.timing_ms,
+                    "total_tokens": result.total_tokens,
+                },
+            }
+            _event_history.setdefault(run_id, []).append(end_event)
+            notify = _event_notify.get(run_id)
+            if notify:
+                notify.set()
     except Exception as e:
         logger.error(
             "Agent run failed",
@@ -227,7 +234,11 @@ async def _run_agent_task(
             exc_info=True,
         )
         if abort_signal is None or not abort_signal.is_set():
-            event_queue.put_nowait({"type": "_STREAM_ERROR", "error": str(e)})
+            err_event = {"type": "_STREAM_ERROR", "error": str(e)}
+            _event_history.setdefault(run_id, []).append(err_event)
+            notify = _event_notify.get(run_id)
+            if notify:
+                notify.set()
     finally:
         asyncio.create_task(_cleanup_run(run_id))
 
@@ -253,12 +264,12 @@ async def create_agent_run(request: CreateAgentRunRequest, http_request: Request
 
     try:
         # Initialize state
-        event_queue: asyncio.Queue = asyncio.Queue(maxsize=1000)
         abort_signal = asyncio.Event()
 
-        _active_runs[run_id] = event_queue
+        _active_runs[run_id] = True
         _abort_signals[run_id] = abort_signal
         _event_history[run_id] = []
+        _event_notify[run_id] = asyncio.Event()
         stream_token = secrets.token_urlsafe(16)
         _run_tokens[run_id] = stream_token
 
@@ -352,6 +363,7 @@ async def create_agent_run(request: CreateAgentRunRequest, http_request: Request
         _active_runs.pop(run_id, None)
         _abort_signals.pop(run_id, None)
         _event_history.pop(run_id, None)
+        _event_notify.pop(run_id, None)
         _run_tokens.pop(run_id, None)
         _run_sessions.pop(run_id, None)
         raise
@@ -360,6 +372,7 @@ async def create_agent_run(request: CreateAgentRunRequest, http_request: Request
         _active_runs.pop(run_id, None)
         _abort_signals.pop(run_id, None)
         _event_history.pop(run_id, None)
+        _event_notify.pop(run_id, None)
         _run_tokens.pop(run_id, None)
         _run_sessions.pop(run_id, None)
         logger.error("Failed to start agent run", extra={"error": str(e)}, exc_info=True)
@@ -454,6 +467,13 @@ async def stream_agent_events(
     parent_request_id = get_request_id()
 
     async def event_generator():
+        """Cursor-based SSE generator.
+
+        Each SSE client maintains its own read cursor into the shared
+        append-only event history.  This allows multiple concurrent clients
+        (e.g. reconnects, React StrictMode double-mount) to each receive
+        ALL events without stealing from each other.
+        """
         # Restore request context in generator
         if parent_request_id:
             set_request_id(parent_request_id)
@@ -461,7 +481,7 @@ async def stream_agent_events(
 
         chunk_count = 0
         stream_start = time.time()
-        seq = since_seq
+        cursor = 0  # Index into _event_history[run_id]
 
         logger.info(
             "Agent SSE stream opened",
@@ -469,97 +489,100 @@ async def stream_agent_events(
         )
 
         try:
-            # Phase 1: Replay events from history.
-            # On reconnect (e.g. page reload), this rebuilds past steps/thinking/tools.
-            # Snapshot avoids issues with concurrent appends during async yields.
-            if run_id in _event_history:
-                history_snapshot = list(_event_history[run_id])
-                for event in history_snapshot:
+            while True:
+                # Read any new events from history since our cursor
+                history = _event_history.get(run_id, [])
+                new_events = history[cursor:]
+                cursor = len(history)
+
+                for event in new_events:
+                    event_type = event.get("type", "")
+
+                    # Terminal events
+                    if event_type == "_STREAM_END":
+                        duration_ms = int((time.time() - stream_start) * 1000)
+                        logger.info(
+                            "Agent SSE stream completed",
+                            extra={
+                                "run_id": run_id,
+                                "chunk_count": chunk_count,
+                                "duration_ms": duration_ms,
+                            },
+                        )
+                        yield {
+                            "event": "complete",
+                            "data": json.dumps(event.get("result", {})),
+                        }
+                        return
+                    elif event_type == "_STREAM_ERROR":
+                        logger.error(
+                            "Agent SSE stream error",
+                            extra={
+                                "run_id": run_id,
+                                "error": event.get("error"),
+                                "chunk_count": chunk_count,
+                            },
+                        )
+                        yield {
+                            "event": "error",
+                            "data": json.dumps({"error": "Internal server error"}),
+                        }
+                        return
+                    elif event_type == "_STREAM_ABORTED":
+                        logger.warning(
+                            "Agent SSE stream aborted",
+                            extra={"run_id": run_id, "chunk_count": chunk_count},
+                        )
+                        yield {
+                            "event": "cancelled",
+                            "data": json.dumps({"run_id": run_id}),
+                        }
+                        return
+
+                    # Normal events — skip if already seen by this client
                     event_seq = event.get("seq", 0)
                     if event_seq > since_seq:
                         chunk_count += 1
                         yield _translate_event(event, event_seq)
-                        seq = event_seq
 
-            # Phase 2: Live events from queue
-            if run_id in _active_runs:
-                queue = _active_runs[run_id]
-                while True:
-                    try:
-                        event = await asyncio.wait_for(queue.get(), timeout=30.0)
-                        chunk_count += 1
-
-                        if event.get("type") == "_STREAM_END":
-                            duration_ms = int((time.time() - stream_start) * 1000)
-                            logger.info(
-                                "Agent SSE stream completed",
-                                extra={
-                                    "run_id": run_id,
-                                    "chunk_count": chunk_count,
-                                    "duration_ms": duration_ms,
-                                },
-                            )
+                # If run is no longer active and we've drained all events, exit
+                if run_id not in _active_runs:
+                    # Check DB for completed run as fallback
+                    db = await get_db()
+                    trace_repo = TraceRepo(db)
+                    run = await trace_repo.get_run(run_id)
+                    if run:
+                        status = run.get("status", "unknown")
+                        if status in ("succeeded", "failed"):
                             yield {
                                 "event": "complete",
-                                "data": json.dumps(event.get("result", {})),
+                                "data": json.dumps(
+                                    {
+                                        "run_id": run_id,
+                                        "status": status,
+                                        "final_answer": run.get("final_answer"),
+                                    }
+                                ),
                             }
-                            break
-                        elif event.get("type") == "_STREAM_ERROR":
-                            logger.error(
-                                "Agent SSE stream error",
-                                extra={
-                                    "run_id": run_id,
-                                    "error": event.get("error"),
-                                    "chunk_count": chunk_count,
-                                },
-                            )
-                            # Don't leak internal error details to client
-                            yield {
-                                "event": "error",
-                                "data": json.dumps({"error": "Internal server error"}),
-                            }
-                            break
-                        elif event.get("type") == "_STREAM_ABORTED":
-                            logger.warning(
-                                "Agent SSE stream aborted",
-                                extra={"run_id": run_id, "chunk_count": chunk_count},
-                            )
-                            yield {
-                                "event": "cancelled",
-                                "data": json.dumps({"run_id": run_id}),
-                            }
-                            break
-                        else:
-                            # Skip events already replayed from history
-                            event_seq = event.get("seq", seq + 1)
-                            if event_seq > seq:
-                                seq = event_seq
-                                yield _translate_event(event, event_seq)
+                    return
 
+                # Wait for new events (or heartbeat timeout).
+                # Clear before waiting so we don't miss events added
+                # between our history read and the wait() call — any event
+                # added after clear() will re-set() the flag, waking us.
+                notify = _event_notify.get(run_id)
+                if notify:
+                    notify.clear()
+                    # Double-check for events added between read and clear
+                    if len(_event_history.get(run_id, [])) > cursor:
+                        continue
+                    try:
+                        await asyncio.wait_for(notify.wait(), timeout=30.0)
                     except asyncio.TimeoutError:
                         yield {"event": "heartbeat", "data": "{}"}
-
-            else:
-                # Run not active, check if completed in DB
-                logger.debug(
-                    "Agent SSE stream fallback to DB", extra={"run_id": run_id}
-                )
-                db = await get_db()
-                trace_repo = TraceRepo(db)
-                run = await trace_repo.get_run(run_id)
-                if run:
-                    status = run.get("status", "unknown")
-                    if status in ("succeeded", "failed"):
-                        yield {
-                            "event": "complete",
-                            "data": json.dumps(
-                                {
-                                    "run_id": run_id,
-                                    "status": status,
-                                    "final_answer": run.get("final_answer"),
-                                }
-                            ),
-                        }
+                else:
+                    # No notify event means run cleaned up; exit
+                    return
 
         except asyncio.CancelledError:
             duration_ms = int((time.time() - stream_start) * 1000)
@@ -600,20 +623,12 @@ async def cancel_agent_run(run_id: str, http_request: Request):
     if run_id in _abort_signals:
         _abort_signals[run_id].set()
 
-    # Get queue and signal abort to SSE clients
-    queue = _active_runs.pop(run_id, None)
-    if queue:
-        # Drain queue first
-        while not queue.empty():
-            try:
-                queue.get_nowait()
-            except asyncio.QueueEmpty:
-                break
-        # Signal cancellation to any listening SSE clients
-        try:
-            queue.put_nowait({"type": "_STREAM_ABORTED"})
-        except asyncio.QueueFull:
-            pass
+    # Signal cancellation to SSE clients via history + notify
+    _active_runs.pop(run_id, None)
+    _event_history.setdefault(run_id, []).append({"type": "_STREAM_ABORTED"})
+    notify = _event_notify.get(run_id)
+    if notify:
+        notify.set()
 
     # Clean up session tracking
     _run_sessions.pop(run_id, None)
