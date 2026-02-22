@@ -75,19 +75,20 @@ const RunMessage = memo(function RunMessage({
 
   return (
     <div className="space-y-3 animate-in fade-in slide-in-from-bottom-2">
-      <div className="flex justify-end">
-        <div className="max-w-[95%] sm:max-w-[85%] md:max-w-[80%] lg:max-w-[70%] rounded-2xl bg-blue-600 text-white px-4 py-3 shadow-sm">
-          <p className="text-sm leading-relaxed whitespace-pre-wrap">
+      <div className="w-full">
+        <div className="w-full py-2">
+          <span className="text-zinc-500 mr-2 select-none font-mono">{'>'}</span>
+          <span className="text-zinc-100 whitespace-pre-wrap text-sm leading-relaxed">
             {run.user_message || run.prompt}
-          </p>
-          <p className="text-[11px] text-blue-100 mt-2 text-right">
+          </span>
+          <p className="text-[11px] text-zinc-600 mt-2 text-left">
             {formatRelativeTime(run.created_at)}
           </p>
         </div>
       </div>
 
-      <div className="flex justify-start">
-        <div className="max-w-full sm:max-w-[90%] md:max-w-[88%] lg:max-w-[80%] rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+      <div className="w-full">
+        <div className="w-full py-2 pl-4 border-l border-zinc-800">
           {/* Thinking Panel - shows while thinking or after completion with thinking data */}
           <ThinkingPanel
             summary={run.thinking_summary}
@@ -97,23 +98,23 @@ const RunMessage = memo(function RunMessage({
           />
 
           {isRunning && !displayText && !streamingThinking ? (
-            <div className="flex items-center gap-2 text-sm text-slate-500">
+            <div className="flex items-center gap-2 text-sm text-zinc-500">
               <Loader2 className="h-4 w-4 animate-spin" />
               Loading...
             </div>
           ) : run.status === 'failed' ? (
-            <div className="text-sm text-rose-600">
-              {run.error_detail || 'Request failed. Please try again.'}
+            <div className="text-sm text-zinc-400">
+              [error] {run.error_detail || 'Request failed. Please try again.'}
             </div>
           ) : displayText ? (
             <div>
               <AnswerMarkdown content={extractAnswer(displayText)} />
               {isStreaming && (
-                <span className="inline-block w-2 h-4 bg-slate-400 animate-pulse ml-0.5" />
+                <span className="inline-block w-2 h-4 bg-zinc-400 animate-pulse ml-0.5" />
               )}
             </div>
           ) : !isThinking ? (
-            <div className="text-sm text-slate-500">No response.</div>
+            <div className="text-sm text-zinc-600">No response.</div>
           ) : null}
 
           <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -122,14 +123,14 @@ const RunMessage = memo(function RunMessage({
               Details
             </Button>
             <span className={cn(
-              'text-xs px-2 py-0.5 rounded-full',
+              'text-xs font-mono',
               run.status === 'succeeded'
-                ? 'bg-emerald-100 text-emerald-700'
+                ? 'text-zinc-500'
                 : run.status === 'failed'
-                  ? 'bg-rose-100 text-rose-700'
-                  : 'bg-slate-100 text-slate-600'
+                  ? 'text-zinc-500'
+                  : 'text-zinc-600'
             )}>
-              {run.status}
+              [{run.status}]
             </span>
           </div>
         </div>
@@ -472,10 +473,10 @@ export function ConversationView() {
     return (
       <div className="h-full flex flex-col">
         {/* Top banner with benchmarks link */}
-        <div className="border-b px-3 sm:px-4 py-2 flex items-center justify-end bg-gradient-to-r from-transparent to-slate-50">
+        <div className="border-b border-border px-3 sm:px-4 py-2 flex items-center justify-end bg-transparent">
           <button
             onClick={() => navigate('/benchmarks')}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white shadow-sm hover:shadow-md transition-all duration-200"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-none bg-zinc-800 border border-zinc-600 text-zinc-300 hover:bg-zinc-700 hover:text-zinc-100 shadow-none transition-all duration-200"
             title="View GAIA benchmark results"
           >
             <BarChart3 className="h-3.5 w-3.5" />
@@ -484,9 +485,9 @@ export function ConversationView() {
           </button>
         </div>
 
-        <div className="flex-1 flex flex-col items-center justify-center text-slate-500 gap-4 sm:gap-6 px-3 sm:px-4 md:px-6 overflow-y-auto min-h-0">
+        <div className="flex-1 flex flex-col items-center justify-center text-zinc-400 gap-4 sm:gap-6 px-3 sm:px-4 md:px-6 overflow-y-auto min-h-0">
           <div className="text-center">
-            <h2 className="text-lg font-semibold text-slate-700 mb-2">
+            <h2 className="text-lg font-semibold text-zinc-100 mb-2">
               {mode === 'research' ? 'Agent Mode' : 'Chat Mode'}
             </h2>
             <p className="text-sm">
@@ -495,7 +496,7 @@ export function ConversationView() {
                 : 'Have a conversation with reasoning-capable AI'}
             </p>
             {mode === 'research' && (
-              <p className="text-xs text-slate-400 mt-1">
+              <p className="text-xs text-zinc-600 mt-1">
                 120B open-weight MoE · web search · content extraction · code execution
               </p>
             )}
@@ -505,15 +506,15 @@ export function ConversationView() {
           {mode === 'research' && (
             <div className="w-full max-w-2xl">
               <div className="flex items-center gap-2 mb-3">
-                <Sparkles className="h-4 w-4 text-indigo-500" />
-                <span className="text-xs font-medium text-slate-600">Try these examples</span>
+                <Sparkles className="h-4 w-4 text-zinc-400" />
+                <span className="text-xs font-medium text-zinc-500">Try these examples</span>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {PRESET_QUESTIONS.map((preset) => (
                   <button
                     key={preset.label}
                     onClick={() => handlePresetClick(preset.query)}
-                    className="px-3 py-2 text-xs rounded-lg border border-slate-200 bg-white hover:bg-indigo-50 hover:border-indigo-300 hover:text-indigo-700 transition-colors text-slate-600 text-left"
+                    className="px-3 py-2 text-xs rounded-none border border-zinc-700 bg-transparent hover:bg-zinc-800 hover:border-zinc-500 hover:text-zinc-100 transition-colors text-zinc-400 text-left"
                     title={preset.query}
                   >
                     {preset.label}
@@ -523,7 +524,7 @@ export function ConversationView() {
             </div>
           )}
         </div>
-        <div className="border-t p-3 pb-20 sm:p-4 flex-shrink-0 bg-white">
+        <div className="border-t p-3 pb-20 sm:p-4 flex-shrink-0 bg-background">
           <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
             <Textarea
               ref={textareaRef}
@@ -544,7 +545,7 @@ export function ConversationView() {
                   className={cn(
                     'flex-1 sm:flex-initial sm:h-8 sm:px-2',
                     'h-9 min-w-[36px] px-2',
-                    mode === 'research' && 'bg-indigo-600 hover:bg-indigo-700'
+                    mode === 'research' && 'bg-zinc-100 text-zinc-900 hover:bg-zinc-200'
                   )}
                   onClick={() => setMode('research')}
                   title="Research mode"
@@ -568,12 +569,12 @@ export function ConversationView() {
                 <select
                   value={reasoningEffort}
                   onChange={(e) => setReasoningEffort(e.target.value as ReasoningEffort)}
-                  className="h-9 sm:h-8 px-2 text-xs border border-slate-200 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="h-9 sm:h-8 px-2 text-xs border border-zinc-700 rounded-none bg-zinc-900 text-zinc-300 focus:outline-none focus:ring-2 focus:ring-zinc-500"
                   title="Reasoning effort: how deeply the model thinks"
                 >
-                  <option value="low">⚡ Low</option>
-                  <option value="medium">🧠 Medium</option>
-                  <option value="high">🔬 High</option>
+                  <option value="low">fast</option>
+                  <option value="medium">balanced</option>
+                  <option value="high">deep</option>
                 </select>
               )}
               {isGenerating ? (
@@ -587,7 +588,7 @@ export function ConversationView() {
                     disabled={!message.trim() || isSubmitting || hasActiveRun}
                     className={cn(
                       'h-9 sm:h-auto min-w-[36px] px-2',
-                      mode === 'research' ? 'bg-indigo-600 hover:bg-indigo-700' : ''
+                      mode === 'research' ? '' : ''
                     )}
                   >
                     {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
@@ -597,23 +598,23 @@ export function ConversationView() {
             </div>
           </div>
           <div className="flex items-center justify-between mt-2">
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-zinc-500">
               {hasActiveRun
-                ? '⏳ Waiting for active run to complete...'
+                ? 'waiting for active run...'
                 : mode === 'research'
-                  ? '🌐 Agent mode: web search + analysis'
+                  ? '> agent mode'
                   : reasoningEffort === 'high'
-                    ? '🔬 Deep reasoning'
+                    ? '> deep reasoning'
                     : reasoningEffort === 'medium'
-                      ? '🧠 Balanced'
-                      : '⚡ Fast'}
-              <span className="hidden md:inline text-slate-400">
+                      ? '> balanced'
+                      : '> fast'}
+              <span className="hidden md:inline text-zinc-600">
                 {' · ⌘+Enter send · ⌘+1 agent · ⌘+2 chat'}
               </span>
             </p>
             <span className={cn(
               'text-xs',
-              message.length > MAX_INPUT_CHARS * 0.9 ? 'text-amber-600' : 'text-slate-400'
+              message.length > MAX_INPUT_CHARS * 0.9 ? 'text-zinc-400' : 'text-zinc-600'
             )}>
               {message.length.toLocaleString()}/{MAX_INPUT_CHARS.toLocaleString()}
             </span>
@@ -631,7 +632,7 @@ export function ConversationView() {
         </h2>
         <button
           onClick={() => navigate('/benchmarks')}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white shadow-sm hover:shadow-md transition-all duration-200"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-none bg-zinc-800 border border-zinc-600 text-zinc-300 hover:bg-zinc-700 hover:text-zinc-100 shadow-none transition-all duration-200"
           title="View GAIA benchmark results"
         >
           <BarChart3 className="h-3.5 w-3.5" />
@@ -681,7 +682,7 @@ export function ConversationView() {
                 className={cn(
                   'flex-1 sm:flex-initial sm:h-8 sm:px-2',
                   'h-9 min-w-[36px] px-2',
-                  mode === 'research' && 'bg-indigo-600 hover:bg-indigo-700'
+                  mode === 'research' && 'bg-zinc-100 text-zinc-900 hover:bg-zinc-200'
                 )}
                 onClick={() => setMode('research')}
                 title="Research mode"
@@ -705,12 +706,12 @@ export function ConversationView() {
               <select
                 value={reasoningEffort}
                 onChange={(e) => setReasoningEffort(e.target.value as ReasoningEffort)}
-                className="h-9 sm:h-8 px-2 text-xs border border-slate-200 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="h-9 sm:h-8 px-2 text-xs border border-zinc-700 rounded-none bg-zinc-900 text-zinc-300 focus:outline-none focus:ring-2 focus:ring-zinc-500"
                 title="Reasoning effort: how deeply the model thinks"
               >
-                <option value="low">⚡ Low</option>
-                <option value="medium">🧠 Medium</option>
-                <option value="high">🔬 High</option>
+                <option value="low">fast</option>
+                <option value="medium">balanced</option>
+                <option value="high">deep</option>
               </select>
             )}
             {isGenerating ? (
@@ -723,7 +724,7 @@ export function ConversationView() {
                 disabled={!message.trim() || isSubmitting}
                 className={cn(
                   'h-9 sm:h-auto min-w-[36px] px-2',
-                  mode === 'research' ? 'bg-indigo-600 hover:bg-indigo-700' : ''
+                  mode === 'research' ? '' : ''
                 )}
               >
                 {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
@@ -732,21 +733,21 @@ export function ConversationView() {
           </div>
         </div>
         <div className="flex items-center justify-between mt-2">
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-zinc-500">
             {mode === 'research'
-              ? '🌐 Agent mode: web search + analysis'
+              ? '> agent mode'
               : reasoningEffort === 'high'
-                ? '🔬 Deep reasoning'
+                ? '> deep reasoning'
                 : reasoningEffort === 'medium'
-                  ? '🧠 Balanced'
-                  : '⚡ Fast'}
-            <span className="hidden md:inline text-slate-400">
+                  ? '> balanced'
+                  : '> fast'}
+            <span className="hidden md:inline text-zinc-600">
               {' · ⌘+Enter send · ⌘+1 agent · ⌘+2 chat'}
             </span>
           </p>
           <span className={cn(
             'text-xs',
-            message.length > MAX_INPUT_CHARS * 0.9 ? 'text-amber-600' : 'text-slate-400'
+            message.length > MAX_INPUT_CHARS * 0.9 ? 'text-zinc-400' : 'text-zinc-600'
           )}>
             {message.length.toLocaleString()}/{MAX_INPUT_CHARS.toLocaleString()}
           </span>

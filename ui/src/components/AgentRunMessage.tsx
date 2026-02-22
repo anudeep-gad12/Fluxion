@@ -3,9 +3,8 @@
  * Full agent run visualization with user query, progress, and answer.
  */
 
-import { Globe, Square, Eye, Clock, Zap } from 'lucide-react';
+import { Square, Eye, Clock, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { cn, formatRelativeTime } from '@/lib/utils';
 import { AgentStepsPanel } from '@/components/AgentStepsPanel';
 import { AnswerWithCitations } from '@/components/AnswerWithCitations';
@@ -52,37 +51,27 @@ export function AgentRunMessage({ run, onShowTrace }: AgentRunMessageProps) {
   return (
     <div className="space-y-3 animate-in fade-in slide-in-from-bottom-2">
       {/* User message */}
-      <div className="flex justify-end">
-        <div className="max-w-[95%] sm:max-w-[85%] md:max-w-[80%] lg:max-w-[70%] rounded-2xl bg-indigo-600 text-white px-3 sm:px-4 py-3 shadow-sm">
-          <div className="flex items-center gap-2 mb-1">
-            <Globe className="h-4 w-4" />
-            <span className="text-xs font-medium opacity-80">
-              Research Query
-            </span>
-          </div>
-          <p className="text-sm leading-relaxed whitespace-pre-wrap">
+      <div className="w-full">
+        <div className="w-full py-2">
+          <span className="text-zinc-500 mr-2 select-none font-mono">{'$'}</span>
+          <span className="text-zinc-600 text-xs mr-2">[research]</span>
+          <span className="text-zinc-100 whitespace-pre-wrap text-sm leading-relaxed">
             {run.user_message || run.prompt}
-          </p>
-          <p className="text-[11px] text-indigo-200 mt-2 text-right">
+          </span>
+          <p className="text-[11px] text-zinc-600 mt-2 text-left">
             {formatRelativeTime(run.created_at)}
           </p>
         </div>
       </div>
 
       {/* Agent response */}
-      <div className="flex justify-start">
-        <div className="max-w-full sm:max-w-[90%] md:max-w-[88%] lg:max-w-[85%] rounded-2xl border border-indigo-200 bg-white px-3 sm:px-4 py-3 shadow-sm">
+      <div className="w-full">
+        <div className="w-full py-2 pl-4 border-l border-zinc-800">
           {/* Agent badge */}
           <div className="flex items-center gap-2 mb-3">
-            <Badge
-              variant="outline"
-              className="text-indigo-600 border-indigo-200"
-            >
-              <Globe className="h-3 w-3 mr-1" />
-              Research Agent
-            </Badge>
+            <span className="text-zinc-500 text-xs font-mono">[agent]</span>
             {agentState && (
-              <span className="text-xs text-slate-500">
+              <span className="text-xs text-zinc-600">
                 Step {agentState.currentStep}
               </span>
             )}
@@ -104,17 +93,17 @@ export function AgentRunMessage({ run, onShowTrace }: AgentRunMessageProps) {
               isStreaming={isActive}
             />
           ) : isActive ? (
-            <div className="text-sm text-slate-500">
+            <div className="text-sm text-zinc-500">
               Researching your query...
             </div>
           ) : run.status === 'failed' ? (
-            <div className="text-sm text-rose-600">
-              {run.error_detail || 'Research failed. Please try again.'}
+            <div className="text-sm text-zinc-400">
+              [error] {run.error_detail || 'Research failed. Please try again.'}
             </div>
           ) : null}
 
           {/* Actions */}
-          <div className="mt-3 flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100">
+          <div className="mt-3 flex flex-wrap items-center gap-2 pt-2 border-t border-zinc-800">
             {isActive ? (
               <Button size="sm" variant="destructive" onClick={handleCancel}>
                 <Square className="h-4 w-4 fill-current mr-1" />
@@ -128,25 +117,25 @@ export function AgentRunMessage({ run, onShowTrace }: AgentRunMessageProps) {
             )}
             <span
               className={cn(
-                'text-xs px-2 py-0.5 rounded-full',
+                'text-xs font-mono',
                 run.status === 'succeeded'
-                  ? 'bg-emerald-100 text-emerald-700'
+                  ? 'text-zinc-500'
                   : run.status === 'failed'
-                    ? 'bg-rose-100 text-rose-700'
-                    : 'bg-indigo-100 text-indigo-600'
+                    ? 'text-zinc-500'
+                    : 'text-zinc-600'
               )}
             >
-              {run.status === 'running' ? 'researching' : run.status}
+              [{run.status === 'running' ? 'researching...' : run.status === 'succeeded' ? 'done' : run.status}]
             </span>
             {/* Stats: duration and tokens (only shown when completed) */}
             {!isActive && agentState?.timing_ms && (
-              <span className="text-xs text-slate-400 flex items-center gap-1">
+              <span className="text-xs text-zinc-600 flex items-center gap-1">
                 <Clock className="h-3 w-3" />
                 {formatDuration(agentState.timing_ms)}
               </span>
             )}
             {!isActive && agentState?.total_tokens && (
-              <span className="text-xs text-slate-400 flex items-center gap-1">
+              <span className="text-xs text-zinc-600 flex items-center gap-1">
                 <Zap className="h-3 w-3" />
                 {formatTokens(agentState.total_tokens)} tokens
               </span>
