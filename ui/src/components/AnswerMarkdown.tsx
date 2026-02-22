@@ -4,7 +4,6 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
-import { Check, Copy } from 'lucide-react';
 
 /**
  * Fix common LaTeX issues that cause KaTeX parsing errors.
@@ -173,10 +172,10 @@ function CodeBlock({ children }: { children: React.ReactNode }) {
       </pre>
       <button
         onClick={handleCopy}
-        className="absolute right-2 top-2 p-1.5 rounded-none bg-zinc-800 text-zinc-400 opacity-0 group-hover:opacity-100 hover:bg-zinc-700 hover:text-zinc-100 transition-all"
+        className="absolute right-2 top-2 px-1.5 py-0.5 rounded-none bg-zinc-800 text-zinc-500 text-xs font-mono opacity-0 group-hover:opacity-100 hover:bg-zinc-700 hover:text-zinc-200"
         title="Copy code"
       >
-        {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+        {copied ? '✓' : 'cp'}
       </button>
     </div>
   );

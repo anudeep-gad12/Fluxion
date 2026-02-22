@@ -3,8 +3,6 @@
  * Full agent run visualization with user query, progress, and answer.
  */
 
-import { Square, Eye, Clock, Zap } from 'lucide-react';
-import { Button } from '@/components/ui/button';
 import { cn, formatRelativeTime } from '@/lib/utils';
 import { AgentStepsPanel } from '@/components/AgentStepsPanel';
 import { AnswerWithCitations } from '@/components/AnswerWithCitations';
@@ -93,8 +91,8 @@ export function AgentRunMessage({ run, onShowTrace }: AgentRunMessageProps) {
               isStreaming={isActive}
             />
           ) : isActive ? (
-            <div className="text-sm text-zinc-500">
-              Researching your query...
+            <div className="text-xs text-zinc-500 font-mono">
+              [researching...]
             </div>
           ) : run.status === 'failed' ? (
             <div className="text-sm text-zinc-400">
@@ -103,21 +101,24 @@ export function AgentRunMessage({ run, onShowTrace }: AgentRunMessageProps) {
           ) : null}
 
           {/* Actions */}
-          <div className="mt-3 flex flex-wrap items-center gap-2 pt-2 border-t border-zinc-800">
+          <div className="mt-3 flex flex-wrap items-center gap-3 pt-2 border-t border-zinc-800 font-mono text-xs">
             {isActive ? (
-              <Button size="sm" variant="destructive" onClick={handleCancel}>
-                <Square className="h-4 w-4 fill-current mr-1" />
-                Stop
-              </Button>
+              <button
+                onClick={handleCancel}
+                className="text-zinc-400 hover:text-zinc-200"
+              >
+                [^C stop]
+              </button>
             ) : (
-              <Button size="sm" variant="ghost" onClick={onShowTrace}>
-                <Eye className="h-4 w-4 mr-1" />
-                Details
-              </Button>
+              <button
+                onClick={onShowTrace}
+                className="text-zinc-500 hover:text-zinc-300"
+              >
+                [details]
+              </button>
             )}
             <span
               className={cn(
-                'text-xs font-mono',
                 run.status === 'succeeded'
                   ? 'text-zinc-500'
                   : run.status === 'failed'
@@ -127,17 +128,14 @@ export function AgentRunMessage({ run, onShowTrace }: AgentRunMessageProps) {
             >
               [{run.status === 'running' ? 'researching...' : run.status === 'succeeded' ? 'done' : run.status}]
             </span>
-            {/* Stats: duration and tokens (only shown when completed) */}
             {!isActive && agentState?.timing_ms && (
-              <span className="text-xs text-zinc-600 flex items-center gap-1">
-                <Clock className="h-3 w-3" />
+              <span className="text-zinc-600">
                 {formatDuration(agentState.timing_ms)}
               </span>
             )}
             {!isActive && agentState?.total_tokens && (
-              <span className="text-xs text-zinc-600 flex items-center gap-1">
-                <Zap className="h-3 w-3" />
-                {formatTokens(agentState.total_tokens)} tokens
+              <span className="text-zinc-600">
+                {formatTokens(agentState.total_tokens)} tok
               </span>
             )}
           </div>

@@ -1,7 +1,6 @@
 // ThinkingPanel - Collapsible panel showing AI thinking process
 
 import { useState } from 'react';
-import { ChevronDown, ChevronRight, Brain, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { ThinkingStep } from '@/types';
 
@@ -143,33 +142,27 @@ export function ThinkingPanel({
       <button
         onClick={() => setExpanded(!expanded)}
         className={cn(
-          'w-full px-3 py-2 flex items-center gap-2 text-sm text-zinc-400 hover:bg-zinc-800 transition-colors',
+          'w-full px-3 py-2 flex items-center gap-2 text-xs font-mono text-zinc-400 hover:bg-zinc-800',
           expanded && 'border-b border-zinc-800'
         )}
       >
-        {expanded ? (
-          <ChevronDown className="h-4 w-4 text-zinc-600" />
-        ) : (
-          <ChevronRight className="h-4 w-4 text-zinc-600" />
-        )}
-
-        <Brain className="h-4 w-4 text-zinc-400" />
+        <span className="text-zinc-600 select-none">{expanded ? '▼' : '▶'}</span>
 
         <span className="font-medium">[thinking]</span>
 
         {isStreaming && (
-          <Loader2 className="h-3 w-3 animate-spin text-zinc-400" />
+          <span className="text-zinc-500">[streaming...]</span>
         )}
 
         {steps.length > 0 && (
-          <span className="text-xs text-zinc-600">
+          <span className="text-zinc-600">
             ({steps.length} step{steps.length !== 1 ? 's' : ''})
           </span>
         )}
 
         {!expanded && hasContent && (
-          <span className="ml-auto text-xs text-zinc-600 truncate max-w-[200px]">
-            {cleanSummary?.split('\n')[0] || cleanStreamingContent?.slice(0, 50) || 'Click to expand'}
+          <span className="ml-auto text-zinc-600 truncate max-w-[200px]">
+            {cleanSummary?.split('\n')[0] || cleanStreamingContent?.slice(0, 50) || ''}
           </span>
         )}
       </button>
@@ -221,9 +214,8 @@ export function ThinkingPanel({
 
             {/* Empty state */}
             {!hasContent && isStreaming && (
-              <div className="flex items-center gap-2 text-sm text-zinc-500">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Thinking...
+              <div className="text-xs text-zinc-500 font-mono">
+                [thinking...]
               </div>
             )}
           </div>
