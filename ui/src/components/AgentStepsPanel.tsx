@@ -9,18 +9,6 @@ import { ToolCallCard } from '@/components/ToolCallCard';
 import { AnswerMarkdown } from '@/components/AnswerMarkdown';
 import type { AgentStep, AgentToolCall, AgentUIState } from '@/types/agent';
 
-/**
- * Strip Harmony format control tokens (<|...|>, </...|>) from streaming text.
- * Only removes self-contained delimiter tags — does NOT strip word-level
- * patterns (commentary/analysis/final) which would re-join text fragments
- * and produce jumbled output.
- */
-function stripHarmonyTags(text: string): string {
-  return text
-    .replace(/<\|[^|]*\|>/g, '')
-    .replace(/<\/[^|]*\|>/g, '');
-}
-
 interface AgentStepsPanelProps {
   agentState: AgentUIState;
   defaultExpanded?: boolean;
