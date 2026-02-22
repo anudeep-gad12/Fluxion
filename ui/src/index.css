@@ -149,46 +149,6 @@
   }
 }
 
-/* Light theme override — used by BenchmarksPage to preserve original styling */
-.theme-light {
-  --background: 0 0% 100%;
-  --foreground: 222.2 84% 4.9%;
-  --card: 0 0% 100%;
-  --card-foreground: 222.2 84% 4.9%;
-  --popover: 0 0% 100%;
-  --popover-foreground: 222.2 84% 4.9%;
-  --primary: 222.2 47.4% 11.2%;
-  --primary-foreground: 210 40% 98%;
-  --secondary: 210 40% 96.1%;
-  --secondary-foreground: 222.2 47.4% 11.2%;
-  --muted: 210 40% 96.1%;
-  --muted-foreground: 215.4 16.3% 46.9%;
-  --accent: 210 40% 96.1%;
-  --accent-foreground: 222.2 47.4% 11.2%;
-  --destructive: 0 84.2% 60.2%;
-  --destructive-foreground: 210 40% 98%;
-  --border: 214.3 31.8% 91.4%;
-  --input: 214.3 31.8% 91.4%;
-  --ring: 222.2 84% 4.9%;
-  --radius: 0.5rem;
-  font-family: "Space Grotesk", "Segoe UI", sans-serif;
-  color: hsl(222.2 84% 4.9%);
-  scrollbar-color: hsl(215 20% 80%) transparent;
-}
-
-.theme-light *::-webkit-scrollbar-thumb {
-  background-color: hsl(215 20% 80%);
-}
-
-.theme-light *::-webkit-scrollbar-thumb:hover {
-  background-color: hsl(215 20% 65%);
-}
-
-.theme-light *::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
 /* Collapsible panel animation */
 @layer utilities {
   .collapsible-content {
