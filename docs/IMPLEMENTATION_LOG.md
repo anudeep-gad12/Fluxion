@@ -30,6 +30,22 @@
 | feature/gaia-benchmark | GAIA Benchmark Evaluation | done | 2026-01-21 |
 | feature/agent-planning | Agent Planning Step | done | 2026-01-20 |
 
+### 2026-02-22: Allow Sending Messages While Run In Progress
+
+**Branch:** `test`
+**Status:** done
+
+**Description:**
+`isSubmitting` was held true for the entire run duration, locking the textarea and send button until completion. Now cleared immediately after the API call returns so users can send follow-up messages while a run is still streaming. Stop button decoupled from `isSubmitting` — based on `pendingRunId` instead.
+
+**Changes:**
+- `ui/src/components/ConversationView.tsx` — Clear `isSubmitting` after API returns (not on stream completion), change `isGenerating` from `isSubmitting && pendingRunId` to `!!pendingRunId`
+
+**Files changed:** 1
+**Tests:** Sanity test (55/55 passed)
+
+---
+
 ### 2026-02-22: CLI-ify Chat Interface — ASCII Markers & Text Buttons
 
 **Branch:** `test`
