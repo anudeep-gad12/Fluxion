@@ -30,6 +30,24 @@
 | feature/gaia-benchmark | GAIA Benchmark Evaluation | done | 2026-01-21 |
 | feature/agent-planning | Agent Planning Step | done | 2026-01-20 |
 
+### 2026-02-22: Dark Theme for BenchmarksPage & TracesModal
+
+**Branch:** `test`
+**Status:** done
+
+**Description:**
+Extended CLI terminal dark theme to BenchmarksPage and TracesModal. Removed `.theme-light` CSS override that was isolating BenchmarksPage from the dark theme. Converted all amber/emerald/blue/indigo/slate colors to zinc monochrome palette.
+
+**Changes:**
+- `ui/src/index.css` — Removed `.theme-light` class and its scrollbar overrides (40 lines deleted)
+- `ui/src/components/BenchmarksPage.tsx` — Dark background, zinc hero cards, dark scatter chart (zinc-300 dots for "our" systems, zinc-600 for others, dark grid/tooltip), dark comparison tables, dark about section, dark mobile views
+- `ui/src/components/TracesModal.tsx` — Dark container with border, zinc error/status colors, dark summary grid, dark trace buttons
+
+**Files changed:** 3
+**Tests:** Build check + visual verification
+
+---
+
 ### 2026-02-22: CLI Terminal Theme — Black & White Monochrome
 
 **Branch:** `feature/cli-terminal-theme`
