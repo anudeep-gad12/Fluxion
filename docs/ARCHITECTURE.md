@@ -335,6 +335,8 @@ The store (`useStore.ts`) manages all application state:
 - Supports resumption via `since_seq` parameter and token-authenticated reconnection
 - Persists stream token in `localStorage` for page reload recovery
 - Updates `agentRunState` in store
+- Uses `connectionIdRef` guard to drop events from stale EventSource connections (prevents duplicate processing on reconnect or React StrictMode double-mount)
+- Backend uses **cursor-based pub/sub**: events append to `_event_history[run_id]`, each SSE generator tracks its own read cursor, so multiple clients each receive ALL events without interference
 
 ---
 
