@@ -30,6 +30,27 @@
 | feature/gaia-benchmark | GAIA Benchmark Evaluation | done | 2026-01-21 |
 | feature/agent-planning | Agent Planning Step | done | 2026-01-20 |
 
+### 2026-02-22: CLI-ify Chat Interface — ASCII Markers & Text Buttons
+
+**Branch:** `test`
+**Status:** done
+
+**Description:**
+Replaced Lucide SVG icons with ASCII/text equivalents across all chat interface components for an authentic terminal feel. Removed Card/Badge wrappers from tool calls, replaced spinners with `[loading...]` text, and converted all buttons to `[text]` format.
+
+**Changes:**
+- `ui/src/components/ToolCallCard.tsx` — Rewrote: command-output style with `✓`/`✗`/`→` markers, removed Card/Badge/icons, `[+more]`/`[-less]` expand
+- `ui/src/components/AgentStepsPanel.tsx` — `▶`/`▼` expand, `→`/`✓`/`○` step markers, `[running...]`/`[initializing...]` text, removed all Lucide icons
+- `ui/src/components/ThinkingPanel.tsx` — `▶`/`▼` expand, `[thinking...]`/`[streaming...]` text, removed Brain/Loader2/Chevron icons
+- `ui/src/components/AgentRunMessage.tsx` — `[^C stop]`, `[details]`, plain text stats, removed Eye/Square/Clock/Zap icons
+- `ui/src/components/ConversationView.tsx` — `[loading...]` text, `[details]` text button, removed Eye/Loader2 usage
+- `ui/src/components/AnswerMarkdown.tsx` — `cp`/`✓` text copy button, removed Copy/Check icons
+
+**Files changed:** 6
+**Tests:** Build check + visual verification
+
+---
+
 ### 2026-02-22: Dark Theme for BenchmarksPage & TracesModal
 
 **Branch:** `test`
