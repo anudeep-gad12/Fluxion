@@ -9,6 +9,7 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| feature/cli-terminal-theme | CLI terminal theme — black & white monochrome | done | 2026-02-22 |
 | docs/update-stale-docs | Update stale docs: BENCHMARKS, DATA_MODELS, ARCHITECTURE | done | 2026-02-14 |
 | fix/owner-token-api-client | Wire owner token into API client for full owner access | done | 2026-02-10 |
 | feature/benchmarks-page-polish | Benchmarks page reorder and content polish | done | 2026-02-07 |
@@ -28,6 +29,35 @@
 | feature/preset-question-chips | Demo preset questions | done | 2026-01-23 |
 | feature/gaia-benchmark | GAIA Benchmark Evaluation | done | 2026-01-21 |
 | feature/agent-planning | Agent Planning Step | done | 2026-01-20 |
+
+### 2026-02-22: CLI Terminal Theme — Black & White Monochrome
+
+**Branch:** `feature/cli-terminal-theme`
+**Status:** done
+
+**Description:**
+Restyled entire chat UI from light bubbly design to black-and-white CLI/terminal theme. Zero functionality changes — only CSS variables, Tailwind classes, and visual presentation changed.
+
+**Changes:**
+- `ui/src/index.css` — CSS variables to zinc dark palette, body font to IBM Plex Mono, markdown styles to zinc, scrollbar to 4px dark, KaTeX color inherit
+- `ui/tailwind.config.js` — Added fontFamily.mono with IBM Plex Mono stack
+- 5 UI primitives (`button`, `badge`, `card`, `textarea`, `dialog`) — square corners, remove shadows, dark backgrounds
+- `ui/src/App.tsx` — Remove gradients, dark sidebar, `reasoner>` title, dark Toaster
+- `ui/src/components/ConversationView.tsx` — Chat bubbles to flat `>` prompts, dark input, remove emojis, zinc colors
+- `ui/src/components/ConversationList.tsx` — Dark cards, zinc selection colors
+- `ui/src/components/ThinkingPanel.tsx` — Dark container, `[thinking]` label, zinc colors
+- `ui/src/components/AnswerMarkdown.tsx` — Dark code blocks, zinc inline code
+- `ui/src/components/AgentRunMessage.tsx` — `$` prompt prefix, `[research]`/`[agent]` labels, remove Globe/Badge imports
+- `ui/src/components/AgentStepsPanel.tsx` — Dark container, `[progress]` label, zinc timeline
+- `ui/src/components/ToolCallCard.tsx` — All-zinc STATUS_CONFIG, dark code blocks
+- `ui/src/components/AnswerWithCitations.tsx` — Dark citations, `[N]` text format
+- `ui/src/components/CitationInline.tsx` — Dark tooltips, zinc text
+- `ui/src/components/DetailPanel.tsx` — Dark panel, dark JSON blocks, zinc headers
+
+**Files changed:** 18 (index.css, tailwind.config.js, 5 UI primitives, App.tsx, 10 components)
+**Tests:** Visual verification only (no backend changes, no new tests needed)
+
+---
 
 ### 2026-02-14: Documentation Audit & Update
 
