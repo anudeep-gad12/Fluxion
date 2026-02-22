@@ -21,7 +21,7 @@ import { useConversationRuns, useSelectedConversation, useStore, useHasActiveRun
 import { useSSE } from '@/hooks/useSSE';
 import { useAgentSSE } from '@/hooks/useAgentSSE';
 import { cn, formatRelativeTime } from '@/lib/utils';
-import { Eye, Loader2, Send, Square, Globe, MessageSquare, Sparkles, BarChart3, ChevronRight } from 'lucide-react';
+import { Loader2, Send, Square, Globe, MessageSquare, Sparkles, BarChart3, ChevronRight } from 'lucide-react';
 import type { Run, Conversation, ReasoningEffort } from '@/types';
 
 /** Maximum characters allowed in the input textarea (~2000 tokens) */
@@ -98,9 +98,8 @@ const RunMessage = memo(function RunMessage({
           />
 
           {isRunning && !displayText && !streamingThinking ? (
-            <div className="flex items-center gap-2 text-sm text-zinc-500">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Loading...
+            <div className="text-xs text-zinc-500 font-mono">
+              [loading...]
             </div>
           ) : run.status === 'failed' ? (
             <div className="text-sm text-zinc-400">
@@ -117,13 +116,14 @@ const RunMessage = memo(function RunMessage({
             <div className="text-sm text-zinc-600">No response.</div>
           ) : null}
 
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <Button size="sm" variant="ghost" onClick={onShowTrace}>
-              <Eye className="h-4 w-4" />
-              Details
-            </Button>
+          <div className="mt-3 flex flex-wrap items-center gap-3 font-mono text-xs">
+            <button
+              onClick={onShowTrace}
+              className="text-zinc-500 hover:text-zinc-300"
+            >
+              [details]
+            </button>
             <span className={cn(
-              'text-xs font-mono',
               run.status === 'succeeded'
                 ? 'text-zinc-500'
                 : run.status === 'failed'

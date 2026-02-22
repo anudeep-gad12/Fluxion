@@ -4,13 +4,6 @@
  */
 
 import { useState } from 'react';
-import {
-  ChevronDown,
-  ChevronRight,
-  Brain,
-  Loader2,
-  CheckCircle2,
-} from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ToolCallCard } from '@/components/ToolCallCard';
 import { AnswerMarkdown } from '@/components/AnswerMarkdown';
@@ -36,23 +29,19 @@ function StepHeader({
   return (
     <div
       className={cn(
-        'flex items-center gap-2 py-2',
+        'flex items-center gap-2 py-1.5 font-mono text-xs',
         isActive && 'text-zinc-200'
       )}
     >
-      {isActive ? (
-        <Loader2 className="h-4 w-4 animate-spin text-zinc-400" />
-      ) : isComplete ? (
-        <CheckCircle2 className="h-4 w-4 text-zinc-400" />
-      ) : (
-        <div className="h-4 w-4 rounded-full border-2 border-zinc-600" />
-      )}
+      <span className={cn('select-none', isActive ? 'text-zinc-300' : isComplete ? 'text-zinc-400' : 'text-zinc-600')}>
+        {isActive ? '→' : isComplete ? '✓' : '○'}
+      </span>
       <span className="font-medium text-sm">Step {step.step_number}</span>
       {step.decision && (
-        <span className="text-xs text-zinc-600">({step.decision})</span>
+        <span className="text-zinc-600">({step.decision})</span>
       )}
       {toolCallCount > 0 && (
-        <span className="text-xs text-zinc-600">
+        <span className="text-zinc-600">
           {toolCallCount} tool{toolCallCount !== 1 ? 's' : ''}
         </span>
       )}
@@ -83,9 +72,7 @@ export function AgentStepsPanel({
   // Build step_id to step_number mapping (handles both UUID and step-N formats)
   const stepIdToNumber: Record<string, number> = {};
   steps.forEach((s) => {
-    // Map actual step ID (UUID or step-N) to step_number
     stepIdToNumber[s.id] = s.step_number;
-    // Also map step-N format for streaming compatibility
     stepIdToNumber[`step-${s.step_number}`] = s.step_number;
   });
 
@@ -112,23 +99,18 @@ export function AgentStepsPanel({
       <button
         onClick={() => setExpanded(!expanded)}
         className={cn(
-          'w-full px-3 py-2 flex items-center gap-2 text-sm text-zinc-300',
-          'hover:bg-zinc-800 transition-colors',
+          'w-full px-3 py-2 flex items-center gap-2 text-xs font-mono text-zinc-300',
+          'hover:bg-zinc-800',
           expanded && 'border-b border-zinc-800'
         )}
       >
-        {expanded ? (
-          <ChevronDown className="h-4 w-4 text-zinc-600" />
-        ) : (
-          <ChevronRight className="h-4 w-4 text-zinc-600" />
-        )}
-        <Brain className="h-4 w-4 text-zinc-400" />
+        <span className="text-zinc-600 select-none">{expanded ? '▼' : '▶'}</span>
         <span className="font-medium">[progress]</span>
         {isActive && (
-          <Loader2 className="h-3 w-3 animate-spin text-zinc-400" />
+          <span className="text-zinc-500">[running...]</span>
         )}
-        <span className="text-xs text-zinc-600">
-          Step {currentStep}
+        <span className="text-zinc-600">
+          step {currentStep}
         </span>
       </button>
 
@@ -139,7 +121,6 @@ export function AgentStepsPanel({
             {steps.map((step, i) => {
               const stepToolCalls = toolCallsByStep[step.step_number] || [];
               const isCurrentStep = step.step_number === currentStep;
-              // Auto-expand: current step during streaming, OR all steps for historical (completed) runs
               const isStepExpanded =
                 expandedSteps.has(step.step_number) || isCurrentStep || !isActive;
 
@@ -165,7 +146,7 @@ export function AgentStepsPanel({
 
                   {isStepExpanded && (
                     <div className="ml-6 space-y-2 pb-2">
-                      {/* Live thinking for active current step (with animated cursor) */}
+                      {/* Live thinking for active current step */}
                       {isCurrentStep && isActive && thinkingBuffer && (
                         <div className="text-xs text-zinc-500 bg-zinc-800/50 rounded-none p-2 thinking-markdown">
                           <AnswerMarkdown content={thinkingBuffer} />
@@ -173,7 +154,7 @@ export function AgentStepsPanel({
                         </div>
                       )}
 
-                      {/* Historical thinking for completed steps (including current step when not active) */}
+                      {/* Historical thinking for completed steps */}
                       {!(isCurrentStep && isActive) && step.thinking_text && (
                         <div className="text-xs text-zinc-500 bg-zinc-800/50 rounded-none p-2 thinking-markdown">
                           <AnswerMarkdown content={step.thinking_text} />
@@ -192,9 +173,8 @@ export function AgentStepsPanel({
 
             {/* Active step indicator when no steps yet */}
             {steps.length === 0 && isActive && (
-              <div className="flex items-center gap-2 text-sm text-zinc-400">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Initializing research agent...
+              <div className="text-xs text-zinc-500 font-mono">
+                [initializing...]
               </div>
             )}
           </div>
