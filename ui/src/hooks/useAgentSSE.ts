@@ -21,6 +21,11 @@ export function useAgentSSE(runId: string | null, maxSteps: number = 10) {
   const unsubscribeRef = useRef<(() => void) | null>(null);
   const lastSeqRef = useRef<number>(0);
   const streamTokenRef = useRef<string | undefined>();
+  // Guard against stale events from previous EventSource connections.
+  // When subscribe() is called, connectionIdRef increments. The handleEvent
+  // closure captures the current value; late events from a closed EventSource
+  // will have a stale connectionId and get dropped.
+  const connectionIdRef = useRef<number>(0);
 
   // Store actions
   const initAgentRun = useStore((s) => s.initAgentRun);
@@ -45,11 +50,17 @@ export function useAgentSSE(runId: string | null, maxSteps: number = 10) {
         unsubscribeRef.current();
       }
 
+      // New connection — stale events from previous EventSource are ignored
+      const myConnectionId = ++connectionIdRef.current;
+
       // Initialize agent state in store
       initAgentRun(id, maxSteps);
       lastSeqRef.current = sinceSeq;
 
       const handleEvent = (event: AgentSSEEvent) => {
+        // Drop events from a previous (stale) EventSource connection
+        if (myConnectionId !== connectionIdRef.current) return;
+
         // Track sequence for resumption
         if (event.seq > lastSeqRef.current) {
           lastSeqRef.current = event.seq;
@@ -146,6 +157,7 @@ export function useAgentSSE(runId: string | null, maxSteps: number = 10) {
         timing_ms: number;
         total_tokens?: number;
       }) => {
+        if (myConnectionId !== connectionIdRef.current) return;
         // Save final step's thinking before marking complete
         const currentState = useStore.getState().agentRunState[id];
         if (currentState && currentState.currentStep > 0 && currentState.thinkingBuffer) {
@@ -177,6 +189,7 @@ export function useAgentSSE(runId: string | null, maxSteps: number = 10) {
       };
 
       const handleError = (error: string) => {
+        if (myConnectionId !== connectionIdRef.current) return;
         updateAgentState(id, {
           isActive: false,
           agentState: 'error',
@@ -191,6 +204,7 @@ export function useAgentSSE(runId: string | null, maxSteps: number = 10) {
       };
 
       const handleCancelled = () => {
+        if (myConnectionId !== connectionIdRef.current) return;
         updateAgentState(id, {
           isActive: false,
           agentState: 'cancelled',

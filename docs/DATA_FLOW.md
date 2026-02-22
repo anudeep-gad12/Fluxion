@@ -619,6 +619,14 @@ Connection opened
 | `cancelled` | User cancelled | `{message: "..."}` |
 | `heartbeat` | Keep-alive | `{}` |
 
+**Agent SSE Architecture** (cursor-based pub/sub):
+- Events are appended to an in-memory `_event_history[run_id]` list (append-only log)
+- Each SSE generator maintains its own read `cursor` index into the shared history
+- New events notify all waiting generators via `_event_notify[run_id]` (`asyncio.Event`)
+- Each generator reads `history[cursor:]` and advances its cursor independently
+- This allows multiple concurrent clients (reconnects, React StrictMode double-mount) to each receive ALL events without interference
+- Chat mode uses a simpler `asyncio.Queue` approach (single consumer per run)
+
 ### Agent Event Flow
 
 ```
@@ -713,10 +721,12 @@ GET /api/agent/runs/{run_id}/stream?token=abc123&since_seq=15
 **Reconnection Flow**:
 1. On page reload, `loadConversation()` detects running agent runs
 2. Reads stream token from `localStorage`
-3. Calls `subscribe(runId, 0, streamToken)` to reconnect
-4. Server replays all events from in-memory `_event_history` snapshot
-5. Live events from queue are deduplicated by sequence number (`event_seq > seq`)
-6. Client receives full state: past steps, thinking, tool calls, then live stream
+3. Calls `subscribe(runId, 0, streamToken)` to reconnect (skipped if `subscribedRunRef` indicates `handleSubmit` already subscribed)
+4. Server creates a new SSE generator with its own read cursor into the append-only `_event_history[run_id]` log
+5. Generator reads all events from cursor position, advancing independently of other clients
+6. Events with `seq <= since_seq` are skipped (deduplication)
+7. Client receives full state: past steps, thinking, tool calls, then live stream
+8. `connectionIdRef` guard on the frontend drops events from any stale EventSource connections
 
 ---
 

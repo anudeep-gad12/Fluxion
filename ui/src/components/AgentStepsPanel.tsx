@@ -9,6 +9,18 @@ import { ToolCallCard } from '@/components/ToolCallCard';
 import { AnswerMarkdown } from '@/components/AnswerMarkdown';
 import type { AgentStep, AgentToolCall, AgentUIState } from '@/types/agent';
 
+/**
+ * Strip Harmony format control tokens (<|...|>, </...|>) from streaming text.
+ * Only removes self-contained delimiter tags — does NOT strip word-level
+ * patterns (commentary/analysis/final) which would re-join text fragments
+ * and produce jumbled output.
+ */
+function stripHarmonyTags(text: string): string {
+  return text
+    .replace(/<\|[^|]*\|>/g, '')
+    .replace(/<\/[^|]*\|>/g, '');
+}
+
 interface AgentStepsPanelProps {
   agentState: AgentUIState;
   defaultExpanded?: boolean;
@@ -146,12 +158,13 @@ export function AgentStepsPanel({
 
                   {isStepExpanded && (
                     <div className="ml-6 space-y-2 pb-2">
-                      {/* Live thinking for active current step */}
+                      {/* Live thinking for active current step — raw plain text,
+                          no processing at all to preserve exact token order */}
                       {isCurrentStep && isActive && thinkingBuffer && (
-                        <div className="text-xs text-zinc-500 bg-zinc-800/50 rounded-none p-2 thinking-markdown">
-                          <AnswerMarkdown content={thinkingBuffer} />
+                        <pre className="text-xs text-zinc-500 bg-zinc-800/50 rounded-none p-2 whitespace-pre-wrap font-mono leading-relaxed">
+                          {thinkingBuffer}
                           <span className="inline-block w-1.5 h-3 bg-zinc-400 animate-pulse ml-0.5" />
-                        </div>
+                        </pre>
                       )}
 
                       {/* Historical thinking for completed steps */}
