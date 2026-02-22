@@ -661,7 +661,7 @@ export function ConversationView() {
         </div>
       </div>
 
-      <div className="border-t p-3 pb-20 sm:p-4 flex-shrink-0 bg-white">
+      <div className="border-t p-3 pb-20 sm:p-4 flex-shrink-0 bg-background">
         <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
           <Textarea
             ref={textareaRef}
