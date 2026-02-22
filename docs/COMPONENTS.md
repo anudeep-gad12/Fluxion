@@ -1170,6 +1170,9 @@ _EVENT_TYPE_MAP = {
 - Uses `useAgentSSE` for research streaming (with stream token from localStorage)
 - Lazy conversation creation on first message
 - Stores stream tokens in `localStorage` on agent run creation for page reload recovery
+- `subscribedRunRef` tracks run IDs already subscribed in `handleSubmit()` to prevent `loadConversation()` from opening a duplicate SSE connection
+- Defers `navigate()` until after `subscribeAgent()` so the subscription guard is set before the URL change triggers `loadConversation`
+- `hasActiveRun` disables textarea and send button while any run (chat or agent) is in progress
 
 ### `ui/src/components/ConversationList.tsx`
 
@@ -1448,14 +1451,15 @@ Loading placeholder.
 - `localStorage` persistence for stream tokens (key: `stream_token:{runId}`)
 - Token cleanup from localStorage on complete/error
 - Reconnection support via `reconnect()` method
+- `connectionIdRef` guard: each `subscribe()` call increments a counter; event handlers capture the current value and drop events where it doesn't match `connectionIdRef.current` (prevents stale EventSource callbacks from corrupting state on reconnect or React StrictMode double-mount)
 
 **Event Handlers**:
 - `agent_state` → Update state
-- `step_start` → Create step
-- `thinking` → Append buffer
+- `step_start` → Save current thinking to previous step, create new step, clear thinking buffer
+- `thinking` → Append to `thinkingBuffer`
 - `tool_start` → Create tool call
 - `tool_result` → Update tool call
-- `answer` → Append answer buffer
+- `answer` → Append to `answerBuffer`
 
 ### `ui/src/hooks/useAgentRunDetails.ts`
 

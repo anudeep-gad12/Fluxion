@@ -30,19 +30,23 @@
 | feature/gaia-benchmark | GAIA Benchmark Evaluation | done | 2026-01-21 |
 | feature/agent-planning | Agent Planning Step | done | 2026-01-20 |
 
-### 2026-02-22: Allow Sending Messages While Run In Progress
+### 2026-02-22: Fix Agent Streaming Jumbled Text & Send Button Lock
 
 **Branch:** `test`
 **Status:** done
 
 **Description:**
-`isSubmitting` was held true for the entire run duration, locking the textarea and send button until completion. Now cleared immediately after the API call returns so users can send follow-up messages while a run is still streaming. Stop button decoupled from `isSubmitting` — based on `pendingRunId` instead.
+Fixed two issues: (1) Agent mode thinking text appeared jumbled/scrambled during streaming but correct after reload. Root cause: double EventSource connections — `handleSubmit` subscribed to SSE, then `navigate()` triggered `loadConversation` which subscribed again, causing events to be split or duplicated between connections. (2) Send button was not properly disabled during active agent runs because it only checked local `isSubmitting` state (resets on mount) instead of global `hasActiveRun`.
 
 **Changes:**
-- `ui/src/components/ConversationView.tsx` — Clear `isSubmitting` after API returns (not on stream completion), change `isGenerating` from `isSubmitting && pendingRunId` to `!!pendingRunId`
+- `orchestrator/routes/agent_runs.py` — Replaced shared `asyncio.Queue` with cursor-based pub/sub (append-only history + `asyncio.Event` notify). Each SSE generator tracks its own read cursor so multiple clients can't steal events.
+- `orchestrator/agent/agent_engine.py` — Removed local `sanitize_token()`, pass raw reasoning tokens through (matching chat mode behavior).
+- `ui/src/hooks/useAgentSSE.ts` — Added `connectionIdRef` guard to drop events from stale EventSource connections.
+- `ui/src/components/ConversationView.tsx` — Deferred `navigate()` to after `subscribeAgent()` with `subscribedRunRef` guard to prevent double subscription. Added `hasActiveRun` checks to textarea disabled state, send button disabled state, and `handleSubmit` guard. Status text shows "waiting for active run..." during runs.
+- `ui/src/components/AgentStepsPanel.tsx` — Added `stripHarmonyTags()` utility, switched live streaming thinking to `<pre>` for raw token display.
 
-**Files changed:** 1
-**Tests:** Sanity test (55/55 passed)
+**Files changed:** 5
+**Tests:** Sanity test (54/54 passed)
 
 ---
 

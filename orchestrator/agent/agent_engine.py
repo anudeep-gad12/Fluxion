@@ -1149,26 +1149,6 @@ When you complete each step, proceed to the next."""
         first_token_received = asyncio.Event()
         llm_complete = asyncio.Event()
 
-        def sanitize_token(token: str) -> str:
-            """Strip protocol tokens from thinking content.
-
-            Removes Harmony format tokens and tool-call protocol markers that
-            should not be displayed to users.
-            """
-            # Remove <|...|> style tokens (opening Harmony format)
-            cleaned = re.sub(r'<\|[^|]*\|>', '', token)
-            # Remove </...|> style tokens (closing variants)
-            cleaned = re.sub(r'</[^|]*\|>', '', cleaned)
-            # Remove channel/constraint annotations like "commentary to=web_search"
-            cleaned = re.sub(r'\b(commentary|analysis|final)\s+to=\w+', '', cleaned, flags=re.IGNORECASE)
-            # Remove standalone channel identifiers
-            cleaned = re.sub(r'\b(commentary|analysis|final)\b', '', cleaned, flags=re.IGNORECASE)
-            # Remove constraint markers before JSON (e.g., "json{" -> "{")
-            cleaned = re.sub(r'\b(json|xml)\b(?=\s*[\{\[])', '', cleaned, flags=re.IGNORECASE)
-            # Remove raw JSON tool calls that leak through
-            cleaned = re.sub(r'\{"query":[^}]+\}', '', cleaned)
-            return cleaned
-
         def on_token(token: str) -> None:
             """Handle content tokens.
 
@@ -1185,12 +1165,15 @@ When you complete each step, proceed to the next."""
             pass
 
         def on_reasoning(reasoning: str) -> None:
-            """Handle native reasoning tokens - emit to thinking panel."""
-            # Signal that we've received a token (response is flowing)
+            """Handle native reasoning tokens - emit to thinking panel.
+
+            Pass tokens through raw (no sanitization, no whitespace stripping)
+            to match chat mode behavior. Any cleanup happens on the frontend
+            or when final thinking_text is persisted to the database.
+            """
             first_token_received.set()
-            cleaned = sanitize_token(reasoning)
-            if cleaned and cleaned.strip():
-                self._emit(event_callback, "thinking", run_id=run_id, content=cleaned)
+            if reasoning:
+                self._emit(event_callback, "thinking", run_id=run_id, content=reasoning)
 
         async def slow_response_monitor() -> None:
             """Monitor LLM call and emit slow_response events if taking too long."""
@@ -2061,14 +2044,14 @@ When you complete each step, proceed to the next."""
 
         def on_token(token: str) -> None:
             answer_tokens.append(token)
-            # Sanitize token before emitting to UI
-            cleaned = sanitize_harmony_tokens(token)
-            if cleaned:
+            # Pass through without sanitization to preserve word order;
+            # full sanitization happens on accumulated text after streaming
+            if token:
                 self._emit(
                     event_callback,
                     "answer_token",
                     run_id=run_id,
-                    content=cleaned,
+                    content=token,
                 )
 
         def on_reasoning(token: str) -> None:
