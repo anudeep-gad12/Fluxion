@@ -9,6 +9,7 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| feature/cli-terminal-theme | CLI terminal theme — black & white monochrome | done | 2026-02-22 |
 | docs/update-stale-docs | Update stale docs: BENCHMARKS, DATA_MODELS, ARCHITECTURE | done | 2026-02-14 |
 | fix/owner-token-api-client | Wire owner token into API client for full owner access | done | 2026-02-10 |
 | feature/benchmarks-page-polish | Benchmarks page reorder and content polish | done | 2026-02-07 |
@@ -28,6 +29,90 @@
 | feature/preset-question-chips | Demo preset questions | done | 2026-01-23 |
 | feature/gaia-benchmark | GAIA Benchmark Evaluation | done | 2026-01-21 |
 | feature/agent-planning | Agent Planning Step | done | 2026-01-20 |
+
+### 2026-02-22: Allow Sending Messages While Run In Progress
+
+**Branch:** `test`
+**Status:** done
+
+**Description:**
+`isSubmitting` was held true for the entire run duration, locking the textarea and send button until completion. Now cleared immediately after the API call returns so users can send follow-up messages while a run is still streaming. Stop button decoupled from `isSubmitting` — based on `pendingRunId` instead.
+
+**Changes:**
+- `ui/src/components/ConversationView.tsx` — Clear `isSubmitting` after API returns (not on stream completion), change `isGenerating` from `isSubmitting && pendingRunId` to `!!pendingRunId`
+
+**Files changed:** 1
+**Tests:** Sanity test (55/55 passed)
+
+---
+
+### 2026-02-22: CLI-ify Chat Interface — ASCII Markers & Text Buttons
+
+**Branch:** `test`
+**Status:** done
+
+**Description:**
+Replaced Lucide SVG icons with ASCII/text equivalents across all chat interface components for an authentic terminal feel. Removed Card/Badge wrappers from tool calls, replaced spinners with `[loading...]` text, and converted all buttons to `[text]` format.
+
+**Changes:**
+- `ui/src/components/ToolCallCard.tsx` — Rewrote: command-output style with `✓`/`✗`/`→` markers, removed Card/Badge/icons, `[+more]`/`[-less]` expand
+- `ui/src/components/AgentStepsPanel.tsx` — `▶`/`▼` expand, `→`/`✓`/`○` step markers, `[running...]`/`[initializing...]` text, removed all Lucide icons
+- `ui/src/components/ThinkingPanel.tsx` — `▶`/`▼` expand, `[thinking...]`/`[streaming...]` text, removed Brain/Loader2/Chevron icons
+- `ui/src/components/AgentRunMessage.tsx` — `[^C stop]`, `[details]`, plain text stats, removed Eye/Square/Clock/Zap icons
+- `ui/src/components/ConversationView.tsx` — `[loading...]` text, `[details]` text button, removed Eye/Loader2 usage
+- `ui/src/components/AnswerMarkdown.tsx` — `cp`/`✓` text copy button, removed Copy/Check icons
+
+**Files changed:** 6
+**Tests:** Build check + visual verification
+
+---
+
+### 2026-02-22: Dark Theme for BenchmarksPage & TracesModal
+
+**Branch:** `test`
+**Status:** done
+
+**Description:**
+Extended CLI terminal dark theme to BenchmarksPage and TracesModal. Removed `.theme-light` CSS override that was isolating BenchmarksPage from the dark theme. Converted all amber/emerald/blue/indigo/slate colors to zinc monochrome palette.
+
+**Changes:**
+- `ui/src/index.css` — Removed `.theme-light` class and its scrollbar overrides (40 lines deleted)
+- `ui/src/components/BenchmarksPage.tsx` — Dark background, zinc hero cards, dark scatter chart (zinc-300 dots for "our" systems, zinc-600 for others, dark grid/tooltip), dark comparison tables, dark about section, dark mobile views
+- `ui/src/components/TracesModal.tsx` — Dark container with border, zinc error/status colors, dark summary grid, dark trace buttons
+
+**Files changed:** 3
+**Tests:** Build check + visual verification
+
+---
+
+### 2026-02-22: CLI Terminal Theme — Black & White Monochrome
+
+**Branch:** `feature/cli-terminal-theme`
+**Status:** done
+
+**Description:**
+Restyled entire chat UI from light bubbly design to black-and-white CLI/terminal theme. Zero functionality changes — only CSS variables, Tailwind classes, and visual presentation changed.
+
+**Changes:**
+- `ui/src/index.css` — CSS variables to zinc dark palette, body font to IBM Plex Mono, markdown styles to zinc, scrollbar to 4px dark, KaTeX color inherit
+- `ui/tailwind.config.js` — Added fontFamily.mono with IBM Plex Mono stack
+- 5 UI primitives (`button`, `badge`, `card`, `textarea`, `dialog`) — square corners, remove shadows, dark backgrounds
+- `ui/src/App.tsx` — Remove gradients, dark sidebar, `reasoner>` title, dark Toaster
+- `ui/src/components/ConversationView.tsx` — Chat bubbles to flat `>` prompts, dark input, remove emojis, zinc colors
+- `ui/src/components/ConversationList.tsx` — Dark cards, zinc selection colors
+- `ui/src/components/ThinkingPanel.tsx` — Dark container, `[thinking]` label, zinc colors
+- `ui/src/components/AnswerMarkdown.tsx` — Dark code blocks, zinc inline code
+- `ui/src/components/AgentRunMessage.tsx` — `$` prompt prefix, `[research]`/`[agent]` labels, remove Globe/Badge imports
+- `ui/src/components/AgentStepsPanel.tsx` — Dark container, `[progress]` label, zinc timeline
+- `ui/src/components/ToolCallCard.tsx` — All-zinc STATUS_CONFIG, dark code blocks
+- `ui/src/components/AnswerWithCitations.tsx` — Dark citations, `[N]` text format
+- `ui/src/components/CitationInline.tsx` — Dark tooltips, zinc text
+- `ui/src/components/DetailPanel.tsx` — Dark panel, dark JSON blocks, zinc headers
+
+**Files changed:** 18 (index.css, tailwind.config.js, 5 UI primitives, App.tsx, 10 components)
+**Tests:** Visual verification only (no backend changes, no new tests needed)
+
+---
 
 ### 2026-02-14: Documentation Audit & Update
 

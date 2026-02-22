@@ -1,7 +1,6 @@
 // ThinkingPanel - Collapsible panel showing AI thinking process
 
 import { useState } from 'react';
-import { ChevronDown, ChevronRight, Brain, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { ThinkingStep } from '@/types';
 
@@ -79,7 +78,7 @@ function ThinkingMarkdown({ content }: { content: string }) {
   const normalizedContent = normalizeMathDelimiters(cleanContent);
 
   return (
-    <div className="thinking-markdown text-sm text-slate-600">
+    <div className="thinking-markdown text-sm text-zinc-500">
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkMath]}
         rehypePlugins={[rehypeKatex]}
@@ -88,7 +87,7 @@ function ThinkingMarkdown({ content }: { content: string }) {
             const isInline = !className;
             if (isInline) {
               return (
-                <code className="rounded bg-slate-200 px-1 py-0.5 text-xs text-slate-800" {...props}>
+                <code className="rounded-none bg-zinc-800 px-1 py-0.5 text-xs text-zinc-300" {...props}>
                   {children}
                 </code>
               );
@@ -101,7 +100,7 @@ function ThinkingMarkdown({ content }: { content: string }) {
           },
           pre({ children }) {
             return (
-              <pre className="my-2 overflow-x-auto rounded bg-slate-800 p-2 text-xs text-slate-100">
+              <pre className="my-2 overflow-x-auto rounded-none bg-zinc-900 p-2 text-xs text-zinc-300 border border-zinc-800">
                 {children}
               </pre>
             );
@@ -138,38 +137,32 @@ export function ThinkingPanel({
   const hasContent = cleanSummary || steps.length > 0 || cleanStreamingContent;
 
   return (
-    <div className="mb-3 rounded-lg border border-slate-200 bg-slate-50 overflow-hidden">
+    <div className="mb-3 rounded-none border border-zinc-800 bg-zinc-900 overflow-hidden">
       {/* Header - always visible */}
       <button
         onClick={() => setExpanded(!expanded)}
         className={cn(
-          'w-full px-3 py-2 flex items-center gap-2 text-sm text-slate-600 hover:bg-slate-100 transition-colors',
-          expanded && 'border-b border-slate-200'
+          'w-full px-3 py-2 flex items-center gap-2 text-xs font-mono text-zinc-400 hover:bg-zinc-800',
+          expanded && 'border-b border-zinc-800'
         )}
       >
-        {expanded ? (
-          <ChevronDown className="h-4 w-4 text-slate-400" />
-        ) : (
-          <ChevronRight className="h-4 w-4 text-slate-400" />
-        )}
+        <span className="text-zinc-600 select-none">{expanded ? '▼' : '▶'}</span>
 
-        <Brain className="h-4 w-4 text-indigo-500" />
-
-        <span className="font-medium">Thinking</span>
+        <span className="font-medium">[thinking]</span>
 
         {isStreaming && (
-          <Loader2 className="h-3 w-3 animate-spin text-indigo-500" />
+          <span className="text-zinc-500">[streaming...]</span>
         )}
 
         {steps.length > 0 && (
-          <span className="text-xs text-slate-400">
+          <span className="text-zinc-600">
             ({steps.length} step{steps.length !== 1 ? 's' : ''})
           </span>
         )}
 
         {!expanded && hasContent && (
-          <span className="ml-auto text-xs text-slate-400 truncate max-w-[200px]">
-            {cleanSummary?.split('\n')[0] || cleanStreamingContent?.slice(0, 50) || 'Click to expand'}
+          <span className="ml-auto text-zinc-600 truncate max-w-[200px]">
+            {cleanSummary?.split('\n')[0] || cleanStreamingContent?.slice(0, 50) || ''}
           </span>
         )}
       </button>
@@ -183,7 +176,7 @@ export function ThinkingPanel({
               <div>
                 <ThinkingMarkdown content={cleanStreamingContent} />
                 {isStreaming && (
-                  <span className="inline-block w-2 h-3 bg-indigo-400 animate-pulse ml-0.5" />
+                  <span className="inline-block w-2 h-3 bg-zinc-400 animate-pulse ml-0.5" />
                 )}
               </div>
             )}
@@ -195,18 +188,18 @@ export function ThinkingPanel({
                   <div key={step.seq} className="text-xs">
                     <div className="flex items-center gap-2 mb-1">
                       <span className={cn(
-                        'px-1.5 py-0.5 rounded text-[10px] font-medium uppercase',
+                        'text-[10px] font-medium uppercase font-mono',
                         step.status === 'done'
-                          ? 'bg-emerald-100 text-emerald-700'
+                          ? 'text-zinc-400'
                           : step.status === 'thinking'
-                            ? 'bg-indigo-100 text-indigo-700'
-                            : 'bg-slate-100 text-slate-600'
+                            ? 'text-zinc-500'
+                            : 'text-zinc-600'
                       )}>
                         {step.step_type}
                       </span>
-                      <span className="text-slate-400">Step {step.seq}</span>
+                      <span className="text-zinc-600">Step {step.seq}</span>
                     </div>
-                    <div className="text-slate-600 pl-2 border-l-2 border-slate-200">
+                    <div className="text-zinc-600 pl-2 border-l-2 border-zinc-800">
                       <ThinkingMarkdown content={step.summary} />
                     </div>
                   </div>
@@ -221,9 +214,8 @@ export function ThinkingPanel({
 
             {/* Empty state */}
             {!hasContent && isStreaming && (
-              <div className="flex items-center gap-2 text-sm text-slate-500">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Thinking...
+              <div className="text-xs text-zinc-500 font-mono">
+                [thinking...]
               </div>
             )}
           </div>

@@ -147,7 +147,7 @@ export function TracesModal({ open, onOpenChange }: TracesModalProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <div className="relative bg-white rounded-lg shadow-xl max-w-5xl w-full mx-4 max-h-[85vh] flex flex-col animate-in fade-in zoom-in-95">
+      <div className="relative bg-card rounded-none shadow-none border border-border max-w-5xl w-full mx-4 max-h-[85vh] flex flex-col animate-in fade-in zoom-in-95">
         <DialogHeader className="border-b flex-shrink-0">
           <div className="flex items-center justify-between">
             <div>
@@ -168,7 +168,7 @@ export function TracesModal({ open, onOpenChange }: TracesModalProps) {
 
         <DialogContent className="flex-1 overflow-y-auto">
           {error && (
-            <div className="bg-red-50 border border-red-200 rounded-md p-4 text-sm text-red-800">
+            <div className="bg-zinc-800 border border-zinc-700 rounded-none p-4 text-sm text-zinc-400">
               {error}
             </div>
           )}
@@ -194,7 +194,7 @@ export function TracesModal({ open, onOpenChange }: TracesModalProps) {
                       <button
                         key={trace.filename}
                         onClick={() => handleTraceClick(trace)}
-                        className="w-full text-left p-4 rounded-lg border hover:bg-slate-50 transition-colors"
+                        className="w-full text-left p-4 rounded-none border border-zinc-800 hover:bg-zinc-800 transition-colors"
                       >
                         <div className="flex items-start justify-between gap-4">
                           <div className="flex-1">
@@ -210,15 +210,15 @@ export function TracesModal({ open, onOpenChange }: TracesModalProps) {
                                 {trace.total_questions} questions
                               </span>
                               <span className="flex items-center gap-1">
-                                <CheckCircle className="h-3 w-3 text-green-600" />
+                                <CheckCircle className="h-3 w-3 text-zinc-400" />
                                 {trace.correct} correct
                               </span>
-                              <span className="font-medium text-blue-600">
+                              <span className="font-medium text-zinc-300">
                                 {(trace.accuracy * 100).toFixed(1)}%
                               </span>
                             </div>
                           </div>
-                          <FileText className="h-5 w-5 text-slate-400" />
+                          <FileText className="h-5 w-5 text-zinc-600" />
                         </div>
                       </button>
                     ))}
@@ -237,24 +237,24 @@ export function TracesModal({ open, onOpenChange }: TracesModalProps) {
               </Button>
 
               {/* Summary */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-slate-50 rounded-lg">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-zinc-800 rounded-none">
                 <div>
                   <div className="text-xs text-muted-foreground mb-1">Questions</div>
                   <div className="text-2xl font-bold">{selectedTrace.summary.total_questions}</div>
                 </div>
                 <div>
                   <div className="text-xs text-muted-foreground mb-1">Correct</div>
-                  <div className="text-2xl font-bold text-green-600">{selectedTrace.summary.agent_correct}</div>
+                  <div className="text-2xl font-bold text-zinc-300">{selectedTrace.summary.agent_correct}</div>
                 </div>
                 <div>
                   <div className="text-xs text-muted-foreground mb-1">Accuracy</div>
-                  <div className="text-2xl font-bold text-blue-600">
+                  <div className="text-2xl font-bold text-zinc-300">
                     {(selectedTrace.summary.agent_accuracy * 100).toFixed(1)}%
                   </div>
                 </div>
                 <div>
                   <div className="text-xs text-muted-foreground mb-1">Avg Time</div>
-                  <div className="text-2xl font-bold text-slate-700">
+                  <div className="text-2xl font-bold text-zinc-300">
                     {formatDuration(selectedTrace.summary.agent_avg_time_ms)}
                   </div>
                 </div>

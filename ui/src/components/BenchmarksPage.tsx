@@ -170,9 +170,9 @@ export function BenchmarksPage() {
   );
 
   return (
-    <div className="h-screen flex flex-col bg-gradient-to-br from-slate-50 via-white to-blue-50">
+    <div className="h-screen flex flex-col bg-background">
       {/* Header */}
-      <header className="border-b bg-white/80 backdrop-blur-sm flex-shrink-0">
+      <header className="border-b bg-card flex-shrink-0">
         <div className="max-w-6xl mx-auto px-3 sm:px-4 py-3 sm:py-4 flex items-center gap-3 sm:gap-4">
           <Button
             variant="ghost"
@@ -188,7 +188,7 @@ export function BenchmarksPage() {
           </div>
           <Button
             onClick={() => navigate('/conversations')}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white gap-2"
+            className="bg-zinc-800 border border-zinc-600 text-zinc-300 hover:bg-zinc-700 hover:text-zinc-100 gap-2"
           >
             <Play className="h-4 w-4" />
             <span className="hidden sm:inline">Try the Agent</span>
@@ -201,37 +201,37 @@ export function BenchmarksPage() {
         <div className="max-w-6xl mx-auto px-3 sm:px-4 py-4 sm:py-6 md:py-8 space-y-6 sm:space-y-8">
         {/* Hero Stats */}
         <section className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-          <Card className="bg-gradient-to-br from-amber-50 to-orange-50 border-amber-200">
+          <Card className="border-zinc-800 bg-zinc-900">
             <CardHeader className="pb-2">
               <CardDescription className="flex items-center gap-2">
-                <Trophy className="h-4 w-4 text-amber-600" />
+                <Trophy className="h-4 w-4 text-zinc-400" />
                 Best Accuracy
               </CardDescription>
-              <CardTitle className="text-3xl sm:text-4xl text-amber-700">{bestModel.overallAccuracy}%</CardTitle>
+              <CardTitle className="text-3xl sm:text-4xl text-zinc-100">{bestModel.overallAccuracy}%</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-xs sm:text-sm text-amber-800">
+              <p className="text-xs sm:text-sm text-zinc-300">
                 {bestModel.totalCorrect}/{bestModel.totalQuestions} correct with {bestModel.model}
               </p>
-              <p className="text-xs text-amber-600 mt-1">
+              <p className="text-xs text-zinc-500 mt-1">
                 L1: {bestModel.levels[0].accuracy}% &middot; L2: {bestModel.levels[1].accuracy}% &middot; L3: {bestModel.levels[2].accuracy}%
               </p>
             </CardContent>
           </Card>
 
-          <Card className="bg-gradient-to-br from-emerald-50 to-green-50 border-emerald-200">
+          <Card className="border-zinc-800 bg-zinc-900">
             <CardHeader className="pb-2">
               <CardDescription className="flex items-center gap-2">
-                <DollarSign className="h-4 w-4 text-emerald-600" />
+                <DollarSign className="h-4 w-4 text-zinc-400" />
                 Cost Efficiency
               </CardDescription>
-              <CardTitle className="text-3xl sm:text-4xl text-emerald-700">$4-8</CardTitle>
+              <CardTitle className="text-3xl sm:text-4xl text-zinc-100">$4-8</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-xs sm:text-sm text-emerald-800">
+              <p className="text-xs sm:text-sm text-zinc-300">
                 Per full evaluation (127 questions)
               </p>
-              <p className="text-xs text-emerald-600 mt-1">
+              <p className="text-xs text-zinc-500 mt-1">
                 10-100x cheaper than frontier systems
               </p>
             </CardContent>
@@ -270,7 +270,7 @@ export function BenchmarksPage() {
                       </td>
                       {MODELS.map((m) => (
                         <td key={m.id} className="text-right py-3 px-4 font-mono">
-                          <span className="font-bold text-blue-600">{m.levels[i].accuracy.toFixed(1)}%</span>
+                          <span className="font-bold text-zinc-100">{m.levels[i].accuracy.toFixed(1)}%</span>
                           <span className="text-muted-foreground ml-1">({m.levels[i].correct})</span>
                         </td>
                       ))}
@@ -283,20 +283,20 @@ export function BenchmarksPage() {
                     <td className="py-3 px-4">Overall</td>
                     {MODELS.map((m) => (
                       <td key={m.id} className="text-right py-3 px-4 font-mono">
-                        <span className="font-bold text-blue-600">{m.overallAccuracy.toFixed(1)}%</span>
+                        <span className="font-bold text-zinc-100">{m.overallAccuracy.toFixed(1)}%</span>
                         <span className="text-muted-foreground ml-1">({m.totalCorrect})</span>
                       </td>
                     ))}
                     <td className="text-right py-3 px-4 font-mono text-muted-foreground">127</td>
                   </tr>
-                  <tr className="bg-emerald-50/50">
-                    <td className="py-3 px-4 text-emerald-700">Cost</td>
+                  <tr className="bg-zinc-800/50">
+                    <td className="py-3 px-4 text-zinc-400">Cost</td>
                     {MODELS.map((m) => (
-                      <td key={m.id} className="text-right py-3 px-4 font-mono text-emerald-700 font-medium">
+                      <td key={m.id} className="text-right py-3 px-4 font-mono text-zinc-400 font-medium">
                         ${m.estimatedCost}
                       </td>
                     ))}
-                    <td className="text-right py-3 px-4 text-xs text-emerald-600">total</td>
+                    <td className="text-right py-3 px-4 text-xs text-zinc-500">total</td>
                   </tr>
                 </tbody>
               </table>
@@ -311,10 +311,10 @@ export function BenchmarksPage() {
                     {m.isDeployed && <Badge variant="outline" className="text-xs">deployed</Badge>}
                   </div>
                   {m.levels.map((level) => (
-                    <div key={level.level} className="bg-slate-50 rounded-lg p-3 space-y-1">
+                    <div key={level.level} className="bg-zinc-800 rounded-none p-3 space-y-1">
                       <div className="flex items-center justify-between">
                         <span className="text-sm font-medium">Level {level.level}</span>
-                        <span className="font-mono font-bold text-blue-600 text-sm">
+                        <span className="font-mono font-bold text-zinc-100 text-sm">
                           {level.accuracy.toFixed(1)}%
                         </span>
                       </div>
@@ -323,10 +323,10 @@ export function BenchmarksPage() {
                       </div>
                     </div>
                   ))}
-                  <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
+                  <div className="bg-zinc-800 rounded-none p-3 border border-zinc-700">
                     <div className="flex items-center justify-between">
                       <span className="text-sm font-medium">Overall</span>
-                      <span className="font-mono font-bold text-blue-600">
+                      <span className="font-mono font-bold text-zinc-100">
                         {m.overallAccuracy.toFixed(1)}%
                       </span>
                     </div>
@@ -352,7 +352,7 @@ export function BenchmarksPage() {
             <div className="h-[300px] sm:h-[400px] w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <ScatterChart margin={isMobile ? { top: 10, right: 15, bottom: 20, left: 5 } : { top: 20, right: 30, bottom: 60, left: 20 }}>
-                  <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
                   <XAxis
                     type="number"
                     dataKey="cost"
@@ -361,8 +361,8 @@ export function BenchmarksPage() {
                     domain={[1, 3000]}
                     ticks={isMobile ? [5, 50, 500] : [1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500]}
                     tickFormatter={(value) => `$${value}`}
-                    tick={{ fontSize: isMobile ? 10 : 12 }}
-                    label={isMobile ? undefined : { value: 'Cost ($)', position: 'bottom', offset: 40 }}
+                    tick={{ fontSize: isMobile ? 10 : 12, fill: '#a1a1aa' }}
+                    label={isMobile ? undefined : { value: 'Cost ($)', position: 'bottom', offset: 40, fill: '#a1a1aa' }}
                   />
                   <YAxis
                     type="number"
@@ -370,15 +370,15 @@ export function BenchmarksPage() {
                     name="Accuracy"
                     domain={[15, 80]}
                     tickFormatter={(value) => `${value}%`}
-                    tick={{ fontSize: isMobile ? 10 : 12 }}
-                    label={isMobile ? undefined : { value: 'Overall Accuracy (%)', angle: -90, position: 'insideLeft', offset: 10 }}
+                    tick={{ fontSize: isMobile ? 10 : 12, fill: '#a1a1aa' }}
+                    label={isMobile ? undefined : { value: 'Overall Accuracy (%)', angle: -90, position: 'insideLeft', offset: 10, fill: '#a1a1aa' }}
                   />
                   <Tooltip
                     content={({ active, payload }) => {
                       if (active && payload && payload.length) {
                         const data = payload[0].payload;
                         return (
-                          <div className="bg-white border rounded-lg shadow-lg p-3 text-sm">
+                          <div className="bg-zinc-900 border border-zinc-700 rounded-none shadow-none p-3 text-sm">
                             <p className="font-medium">{data.system}</p>
                             <p className="text-muted-foreground">Accuracy: <span className="font-mono">{data.overall}%</span></p>
                             <p className="text-muted-foreground">Cost: <span className="font-mono">${data.cost}</span></p>
@@ -392,14 +392,14 @@ export function BenchmarksPage() {
                   <Scatter
                     name="Other Systems"
                     data={COMPARISON_DATA.filter(d => !d.isOurs)}
-                    fill="#94a3b8"
+                    fill="#52525b"
                     fillOpacity={0.6}
                   >
                     <LabelList
                       dataKey="system"
                       position="top"
                       offset={8}
-                      className="text-[10px] fill-slate-500"
+                      className="text-[10px] fill-zinc-600"
                       formatter={(value) => {
                         const v = String(value || '');
                         // Above us
@@ -424,17 +424,17 @@ export function BenchmarksPage() {
                   <Scatter
                     name="Our Systems"
                     data={COMPARISON_DATA.filter(d => d.isOurs)}
-                    fill="#3b82f6"
+                    fill="#d4d4d8"
                     fillOpacity={1}
                     shape={(props: { cx?: number; cy?: number }) => (
-                      <circle cx={props.cx} cy={props.cy} r={8} fill="#3b82f6" stroke="#1d4ed8" strokeWidth={2} />
+                      <circle cx={props.cx} cy={props.cy} r={8} fill="#d4d4d8" stroke="#a1a1aa" strokeWidth={2} />
                     )}
                   >
                     <LabelList
                       dataKey="system"
                       position={isMobile ? 'top' : 'right'}
                       offset={isMobile ? 8 : 12}
-                      className={isMobile ? 'text-[10px] fill-blue-700 font-medium' : 'text-xs fill-blue-700 font-medium'}
+                      className={isMobile ? 'text-[10px] fill-zinc-200 font-medium' : 'text-xs fill-zinc-200 font-medium'}
                       formatter={(value) => {
                         const v = String(value || '');
                         if (isMobile) {
@@ -464,7 +464,7 @@ export function BenchmarksPage() {
                 href="https://hal.cs.princeton.edu/gaia"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-blue-500 hover:underline"
+                className="text-zinc-400 hover:underline"
               >
                 HAL Princeton GAIA Leaderboard
               </a>
@@ -503,7 +503,7 @@ export function BenchmarksPage() {
                     <tr
                       key={row.system}
                       className={`border-b last:border-0 hover:bg-muted/50 ${
-                        row.isOurs ? 'bg-blue-50 font-medium' : ''
+                        row.isOurs ? 'bg-zinc-800 font-medium' : ''
                       }`}
                     >
                       <td className="text-center py-3 px-2 text-muted-foreground font-mono text-xs">
@@ -517,7 +517,7 @@ export function BenchmarksPage() {
                       <td className="text-right py-3 px-4 font-mono">{row.l2}%</td>
                       <td className="text-right py-3 px-4 font-mono">{row.l3}%</td>
                       <td className="text-right py-3 px-4">
-                        <span className={row.isOurs ? 'text-emerald-600 font-bold' : 'text-muted-foreground'}>
+                        <span className={row.isOurs ? 'text-zinc-300 font-bold' : 'text-muted-foreground'}>
                           ${row.cost}
                         </span>
                       </td>
@@ -528,7 +528,7 @@ export function BenchmarksPage() {
               {!showAll && sortedData.length > defaultVisible && (
                 <button
                   onClick={() => setShowAll(true)}
-                  className="text-sm text-blue-500 hover:underline w-full text-center py-3"
+                  className="text-sm text-zinc-400 hover:underline w-full text-center py-3"
                 >
                   Show more
                 </button>
@@ -566,7 +566,7 @@ export function BenchmarksPage() {
                     <tr
                       key={row.system}
                       className={`border-b last:border-0 hover:bg-muted/50 ${
-                        row.isOurs ? 'bg-blue-50 font-medium' : ''
+                        row.isOurs ? 'bg-zinc-800 font-medium' : ''
                       }`}
                     >
                       <td className="text-center py-3 px-2 text-muted-foreground font-mono text-xs">
@@ -580,7 +580,7 @@ export function BenchmarksPage() {
                       <td className="text-right py-3 px-4 font-mono">{row.l2}%</td>
                       <td className="text-right py-3 px-4 font-mono">{row.l3}%</td>
                       <td className="text-right py-3 px-4">
-                        <span className={row.isOurs ? 'text-emerald-600 font-bold' : 'text-muted-foreground'}>
+                        <span className={row.isOurs ? 'text-zinc-300 font-bold' : 'text-muted-foreground'}>
                           ${row.cost}
                         </span>
                       </td>
@@ -591,7 +591,7 @@ export function BenchmarksPage() {
               {!showAll && sortedData.length > defaultVisible && (
                 <button
                   onClick={() => setShowAll(true)}
-                  className="text-sm text-blue-500 hover:underline w-full text-center py-3"
+                  className="text-sm text-zinc-400 hover:underline w-full text-center py-3"
                 >
                   Show more
                 </button>
@@ -610,7 +610,7 @@ export function BenchmarksPage() {
                     setSortColumn(col);
                     setSortDirection(dir);
                   }}
-                  className="border rounded px-2 py-1 text-sm bg-white"
+                  className="border border-zinc-700 rounded-none px-2 py-1 text-sm bg-zinc-900 text-zinc-300"
                 >
                   <option value="cost-asc">Cost (lowest)</option>
                   <option value="rank-asc">Rank (best first)</option>
@@ -629,7 +629,7 @@ export function BenchmarksPage() {
                   key={row.system}
                   className={`flex items-center gap-1.5 px-3 py-2 rounded text-[13px] ${
                     row.isOurs
-                      ? 'bg-blue-50 border border-blue-200 font-medium'
+                      ? 'bg-zinc-800 border border-zinc-600 font-medium'
                       : ''
                   }`}
                 >
@@ -639,14 +639,14 @@ export function BenchmarksPage() {
                   </span>
                   <span className="font-mono font-bold text-[13px] w-14 text-right shrink-0">{row.overall}%</span>
                   <span className={`font-mono text-xs w-10 text-right shrink-0 ${
-                    row.isOurs ? 'text-emerald-600 font-bold' : 'text-muted-foreground'
+                    row.isOurs ? 'text-zinc-300 font-bold' : 'text-muted-foreground'
                   }`}>${row.cost}</span>
                 </div>
               ))}
               {!showAll && sortedData.length > defaultVisible && (
                 <button
                   onClick={() => setShowAll(true)}
-                  className="text-sm text-blue-500 hover:underline w-full text-center py-2"
+                  className="text-sm text-zinc-400 hover:underline w-full text-center py-2"
                 >
                   Show more
                 </button>
@@ -657,7 +657,7 @@ export function BenchmarksPage() {
 
         {/* About Section - Agent + GAIA combined */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Card className="border-indigo-200 bg-gradient-to-br from-indigo-50/50 to-slate-50">
+          <Card className="border-zinc-800 bg-zinc-900">
             <CardHeader className="pb-2">
               <CardTitle className="text-base">About This Agent</CardTitle>
             </CardHeader>
@@ -667,15 +667,15 @@ export function BenchmarksPage() {
                 and execution tracing.
               </p>
               <div className="flex flex-wrap gap-2">
-                <Badge variant="outline" className="border-indigo-200 text-indigo-700">
+                <Badge variant="outline" className="border-zinc-700 text-zinc-300">
                   <Globe className="h-3 w-3 mr-1" />
                   Web Search
                 </Badge>
-                <Badge variant="outline" className="border-indigo-200 text-indigo-700">
+                <Badge variant="outline" className="border-zinc-700 text-zinc-300">
                   <FileSearch className="h-3 w-3 mr-1" />
                   Content Extraction
                 </Badge>
-                <Badge variant="outline" className="border-indigo-200 text-indigo-700">
+                <Badge variant="outline" className="border-zinc-700 text-zinc-300">
                   <Code className="h-3 w-3 mr-1" />
                   Python Execution
                 </Badge>
@@ -691,7 +691,7 @@ export function BenchmarksPage() {
                   href="https://arxiv.org/abs/2311.12983"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-blue-500 hover:text-blue-700"
+                  className="text-zinc-400 hover:text-zinc-200"
                 >
                   <ExternalLink className="h-4 w-4" />
                 </a>
@@ -737,7 +737,7 @@ export function BenchmarksPage() {
                   Evaluation traces with aggregate stats per run.{' '}
                   <button
                     onClick={() => setTracesModalOpen(true)}
-                    className="text-blue-500 hover:underline inline-flex items-center gap-1"
+                    className="text-zinc-400 hover:underline inline-flex items-center gap-1"
                   >
                     <FileText className="h-3 w-3" />
                     View traces
@@ -761,7 +761,7 @@ export function BenchmarksPage() {
               href="https://hal.cs.princeton.edu/gaia"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-blue-500 hover:underline"
+              className="text-zinc-400 hover:underline"
             >
               View HAL Princeton GAIA Leaderboard
             </a>
