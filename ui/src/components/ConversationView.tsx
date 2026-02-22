@@ -322,6 +322,7 @@ export function ConversationView() {
 
         addRun(conversationId!, run);
         setEvents(response.run_id, []);
+        setIsSubmitting(false);
       } else {
         // Chat mode: use regular conversation API
         const response = await createConversationRun(conversationId!, {
@@ -349,6 +350,7 @@ export function ConversationView() {
 
         addRun(conversationId!, run);
         setEvents(response.run_id, []);
+        setIsSubmitting(false);
       }
     } catch (error) {
       console.error('Failed to create run:', error);
@@ -370,7 +372,6 @@ export function ConversationView() {
       setPendingMessage('');
       setPendingRunId(null);
       setPendingIsAgent(false);
-      setIsSubmitting(false);
     }
   }, [activeRunId, pendingRunId]);
 
@@ -435,8 +436,8 @@ export function ConversationView() {
     }
   };
 
-  // Determine if we should show Stop button
-  const isGenerating = isSubmitting && pendingRunId;
+  // Determine if we should show Stop button (active run we started)
+  const isGenerating = !!pendingRunId;
 
   // Auto-resize textarea
   const resizeTextarea = useCallback(() => {
