@@ -34,7 +34,8 @@
     @apply border-border;
   }
   html, body, #root {
-    @apply h-full overflow-hidden;
+    @apply overflow-hidden;
+    height: 100dvh;
   }
   body {
     @apply bg-background text-foreground;
