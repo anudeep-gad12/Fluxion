@@ -533,7 +533,7 @@ export function ConversationView() {
             </div>
           )}
         </div>
-        <div className="p-3 pb-20 sm:p-4 flex-shrink-0 space-y-2">
+        <div className="p-3 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-4 sm:pb-[max(1rem,env(safe-area-inset-bottom))] flex-shrink-0 space-y-2">
           {/* Prompt area */}
           <div className="border border-zinc-700 bg-zinc-900 focus-within:border-zinc-500 transition-colors">
             <div className="flex items-start p-3 gap-2">
@@ -652,7 +652,7 @@ export function ConversationView() {
         </div>
       </div>
 
-      <div className="p-3 pb-20 sm:p-4 flex-shrink-0 space-y-2">
+      <div className="p-3 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-4 sm:pb-[max(1rem,env(safe-area-inset-bottom))] flex-shrink-0 space-y-2">
         {/* Prompt area */}
         <div className="border border-zinc-700 bg-zinc-900 focus-within:border-zinc-500 transition-colors">
           <div className="flex items-start p-3 gap-2">
