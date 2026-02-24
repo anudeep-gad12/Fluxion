@@ -1,18 +1,18 @@
 """ChatGPT OAuth authentication routes.
 
 Implements the OAuth 2.0 PKCE flow for authenticating with ChatGPT.
-Uses port 1455 for the callback (the only port whitelisted by OpenAI's
-Auth0 client for client_id app_EMoamEEZ73f0CkXaXp7hrann).
 
-Endpoints on the main FastAPI app:
-1. GET  /api/auth/chatgpt/login   - Initiate OAuth, redirect to OpenAI
-2. GET  /api/auth/chatgpt/status  - Check current auth status
-3. POST /api/auth/chatgpt/logout  - Clear stored tokens
-4. POST /api/auth/chatgpt/refresh - Force token refresh
+Endpoints:
+1. GET  /api/auth/chatgpt/login    - Initiate OAuth, redirect to OpenAI
+2. GET  /api/auth/chatgpt/callback - OAuth callback (code exchange)
+3. GET  /api/auth/chatgpt/status   - Check current auth status
+4. POST /api/auth/chatgpt/logout   - Clear stored tokens
+5. POST /api/auth/chatgpt/refresh  - Force token refresh
 
-The OAuth callback is handled by a tiny async HTTP server on port 1455
-(started/stopped via lifespan), matching the Codex CLI's registered
-redirect_uri: http://localhost:1455/auth/callback
+The callback URL is auto-derived from the request origin, so it works
+on both localhost (development) and deployed environments (Railway).
+A fallback server on port 1455 is kept for backward compatibility with
+the Codex CLI's registered redirect_uri.
 """
 
 import asyncio
@@ -215,14 +215,10 @@ async def get_valid_tokens(session_id: str) -> Optional[dict]:
 
 
 # =========================================================================
-# Callback server on port 1455
+# OAuth callback handling + fallback server on port 1455
 # =========================================================================
 
-_SUCCESS_HTML = """\
-HTTP/1.1 200 OK\r
-Content-Type: text/html; charset=utf-8\r
-Connection: close\r
-\r
+_SUCCESS_HTML_BODY = """\
 <!DOCTYPE html>
 <html>
 <head>
@@ -244,11 +240,7 @@ setTimeout(()=>window.close(),1000);
 </body>
 </html>"""
 
-_ERROR_HTML_TEMPLATE = """\
-HTTP/1.1 {status} Error\r
-Content-Type: text/html; charset=utf-8\r
-Connection: close\r
-\r
+_ERROR_HTML_BODY_TEMPLATE = """\
 <!DOCTYPE html>
 <html>
 <head><title>Login Failed</title>
@@ -262,11 +254,25 @@ height:100vh;margin:0}}
 </html>"""
 
 
+def _wrap_http(html_body: str, status: int = 200) -> str:
+    """Wrap HTML body with raw HTTP response headers (for port 1455)."""
+    reason = {200: "OK", 400: "Bad Request", 502: "Bad Gateway"}.get(
+        status, "Error"
+    )
+    return (
+        f"HTTP/1.1 {status} {reason}\r\n"
+        f"Content-Type: text/html; charset=utf-8\r\n"
+        f"Connection: close\r\n"
+        f"\r\n"
+        f"{html_body}"
+    )
+
+
 async def _handle_callback_connection(
     reader: asyncio.StreamReader,
     writer: asyncio.StreamWriter,
 ) -> None:
-    """Handle a single HTTP connection on the callback port."""
+    """Handle a single HTTP connection on the callback port (fallback)."""
     try:
         # Read the HTTP request line
         request_line = await asyncio.wait_for(reader.readline(), timeout=5.0)
@@ -275,7 +281,11 @@ async def _handle_callback_connection(
         # Parse GET /auth/callback?code=...&state=... HTTP/1.1
         parts = request_str.strip().split(" ")
         if len(parts) < 2 or not parts[1].startswith("/auth/callback"):
-            writer.write(_ERROR_HTML_TEMPLATE.format(status=404, message="Not found").encode())
+            writer.write(
+                _wrap_http(
+                    _ERROR_HTML_BODY_TEMPLATE.format(message="Not found"), 400
+                ).encode()
+            )
             await writer.drain()
             writer.close()
             return
@@ -288,8 +298,11 @@ async def _handle_callback_connection(
 
         if not code or not state:
             writer.write(
-                _ERROR_HTML_TEMPLATE.format(
-                    status=400, message="Missing code or state parameter."
+                _wrap_http(
+                    _ERROR_HTML_BODY_TEMPLATE.format(
+                        message="Missing code or state parameter."
+                    ),
+                    400,
                 ).encode()
             )
             await writer.drain()
@@ -297,14 +310,17 @@ async def _handle_callback_connection(
             return
 
         # Process the OAuth callback
-        response_html = await _process_oauth_callback(code, state)
-        writer.write(response_html.encode())
+        html_body, status = await _process_oauth_callback(code, state)
+        writer.write(_wrap_http(html_body, status).encode())
         await writer.drain()
     except Exception as e:
         logger.error("Callback handler error", extra={"error": str(e)})
         try:
             writer.write(
-                _ERROR_HTML_TEMPLATE.format(status=500, message="Internal error.").encode()
+                _wrap_http(
+                    _ERROR_HTML_BODY_TEMPLATE.format(message="Internal error."),
+                    500,
+                ).encode()
             )
             await writer.drain()
         except Exception:
@@ -317,19 +333,36 @@ async def _handle_callback_connection(
             pass
 
 
-async def _process_oauth_callback(code: str, state: str) -> str:
-    """Exchange auth code for tokens and return HTML response."""
+async def _process_oauth_callback(
+    code: str, state: str
+) -> tuple[str, int]:
+    """Exchange auth code for tokens.
+
+    Returns:
+        (html_body, http_status_code) tuple.
+    """
     config = get_chat_config()
     chatgpt_config = config.chatgpt
     if not chatgpt_config:
-        return _ERROR_HTML_TEMPLATE.format(status=500, message="ChatGPT not configured.")
+        return (
+            _ERROR_HTML_BODY_TEMPLATE.format(
+                message="ChatGPT not configured."
+            ),
+            500,
+        )
 
     # Validate state
     pending = _pending_auth.pop(state, None)
     if not pending:
-        return _ERROR_HTML_TEMPLATE.format(status=400, message="Invalid or expired OAuth state.")
+        return (
+            _ERROR_HTML_BODY_TEMPLATE.format(
+                message="Invalid or expired OAuth state."
+            ),
+            400,
+        )
 
     code_verifier = pending["code_verifier"]
+    redirect_uri = pending.get("redirect_uri", CALLBACK_URI)
 
     # Exchange code for tokens
     try:
@@ -340,10 +373,12 @@ async def _process_oauth_callback(code: str, state: str) -> str:
                     "grant_type": "authorization_code",
                     "client_id": chatgpt_config.client_id,
                     "code": code,
-                    "redirect_uri": CALLBACK_URI,
+                    "redirect_uri": redirect_uri,
                     "code_verifier": code_verifier,
                 },
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                headers={
+                    "Content-Type": "application/x-www-form-urlencoded"
+                },
             )
 
             if response.status_code != 200:
@@ -354,29 +389,40 @@ async def _process_oauth_callback(code: str, state: str) -> str:
                         "body": response.text[:500],
                     },
                 )
-                return _ERROR_HTML_TEMPLATE.format(
-                    status=502,
-                    message="Token exchange failed. Try again.",
+                return (
+                    _ERROR_HTML_BODY_TEMPLATE.format(
+                        message="Token exchange failed. Try again.",
+                    ),
+                    502,
                 )
 
             token_data = response.json()
     except httpx.HTTPError as e:
-        logger.error("Token exchange HTTP error", extra={"error": str(e)})
-        return _ERROR_HTML_TEMPLATE.format(status=502, message="Failed to connect to OpenAI.")
+        logger.error(
+            "Token exchange HTTP error", extra={"error": str(e)}
+        )
+        return (
+            _ERROR_HTML_BODY_TEMPLATE.format(
+                message="Failed to connect to OpenAI."
+            ),
+            502,
+        )
 
     access_token = token_data.get("access_token")
     refresh_token = token_data.get("refresh_token", "")
     expires_in = token_data.get("expires_in", 3600)
 
     if not access_token:
-        return _ERROR_HTML_TEMPLATE.format(status=502, message="No access token in response.")
+        return (
+            _ERROR_HTML_BODY_TEMPLATE.format(
+                message="No access token in response."
+            ),
+            502,
+        )
 
     account_id = _extract_account_id_from_jwt(access_token) or ""
 
-    # Use a fixed session ID derived from account for the callback server
-    # (the callback comes directly to port 1455, not through FastAPI
-    #  middleware, so request.state.session_id isn't available).
-    # We store with account_id as key; the status endpoint will find it.
+    # Session ID was stored when /login was called
     session_id = pending.get("session_id", secrets.token_urlsafe(32))
 
     await _store_tokens(
@@ -395,11 +441,16 @@ async def _process_oauth_callback(code: str, state: str) -> str:
         },
     )
 
-    return _SUCCESS_HTML
+    return _SUCCESS_HTML_BODY, 200
 
 
 async def start_callback_server() -> None:
-    """Start the OAuth callback server on port 1455."""
+    """Start the fallback OAuth callback server on port 1455.
+
+    This is optional — the primary callback is handled by the FastAPI
+    /api/auth/chatgpt/callback route. Port 1455 is kept as a fallback
+    for backward compatibility with the Codex CLI's redirect_uri.
+    """
     global _callback_server
     try:
         _callback_server = await asyncio.start_server(
@@ -407,11 +458,13 @@ async def start_callback_server() -> None:
             "127.0.0.1",
             CALLBACK_PORT,
         )
-        logger.info(f"OAuth callback server listening on port {CALLBACK_PORT}")
+        logger.info(
+            f"OAuth fallback callback server on port {CALLBACK_PORT}"
+        )
     except OSError as e:
-        logger.warning(
-            f"Could not start OAuth callback server on port "
-            f"{CALLBACK_PORT}: {e}. ChatGPT login will not work."
+        logger.info(
+            f"OAuth fallback server on port {CALLBACK_PORT} unavailable "
+            f"({e}). Using FastAPI callback route instead."
         )
         _callback_server = None
 
@@ -431,23 +484,40 @@ async def stop_callback_server() -> None:
 # =========================================================================
 
 
+def _get_callback_url(request: Request) -> str:
+    """Derive OAuth callback URL from request or config.
+
+    Priority:
+    1. ChatGPT config callback_url (set via CHATGPT_CALLBACK_URL env var)
+    2. Auto-derive from the request's origin (works on localhost & Railway)
+    """
+    config = get_chat_config()
+    chatgpt_config = config.chatgpt
+    if chatgpt_config and chatgpt_config.callback_url:
+        return chatgpt_config.callback_url
+
+    # Auto-derive from request headers (Railway sets x-forwarded-proto)
+    scheme = request.headers.get("x-forwarded-proto", request.url.scheme)
+    host = request.headers.get("host", "localhost:9000")
+    return f"{scheme}://{host}/api/auth/chatgpt/callback"
+
+
 @router.get("/login")
 async def chatgpt_login(request: Request):
     """Initiate ChatGPT OAuth PKCE flow.
 
-    Redirects the user to OpenAI's auth page. The callback will be
-    handled by the separate server on port 1455.
+    Redirects the user to OpenAI's auth page. The callback is handled
+    by the /callback route on this same FastAPI app.
     """
     config = get_chat_config()
     chatgpt_config = config.chatgpt
     if not chatgpt_config or not chatgpt_config.enabled:
-        raise HTTPException(status_code=404, detail="ChatGPT OAuth not enabled")
-
-    if _callback_server is None:
         raise HTTPException(
-            status_code=503,
-            detail=f"OAuth callback server not running (port {CALLBACK_PORT} may be in use)",
+            status_code=404, detail="ChatGPT OAuth not enabled"
         )
+
+    # Derive callback URL from request (works on localhost & Railway)
+    callback_url = _get_callback_url(request)
 
     # Generate PKCE pair
     code_verifier, code_challenge = _generate_pkce_pair()
@@ -458,29 +528,32 @@ async def chatgpt_login(request: Request):
     # Get session ID so the callback can store tokens for this session
     session_id = _get_session_id(request) or secrets.token_urlsafe(32)
 
-    # Store PKCE state
+    # Store PKCE state (including redirect_uri for token exchange)
     _pending_auth[state] = {
         "code_verifier": code_verifier,
         "session_id": session_id,
+        "redirect_uri": callback_url,
         "created_at": time.time(),
     }
 
     # Clean up expired states (older than 10 minutes)
     now = time.time()
-    expired = [s for s, v in _pending_auth.items() if now - v["created_at"] > 600]
+    expired = [
+        s for s, v in _pending_auth.items() if now - v["created_at"] > 600
+    ]
     for s in expired:
         _pending_auth.pop(s, None)
 
     logger.info(
         "ChatGPT OAuth login initiated",
-        extra={"callback_url": CALLBACK_URI},
+        extra={"callback_url": callback_url},
     )
 
     # Build OAuth authorization URL (matching Codex CLI parameters)
     params = {
         "response_type": "code",
         "client_id": chatgpt_config.client_id,
-        "redirect_uri": CALLBACK_URI,
+        "redirect_uri": callback_url,
         "scope": "openid profile email offline_access",
         "code_challenge": code_challenge,
         "code_challenge_method": "S256",
@@ -494,6 +567,37 @@ async def chatgpt_login(request: Request):
     from fastapi.responses import RedirectResponse
 
     return RedirectResponse(url=auth_url)
+
+
+@router.get("/callback")
+async def chatgpt_callback(
+    code: Optional[str] = None,
+    state: Optional[str] = None,
+    error: Optional[str] = None,
+    error_description: Optional[str] = None,
+):
+    """Handle OAuth callback from OpenAI.
+
+    OpenAI redirects here after the user authenticates. This route
+    exchanges the authorization code for tokens and shows a result page.
+    """
+    from fastapi.responses import HTMLResponse
+
+    # Handle OAuth errors (user denied, etc.)
+    if error:
+        msg = error_description or error
+        logger.warning("OAuth callback error", extra={"error": msg})
+        html = _ERROR_HTML_BODY_TEMPLATE.format(message=msg)
+        return HTMLResponse(content=html, status_code=400)
+
+    if not code or not state:
+        html = _ERROR_HTML_BODY_TEMPLATE.format(
+            message="Missing code or state parameter."
+        )
+        return HTMLResponse(content=html, status_code=400)
+
+    html_body, status = await _process_oauth_callback(code, state)
+    return HTMLResponse(content=html_body, status_code=status)
 
 
 @router.get("/status")
