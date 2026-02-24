@@ -1164,18 +1164,14 @@ echo ""
 echo -e "${BLUE}--- 7a. Coding Profile Agent (with sandbox context) ---${NC}"
 
 CODING_QUERY="Look at the calculator module in this project. What functions are defined? Is there a bug in any of them?"
+CODING_PAYLOAD=$(jq -n \
+    --arg query "$CODING_QUERY" \
+    --arg profile "coding" \
+    --arg working_dir "$SANDBOX_DIR" \
+    '{query: $query, max_steps: 8, profile: $profile, filesystem_enabled: true, working_dir: $working_dir}')
 CODING_RESP=$(curl -s -X POST $CURL_OPTS "$API_URL/api/agent/runs" \
     -H "Content-Type: application/json" \
-    -d "$(python3 -c "
-import json
-print(json.dumps({
-    'query': '$CODING_QUERY',
-    'max_steps': 8,
-    'profile': 'coding',
-    'filesystem_enabled': True,
-    'working_dir': '$SANDBOX_DIR',
-}))
-")")
+    -d "$CODING_PAYLOAD")
 CODING_RUN_ID=$(json_get "$CODING_RESP" ".run_id")
 
 if [ -n "$CODING_RUN_ID" ] && [ "$CODING_RUN_ID" != "null" ]; then
@@ -1248,16 +1244,13 @@ echo ""
 echo -e "${BLUE}--- 7b. Research Profile Agent (no project context) ---${NC}"
 
 RESEARCH_QUERY="What is the derivative of x^3 + 2x? Show the steps."
+RESEARCH_PAYLOAD=$(jq -n \
+    --arg query "$RESEARCH_QUERY" \
+    --arg profile "research" \
+    '{query: $query, max_steps: 5, profile: $profile}')
 RESEARCH_RESP=$(curl -s -X POST $CURL_OPTS "$API_URL/api/agent/runs" \
     -H "Content-Type: application/json" \
-    -d "$(python3 -c "
-import json
-print(json.dumps({
-    'query': '$RESEARCH_QUERY',
-    'max_steps': 5,
-    'profile': 'research',
-}))
-")")
+    -d "$RESEARCH_PAYLOAD")
 RESEARCH_RUN_ID=$(json_get "$RESEARCH_RESP" ".run_id")
 
 if [ -n "$RESEARCH_RUN_ID" ] && [ "$RESEARCH_RUN_ID" != "null" ]; then
@@ -1304,18 +1297,14 @@ echo ""
 echo -e "${BLUE}--- 7c. Full Profile Agent (combined capabilities) ---${NC}"
 
 FULL_QUERY="Read the calculator.py file in this project and compute factorial(7) using the Python tool to verify it."
+FULL_PAYLOAD=$(jq -n \
+    --arg query "$FULL_QUERY" \
+    --arg profile "full" \
+    --arg working_dir "$SANDBOX_DIR" \
+    '{query: $query, max_steps: 8, profile: $profile, filesystem_enabled: true, working_dir: $working_dir}')
 FULL_RESP=$(curl -s -X POST $CURL_OPTS "$API_URL/api/agent/runs" \
     -H "Content-Type: application/json" \
-    -d "$(python3 -c "
-import json
-print(json.dumps({
-    'query': '$FULL_QUERY',
-    'max_steps': 8,
-    'profile': 'full',
-    'filesystem_enabled': True,
-    'working_dir': '$SANDBOX_DIR',
-}))
-")")
+    -d "$FULL_PAYLOAD")
 FULL_RUN_ID=$(json_get "$FULL_RESP" ".run_id")
 
 if [ -n "$FULL_RUN_ID" ] && [ "$FULL_RUN_ID" != "null" ]; then
@@ -1502,18 +1491,14 @@ print_header "9. Context Injection Verification"
 echo "Testing that coding agent received project context..."
 
 CONTEXT_QUERY="What project rules are defined in the .reasoner/rules.md file of this project? Do NOT read the file, just tell me from what you already know about the project."
+CONTEXT_PAYLOAD=$(jq -n \
+    --arg query "$CONTEXT_QUERY" \
+    --arg profile "coding" \
+    --arg working_dir "$SANDBOX_DIR" \
+    '{query: $query, max_steps: 3, profile: $profile, filesystem_enabled: true, working_dir: $working_dir}')
 CONTEXT_RESP=$(curl -s -X POST $CURL_OPTS "$API_URL/api/agent/runs" \
     -H "Content-Type: application/json" \
-    -d "$(python3 -c "
-import json
-print(json.dumps({
-    'query': '$CONTEXT_QUERY',
-    'max_steps': 3,
-    'profile': 'coding',
-    'filesystem_enabled': True,
-    'working_dir': '$SANDBOX_DIR',
-}))
-")")
+    -d "$CONTEXT_PAYLOAD")
 CONTEXT_RUN_ID=$(json_get "$CONTEXT_RESP" ".run_id")
 
 if [ -n "$CONTEXT_RUN_ID" ] && [ "$CONTEXT_RUN_ID" != "null" ]; then

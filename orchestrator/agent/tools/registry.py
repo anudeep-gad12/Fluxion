@@ -248,6 +248,7 @@ def create_tool_registry_from_profile(
     config: "ChatConfig",
     profile: "AgentProfile",
     working_dir: Optional[str] = None,
+    python_provider: Optional[str] = None,
 ) -> ToolRegistry:
     """Create a tool registry based on an agent profile's tool_sets.
 
@@ -258,6 +259,8 @@ def create_tool_registry_from_profile(
         config: Chat configuration with tool settings.
         profile: Agent profile defining which tool sets to register.
         working_dir: Working directory for filesystem tools.
+        python_provider: Python execution provider override ("local" or "daytona").
+            If None, falls back to PYTHON_PROVIDER env var (default: "local").
 
     Returns:
         Configured ToolRegistry with tools.
@@ -277,9 +280,9 @@ def create_tool_registry_from_profile(
 
     for tool_set_name in profile.tool_sets:
         if tool_set_name == "python":
-            # Choose Python execution provider based on environment
-            python_provider = os.environ.get("PYTHON_PROVIDER", "local")
-            if python_provider == "daytona":
+            # Choose Python execution provider: explicit param > env var > "local"
+            resolved_provider = python_provider or os.environ.get("PYTHON_PROVIDER", "local")
+            if resolved_provider == "daytona":
                 from .python_daytona import DaytonaPythonTool
 
                 daytona_api_key = os.environ.get("DAYTONA_API_KEY") or os.environ.get("DAYTONA_API")
