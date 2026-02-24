@@ -90,13 +90,11 @@ class ChatScreen(Screen):
             message_list = self.query_one(MessageList)
             welcome = Static(id="welcome")
             welcome.update(
-                "[bold]reasoner>[/bold]\n\n"
-                f"Mode: [bold]{self._config.mode}[/bold]  ·  "
-                f"Provider: [bold]{self._config.provider}[/bold]\n"
-                "Working dir: "
-                f"[dim]{self._config.working_dir}[/dim]\n\n"
-                "[dim]Ask me anything. I can read, write, and search "
-                "your codebase.[/dim]"
+                "[bold]reasoner[/bold]\n\n"
+                f"  mode     [bold]{self._config.mode}[/bold]\n"
+                f"  provider [bold]{self._config.provider}[/bold]\n"
+                f"  cwd      [dim]{self._config.working_dir}[/dim]\n\n"
+                "[dim]Type a message to begin.[/dim]"
             )
             message_list.mount(welcome)
 
@@ -119,8 +117,14 @@ class ChatScreen(Screen):
         except Exception:
             pass
 
-        # Add user message
+        # Add turn separator if messages already exist
         message_list = self.query_one(MessageList)
+        if message_list.children:
+            message_list.mount(
+                Static("─" * 40, classes="turn-separator")
+            )
+
+        # Add user message
         message_list.mount(MessageBubble("user", query))
         message_list.scroll_to_bottom()
 
@@ -142,15 +146,13 @@ class ChatScreen(Screen):
             self._current_run_id = result["run_id"]
             self._current_stream_token = result.get("stream_token", "")
 
-            # Add assistant label before streaming content
+            # Add assistant bubble and mount streaming markdown inside it
             message_list = self.query_one(MessageList)
-            message_list.mount(
-                MessageBubble("assistant", ""),
-            )
+            bubble = MessageBubble("assistant", "")
+            message_list.mount(bubble)
 
-            # Create streaming markdown for the response
             self._streaming_md = StreamingMarkdown()
-            message_list.mount(self._streaming_md)
+            bubble.mount(self._streaming_md)
 
             # Start SSE consumer as a worker
             self.run_worker(self._consume_events(), exclusive=True)

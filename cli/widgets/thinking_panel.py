@@ -12,7 +12,7 @@ class ThinkingPanel(Collapsible):
     """
 
     def __init__(self, **kwargs) -> None:
-        super().__init__(title="[thinking]", collapsed=True, **kwargs)
+        super().__init__(title="thinking", collapsed=True, **kwargs)
         self._buffer = ""
         self._content_widget: Static | None = None
 
