@@ -50,6 +50,31 @@ class Database:
         # Migration 4: Session scoping for demo mode user isolation
         await self._add_column_if_not_exists("conversations", "session_id", "TEXT")
         await self._add_column_if_not_exists("runs", "session_id", "TEXT")
+        # Migration 5: ChatGPT OAuth token storage
+        await self._create_table_if_not_exists(
+            "chatgpt_tokens",
+            """
+            CREATE TABLE IF NOT EXISTS chatgpt_tokens (
+                session_id TEXT PRIMARY KEY,
+                access_token TEXT NOT NULL,
+                refresh_token TEXT NOT NULL,
+                account_id TEXT NOT NULL,
+                expires_at INTEGER NOT NULL,
+                created_at TEXT DEFAULT (datetime('now'))
+            )
+            """,
+        )
+
+    async def _create_table_if_not_exists(
+        self, table: str, create_sql: str
+    ) -> None:
+        """Create a table if it doesn't already exist.
+
+        Args:
+            table: Table name (for logging).
+            create_sql: Full CREATE TABLE IF NOT EXISTS statement.
+        """
+        await self._connection.execute(create_sql)
 
     async def _add_column_if_not_exists(
         self, table: str, column: str, column_type: str

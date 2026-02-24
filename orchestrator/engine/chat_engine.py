@@ -52,20 +52,30 @@ class ChatEngine:
     - direct: Uses model's native reasoning (fastest, works with gpt-oss models)
     """
 
-    def __init__(self, config: Optional[ChatConfig] = None):
+    def __init__(
+        self,
+        config: Optional[ChatConfig] = None,
+        provider: Optional[LLMProvider] = None,
+    ):
         """Initialize the chat engine.
 
         Args:
             config: Chat configuration. If None, loads from chat_config.yaml.
+            provider: Optional pre-configured LLM provider override.
+                     If None, creates one from config.
         """
         self.config = config or get_chat_config()
 
-        # Initialize LLM provider (uses provider config for endpoint selection, retries, etc.)
-        # If provider_chain is enabled, creates ProviderChain with failover support
-        self._provider = create_provider(
-            self.config.provider,
-            chain_config=self.config.provider_chain,
-        )
+        # Use provided provider or create from config
+        if provider is not None:
+            self._provider = provider
+        else:
+            # Initialize LLM provider (uses provider config for endpoint selection, retries, etc.)
+            # If provider_chain is enabled, creates ProviderChain with failover support
+            self._provider = create_provider(
+                self.config.provider,
+                chain_config=self.config.provider_chain,
+            )
 
         # Initialize thinking orchestrator (default to "direct", actual strategy chosen per-request via mode_mapping)
         self.thinking_orchestrator = ThinkingOrchestrator(default_strategy="direct")
