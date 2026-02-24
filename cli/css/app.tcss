@@ -91,6 +91,11 @@ StatusBar .status-step {
     text-style: bold;
 }
 
+StatusBar .status-activity {
+    color: $accent;
+    text-style: italic;
+}
+
 StatusBar .status-connection {
     color: $success;
 }
