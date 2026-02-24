@@ -14,12 +14,14 @@ if TYPE_CHECKING:
 def create_chatgpt_provider(
     tokens: Dict[str, Any],
     chatgpt_config: Optional["ChatGPTConfig"] = None,
+    model: Optional[str] = None,
 ) -> "LLMProvider":
     """Create a ChatGPT backend provider from stored tokens.
 
     Args:
         tokens: Dict with access_token, account_id, refresh_token, expires_at.
         chatgpt_config: Optional ChatGPT configuration override.
+        model: Optional model name override (e.g., "o4-mini").
 
     Returns:
         ChatGPTProvider instance.
@@ -31,11 +33,13 @@ def create_chatgpt_provider(
         config = get_chat_config()
         chatgpt_config = config.chatgpt
 
+    default_model = model or (chatgpt_config.default_model if chatgpt_config else "gpt-5.2-codex")
+
     return ChatGPTProvider(
         access_token=tokens["access_token"],
         account_id=tokens["account_id"],
         backend_url=chatgpt_config.backend_url if chatgpt_config else "https://chatgpt.com/backend-api",
-        default_model=chatgpt_config.default_model if chatgpt_config else "gpt-5.2-codex",
+        default_model=default_model,
         reasoning_effort=chatgpt_config.reasoning_effort if chatgpt_config else "medium",
     )
 

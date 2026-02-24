@@ -518,6 +518,7 @@ async def chatgpt_status(request: Request):
         "account_id": (tokens["account_id"][:8] + "..." if tokens["account_id"] else None),
         "expires_at": tokens["expires_at"],
         "model": chatgpt_config.default_model,
+        "available_models": chatgpt_config.available_models,
     }
 
 

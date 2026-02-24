@@ -167,6 +167,7 @@ async def _run_agent_task(
     max_steps: int,
     session_id: Optional[str] = None,
     provider_preference: Optional[str] = None,
+    model_override: Optional[str] = None,
 ) -> None:
     """Background task that runs the agent.
 
@@ -177,6 +178,7 @@ async def _run_agent_task(
         max_steps: Maximum steps for agent execution.
         session_id: Optional session ID for provider routing.
         provider_preference: Optional provider preference ("chatgpt" or None).
+        model_override: Optional model name override (e.g., "o4-mini").
     """
     # Import here to avoid circular imports
     from orchestrator.agent.factory import create_agent_engine
@@ -217,7 +219,7 @@ async def _run_agent_task(
 
                 tokens = await get_valid_tokens(session_id)
                 if tokens:
-                    provider_override = create_chatgpt_provider(tokens)
+                    provider_override = create_chatgpt_provider(tokens, model=model_override)
             except Exception as e:
                 logger.warning("Failed to create ChatGPT provider for agent", extra={"error": str(e)})
 
@@ -354,8 +356,9 @@ async def create_agent_run(request: CreateAgentRunRequest, http_request: Request
             max_steps=request.max_steps,
         )
 
-        # Start background task (pass provider preference from header)
+        # Start background task (pass provider/model preference from headers)
         provider_preference = http_request.headers.get("x-provider")
+        model_override = http_request.headers.get("x-model")
         asyncio.create_task(
             _run_agent_task(
                 run_id=run_id,
@@ -364,6 +367,7 @@ async def create_agent_run(request: CreateAgentRunRequest, http_request: Request
                 max_steps=request.max_steps,
                 session_id=session_id,
                 provider_preference=provider_preference,
+                model_override=model_override,
             )
         )
 

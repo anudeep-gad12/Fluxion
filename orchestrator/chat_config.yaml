@@ -231,6 +231,15 @@ chatgpt:
   callback_path: "/auth/callback"
   default_model: "gpt-5.2-codex"
   reasoning_effort: "medium"
+  available_models:
+    - id: "gpt-5.2-codex"
+      label: "GPT-5.2 Codex"
+    - id: "o4-mini"
+      label: "o4-mini"
+    - id: "gpt-4o"
+      label: "GPT-4o"
+    - id: "o3"
+      label: "o3"
 
 # =============================================================================
 # Demo Mode
