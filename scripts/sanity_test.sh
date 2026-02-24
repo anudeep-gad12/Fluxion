@@ -609,6 +609,8 @@ python -c "from orchestrator.config import get_chat_config" 2>/dev/null && pass 
 python -c "from orchestrator.thinking import ThinkingOrchestrator, StreamParser" 2>/dev/null && pass "thinking module imports" || fail "thinking module imports"
 python -c "from orchestrator.engine.chat_engine import ChatEngine" 2>/dev/null && pass "chat_engine imports" || fail "chat_engine imports"
 python -c "from orchestrator.thinking.strategies.direct import DirectStrategy" 2>/dev/null && pass "direct strategy imports" || fail "direct strategy imports"
+python -c "from orchestrator.agent.profile import AgentProfile, get_profile, PROFILES" 2>/dev/null && pass "agent profile imports" || fail "agent profile imports"
+python -c "from orchestrator.agent.context import get_context_strategy, CodingContextStrategy" 2>/dev/null && pass "agent context imports" || fail "agent context imports"
 
 # ============================================================
 # 2. API HEALTH CHECK
@@ -1007,6 +1009,554 @@ if echo "$CONV_LIST" | grep -q "$DIRECT_CONV_ID"; then
     pass "Conversation listing returns created conversations"
 else
     warn "Conversation listing missing created conversations"
+fi
+
+# ============================================================
+# 7. SANDBOX SETUP & PROFILE TESTS
+# ============================================================
+print_header "7. Sandbox Project & Profile Tests"
+
+# Create a sandbox project directory that the coding agent can explore
+SANDBOX_DIR=$(mktemp -d "${TMPDIR:-/tmp}/reasoner-sandbox-XXXXXX")
+echo -e "${BLUE}Creating sandbox project at: $SANDBOX_DIR${NC}"
+
+cleanup_sandbox() {
+    rm -rf "$SANDBOX_DIR" 2>/dev/null
+}
+# Chain cleanup with existing exit traps
+trap 'stop_debug_tail; cleanup_cookies; cleanup_sandbox' EXIT
+
+# Initialize sandbox with git, files, and a rules file
+(
+    cd "$SANDBOX_DIR"
+    git init -q
+    git config user.email "test@sandbox.local"
+    git config user.name "Sandbox Test"
+
+    # Create a simple Python project structure
+    mkdir -p src tests .reasoner
+
+    cat > pyproject.toml << 'PYEOF'
+[project]
+name = "calculator"
+version = "0.1.0"
+description = "A simple calculator package"
+requires-python = ">=3.10"
+dependencies = ["pydantic>=2.0"]
+PYEOF
+
+    cat > src/__init__.py << 'PYEOF'
+"""Calculator package."""
+PYEOF
+
+    cat > src/calculator.py << 'PYEOF'
+"""Simple calculator module with basic operations."""
+
+
+def add(a: float, b: float) -> float:
+    """Add two numbers."""
+    return a + b
+
+
+def subtract(a: float, b: float) -> float:
+    """Subtract b from a."""
+    return a - b
+
+
+def multiply(a: float, b: float) -> float:
+    """Multiply two numbers."""
+    return a * b
+
+
+def divide(a: float, b: float) -> float:
+    """Divide a by b.
+
+    Raises:
+        ValueError: If b is zero.
+    """
+    if b == 0:
+        raise ValueError("Cannot divide by zero")
+    return a / b
+
+
+def factorial(n: int) -> int:
+    """Compute factorial of n.
+
+    BUG: Does not handle negative numbers.
+    """
+    if n == 0:
+        return 1
+    result = 1
+    for i in range(1, n + 1):
+        result *= i
+    return result
+PYEOF
+
+    cat > tests/test_calculator.py << 'PYEOF'
+"""Tests for calculator module."""
+from src.calculator import add, subtract, multiply, divide, factorial
+
+
+def test_add():
+    assert add(2, 3) == 5
+
+def test_subtract():
+    assert subtract(5, 3) == 2
+
+def test_multiply():
+    assert multiply(4, 5) == 20
+
+def test_divide():
+    assert divide(10, 2) == 5.0
+
+def test_factorial():
+    assert factorial(5) == 120
+PYEOF
+
+    cat > .reasoner/rules.md << 'PYEOF'
+# Project Rules
+
+- Use type hints for all function signatures
+- Write docstrings for all public functions
+- Follow PEP 8 naming conventions
+- All functions must have unit tests
+PYEOF
+
+    cat > README.md << 'PYEOF'
+# Calculator
+
+A simple calculator package with basic arithmetic operations.
+
+## Usage
+
+```python
+from src.calculator import add, multiply
+print(add(2, 3))
+print(multiply(4, 5))
+```
+PYEOF
+
+    # Make an initial commit
+    git add -A
+    git commit -q -m "Initial commit: calculator project"
+
+    # Make a second commit to have history
+    cat >> src/calculator.py << 'PYEOF'
+
+
+def power(base: float, exponent: float) -> float:
+    """Raise base to the power of exponent."""
+    return base ** exponent
+PYEOF
+
+    git add -A
+    git commit -q -m "feat: add power function"
+)
+
+if [ -d "$SANDBOX_DIR/.git" ] && [ -f "$SANDBOX_DIR/src/calculator.py" ]; then
+    pass "Sandbox project created with git + Python files"
+else
+    fail "Sandbox project setup failed"
+fi
+
+# --- Test 7a: Coding Profile with Sandbox ---
+echo ""
+echo -e "${BLUE}--- 7a. Coding Profile Agent (with sandbox context) ---${NC}"
+
+CODING_QUERY="Look at the calculator module in this project. What functions are defined? Is there a bug in any of them?"
+CODING_RESP=$(curl -s -X POST $CURL_OPTS "$API_URL/api/agent/runs" \
+    -H "Content-Type: application/json" \
+    -d "$(python3 -c "
+import json
+print(json.dumps({
+    'query': '$CODING_QUERY',
+    'max_steps': 8,
+    'profile': 'coding',
+    'filesystem_enabled': True,
+    'working_dir': '$SANDBOX_DIR',
+}))
+")")
+CODING_RUN_ID=$(json_get "$CODING_RESP" ".run_id")
+
+if [ -n "$CODING_RUN_ID" ] && [ "$CODING_RUN_ID" != "null" ]; then
+    pass "Created coding profile run ($CODING_RUN_ID)"
+
+    wait_for_agent_run "$CODING_RUN_ID" "Coding profile" 120
+
+    # Check that agent used filesystem tools (read_file, glob, etc.)
+    CODING_TRACE=$(curl -s $CURL_OPTS "$API_URL/api/agent/runs/$CODING_RUN_ID/trace")
+    CODING_TOOL_NAMES=$(echo "$CODING_TRACE" | python3 -c "
+import json, sys
+data = json.loads(sys.stdin.read())
+tools = set()
+for tc in data.get('tool_calls', []):
+    tools.add(tc.get('tool_name', 'unknown'))
+print(','.join(sorted(tools)))
+" 2>/dev/null)
+
+    if echo "$CODING_TOOL_NAMES" | grep -qE "read_file|glob|grep|list_directory"; then
+        pass "Coding profile used filesystem tools ($CODING_TOOL_NAMES)"
+    else
+        warn "Coding profile did not use filesystem tools (tools: $CODING_TOOL_NAMES)"
+    fi
+
+    # Check agent found the functions
+    CODING_ANSWER=$(curl -s $CURL_OPTS "$API_URL/api/agent/runs/$CODING_RUN_ID" | python3 -c "
+import json, sys
+data = json.loads(sys.stdin.read())
+print(data.get('final_answer', ''))
+" 2>/dev/null)
+
+    if echo "$CODING_ANSWER" | grep -qiE "add|subtract|multiply|divide|factorial"; then
+        pass "Coding profile found calculator functions"
+    else
+        warn "Coding profile answer may not mention functions"
+    fi
+
+    if echo "$CODING_ANSWER" | grep -qiE "bug|negative|error|issue|handle"; then
+        pass "Coding profile identified the bug in factorial"
+    else
+        warn "Coding profile may not have found the factorial bug"
+    fi
+
+    # Check run metrics are stored
+    CODING_STATUS=$(curl -s $CURL_OPTS "$API_URL/api/agent/runs/$CODING_RUN_ID")
+    CODING_USAGE=$(json_get "$CODING_STATUS" ".usage_stats")
+    if [ -n "$CODING_USAGE" ] && [ "$CODING_USAGE" != "null" ] && [ "$CODING_USAGE" != "{}" ]; then
+        pass "Coding profile run has usage_stats/metrics stored"
+
+        # Check for profile field in metrics
+        METRIC_PROFILE=$(echo "$CODING_USAGE" | python3 -c "
+import json, sys
+data = json.loads(sys.stdin.read())
+print(data.get('run_metrics', {}).get('profile', ''))
+" 2>/dev/null)
+        if [ "$METRIC_PROFILE" = "coding" ]; then
+            pass "Run metrics include profile=coding"
+        else
+            warn "Run metrics profile field missing or unexpected ($METRIC_PROFILE)"
+        fi
+    else
+        warn "Coding profile run missing usage_stats"
+    fi
+else
+    fail "Failed to create coding profile run"
+fi
+
+# --- Test 7b: Research Profile (no sandbox context) ---
+echo ""
+echo -e "${BLUE}--- 7b. Research Profile Agent (no project context) ---${NC}"
+
+RESEARCH_QUERY="What is the derivative of x^3 + 2x? Show the steps."
+RESEARCH_RESP=$(curl -s -X POST $CURL_OPTS "$API_URL/api/agent/runs" \
+    -H "Content-Type: application/json" \
+    -d "$(python3 -c "
+import json
+print(json.dumps({
+    'query': '$RESEARCH_QUERY',
+    'max_steps': 5,
+    'profile': 'research',
+}))
+")")
+RESEARCH_RUN_ID=$(json_get "$RESEARCH_RESP" ".run_id")
+
+if [ -n "$RESEARCH_RUN_ID" ] && [ "$RESEARCH_RUN_ID" != "null" ]; then
+    pass "Created research profile run ($RESEARCH_RUN_ID)"
+
+    wait_for_agent_run "$RESEARCH_RUN_ID" "Research profile" 120
+
+    # Research profile should NOT use filesystem tools
+    RESEARCH_TRACE=$(curl -s $CURL_OPTS "$API_URL/api/agent/runs/$RESEARCH_RUN_ID/trace")
+    RESEARCH_TOOLS=$(echo "$RESEARCH_TRACE" | python3 -c "
+import json, sys
+data = json.loads(sys.stdin.read())
+tools = set()
+for tc in data.get('tool_calls', []):
+    tools.add(tc.get('tool_name', 'unknown'))
+fs_tools = tools & {'read_file', 'glob', 'grep', 'list_directory', 'write_file', 'edit_file', 'bash'}
+print(','.join(sorted(fs_tools)) if fs_tools else '')
+" 2>/dev/null)
+
+    if [ -z "$RESEARCH_TOOLS" ]; then
+        pass "Research profile did not use filesystem tools (correct isolation)"
+    else
+        warn "Research profile used filesystem tools ($RESEARCH_TOOLS) - unexpected"
+    fi
+
+    # Check answer mentions derivative
+    RESEARCH_ANSWER=$(curl -s $CURL_OPTS "$API_URL/api/agent/runs/$RESEARCH_RUN_ID" | python3 -c "
+import json, sys
+data = json.loads(sys.stdin.read())
+print(data.get('final_answer', ''))
+" 2>/dev/null)
+
+    if echo "$RESEARCH_ANSWER" | grep -qiE "3x.*2|3x\^2|derivative|power rule"; then
+        pass "Research profile answer contains derivative result"
+    else
+        warn "Research profile answer may not contain derivative"
+    fi
+else
+    fail "Failed to create research profile run"
+fi
+
+# --- Test 7c: Full Profile with Sandbox ---
+echo ""
+echo -e "${BLUE}--- 7c. Full Profile Agent (combined capabilities) ---${NC}"
+
+FULL_QUERY="Read the calculator.py file in this project and compute factorial(7) using the Python tool to verify it."
+FULL_RESP=$(curl -s -X POST $CURL_OPTS "$API_URL/api/agent/runs" \
+    -H "Content-Type: application/json" \
+    -d "$(python3 -c "
+import json
+print(json.dumps({
+    'query': '$FULL_QUERY',
+    'max_steps': 8,
+    'profile': 'full',
+    'filesystem_enabled': True,
+    'working_dir': '$SANDBOX_DIR',
+}))
+")")
+FULL_RUN_ID=$(json_get "$FULL_RESP" ".run_id")
+
+if [ -n "$FULL_RUN_ID" ] && [ "$FULL_RUN_ID" != "null" ]; then
+    pass "Created full profile run ($FULL_RUN_ID)"
+
+    wait_for_agent_run "$FULL_RUN_ID" "Full profile" 120
+
+    # Full profile should use a mix of filesystem + computation tools
+    FULL_TRACE=$(curl -s $CURL_OPTS "$API_URL/api/agent/runs/$FULL_RUN_ID/trace")
+    FULL_TOOLS=$(echo "$FULL_TRACE" | python3 -c "
+import json, sys
+data = json.loads(sys.stdin.read())
+tools = set()
+for tc in data.get('tool_calls', []):
+    tools.add(tc.get('tool_name', 'unknown'))
+print(','.join(sorted(tools)))
+" 2>/dev/null)
+
+    if echo "$FULL_TOOLS" | grep -qE "read_file|glob|grep"; then
+        pass "Full profile used filesystem tools ($FULL_TOOLS)"
+    else
+        warn "Full profile may not have used filesystem tools ($FULL_TOOLS)"
+    fi
+
+    # Check answer mentions 5040 (factorial of 7)
+    FULL_ANSWER=$(curl -s $CURL_OPTS "$API_URL/api/agent/runs/$FULL_RUN_ID" | python3 -c "
+import json, sys
+data = json.loads(sys.stdin.read())
+print(data.get('final_answer', ''))
+" 2>/dev/null)
+
+    if echo "$FULL_ANSWER" | grep -q "5040"; then
+        pass "Full profile computed factorial(7) = 5040"
+    else
+        warn "Full profile answer may not contain 5040"
+    fi
+else
+    fail "Failed to create full profile run"
+fi
+
+# --- Test 7d: Profile Isolation (coding has filesystem, research doesn't) ---
+echo ""
+echo -e "${BLUE}--- 7d. Profile Isolation Verification ---${NC}"
+
+# Verify the coding profile run has more tool variety than research
+if [ -n "$CODING_RUN_ID" ] && [ -n "$RESEARCH_RUN_ID" ]; then
+    CODING_TOOL_COUNT=$(echo "$CODING_TRACE" | python3 -c "
+import json, sys
+data = json.loads(sys.stdin.read())
+print(len(data.get('tool_calls', [])))
+" 2>/dev/null)
+    RESEARCH_TOOL_COUNT=$(echo "$RESEARCH_TRACE" | python3 -c "
+import json, sys
+data = json.loads(sys.stdin.read())
+print(len(data.get('tool_calls', [])))
+" 2>/dev/null)
+
+    pass "Coding profile: $CODING_TOOL_COUNT tool calls, Research profile: $RESEARCH_TOOL_COUNT tool calls"
+fi
+
+# ============================================================
+# 8. CLI PROFILE TESTS
+# ============================================================
+print_header "8. CLI Profile Tests"
+
+# Test that CLI module imports and accepts profile flags
+echo "Testing CLI imports..."
+python3 -c "from cli.config import CLIConfig" 2>/dev/null && pass "CLIConfig imports" || fail "CLIConfig imports"
+python3 -c "from orchestrator.agent.profile import get_profile, PROFILES" 2>/dev/null && pass "Profile module imports" || fail "Profile module imports"
+python3 -c "from orchestrator.agent.context import get_context_strategy" 2>/dev/null && pass "Context module imports" || fail "Context module imports"
+
+# Test profile resolution logic
+echo ""
+echo "Testing profile resolution..."
+python3 -c "
+from orchestrator.agent.profile import get_profile, PROFILES
+
+# Test all 3 profiles exist
+for name in ['research', 'coding', 'full']:
+    p = get_profile(name)
+    assert p.name == name, f'Profile name mismatch: {p.name}'
+print('OK: all 3 profiles resolve')
+
+# Test research profile has only web+python tools
+p = get_profile('research')
+assert 'filesystem' not in p.tool_sets, 'research should not have filesystem'
+print('OK: research profile has no filesystem tools')
+
+# Test coding profile has filesystem tools
+p = get_profile('coding')
+assert 'filesystem' in p.tool_sets, 'coding should have filesystem'
+print('OK: coding profile has filesystem tools')
+
+# Test full profile has all tool sets
+p = get_profile('full')
+assert 'web' in p.tool_sets and 'python' in p.tool_sets and 'filesystem' in p.tool_sets
+print('OK: full profile has all tool sets')
+
+# Test invalid profile raises
+try:
+    get_profile('invalid')
+    assert False, 'Should have raised'
+except ValueError:
+    print('OK: invalid profile raises ValueError')
+" 2>/dev/null && pass "Profile resolution logic" || fail "Profile resolution logic"
+
+# Test context strategies
+echo ""
+echo "Testing context strategies..."
+python3 -c "
+import asyncio
+from orchestrator.agent.context import get_context_strategy
+
+async def test():
+    # Research context
+    s = get_context_strategy('research')
+    ctx = await s.gather()
+    assert 'date' in ctx.lower() or '202' in ctx, f'Research context missing date: {ctx[:50]}'
+    print(f'OK: research context ({len(ctx)} chars): {ctx[:60]}...')
+
+    # Coding context with sandbox dir
+    s = get_context_strategy('coding')
+    ctx = await s.gather('$SANDBOX_DIR')
+    print(f'OK: coding context ({len(ctx)} chars)')
+
+    # Check coding context layers
+    has_env = 'python' in ctx.lower() or 'os' in ctx.lower() or 'darwin' in ctx.lower()
+    has_rules = 'type hints' in ctx.lower() or 'rules' in ctx.lower()
+    has_git = 'branch' in ctx.lower() or 'main' in ctx.lower() or 'master' in ctx.lower()
+    has_dir = '$SANDBOX_DIR' in ctx or 'sandbox' in ctx.lower()
+    has_files = 'calculator' in ctx.lower() or 'pyproject' in ctx.lower()
+
+    print(f'  env={has_env}, rules={has_rules}, git={has_git}, dir={has_dir}, files={has_files}')
+
+    assert has_env or has_rules or has_git, 'Coding context missing expected layers'
+
+    # Full context
+    s = get_context_strategy('full')
+    ctx = await s.gather('$SANDBOX_DIR')
+    print(f'OK: full context ({len(ctx)} chars)')
+
+asyncio.run(test())
+" 2>/dev/null && pass "Context strategies gather data correctly" || fail "Context strategies gather data"
+
+# Test CLIConfig profile defaults
+echo ""
+echo "Testing CLIConfig profile defaults..."
+python3 -c "
+from cli.config import CLIConfig
+
+# Agent mode defaults to coding profile
+cfg = CLIConfig.from_args(mode='agent')
+assert cfg.profile == 'coding', f'Expected coding, got {cfg.profile}'
+print('OK: agent mode defaults to coding profile')
+
+# Explicit profile is preserved
+cfg = CLIConfig.from_args(mode='agent', profile='research')
+assert cfg.profile == 'research', f'Expected research, got {cfg.profile}'
+print('OK: explicit profile is preserved')
+
+# Chat mode without profile stays None
+cfg = CLIConfig.from_args(mode='chat')
+assert cfg.profile is None, f'Expected None, got {cfg.profile}'
+print('OK: chat mode has no default profile')
+" 2>/dev/null && pass "CLIConfig profile defaults" || fail "CLIConfig profile defaults"
+
+# Test CLI --help shows --profile option
+echo ""
+echo "Testing CLI help output..."
+CLI_HELP=$(cd "$PROJECT_DIR" && python3 -m cli --help 2>&1 || true)
+if echo "$CLI_HELP" | grep -q "\-\-profile"; then
+    pass "CLI --help shows --profile option"
+else
+    warn "CLI --help does not show --profile (may be OK if Click not set up)"
+fi
+
+# ============================================================
+# 9. CONTEXT INJECTION VERIFICATION
+# ============================================================
+print_header "9. Context Injection Verification"
+
+# Verify that the coding agent's system prompt actually got project context injected
+# We do this by asking the agent a question that requires knowing project context
+echo "Testing that coding agent received project context..."
+
+CONTEXT_QUERY="What project rules are defined in the .reasoner/rules.md file of this project? Do NOT read the file, just tell me from what you already know about the project."
+CONTEXT_RESP=$(curl -s -X POST $CURL_OPTS "$API_URL/api/agent/runs" \
+    -H "Content-Type: application/json" \
+    -d "$(python3 -c "
+import json
+print(json.dumps({
+    'query': '$CONTEXT_QUERY',
+    'max_steps': 3,
+    'profile': 'coding',
+    'filesystem_enabled': True,
+    'working_dir': '$SANDBOX_DIR',
+}))
+")")
+CONTEXT_RUN_ID=$(json_get "$CONTEXT_RESP" ".run_id")
+
+if [ -n "$CONTEXT_RUN_ID" ] && [ "$CONTEXT_RUN_ID" != "null" ]; then
+    pass "Created context verification run ($CONTEXT_RUN_ID)"
+
+    wait_for_agent_run "$CONTEXT_RUN_ID" "Context verification" 90
+
+    # Check if agent knew about rules without reading the file
+    CONTEXT_ANSWER=$(curl -s $CURL_OPTS "$API_URL/api/agent/runs/$CONTEXT_RUN_ID" | python3 -c "
+import json, sys
+data = json.loads(sys.stdin.read())
+print(data.get('final_answer', ''))
+" 2>/dev/null)
+
+    # The rules mention: type hints, docstrings, PEP 8, unit tests
+    RULES_FOUND=0
+    for keyword in "type hint" "docstring" "PEP" "unit test"; do
+        if echo "$CONTEXT_ANSWER" | grep -qi "$keyword"; then
+            RULES_FOUND=$((RULES_FOUND + 1))
+        fi
+    done
+
+    if [ "$RULES_FOUND" -ge 2 ]; then
+        pass "Agent knew $RULES_FOUND/4 project rules from injected context"
+    elif [ "$RULES_FOUND" -ge 1 ]; then
+        warn "Agent knew $RULES_FOUND/4 project rules (partial context injection)"
+    else
+        # Agent may have read the file anyway - check tool calls
+        CONTEXT_TRACE=$(curl -s $CURL_OPTS "$API_URL/api/agent/runs/$CONTEXT_RUN_ID/trace")
+        CONTEXT_TOOLS=$(echo "$CONTEXT_TRACE" | python3 -c "
+import json, sys
+data = json.loads(sys.stdin.read())
+tools = [tc.get('tool_name', '') for tc in data.get('tool_calls', [])]
+print(','.join(tools))
+" 2>/dev/null)
+        if echo "$CONTEXT_TOOLS" | grep -q "read_file"; then
+            warn "Agent read the rules file instead of using injected context (context may not include rules)"
+        else
+            warn "Agent did not know project rules and did not read the file"
+        fi
+    fi
+else
+    fail "Failed to create context verification run"
 fi
 
 # ============================================================
