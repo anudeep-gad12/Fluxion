@@ -136,6 +136,8 @@ class ToolRegistry:
 def create_tool_registry(
     config: "ChatConfig",
     calculation_only: bool = False,
+    filesystem_enabled: bool = False,
+    working_dir: Optional[str] = None,
 ) -> ToolRegistry:
     """Factory function to create registry with configured tools.
 
@@ -144,6 +146,8 @@ def create_tool_registry(
         calculation_only: If True, tool_choice=python_execute is used (tools still registered).
             Used for calculation queries where we want to force code execution
             without web search distraction.
+        filesystem_enabled: If True, register filesystem and shell tools (CLI mode).
+        working_dir: Working directory for filesystem tools (required if filesystem_enabled).
 
     Returns:
         Configured ToolRegistry with tools.
@@ -211,5 +215,28 @@ def create_tool_registry(
             )
         )
         logger.info("Registered web tools (web_search, web_extract)")
+
+    # Register filesystem and shell tools (CLI mode)
+    if filesystem_enabled:
+        wd = working_dir or os.getcwd()
+        from .bash_tool import BashTool
+        from .edit_file import EditFileTool
+        from .glob_tool import GlobTool
+        from .grep_tool import GrepTool
+        from .list_directory import ListDirectoryTool
+        from .read_file import ReadFileTool
+        from .write_file import WriteFileTool
+
+        registry.register(ReadFileTool(working_dir=wd))
+        registry.register(ListDirectoryTool(working_dir=wd))
+        registry.register(GlobTool(working_dir=wd))
+        registry.register(GrepTool(working_dir=wd))
+        registry.register(WriteFileTool(working_dir=wd))
+        registry.register(EditFileTool(working_dir=wd))
+        registry.register(BashTool(working_dir=wd))
+        logger.info(
+            "Registered filesystem tools",
+            extra={"working_dir": wd, "tools": 7},
+        )
 
     return registry

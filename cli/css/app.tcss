@@ -1,0 +1,42 @@
+/* Reasoner CLI — Textual CSS */
+
+Screen {
+    background: $background;
+}
+
+Header {
+    dock: top;
+    height: 1;
+    background: $primary-background;
+}
+
+Footer {
+    dock: bottom;
+}
+
+/* Message list */
+#message-list {
+    height: 1fr;
+    padding: 0;
+}
+
+/* Input area */
+#input-area {
+    height: 3;
+    min-height: 3;
+    max-height: 8;
+    margin: 0 1;
+    border: round $surface-lighten-2;
+}
+
+#input-area:focus {
+    border: round $primary;
+}
+
+/* Agent progress */
+#agent-progress {
+    dock: top;
+    height: 1;
+    margin: 0 1;
+    color: $text-muted;
+}

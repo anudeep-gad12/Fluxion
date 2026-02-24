@@ -31,6 +31,9 @@ async def create_agent_engine(
     system_prompt: Optional[str] = None,
     query: Optional[str] = None,
     provider_override: Optional[object] = None,
+    filesystem_enabled: bool = False,
+    working_dir: Optional[str] = None,
+    approval_callback: Optional[object] = None,
 ) -> AgentEngine:
     """Create a fully configured AgentEngine.
 
@@ -101,7 +104,12 @@ async def create_agent_engine(
         )
 
     # Create tool registry - for calculation queries, only python_execute
-    registry = create_tool_registry(config, calculation_only=calculation_only)
+    registry = create_tool_registry(
+        config,
+        calculation_only=calculation_only,
+        filesystem_enabled=filesystem_enabled,
+        working_dir=working_dir,
+    )
 
     # Create repositories
     db = await get_db()
@@ -129,6 +137,7 @@ async def create_agent_engine(
         slow_response_threshold=config.provider.slow_response_threshold,
         planning_enabled=planning_enabled,
         max_plan_steps=max_plan_steps,
+        approval_callback=approval_callback,
     )
 
     logger.info(
