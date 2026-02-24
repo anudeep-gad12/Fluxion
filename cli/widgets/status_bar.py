@@ -34,7 +34,7 @@ _THINKING_PHRASES = [
 class StatusBar(Horizontal):
     """Bottom status bar for the TUI.
 
-    Shows: mode | provider/model | activity | connection status.
+    Shows: mode | provider/model | activity  ···  connection dot.
     Cycling activity phrases while agent is running.
     """
 
@@ -61,6 +61,7 @@ class StatusBar(Horizontal):
             classes="status-item status-mode",
             id="status-mode",
         )
+        yield Static(" | ", classes="status-item status-separator")
         provider_text = (
             f"{self._provider}/{self._model}" if self._model else self._provider
         )
@@ -69,9 +70,11 @@ class StatusBar(Horizontal):
             classes="status-item status-provider",
             id="status-provider",
         )
+        yield Static(" | ", classes="status-item status-separator")
         yield Static("", classes="status-item status-activity", id="status-activity")
+        yield Static("", classes="status-spacer")
         yield Static(
-            " connected " if self._connected else " disconnected ",
+            " ○ " if not self._connected else " ● ",
             classes="status-item "
             + ("status-connection" if self._connected else "status-disconnected"),
             id="status-connection",
@@ -110,6 +113,6 @@ class StatusBar(Horizontal):
         """Update connection status."""
         self._connected = connected
         conn = self.query_one("#status-connection", Static)
-        conn.update(" connected " if connected else " disconnected ")
+        conn.update(" ● " if connected else " ○ ")
         conn.remove_class("status-connection", "status-disconnected")
         conn.add_class("status-connection" if connected else "status-disconnected")
