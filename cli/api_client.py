@@ -32,6 +32,8 @@ class APIClient:
             headers["X-Provider"] = config.provider
         if config.model:
             headers["X-Model"] = config.model
+        if config.session_id:
+            headers["X-CLI-Session"] = config.session_id
 
         cookies = {}
         if config.session_cookie:
@@ -43,6 +45,17 @@ class APIClient:
             cookies=cookies,
             timeout=30.0,
         )
+
+    def set_session(self, session_id: str) -> None:
+        """Set CLI session ID after login.
+
+        Updates headers on the live client so subsequent requests
+        include the session for ChatGPT token lookup.
+        """
+        self._config.session_id = session_id
+        self._client.headers["X-CLI-Session"] = session_id
+        # Also set provider to chatgpt
+        self._client.headers["X-Provider"] = "chatgpt"
 
     async def create_agent_run(
         self,

@@ -503,11 +503,16 @@ def _get_callback_url(request: Request) -> str:
 
 
 @router.get("/login")
-async def chatgpt_login(request: Request):
+async def chatgpt_login(request: Request, cli_session: Optional[str] = None):
     """Initiate ChatGPT OAuth PKCE flow.
 
     Redirects the user to OpenAI's auth page. The callback is handled
     by the /callback route on this same FastAPI app.
+
+    Args:
+        cli_session: Optional session ID from CLI client. When the CLI
+            opens the browser for OAuth, it passes its session ID so
+            tokens get linked to the CLI's session, not the browser's.
     """
     config = get_chat_config()
     chatgpt_config = config.chatgpt
@@ -525,8 +530,8 @@ async def chatgpt_login(request: Request):
     # Generate state for CSRF protection
     state = secrets.token_urlsafe(32)
 
-    # Get session ID so the callback can store tokens for this session
-    session_id = _get_session_id(request) or secrets.token_urlsafe(32)
+    # CLI passes its session ID explicitly; otherwise use cookie-based session
+    session_id = cli_session or _get_session_id(request) or secrets.token_urlsafe(32)
 
     # Store PKCE state (including redirect_uri for token exchange)
     _pending_auth[state] = {
@@ -601,14 +606,14 @@ async def chatgpt_callback(
 
 
 @router.get("/status")
-async def chatgpt_status(request: Request):
+async def chatgpt_status(request: Request, cli_session: Optional[str] = None):
     """Check current ChatGPT authentication status."""
     config = get_chat_config()
     chatgpt_config = config.chatgpt
     if not chatgpt_config or not chatgpt_config.enabled:
         return {"enabled": False, "authenticated": False}
 
-    session_id = _get_session_id(request)
+    session_id = cli_session or _get_session_id(request)
     if not session_id:
         return {"enabled": True, "authenticated": False}
 
