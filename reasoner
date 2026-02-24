@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Reasoner CLI — launch script
+# Usage: ./reasoner [OPTIONS]
+#
+# Starts the API server if it's not already running, then launches the TUI.
+# All arguments are passed through to the CLI app.
+#
+# Examples:
+#   ./reasoner                              # agent mode, strict permissions
+#   ./reasoner --mode chat                  # chat-only, no tools
+#   ./reasoner --permission yolo            # auto-approve all tools
+#   ./reasoner --provider chatgpt           # use ChatGPT provider
+#   ./reasoner --working-dir ~/myproject    # set working directory
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$SCRIPT_DIR"
+
+# Ensure CLI deps are installed
+if ! uv run python -c "import textual" 2>/dev/null; then
+    echo "Installing CLI dependencies..."
+    uv sync --extra cli
+fi
+
+# Start API if not running
+if ! curl -sf http://127.0.0.1:9000/api/health > /dev/null 2>&1; then
+    echo "Starting API server..."
+    ./dev.sh api
+    # Wait for health
+    for i in $(seq 1 10); do
+        if curl -sf http://127.0.0.1:9000/api/health > /dev/null 2>&1; then
+            break
+        fi
+        sleep 1
+    done
+fi
+
+# Default working-dir to where the user invoked the command from
+WORKING_DIR="${OLDPWD:-$(pwd)}"
+
+exec uv run python -m cli --working-dir "$WORKING_DIR" "$@"

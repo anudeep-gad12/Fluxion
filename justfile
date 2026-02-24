@@ -7,7 +7,7 @@ default:
 
 # Install all dependencies
 install:
-    uv sync
+    uv sync --extra cli
     cd ui && pnpm install
 
 # Start development servers (UI + Orchestrator)
@@ -26,13 +26,23 @@ ui:
 build:
     cd ui && pnpm build
 
+# Launch the CLI TUI (starts API if not running)
+cli *ARGS:
+    #!/usr/bin/env bash
+    if ! curl -sf http://127.0.0.1:9000/api/health > /dev/null 2>&1; then
+        echo "Starting API server..."
+        ./dev.sh api
+        sleep 2
+    fi
+    uv run python -m cli --working-dir "$(pwd)" {{ARGS}}
+
 # Run Python linting
 lint:
-    uv run ruff check orchestrator
+    uv run ruff check orchestrator cli
 
 # Run Python formatting
 fmt:
-    uv run ruff format orchestrator
+    uv run ruff format orchestrator cli
 
 # Run tests
 test:

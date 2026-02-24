@@ -360,6 +360,17 @@ case "${1:-start}" in
     status)
         show_status
         ;;
+    cli)
+        # Launch CLI TUI, starting API if needed
+        if ! curl -s http://localhost:9000/api/health > /dev/null 2>&1; then
+            log "API not running — starting it first..."
+            start_api
+        fi
+        shift
+        log "Launching CLI..."
+        cd "$PROJECT_DIR"
+        uv run python -m cli --working-dir "$(pwd)" "$@"
+        ;;
     provider)
         switch_provider "$2"
         ;;
@@ -372,6 +383,7 @@ case "${1:-start}" in
         echo "  restart   Restart all services"
         echo "  api       Start only the API"
         echo "  ui        Start only the UI"
+        echo "  cli       Launch CLI TUI (auto-starts API)"
         echo "  logs      Tail combined logs (api.log summary + app.log live)"
         echo "  applogs   Tail structured app logs (JSON, pretty-printed)"
         echo "  debug     Show recent errors and debugging commands"
