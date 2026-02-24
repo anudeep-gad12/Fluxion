@@ -278,6 +278,12 @@ class ChatGPTConfig(BaseModel):
     callback_path: str = "/auth/callback"
     default_model: str = "gpt-5.2-codex"
     reasoning_effort: Literal["low", "medium", "high"] = "medium"
+    available_models: List[Dict[str, str]] = [
+        {"id": "gpt-5.2-codex", "label": "GPT-5.2 Codex"},
+        {"id": "o4-mini", "label": "o4-mini"},
+        {"id": "gpt-4o", "label": "GPT-4o"},
+        {"id": "o3", "label": "o3"},
+    ]
 
 
 class ChatModelConfig(BaseModel):

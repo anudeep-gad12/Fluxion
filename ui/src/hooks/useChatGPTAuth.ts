@@ -11,9 +11,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 const PROVIDER_PREF_KEY = 'reasoner_provider';
+const MODEL_PREF_KEY = 'reasoner_chatgpt_model';
 const API_BASE = '/api';
 
 export type Provider = 'deepinfra' | 'chatgpt';
+
+interface ModelOption {
+  id: string;
+  label: string;
+}
 
 interface ChatGPTAuthStatus {
   enabled: boolean;
@@ -21,6 +27,7 @@ interface ChatGPTAuthStatus {
   account_id?: string;
   expires_at?: number;
   model?: string;
+  available_models?: ModelOption[];
 }
 
 interface UseChatGPTAuth {
@@ -32,6 +39,12 @@ interface UseChatGPTAuth {
   accountId: string | null;
   /** Default model when using ChatGPT provider */
   model: string | null;
+  /** Currently selected model */
+  selectedModel: string | null;
+  /** Set the selected model */
+  setSelectedModel: (m: string) => void;
+  /** Available models for the dropdown */
+  availableModels: ModelOption[];
   /** Currently selected provider */
   provider: Provider;
   /** Set the active provider */
@@ -53,6 +66,10 @@ export function useChatGPTAuth(): UseChatGPTAuth {
     const stored = localStorage.getItem(PROVIDER_PREF_KEY);
     return stored === 'chatgpt' ? 'chatgpt' : 'deepinfra';
   });
+  const [selectedModel, setSelectedModelState] = useState<string | null>(() => {
+    return localStorage.getItem(MODEL_PREF_KEY);
+  });
+  const [availableModels, setAvailableModels] = useState<ModelOption[]>([]);
   const [loginPending, setLoginPending] = useState(false);
   const popupRef = useRef<Window | null>(null);
 
@@ -64,6 +81,16 @@ export function useChatGPTAuth(): UseChatGPTAuth {
         const data: ChatGPTAuthStatus = await response.json();
         setStatus(data);
 
+        // Update available models from server
+        if (data.available_models && data.available_models.length > 0) {
+          setAvailableModels(data.available_models);
+          // If no model selected yet, default to server's default
+          if (!selectedModel && data.model) {
+            setSelectedModelState(data.model);
+            localStorage.setItem(MODEL_PREF_KEY, data.model);
+          }
+        }
+
         // If not authenticated but provider is chatgpt, reset to deepinfra
         if (!data.authenticated && provider === 'chatgpt') {
           setProviderState('deepinfra');
@@ -74,7 +101,7 @@ export function useChatGPTAuth(): UseChatGPTAuth {
       // Status endpoint unavailable - feature disabled
       setStatus({ enabled: false, authenticated: false });
     }
-  }, [provider]);
+  }, [provider, selectedModel]);
 
   useEffect(() => {
     fetchStatus();
@@ -148,11 +175,22 @@ export function useChatGPTAuth(): UseChatGPTAuth {
     [],
   );
 
+  const setSelectedModel = useCallback(
+    (m: string) => {
+      setSelectedModelState(m);
+      localStorage.setItem(MODEL_PREF_KEY, m);
+    },
+    [],
+  );
+
   return {
     enabled: status.enabled,
     authenticated: status.authenticated,
     accountId: status.account_id ?? null,
     model: status.model ?? null,
+    selectedModel,
+    setSelectedModel,
+    availableModels,
     provider,
     setProvider,
     login,

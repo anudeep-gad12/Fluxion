@@ -140,6 +140,27 @@ Examples:
         help="Number of parallel evaluations (default: 1, sequential)",
     )
 
+    parser.add_argument(
+        "--provider",
+        type=str,
+        default=None,
+        help="LLM provider override: 'chatgpt' or 'deepinfra' (default: server default)",
+    )
+
+    parser.add_argument(
+        "--session-id",
+        type=str,
+        default=None,
+        help="Session ID with ChatGPT tokens (from browser cookie)",
+    )
+
+    parser.add_argument(
+        "--model",
+        type=str,
+        default=None,
+        help="Model name override (e.g., 'o4-mini', 'gpt-5.2-codex')",
+    )
+
     return parser.parse_args()
 
 
@@ -178,6 +199,9 @@ async def main() -> int:
         verbose=not args.quiet,
         api_url=args.api_url,
         concurrency=args.concurrency,
+        provider=args.provider,
+        session_id=args.session_id,
+        model=args.model,
     )
 
     if not args.quiet:
@@ -188,6 +212,12 @@ async def main() -> int:
         print(f"Split: {config.split}")
         print(f"Mode: {config.mode}")
         print(f"API: {config.api_url}")
+        if config.provider:
+            print(f"Provider: {config.provider}")
+        if config.model:
+            print(f"Model: {config.model}")
+        if config.session_id:
+            print(f"Session: {config.session_id[:8]}...")
         if config.concurrency > 1:
             print(f"Concurrency: {config.concurrency} parallel")
         if config.task_ids:

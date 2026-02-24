@@ -622,6 +622,18 @@ export function ConversationView() {
                   </select>
                 </>
               )}
+              {chatgptAuth.provider === 'chatgpt' && chatgptAuth.authenticated && chatgptAuth.availableModels.length > 0 && (
+                <select
+                  value={chatgptAuth.selectedModel || ''}
+                  onChange={(e) => chatgptAuth.setSelectedModel(e.target.value)}
+                  className="bg-transparent border-none outline-none text-xs font-mono text-zinc-500 cursor-pointer"
+                  title="ChatGPT model"
+                >
+                  {chatgptAuth.availableModels.map((m) => (
+                    <option key={m.id} value={m.id}>{m.label}</option>
+                  ))}
+                </select>
+              )}
               <span className="text-zinc-700">|</span>
               {isGenerating ? (
                 <button onClick={handleStop} className="text-red-400 hover:text-red-300 transition-colors">
@@ -746,6 +758,32 @@ export function ConversationView() {
                 <option value="low">fast</option>
                 <option value="medium">balanced</option>
                 <option value="high">deep</option>
+              </select>
+            )}
+            {chatgptAuth.authenticated && (
+              <>
+                <span className="text-zinc-700">|</span>
+                <select
+                  value={chatgptAuth.provider}
+                  onChange={(e) => chatgptAuth.setProvider(e.target.value as 'deepinfra' | 'chatgpt')}
+                  className="bg-transparent border-none outline-none text-xs font-mono text-zinc-500 cursor-pointer"
+                  title="LLM provider"
+                >
+                  <option value="deepinfra">deepinfra</option>
+                  <option value="chatgpt">chatgpt</option>
+                </select>
+              </>
+            )}
+            {chatgptAuth.provider === 'chatgpt' && chatgptAuth.authenticated && chatgptAuth.availableModels.length > 0 && (
+              <select
+                value={chatgptAuth.selectedModel || ''}
+                onChange={(e) => chatgptAuth.setSelectedModel(e.target.value)}
+                className="bg-transparent border-none outline-none text-xs font-mono text-zinc-500 cursor-pointer"
+                title="ChatGPT model"
+              >
+                {chatgptAuth.availableModels.map((m) => (
+                  <option key={m.id} value={m.id}>{m.label}</option>
+                ))}
               </select>
             )}
             <span className="text-zinc-700">|</span>
