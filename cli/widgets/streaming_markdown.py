@@ -7,14 +7,7 @@ class StreamingMarkdown(Markdown):
     """Markdown widget that supports incremental token appending.
 
     Used for rendering the assistant's streaming response.
-    Debounces re-renders to avoid excessive reflow.
-    """
-
-    DEFAULT_CSS = """
-    StreamingMarkdown {
-        margin: 0 1;
-        padding: 0;
-    }
+    Styling is handled by the app.tcss file.
     """
 
     def __init__(self, **kwargs) -> None:
@@ -22,20 +15,12 @@ class StreamingMarkdown(Markdown):
         self._buffer = ""
 
     def append_token(self, token: str) -> None:
-        """Append a token to the streaming buffer and re-render.
-
-        Args:
-            token: Text token to append.
-        """
+        """Append a token to the streaming buffer and re-render."""
         self._buffer += token
         self.update(self._buffer)
 
     def set_content(self, content: str) -> None:
-        """Set the full content, replacing the buffer.
-
-        Args:
-            content: Full markdown content.
-        """
+        """Set the full content, replacing the buffer."""
         self._buffer = content
         self.update(self._buffer)
 

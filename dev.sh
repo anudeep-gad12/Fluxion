@@ -361,6 +361,11 @@ case "${1:-start}" in
         show_status
         ;;
     cli)
+        # Install CLI deps if needed
+        if ! uv run python -c "import textual" 2>/dev/null; then
+            log "Installing CLI dependencies..."
+            uv sync --extra cli
+        fi
         # Launch CLI TUI, starting API if needed
         if ! curl -s http://localhost:9000/api/health > /dev/null 2>&1; then
             log "API not running — starting it first..."

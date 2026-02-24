@@ -9,24 +9,7 @@ class MessageBubble(Vertical):
     """A single message bubble (user or assistant).
 
     User messages are styled differently from assistant messages.
-    """
-
-    DEFAULT_CSS = """
-    MessageBubble {
-        margin: 0 1;
-        padding: 0 1;
-    }
-    MessageBubble .message-role {
-        color: $text-muted;
-        text-style: bold;
-        margin-bottom: 0;
-    }
-    MessageBubble.user .message-role {
-        color: $success;
-    }
-    MessageBubble.assistant .message-role {
-        color: $primary;
-    }
+    Styling is handled by the app.tcss file.
     """
 
     def __init__(self, role: str, content: str = "", **kwargs) -> None:
@@ -44,8 +27,9 @@ class MessageBubble(Vertical):
     def compose(self) -> ComposeResult:
         """Compose the message bubble."""
         role_label = "You" if self._role == "user" else "Assistant"
-        yield Label(f"{role_label}:", classes="message-role")
-        if self._role == "user":
-            yield Static(self._content, classes="message-content")
-        else:
-            yield Markdown(self._content, classes="message-content")
+        yield Label(f"{role_label}", classes="message-role")
+        if self._content:
+            if self._role == "user":
+                yield Static(self._content, classes="message-content")
+            else:
+                yield Markdown(self._content, classes="message-content")
