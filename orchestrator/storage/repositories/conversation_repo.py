@@ -180,6 +180,8 @@ class ConversationRepo:
             values.append(json.dumps(metadata, ensure_ascii=False))
 
         if updates:
+            updates.append("updated_at = ?")
+            values.append(datetime.now(timezone.utc).isoformat())
             values.append(conversation_id)
             await self.db.conn.execute(
                 f"UPDATE conversations SET {', '.join(updates)} WHERE conversation_id = ?",

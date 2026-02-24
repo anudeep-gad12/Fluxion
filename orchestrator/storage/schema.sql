@@ -188,6 +188,12 @@ CREATE TABLE IF NOT EXISTS agent_tool_calls (
     execution_attempt INTEGER DEFAULT 1,
     result_summary TEXT,              -- 1-line only, no blobs
     error_message TEXT,
+    -- Observability: approval audit trail
+    approval_decision TEXT,           -- approved | denied | auto | timeout
+    approval_policy TEXT,             -- strict | relaxed | yolo
+    approval_decided_at TEXT,         -- ISO timestamp
+    -- Observability: full tool result for write tools
+    result_detail TEXT,               -- Full result (up to 10k chars) for write/edit/bash tools
     FOREIGN KEY(run_id) REFERENCES runs(run_id) ON DELETE CASCADE,
     FOREIGN KEY(step_id) REFERENCES agent_steps(id) ON DELETE CASCADE
 );
@@ -213,3 +219,36 @@ CREATE INDEX IF NOT EXISTS idx_agent_tool_calls_run ON agent_tool_calls(run_id);
 CREATE INDEX IF NOT EXISTS idx_agent_tool_calls_step ON agent_tool_calls(step_id);
 CREATE INDEX IF NOT EXISTS idx_agent_tool_calls_status ON agent_tool_calls(status);
 CREATE INDEX IF NOT EXISTS idx_agent_citations_run ON agent_citations(run_id);
+
+-- =============================================================================
+-- Observability Tables
+-- =============================================================================
+
+-- Persisted SSE events (survives in-memory cleanup)
+CREATE TABLE IF NOT EXISTS run_events (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    seq INTEGER NOT NULL,
+    event_type TEXT NOT NULL,
+    event_data TEXT NOT NULL,          -- JSON
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(run_id) REFERENCES runs(run_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_run_events_run_seq ON run_events(run_id, seq);
+
+-- File change tracking per run
+CREATE TABLE IF NOT EXISTS run_artifacts (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    artifact_type TEXT NOT NULL,       -- file_write | file_edit | command_run
+    file_path TEXT,
+    action TEXT NOT NULL,              -- write_file | edit_file | bash_tool
+    detail TEXT,                       -- Result summary or command output
+    tool_call_id TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(run_id) REFERENCES runs(run_id) ON DELETE CASCADE,
+    FOREIGN KEY(tool_call_id) REFERENCES agent_tool_calls(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_run_artifacts_run ON run_artifacts(run_id);
