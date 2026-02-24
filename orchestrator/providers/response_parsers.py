@@ -103,7 +103,7 @@ def parse_chat_result(raw: Dict[str, Any], endpoint: str) -> LLMResponse:
     Returns:
         Normalized LLMResponse.
     """
-    choices = raw.get("choices") or [{}]
+    choices = raw.get("choices")
     if not choices:
         return LLMResponse(
             text="",
