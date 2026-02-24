@@ -66,7 +66,7 @@ class ToolCallPanel(Vertical):
         yield Label(header, classes="tool-header")
         if args_summary:
             yield Label(args_summary, classes="tool-args")
-        self._result_label = Label("running...", classes="tool-result")
+        self._result_label = Label("→ running...", classes="tool-result")
         yield self._result_label
 
     def _format_args(self) -> str:
@@ -87,7 +87,8 @@ class ToolCallPanel(Vertical):
         """Set the tool result."""
         if self._result_label:
             display = summary[:200] if len(summary) > 200 else summary
-            self._result_label.update(display)
+            marker = "✓" if success else "✗"
+            self._result_label.update(f"{marker} {display}")
             self._result_label.remove_class("tool-result", "tool-error", "tool-approval")
             self._result_label.add_class("tool-result" if success else "tool-error")
 
@@ -95,7 +96,7 @@ class ToolCallPanel(Vertical):
         """Show the approval prompt."""
         self._needs_approval = True
         if self._result_label:
-            self._result_label.update("[y] approve  /  [n] deny")
+            self._result_label.update("⋯ [y] approve  /  [n] deny")
             self._result_label.remove_class("tool-result", "tool-error")
             self._result_label.add_class("tool-approval")
 
@@ -117,10 +118,10 @@ class ToolCallPanel(Vertical):
         self._needs_approval = False
         if self._result_label:
             if approved:
-                self._result_label.update("Approved - executing...")
+                self._result_label.update("→ executing...")
                 self._result_label.remove_class("tool-approval", "tool-error")
                 self._result_label.add_class("tool-result")
             else:
-                self._result_label.update("Denied by user")
+                self._result_label.update("✗ denied by user")
                 self._result_label.remove_class("tool-approval", "tool-result")
                 self._result_label.add_class("tool-error")

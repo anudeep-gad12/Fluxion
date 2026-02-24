@@ -1,4 +1,4 @@
-/* Reasoner CLI — Polished Dark Theme */
+/* Reasoner CLI — Monochrome Zinc Theme */
 
 Screen {
     background: $background;
@@ -11,7 +11,7 @@ Header {
     dock: top;
     height: 1;
     background: $surface;
-    color: $primary;
+    color: $text;
 }
 
 /* ── Footer ─────────────────────────────────────────── */
@@ -28,8 +28,8 @@ Footer {
     padding: 1 0;
     scrollbar-size: 1 1;
     scrollbar-color: $surface-lighten-2;
-    scrollbar-color-hover: $primary;
-    scrollbar-color-active: $primary;
+    scrollbar-color-hover: $surface-lighten-3;
+    scrollbar-color-active: $surface-lighten-3;
 }
 
 /* ── Input Area ─────────────────────────────────────── */
@@ -51,7 +51,7 @@ Footer {
 }
 
 #input-area:focus {
-    border: tall $primary;
+    border: tall $surface-lighten-3;
 }
 
 #input-hint {
@@ -78,26 +78,26 @@ StatusBar .status-item {
 }
 
 StatusBar .status-mode {
-    color: $primary;
+    color: $text;
     text-style: bold;
 }
 
 StatusBar .status-provider {
-    color: $text;
+    color: $text-muted;
 }
 
 StatusBar .status-step {
-    color: $warning;
+    color: $text;
     text-style: bold;
 }
 
 StatusBar .status-activity {
-    color: $accent;
+    color: $text-muted;
     text-style: italic;
 }
 
 StatusBar .status-connection {
-    color: $success;
+    color: $text-muted;
 }
 
 StatusBar .status-disconnected {
@@ -130,11 +130,11 @@ MessageBubble .message-role {
 }
 
 MessageBubble.user .message-role {
-    color: $accent;
+    color: $text-muted;
 }
 
 MessageBubble.assistant .message-role {
-    color: $primary;
+    color: $text;
 }
 
 MessageBubble .message-content {
@@ -149,13 +149,13 @@ ToolCallPanel {
     padding: 0 1;
     height: auto;
     max-height: 12;
-    border-left: thick $secondary;
+    border-left: thick $surface-lighten-2;
     background: $surface;
 }
 
 ToolCallPanel .tool-header {
     text-style: bold;
-    color: $secondary;
+    color: $text;
     height: 1;
 }
 
@@ -166,7 +166,7 @@ ToolCallPanel .tool-args {
 }
 
 ToolCallPanel .tool-result {
-    color: $success;
+    color: $text-muted;
     padding: 0 0 0 2;
 }
 
@@ -176,7 +176,7 @@ ToolCallPanel .tool-error {
 }
 
 ToolCallPanel .tool-approval {
-    color: $warning;
+    color: $text;
     text-style: bold;
     padding: 0 0 0 2;
 }
@@ -204,7 +204,7 @@ StreamingMarkdown {
 #agent-progress {
     height: 1;
     margin: 0 2;
-    color: $warning;
+    color: $text;
     text-style: bold;
     display: none;
 }
