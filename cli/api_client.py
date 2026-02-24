@@ -67,6 +67,8 @@ class APIClient:
             "working_dir": self._config.working_dir,
             "permission_policy": self._config.permission,
         }
+        if self._config.profile:
+            payload["profile"] = self._config.profile
         if conversation_id:
             payload["conversation_id"] = conversation_id
 

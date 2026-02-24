@@ -34,12 +34,21 @@ logger = get_logger(__name__)
 
 
 class PlanStepType(str, Enum):
-    """Types of plan steps."""
+    """Types of plan steps.
 
+    Includes both research and coding step types.
+    """
+
+    # Research step types
     SEARCH = "search"
     EXTRACT = "extract"
     CALCULATE = "calculate"
     SYNTHESIZE = "synthesize"
+    # Coding step types
+    READ = "read"
+    IMPLEMENT = "implement"
+    TEST = "test"
+    DEBUG = "debug"
 
 
 class PlanStepStatus(str, Enum):
@@ -211,11 +220,13 @@ Guidelines:
 
 
 class Planner:
-    """Creates research plans for agent queries.
+    """Creates research/coding plans for agent queries.
 
     Uses a lightweight LLM call to generate a structured plan
     before the main agent loop begins. The planner naturally
     scales plan complexity based on query complexity.
+
+    Supports custom planning prompts via the profile system.
 
     Example:
         planner = Planner(provider, "gpt-4")
@@ -234,6 +245,9 @@ class Planner:
         provider: "LLMProvider",
         model_name: str,
         max_plan_steps: int = 5,
+        planning_prompt: Optional[str] = None,
+        valid_step_types: Optional[List[str]] = None,
+        project_context: str = "",
     ) -> None:
         """Initialize planner.
 
@@ -241,30 +255,48 @@ class Planner:
             provider: LLM provider for planning call.
             model_name: Model to use for planning.
             max_plan_steps: Maximum steps the planner can create.
+            planning_prompt: Custom planning prompt template (uses default if None).
+            valid_step_types: Valid step types for this profile. Uses default research
+                types if None.
+            project_context: Project context string for coding/full planning prompts.
         """
         self._provider = provider
         self._model_name = model_name
         self._max_plan_steps = max_plan_steps
+        self._planning_prompt = planning_prompt or PLANNING_PROMPT
+        self._valid_step_types = set(valid_step_types) if valid_step_types else {
+            "search", "extract", "calculate", "synthesize",
+        }
+        self._project_context = project_context
 
     async def create_plan(
         self,
         query: str,
         available_tools: List[str],
     ) -> Optional[ResearchPlan]:
-        """Create a research plan for the query.
+        """Create a plan for the query.
 
         The planner LLM naturally scales plan complexity:
         - Simple queries get 1-step plans
         - Complex queries get up to max_plan_steps
 
         Args:
-            query: User's research query.
+            query: User's query.
             available_tools: List of available tool names.
 
         Returns:
             ResearchPlan if successful, None if planning fails.
         """
-        prompt = PLANNING_PROMPT.format(query=query, max_steps=self._max_plan_steps)
+        # Format the planning prompt with available template variables
+        format_kwargs = {
+            "query": query,
+            "max_steps": self._max_plan_steps,
+        }
+        # Only add project_context if the template expects it
+        if "{project_context}" in self._planning_prompt:
+            format_kwargs["project_context"] = self._project_context
+
+        prompt = self._planning_prompt.format(**format_kwargs)
 
         try:
             response = await self._provider.complete(
@@ -278,7 +310,7 @@ class Planner:
             if plan:
                 plan.created_at = datetime.now(timezone.utc).isoformat()
                 logger.info(
-                    "Created research plan",
+                    "Created plan",
                     extra={
                         "plan_id": plan.id,
                         "steps": len(plan.steps),
@@ -334,10 +366,18 @@ class Planner:
         # Parse steps
         for step_data in data.get("steps", []):
             step_type_str = step_data.get("step_type", "search")
-            try:
-                step_type = PlanStepType(step_type_str)
-            except ValueError:
-                step_type = PlanStepType.SEARCH
+            # Accept step types from profile's valid set, fall back gracefully
+            if step_type_str in self._valid_step_types:
+                try:
+                    step_type = PlanStepType(step_type_str)
+                except ValueError:
+                    # Step type is valid for profile but not in enum — use SEARCH as proxy
+                    step_type = PlanStepType.SEARCH
+            else:
+                try:
+                    step_type = PlanStepType(step_type_str)
+                except ValueError:
+                    step_type = PlanStepType.SEARCH
 
             # Handle "null" string as None
             expected_tool = step_data.get("expected_tool")

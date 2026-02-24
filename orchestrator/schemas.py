@@ -247,6 +247,7 @@ class CreateAgentRunRequest(BaseModel):
     filesystem_enabled: bool = False
     working_dir: Optional[str] = None
     permission_policy: str = "strict"
+    profile: Optional[str] = None  # "research", "coding", "full" — overrides filesystem_enabled
 
 
 class CreateAgentRunResponse(BaseModel):
