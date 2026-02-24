@@ -8,18 +8,7 @@ class ThinkingPanel(Collapsible):
     """Collapsible panel for displaying reasoning/thinking text.
 
     Starts collapsed; user can expand to see the model's reasoning.
-    """
-
-    DEFAULT_CSS = """
-    ThinkingPanel {
-        margin: 0 2;
-        height: auto;
-        max-height: 10;
-    }
-    ThinkingPanel .thinking-content {
-        color: $text-muted;
-        overflow-y: auto;
-    }
+    Styling is handled by the app.tcss file.
     """
 
     def __init__(self, **kwargs) -> None:
@@ -33,15 +22,15 @@ class ThinkingPanel(Collapsible):
         yield self._content_widget
 
     def append_token(self, token: str) -> None:
-        """Append a thinking token.
-
-        Args:
-            token: Thinking text token.
-        """
+        """Append a thinking token."""
         self._buffer += token
         if self._content_widget:
             # Show last 500 chars to keep it manageable
-            display = self._buffer[-500:] if len(self._buffer) > 500 else self._buffer
+            display = (
+                self._buffer[-500:]
+                if len(self._buffer) > 500
+                else self._buffer
+            )
             self._content_widget.update(display)
 
     def clear_content(self) -> None:

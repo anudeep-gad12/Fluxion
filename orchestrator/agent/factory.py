@@ -116,6 +116,42 @@ async def create_agent_engine(
     repo = AgentRepo(db)
     trace_repo = TraceRepo(db)
 
+    # Augment system prompt when filesystem tools are enabled
+    if filesystem_enabled:
+        fs_addendum = """
+
+=== FILESYSTEM TOOLS ===
+
+You also have LOCAL filesystem tools for working with the user's codebase:
+- read_file: Read file contents (with line numbers, offset/limit)
+- list_directory: List directory tree (respects .gitignore)
+- glob: Find files by pattern (e.g. "**/*.py")
+- grep: Search file contents with regex
+- write_file: Create or overwrite files
+- edit_file: Make precise edits (exact string replacement)
+- bash: Run shell commands
+
+IMPORTANT:
+- Use read_file/grep/glob for reading code. Do NOT use python_execute for local files.
+- python_execute runs in a REMOTE sandbox — it cannot access the local filesystem.
+- Filesystem tools operate relative to the working directory.
+- For reading files, prefer read_file over bash cat.
+- For searching, prefer grep over bash grep.
+"""
+        if system_prompt:
+            system_prompt = system_prompt + fs_addendum
+        else:
+            system_prompt = AgentEngine.DEFAULT_SYSTEM_PROMPT + fs_addendum
+        # Fix the "ONLY three tools" claim in the default prompt
+        system_prompt = system_prompt.replace(
+            "You have ONLY three tools available (no others exist):",
+            "You have the following tools available:",
+        )
+        system_prompt = system_prompt.replace(
+            "You have ONLY three tools (no others exist):",
+            "You have the following tools available:",
+        )
+
     # Get planning config
     planning_config = getattr(config, "agent_planning", None)
     planning_enabled = planning_config.enabled if planning_config else True
