@@ -15,7 +15,6 @@ from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, field_validator
 
-
 # =============================================================================
 # Base Paths
 # =============================================================================
@@ -276,6 +275,7 @@ class ChatGPTConfig(BaseModel):
     token_url: str = "https://auth.openai.com/oauth/token"
     backend_url: str = "https://chatgpt.com/backend-api"
     callback_path: str = "/auth/callback"
+    callback_url: Optional[str] = None  # Auto-detect from request if None
     default_model: str = "gpt-5.2-codex"
     reasoning_effort: Literal["low", "medium", "high"] = "medium"
     available_models: List[Dict[str, str]] = [
@@ -284,6 +284,14 @@ class ChatGPTConfig(BaseModel):
         {"id": "gpt-4o", "label": "GPT-4o"},
         {"id": "o3", "label": "o3"},
     ]
+
+    @field_validator("callback_url", mode="before")
+    @classmethod
+    def empty_callback_to_none(cls, v: Any) -> Optional[str]:
+        """Convert empty string to None for callback_url."""
+        if v == "" or v is None:
+            return None
+        return v
 
 
 class ChatModelConfig(BaseModel):
