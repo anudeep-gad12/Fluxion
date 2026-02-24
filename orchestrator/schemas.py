@@ -2,8 +2,8 @@
 
 from enum import Enum
 from typing import Any, Optional
-from pydantic import BaseModel, Field
 
+from pydantic import BaseModel, Field
 
 # ==================== Run Schemas ====================
 
@@ -148,7 +148,8 @@ class TraceEventResponse(BaseModel):
     run_id: str
     seq: int
     created_at: str
-    event_type: str  # llm_request | llm_response | reasoning | tool_call | tool_response | error | retry
+    # llm_request | llm_response | reasoning | tool_call | tool_response | error | retry
+    event_type: str
     event_status: str  # pending | success | error | skipped
     actor: str  # model | system | tool:<name>
     endpoint: Optional[str] = None
@@ -239,6 +240,9 @@ class CreateAgentRunRequest(BaseModel):
     query: str
     conversation_id: Optional[str] = None
     max_steps: int = 10
+    filesystem_enabled: bool = False
+    working_dir: Optional[str] = None
+    permission_policy: str = "strict"
 
 
 class CreateAgentRunResponse(BaseModel):

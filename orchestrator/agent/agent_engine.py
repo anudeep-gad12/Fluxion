@@ -259,6 +259,8 @@ To provide your final answer, respond WITHOUT calling any tools."""
         slow_response_threshold: float = 15.0,
         planning_enabled: bool = True,
         max_plan_steps: int = 5,
+        approval_callback: Optional[Callable] = None,
+        permission_policy: str = "strict",
     ) -> None:
         """Initialize agent engine.
 
@@ -308,6 +310,10 @@ To provide your final answer, respond WITHOUT calling any tools."""
         self._planning_enabled = planning_enabled
         self._max_plan_steps = max_plan_steps
         self._current_plan: Optional["ResearchPlan"] = None
+
+        # Permission system
+        self._approval_callback = approval_callback
+        self._permission_policy = permission_policy
 
     async def run(
         self,
@@ -1490,6 +1496,67 @@ When you complete each step, proceed to the next."""
                         duration_ms=0,
                     )
                 else:
+                    # Permission gate: check if tool needs approval
+                    permission_level = getattr(tool.schema, "permission_level", "auto")
+                    needs_approval = (
+                        self._permission_policy != "yolo"
+                        and permission_level != "auto"
+                        and self._approval_callback is not None
+                    )
+
+                    if needs_approval:
+                        # Emit approval request event
+                        self._emit(
+                            event_callback,
+                            "tool_approval_required",
+                            run_id=run_id,
+                            tool_call_id=tool_call.id,
+                            tool_name=tool_call.name,
+                            arguments=tool_call.arguments,
+                            permission_level=permission_level,
+                        )
+                        # Wait for approval
+                        try:
+                            approved = await self._approval_callback(
+                                run_id, tool_call.id, tool_call.name, tool_call.arguments
+                            )
+                        except Exception as e:
+                            logger.error(
+                                "Approval callback error",
+                                extra={"tool": tool_call.name, "error": str(e)},
+                            )
+                            approved = False
+
+                        if not approved:
+                            result = ToolResult(
+                                success=False,
+                                result_summary=f"User denied {tool_call.name}",
+                                error_message="Tool execution denied by user.",
+                                duration_ms=0,
+                            )
+                            # Skip to recording completion
+                            await state_machine.complete_tool_call(
+                                tool_call_id=tc_record["id"],
+                                success=False,
+                                result_summary=result.result_summary,
+                                duration_ms=0,
+                                error_message=result.error_message,
+                            )
+                            self._emit(
+                                event_callback,
+                                "tool_result",
+                                run_id=run_id,
+                                tool_call_id=tool_call.id,
+                                tool_name=tool_call.name,
+                                success=False,
+                                result_summary=result.result_summary,
+                            )
+                            results.append({
+                                "tool_call_id": tool_call.id,
+                                "content": result.error_message or "Denied",
+                            })
+                            continue
+
                     try:
                         result = await tool.execute(**tool_call.arguments)
                     except Exception as e:
