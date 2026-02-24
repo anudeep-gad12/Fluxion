@@ -26,7 +26,7 @@ class MessageBubble(Vertical):
 
     def compose(self) -> ComposeResult:
         """Compose the message bubble."""
-        role_label = "You" if self._role == "user" else "Assistant"
+        role_label = ">" if self._role == "user" else "Assistant"
         yield Label(f"{role_label}", classes="message-role")
         if self._content:
             if self._role == "user":

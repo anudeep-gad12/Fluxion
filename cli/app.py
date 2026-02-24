@@ -7,18 +7,18 @@ from .api_client import APIClient
 from .config import CLIConfig
 from .screens.chat_screen import ChatScreen
 
-# Custom dark theme inspired by Claude Code / modern TUI tools
+# Monochrome zinc theme matching the web UI's austere aesthetic
 REASONER_THEME = Theme(
     name="reasoner",
-    primary="#a78bfa",       # Soft violet
-    secondary="#60a5fa",     # Blue
-    accent="#34d399",        # Emerald green
-    warning="#fbbf24",       # Amber
-    error="#f87171",         # Red
-    success="#34d399",       # Green
-    background="#0f0f0f",    # Near-black
-    surface="#1a1a2e",       # Dark navy
-    panel="#16213e",         # Slightly lighter navy
+    primary="#e4e4e7",       # zinc-200
+    secondary="#a1a1aa",     # zinc-400
+    accent="#d4d4d8",        # zinc-300
+    warning="#a1a1aa",       # zinc-400
+    error="#f87171",         # red-400 (only color used)
+    success="#a1a1aa",       # zinc-400
+    background="#0a0a0b",    # Near-black with slight blue tint
+    surface="#0f0f11",       # Neutral dark
+    panel="#18181b",         # zinc-900
 )
 
 
