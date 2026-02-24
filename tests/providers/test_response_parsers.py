@@ -301,12 +301,18 @@ class TestParseStreamingDelta:
         assert result["reasoning"] == "Native reasoning"
 
     def test_chat_completions_tool_calls(self):
-        """Chat completions tool_calls delta is parsed."""
-        delta = {"tool_calls": [{"id": "call_123"}]}
+        """Chat completions complete tool_calls delta is parsed."""
+        delta = {
+            "tool_calls": [{
+                "id": "call_123",
+                "function": {"name": "web_search", "arguments": '{"query": "test"}'},
+            }]
+        }
         result = parse_streaming_delta(delta, "chat_completions")
 
-        assert result["tool_call"] is not None
-        assert "call_123" in result["tool_call"]
+        assert result["tool_calls_complete"] is not None
+        assert len(result["tool_calls_complete"]) == 1
+        assert result["tool_calls_complete"][0]["id"] == "call_123"
 
     def test_lm_studio_function_call_arguments_delta(self):
         """LM Studio response.function_call_arguments.delta is parsed."""
