@@ -109,7 +109,7 @@ class TestChatModelConfig:
     def test_default_values(self):
         """ChatModelConfig has sensible defaults."""
         config = ChatModelConfig()
-        assert config.name == "openai/gpt-oss-20b"
+        assert config.name == "openai/gpt-oss-120b"
         assert config.temperature == 0.7
         assert config.max_tokens == 4096
         assert config.reasoning_effort is None
