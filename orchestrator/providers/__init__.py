@@ -24,7 +24,8 @@ from .base import (
 )
 from .chain import AllProvidersFailedError, ChainedProvider, ProviderChain
 from .circuit_breaker import CircuitBreaker, CircuitBreakerConfig, CircuitState
-from .factory import create_provider
+from .chatgpt import ChatGPTProvider
+from .factory import create_chatgpt_provider, create_provider
 from .openai_compat import OpenAICompatProvider, normalize_base_url
 from .request_builders import build_chat_completions_request, build_responses_request
 from .response_parsers import parse_chat_result, parse_responses_result
@@ -40,8 +41,10 @@ __all__ = [
     "AllProvidersFailedError",
     # Factory
     "create_provider",
+    "create_chatgpt_provider",
     # Provider implementations
     "OpenAICompatProvider",
+    "ChatGPTProvider",
     "ProviderChain",
     "ChainedProvider",
     # Circuit breaker

@@ -9,6 +9,7 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| feature/chatgpt-oauth | ChatGPT OAuth integration — use ChatGPT Plus/Pro subscription as provider | in progress | 2026-02-23 |
 | feature/cli-terminal-theme | CLI terminal theme — black & white monochrome | done | 2026-02-22 |
 | docs/update-stale-docs | Update stale docs: BENCHMARKS, DATA_MODELS, ARCHITECTURE | done | 2026-02-14 |
 | fix/owner-token-api-client | Wire owner token into API client for full owner access | done | 2026-02-10 |
@@ -29,6 +30,38 @@
 | feature/preset-question-chips | Demo preset questions | done | 2026-01-23 |
 | feature/gaia-benchmark | GAIA Benchmark Evaluation | done | 2026-01-21 |
 | feature/agent-planning | Agent Planning Step | done | 2026-01-20 |
+
+### 2026-02-23: ChatGPT OAuth Integration
+
+**Branch:** `test`
+**Status:** in progress
+
+**Description:**
+Users with ChatGPT Plus/Pro subscriptions can now use OpenAI models (GPT-5.x, Codex) through the app at no extra API cost. Implements a native `ChatGPTProvider` that translates between the existing OpenAI-compatible interface and the ChatGPT backend Codex Responses API (`chatgpt.com/backend-api/codex/responses`). Includes full OAuth 2.0 PKCE login flow via `auth.openai.com`, per-user provider routing, and frontend UI for login/provider switching.
+
+**Changes:**
+- `orchestrator/providers/chatgpt.py` — New `ChatGPTProvider` implementing `LLMProvider` protocol. Translates messages to Responses API input format (system→instructions, user→input_text, assistant→output_text, tool_calls→function_call, tool_results→function_call_output). Parses SSE events back to standard `LLMResponse`. Supports both streaming and non-streaming modes with retry logic.
+- `orchestrator/routes/auth.py` — OAuth PKCE endpoints: login (generates code_verifier/challenge, redirects to OpenAI), callback (exchanges code for tokens, extracts account_id from JWT, stores tokens), status, logout, refresh. Auto-refreshes tokens within 5-minute expiry buffer.
+- `orchestrator/storage/db.py` — Migration 5: `chatgpt_tokens` table for per-session OAuth token storage. Added `_create_table_if_not_exists()` helper.
+- `orchestrator/app.py` — Registered auth router. Updated CSP for OAuth popup inline script.
+- `orchestrator/providers/factory.py` — Added `create_chatgpt_provider(tokens, chatgpt_config)` function.
+- `orchestrator/providers/__init__.py` — Exported `ChatGPTProvider`, `create_chatgpt_provider`.
+- `orchestrator/config.py` — Added `ChatGPTConfig` Pydantic model with OAuth endpoints, client_id, default_model, reasoning_effort.
+- `orchestrator/chat_config.yaml` — Added `chatgpt:` config section with env var support.
+- `orchestrator/engine/chat_engine.py` — Accepts optional `provider` parameter for override.
+- `orchestrator/routes/runs.py` — Added `_get_provider_for_session()` helper; chat routes check X-Provider header and create ChatGPT provider when requested.
+- `orchestrator/routes/agent_runs.py` — Agent task accepts session_id/provider_preference; creates ChatGPT provider override in background task.
+- `orchestrator/agent/factory.py` — Accepts `provider_override` parameter.
+- `ui/src/hooks/useChatGPTAuth.ts` — React hook for OAuth state management (popup login, postMessage, status polling, provider persistence in localStorage).
+- `ui/src/api/client.ts` — Added X-Provider header from localStorage preference.
+- `ui/src/components/ConversationView.tsx` — Auth button, provider toggle dropdown, status indicators in both empty-state and active-conversation toolbars.
+- `tests/providers/test_chatgpt.py` — 21 tests: request translation, response translation, headers, conversation roundtrip.
+- `tests/routes/test_auth.py` — 7 tests: PKCE generation, JWT account_id extraction.
+
+**Files changed:** 17 (8 new, 9 modified)
+**Tests:** 28/28 passed (new tests); full suite pre-existing failures only
+
+---
 
 ### 2026-02-22: Fix Agent Streaming Jumbled Text & Send Button Lock
 

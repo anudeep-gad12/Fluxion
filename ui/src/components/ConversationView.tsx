@@ -18,6 +18,7 @@ import {
 import { useConversationRuns, useSelectedConversation, useStore, useHasActiveRun } from '@/hooks/useStore';
 import { useSSE } from '@/hooks/useSSE';
 import { useAgentSSE } from '@/hooks/useAgentSSE';
+import { useChatGPTAuth } from '@/hooks/useChatGPTAuth';
 import { cn, formatRelativeTime } from '@/lib/utils';
 import type { Run, Conversation, ReasoningEffort } from '@/types';
 
@@ -150,6 +151,7 @@ export function ConversationView() {
   const conversation = useSelectedConversation();
   const runs = useConversationRuns(selectedConversationId);
   const hasActiveRun = useHasActiveRun();
+  const chatgptAuth = useChatGPTAuth();
   const [message, setMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>('medium');
@@ -492,7 +494,29 @@ export function ConversationView() {
       <div className="h-full flex flex-col">
         {/* Status bar */}
         <div className="border-b border-zinc-800 px-3 sm:px-4 py-2 flex items-center justify-between bg-transparent font-mono text-xs">
-          <span className="text-zinc-600">gpt-oss-120b</span>
+          <div className="flex items-center gap-3">
+            <span className="text-zinc-600">
+              {chatgptAuth.provider === 'chatgpt' ? chatgptAuth.model || 'chatgpt' : 'gpt-oss-120b'}
+            </span>
+            {chatgptAuth.enabled && !chatgptAuth.authenticated && (
+              <button
+                onClick={chatgptAuth.login}
+                disabled={chatgptAuth.loginPending}
+                className="text-zinc-600 hover:text-zinc-300 transition-colors"
+              >
+                {chatgptAuth.loginPending ? '[signing in...]' : '[sign in with chatgpt]'}
+              </button>
+            )}
+            {chatgptAuth.authenticated && (
+              <button
+                onClick={chatgptAuth.logout}
+                className="text-zinc-600 hover:text-zinc-300 transition-colors"
+                title="Sign out of ChatGPT"
+              >
+                [chatgpt ✓]
+              </button>
+            )}
+          </div>
           <button
             onClick={() => navigate('/benchmarks')}
             className="text-zinc-600 hover:text-zinc-300 transition-colors"
@@ -584,6 +608,20 @@ export function ConversationView() {
                   <option value="high">deep</option>
                 </select>
               )}
+              {chatgptAuth.authenticated && (
+                <>
+                  <span className="text-zinc-700">|</span>
+                  <select
+                    value={chatgptAuth.provider}
+                    onChange={(e) => chatgptAuth.setProvider(e.target.value as 'deepinfra' | 'chatgpt')}
+                    className="bg-transparent border-none outline-none text-xs font-mono text-zinc-500 cursor-pointer"
+                    title="LLM provider"
+                  >
+                    <option value="deepinfra">deepinfra</option>
+                    <option value="chatgpt">chatgpt</option>
+                  </select>
+                </>
+              )}
               <span className="text-zinc-700">|</span>
               {isGenerating ? (
                 <button onClick={handleStop} className="text-red-400 hover:text-red-300 transition-colors">
@@ -620,9 +658,16 @@ export function ConversationView() {
   return (
     <div className="h-full flex flex-col">
       <div className="border-b border-zinc-800 px-3 sm:px-4 md:px-6 py-2 flex items-center justify-between font-mono text-xs">
-        <span className="text-zinc-600 truncate mr-4">
-          {conversation?.title || 'conversation'}
-        </span>
+        <div className="flex items-center gap-3 truncate mr-4">
+          <span className="text-zinc-600 truncate">
+            {conversation?.title || 'conversation'}
+          </span>
+          {chatgptAuth.authenticated && (
+            <span className="text-zinc-600 flex-shrink-0">
+              [{chatgptAuth.provider === 'chatgpt' ? 'chatgpt' : 'deepinfra'}]
+            </span>
+          )}
+        </div>
         <button
           onClick={() => navigate('/benchmarks')}
           className="text-zinc-600 hover:text-zinc-300 transition-colors flex-shrink-0"

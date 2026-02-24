@@ -30,6 +30,7 @@ async def create_agent_engine(
     temperature: Optional[float] = None,
     system_prompt: Optional[str] = None,
     query: Optional[str] = None,
+    provider_override: Optional[object] = None,
 ) -> AgentEngine:
     """Create a fully configured AgentEngine.
 
@@ -49,6 +50,7 @@ async def create_agent_engine(
         temperature: Override default temperature from config.
         system_prompt: Override default system prompt.
         query: User query for classification-based prompt selection.
+        provider_override: Optional pre-configured LLM provider (e.g., ChatGPTProvider).
 
     Returns:
         Configured AgentEngine ready for execution.
@@ -89,11 +91,14 @@ async def create_agent_engine(
         # Classification disabled - use default prompt, no tool forcing
         logger.debug("Query classification disabled, using default system prompt")
 
-    # Create provider (with chain if configured)
-    provider = create_provider(
-        config.provider,
-        chain_config=config.provider_chain,
-    )
+    # Create provider (use override if provided, otherwise config)
+    if provider_override is not None:
+        provider = provider_override
+    else:
+        provider = create_provider(
+            config.provider,
+            chain_config=config.provider_chain,
+        )
 
     # Create tool registry - for calculation queries, only python_execute
     registry = create_tool_registry(config, calculation_only=calculation_only)
