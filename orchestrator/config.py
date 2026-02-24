@@ -263,6 +263,23 @@ class SandboxConfig(BaseModel):
 # =============================================================================
 
 
+class ChatGPTConfig(BaseModel):
+    """ChatGPT OAuth integration configuration.
+
+    Allows users with ChatGPT Plus/Pro subscriptions to use OpenAI models
+    through the Codex backend API at no extra API cost.
+    """
+
+    enabled: bool = True
+    client_id: str = "app_EMoamEEZ73f0CkXaXp7hrann"
+    auth_url: str = "https://auth.openai.com/oauth/authorize"
+    token_url: str = "https://auth.openai.com/oauth/token"
+    backend_url: str = "https://chatgpt.com/backend-api"
+    callback_path: str = "/auth/callback"
+    default_model: str = "gpt-5.2-codex"
+    reasoning_effort: Literal["low", "medium", "high"] = "medium"
+
+
 class ChatModelConfig(BaseModel):
     """Model generation parameters."""
 
@@ -395,6 +412,9 @@ class ChatConfig(BaseModel):
     query_classification: Optional[QueryClassificationConfig] = None
     python: Optional[PythonConfig] = None
 
+    # ChatGPT OAuth integration
+    chatgpt: Optional[ChatGPTConfig] = None
+
     # Demo mode (rate limiting, sidebar lock)
     demo: Optional[DemoConfig] = None
 
@@ -427,6 +447,8 @@ class ChatConfig(BaseModel):
             snapshot["query_classification"] = self.query_classification.model_dump()
         if self.python:
             snapshot["python"] = self.python.model_dump()
+        if self.chatgpt:
+            snapshot["chatgpt"] = self.chatgpt.model_dump()
         if self.demo:
             # Don't expose owner_secret in snapshot
             demo_snapshot = self.demo.model_dump()

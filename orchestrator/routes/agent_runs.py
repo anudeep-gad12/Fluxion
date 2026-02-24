@@ -161,7 +161,12 @@ async def _cleanup_history(run_id: str, delay_seconds: float) -> None:
 
 
 async def _run_agent_task(
-    run_id: str, query: str, conversation_id: Optional[str], max_steps: int
+    run_id: str,
+    query: str,
+    conversation_id: Optional[str],
+    max_steps: int,
+    session_id: Optional[str] = None,
+    provider_preference: Optional[str] = None,
 ) -> None:
     """Background task that runs the agent.
 
@@ -170,6 +175,8 @@ async def _run_agent_task(
         query: User's research query.
         conversation_id: Optional conversation context.
         max_steps: Maximum steps for agent execution.
+        session_id: Optional session ID for provider routing.
+        provider_preference: Optional provider preference ("chatgpt" or None).
     """
     # Import here to avoid circular imports
     from orchestrator.agent.factory import create_agent_engine
@@ -201,8 +208,23 @@ async def _run_agent_task(
             notify.set()
 
     try:
+        # Resolve provider override if ChatGPT is selected
+        provider_override = None
+        if session_id and provider_preference == "chatgpt":
+            try:
+                from orchestrator.routes.auth import get_valid_tokens
+                from orchestrator.providers.factory import create_chatgpt_provider
+
+                tokens = await get_valid_tokens(session_id)
+                if tokens:
+                    provider_override = create_chatgpt_provider(tokens)
+            except Exception as e:
+                logger.warning("Failed to create ChatGPT provider for agent", extra={"error": str(e)})
+
         # Create engine and run (pass query for classification)
-        engine = await create_agent_engine(max_steps=max_steps, query=query)
+        engine = await create_agent_engine(
+            max_steps=max_steps, query=query, provider_override=provider_override
+        )
         result = await engine.run(
             run_id=run_id,
             query=query,
@@ -332,13 +354,16 @@ async def create_agent_run(request: CreateAgentRunRequest, http_request: Request
             max_steps=request.max_steps,
         )
 
-        # Start background task
+        # Start background task (pass provider preference from header)
+        provider_preference = http_request.headers.get("x-provider")
         asyncio.create_task(
             _run_agent_task(
                 run_id=run_id,
                 query=request.query,
                 conversation_id=conversation_id,
                 max_steps=request.max_steps,
+                session_id=session_id,
+                provider_preference=provider_preference,
             )
         )
 

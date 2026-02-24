@@ -24,7 +24,7 @@ from orchestrator.logging_config import (
     set_component,
 )
 from orchestrator.storage.db import get_db
-from orchestrator.routes import conversations, runs, agent_runs, benchmarks
+from orchestrator.routes import conversations, runs, agent_runs, benchmarks, auth
 from orchestrator.middleware.rate_limit import RateLimitMiddleware
 from orchestrator.middleware.session import SessionMiddleware
 
@@ -51,7 +51,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; "
-            "script-src 'self'; "
+            "script-src 'self' 'unsafe-inline'; "
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
             "img-src 'self' data: https:; "
             "font-src 'self' data: https://fonts.gstatic.com; "
@@ -217,9 +217,13 @@ async def lifespan(app: FastAPI):
             }
         )
 
+    # Start OAuth callback server on port 1455 (for ChatGPT login)
+    await auth.start_callback_server()
+
     yield
 
     # Shutdown
+    await auth.stop_callback_server()
     logger.info("Shutting down Reasoner API server")
 
 
@@ -264,6 +268,7 @@ app.include_router(conversations.router)
 app.include_router(runs.router)
 app.include_router(agent_runs.router)
 app.include_router(benchmarks.router)
+app.include_router(auth.router)
 
 
 @app.get("/api/health")
@@ -292,7 +297,7 @@ if STATIC_DIR.exists() and os.environ.get("SERVE_STATIC", "false").lower() == "t
     @app.get("/{full_path:path}")
     async def serve_spa(full_path: str):
         """Serve SPA for all non-API routes."""
-        if full_path.startswith("api/"):
+        if full_path.startswith("api/") or full_path.startswith("auth/"):
             raise HTTPException(status_code=404, detail="Not found")
         index_path = STATIC_DIR / "index.html"
         if index_path.exists():
