@@ -1527,6 +1527,13 @@ When you complete each step, proceed to the next."""
                             )
                             approved = False
 
+                        # Record approval decision
+                        await state_machine.record_approval(
+                            tool_call_id=tc_record["id"],
+                            decision="approved" if approved else "denied",
+                            policy=self._permission_policy,
+                        )
+
                         if not approved:
                             result = ToolResult(
                                 success=False,
@@ -1556,6 +1563,13 @@ When you complete each step, proceed to the next."""
                                 "content": result.error_message or "Denied",
                             })
                             continue
+                    else:
+                        # Auto-approved tool (no approval needed)
+                        await state_machine.record_approval(
+                            tool_call_id=tc_record["id"],
+                            decision="auto",
+                            policy=self._permission_policy,
+                        )
 
                     try:
                         result = await tool.execute(**tool_call.arguments)
@@ -1574,6 +1588,11 @@ When you complete each step, proceed to the next."""
                         duration_ms=0,
                     )
 
+            # Capture full result_detail for write tools
+            result_detail = None
+            if tool_call.name in ("write_file", "edit_file", "bash_tool") and result.result_data:
+                result_detail = json.dumps(result.result_data, ensure_ascii=False)[:10000]
+
             # Record completion
             await state_machine.complete_tool_call(
                 tool_call_id=tc_record["id"],
@@ -1581,7 +1600,33 @@ When you complete each step, proceed to the next."""
                 result_summary=result.result_summary,
                 duration_ms=result.duration_ms or 0,
                 error_message=result.error_message,
+                result_detail=result_detail,
             )
+
+            # Record file change artifact for write tools
+            if result.success and tool_call.name in ("write_file", "edit_file", "bash_tool"):
+                artifact_type = {
+                    "write_file": "file_write",
+                    "edit_file": "file_edit",
+                    "bash_tool": "command_run",
+                }.get(tool_call.name, tool_call.name)
+                file_path = tool_call.arguments.get(
+                    "file_path", tool_call.arguments.get("command", "")
+                )
+                try:
+                    await self._repo.create_run_artifact(
+                        run_id=run_id,
+                        artifact_type=artifact_type,
+                        file_path=file_path,
+                        action=tool_call.name,
+                        detail=result.result_summary,
+                        tool_call_id=tc_record["id"],
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "Failed to record artifact",
+                        extra={"run_id": run_id, "tool": tool_call.name, "error": str(e)},
+                    )
 
             # Extract citations from search/extract results
             if result.success and tool_call.name in ("web_search", "web_extract"):

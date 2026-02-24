@@ -33,6 +33,7 @@ from orchestrator.schemas import (
     AgentToolCallResponse,
     CreateAgentRunRequest,
     CreateAgentRunResponse,
+    RunArtifactResponse,
 )
 from orchestrator.storage.db import get_db
 from orchestrator.storage.repositories.agent_repo import AgentRepo
@@ -125,6 +126,27 @@ def _translate_event(event: Dict[str, Any], seq: int) -> Dict[str, Any]:
 # =============================================================================
 
 
+async def _persist_run_event(run_id: str, seq: int, event: Dict[str, Any]) -> None:
+    """Fire-and-forget: persist a single SSE event to the database.
+
+    Args:
+        run_id: The run ID.
+        seq: Sequence number.
+        event: Event dict to persist.
+    """
+    try:
+        db = await get_db()
+        repo = AgentRepo(db)
+        await repo.create_run_event(
+            run_id, seq, event.get("type", "unknown"), event
+        )
+    except Exception as e:
+        logger.warning(
+            "Failed to persist run event",
+            extra={"run_id": run_id, "seq": seq, "error": str(e)},
+        )
+
+
 async def _cleanup_run(run_id: str, delay_seconds: float = 5.0) -> None:
     """Clean up run state after completion.
 
@@ -214,6 +236,8 @@ async def _run_agent_task(
         seq += 1
         event["seq"] = seq
         _event_history.setdefault(run_id, []).append(event.copy())
+        # Persist event to DB (fire-and-forget)
+        asyncio.create_task(_persist_run_event(run_id, seq, event))
         # Wake up all SSE generators waiting for new events
         notify = _event_notify.get(run_id)
         if notify:
@@ -247,6 +271,15 @@ async def _run_agent_task(
             try:
                 return await asyncio.wait_for(future, timeout=300)  # 5 min timeout
             except asyncio.TimeoutError:
+                logger.warning(
+                    "Tool approval timed out",
+                    extra={
+                        "run_id": rid,
+                        "tool_call_id": tool_call_id,
+                        "tool_name": tool_name,
+                        "timeout_seconds": 300,
+                    },
+                )
                 return False
             finally:
                 _approval_queues.get(rid, {}).pop(tool_call_id, None)
@@ -773,6 +806,10 @@ async def get_agent_run_trace(run_id: str, http_request: Request):
             completed_at=tc.get("completed_at"),
             idempotency_key=tc.get("idempotency_key", ""),
             execution_attempt=tc.get("execution_attempt", 1),
+            approval_decision=tc.get("approval_decision"),
+            approval_policy=tc.get("approval_policy"),
+            approval_decided_at=tc.get("approval_decided_at"),
+            result_detail=tc.get("result_detail"),
         )
         for tc in tool_calls_raw
     ]
@@ -793,6 +830,22 @@ async def get_agent_run_trace(run_id: str, http_request: Request):
         for c in citations_raw
     ]
 
+    # Get all artifacts
+    artifacts_raw = await agent_repo.get_run_artifacts(run_id)
+    artifacts = [
+        RunArtifactResponse(
+            id=a["id"],
+            run_id=a["run_id"],
+            artifact_type=a["artifact_type"],
+            file_path=a.get("file_path"),
+            action=a["action"],
+            detail=a.get("detail"),
+            tool_call_id=a.get("tool_call_id"),
+            created_at=a["created_at"],
+        )
+        for a in artifacts_raw
+    ]
+
     return AgentRunTraceResponse(
         run_id=run_id,
         status=run.get("status", "unknown"),
@@ -800,6 +853,7 @@ async def get_agent_run_trace(run_id: str, http_request: Request):
         steps=steps,
         tool_calls=tool_calls,
         citations=citations,
+        artifacts=artifacts,
         final_answer=run.get("final_answer"),
     )
 
