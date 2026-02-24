@@ -32,6 +32,47 @@
 | feature/gaia-benchmark | GAIA Benchmark Evaluation | done | 2026-01-21 |
 | feature/agent-planning | Agent Planning Step | done | 2026-01-20 |
 
+### 2026-02-24: CLI UI Polish + ChatGPT OAuth in CLI + Sanity Test Fixes
+
+**Branch:** `test`
+**Status:** done
+
+**Description:**
+Three areas of work: (1) CLI visual hierarchy overhaul — monochrome-plus-two design with functional accent colors, (2) ChatGPT OAuth wired into CLI via `/login` command, (3) sanity test fixes for profile agent tests.
+
+**CLI UI Polish:**
+- Monochrome-plus-two theme: zinc base + blue (#60a5fa) tools/accents, green (#4ade80) success, amber (#d97706) warnings
+- Border-left colors differentiate message types (gray user, blue assistant, blue tools, dim thinking)
+- Compact tool call panels: single-line header with primary arg inline
+- Status bar: pipe separators, spacer, green/red connection dot
+- Welcome card: structured key-value layout with border
+- Turn separators, blue focus ring, streaming markdown inside assistant bubble
+
+**ChatGPT OAuth in CLI:**
+- `/login` command opens browser for OAuth, polls for completion, saves session to `~/.config/reasoner/cli_session`
+- `/logout`, `/status`, `/help` slash commands
+- `cli_session` query param on `/login` and `/status` endpoints so tokens link to CLI session (not browser's)
+- `X-CLI-Session` header on API requests for token lookup
+- Fixed OAuth redirect_uri: local requests use whitelisted `localhost:1455` URI (was sending `localhost:9000` causing OpenAI "unknown_error")
+- Callback server uses SO_REUSEADDR to reclaim port from stale processes
+
+**CLI Local Python Execution:**
+- CLI sends `python_provider: "local"` — bypasses Daytona sandboxes (meant for web UI isolation)
+- New param threaded through schema → route → factory → registry
+
+**Sanity Test Fixes:**
+- Sections 7a/7b/7c/9: bash brace expansion was eating Python dict `{...}` in `$(python3 -c "...{...}...")`. Replaced with `jq -n` for JSON construction.
+- Score: 65/69 → 82/83
+
+**Files changed:**
+- `cli/app.py`, `cli/css/app.tcss`, `cli/screens/chat_screen.py`, `cli/widgets/` (6 widgets)
+- `cli/auth.py`, `cli/config.py`, `cli/api_client.py`
+- `orchestrator/routes/auth.py`, `orchestrator/routes/agent_runs.py`
+- `orchestrator/agent/factory.py`, `orchestrator/agent/tools/registry.py`
+- `orchestrator/schemas.py`, `scripts/sanity_test.sh`
+
+---
+
 ### 2026-02-24: Observability Gaps Fix
 
 **Branch:** `test`
