@@ -2,8 +2,9 @@
 
 from textual.app import ComposeResult
 from textual.binding import Binding
+from textual.containers import Vertical
 from textual.screen import Screen
-from textual.widgets import Footer, Header
+from textual.widgets import Footer, Header, Static
 
 from ..api_client import APIClient
 from ..config import CLIConfig
@@ -33,25 +34,11 @@ class ChatScreen(Screen):
     """Main chat screen with message list, input area, and status bar."""
 
     BINDINGS = [
-        Binding("ctrl+c", "cancel_run", "Cancel", show=True),
-        Binding("ctrl+d", "quit", "Exit", show=True),
+        Binding("escape", "cancel_run", "Stop", show=True),
         Binding("ctrl+n", "new_conversation", "New", show=True),
         Binding("y", "approve_tool", "Approve", show=False),
         Binding("n", "deny_tool", "Deny", show=False),
     ]
-
-    DEFAULT_CSS = """
-    ChatScreen {
-        layout: vertical;
-    }
-    ChatScreen #input-area {
-        height: 3;
-        min-height: 3;
-        max-height: 8;
-        margin: 0 1;
-        border: round $surface-lighten-2;
-    }
-    """
 
     def __init__(
         self,
@@ -74,7 +61,12 @@ class ChatScreen(Screen):
         yield Header(show_clock=False)
         yield AgentProgress(id="agent-progress")
         yield MessageList(id="message-list")
-        yield InputArea(id="input-area")
+        with Vertical(id="input-container"):
+            yield InputArea(id="input-area")
+            yield Static(
+                "Enter to send · Shift+Enter newline · Esc stop · Ctrl+C exit",
+                id="input-hint",
+            )
         yield StatusBar(
             mode=self._config.mode,
             provider=self._config.provider,
@@ -83,7 +75,7 @@ class ChatScreen(Screen):
         yield Footer()
 
     async def on_mount(self) -> None:
-        """Check backend connection on mount."""
+        """Check backend connection and show welcome on mount."""
         connected = await self._api_client.health_check()
         status_bar = self.query_one(StatusBar)
         status_bar.set_connected(connected)
@@ -93,6 +85,20 @@ class ChatScreen(Screen):
                 f"Cannot connect to backend at {self._config.api_url}. "
                 "Start the server with `just dev` or `./dev.sh start`."
             )
+        else:
+            # Show welcome message
+            message_list = self.query_one(MessageList)
+            welcome = Static(id="welcome")
+            welcome.update(
+                "[bold #a78bfa]Reasoner CLI[/bold #a78bfa]\n\n"
+                f"Mode: [bold]{self._config.mode}[/bold]  ·  "
+                f"Provider: [bold]{self._config.provider}[/bold]\n"
+                "Working dir: "
+                f"[dim]{self._config.working_dir}[/dim]\n\n"
+                "[dim]Ask me anything. I can read, write, and search "
+                "your codebase.[/dim]"
+            )
+            message_list.mount(welcome)
 
         # Focus input
         self.query_one(InputArea).focus()
@@ -105,6 +111,13 @@ class ChatScreen(Screen):
         query = event.value
         if not query:
             return
+
+        # Remove welcome message if present
+        try:
+            welcome = self.query_one("#welcome")
+            welcome.remove()
+        except Exception:
+            pass
 
         # Add user message
         message_list = self.query_one(MessageList)
@@ -126,21 +139,23 @@ class ChatScreen(Screen):
 
             self._current_run_id = result["run_id"]
             self._current_stream_token = result.get("stream_token", "")
-            if not self._conversation_id:
-                # First run sets conversation context
-                pass
 
-            # Create streaming markdown for the assistant's response
+            # Add assistant label before streaming content
             message_list = self.query_one(MessageList)
+            message_list.mount(
+                MessageBubble("assistant", ""),
+            )
+
+            # Create streaming markdown for the response
             self._streaming_md = StreamingMarkdown()
             message_list.mount(self._streaming_md)
 
             # Start SSE consumer as a worker
             self.run_worker(self._consume_events(), exclusive=True)
 
-        except Exception as e:
+        except Exception as exc:
             self._is_running = False
-            self._add_system_message(f"Error: {e}")
+            self._add_system_message(f"Error: {exc}")
 
     async def _consume_events(self) -> None:
         """Consume SSE events and update the UI."""
@@ -179,8 +194,8 @@ class ChatScreen(Screen):
                 elif event_type == "cancelled":
                     break
 
-        except Exception as e:
-            self.post_message(AgentErrorEvent({"error": str(e)}))
+        except Exception as exc:
+            self.post_message(AgentErrorEvent({"error": str(exc)}))
 
     def on_step_start_event(self, event: StepStartEvent) -> None:
         """Handle step start."""
@@ -197,8 +212,8 @@ class ChatScreen(Screen):
 
     def on_thinking_event(self, event: ThinkingEvent) -> None:
         """Handle thinking token."""
-        token = event.data.get("token", "")
-        if not token:
+        content = event.data.get("content", "")
+        if not content:
             return
 
         # Find or create thinking panel
@@ -210,7 +225,7 @@ class ChatScreen(Screen):
             panel = ThinkingPanel()
             message_list.mount(panel)
 
-        panel.append_token(token)
+        panel.append_token(content)
 
     def on_tool_start_event(self, event: ToolStartEvent) -> None:
         """Handle tool start."""
@@ -232,7 +247,9 @@ class ChatScreen(Screen):
         message_list.mount(panel)
         message_list.scroll_to_bottom()
 
-    def on_tool_approval_required_event(self, event: ToolApprovalRequiredEvent) -> None:
+    def on_tool_approval_required_event(
+        self, event: ToolApprovalRequiredEvent
+    ) -> None:
         """Handle tool approval request."""
         tool_call_id = event.data.get("tool_call_id", "")
 
@@ -263,9 +280,10 @@ class ChatScreen(Screen):
 
     def on_answer_token_event(self, event: AnswerTokenEvent) -> None:
         """Handle answer token (streaming response)."""
-        token = event.data.get("token", "")
-        if token and self._streaming_md:
-            self._streaming_md.append_token(token)
+        # Backend emits "content" field, not "token"
+        content = event.data.get("content", "")
+        if content and self._streaming_md:
+            self._streaming_md.append_token(content)
             message_list = self.query_one(MessageList)
             message_list.scroll_to_bottom()
 
@@ -320,8 +338,8 @@ class ChatScreen(Screen):
                 await self._api_client.approve_tool(
                     panel.run_id, panel.tool_call_id
                 )
-            except Exception as e:
-                self._add_system_message(f"Approval failed: {e}")
+            except Exception as exc:
+                self._add_system_message(f"Approval failed: {exc}")
 
     async def action_deny_tool(self) -> None:
         """Deny the pending tool call."""
@@ -333,26 +351,32 @@ class ChatScreen(Screen):
                 await self._api_client.deny_tool(
                     panel.run_id, panel.tool_call_id
                 )
-            except Exception as e:
-                self._add_system_message(f"Denial failed: {e}")
+            except Exception as exc:
+                self._add_system_message(f"Denial failed: {exc}")
 
     async def action_cancel_run(self) -> None:
-        """Cancel the current agent run."""
-        if self._current_run_id and self._is_running:
-            try:
-                await self._api_client.cancel_run(self._current_run_id)
-                self._add_system_message("Run cancelled.")
-            except Exception as e:
-                self._add_system_message(f"Cancel failed: {e}")
+        """Cancel the current agent run (Esc key)."""
+        if not self._is_running or not self._current_run_id:
+            return
 
-            self._is_running = False
-            self._current_run_id = None
-            self._pending_approval = None
-            self._streaming_md = None
+        try:
+            await self._api_client.cancel_run(self._current_run_id)
+            self._add_system_message("Run cancelled.")
+        except Exception as exc:
+            self._add_system_message(f"Cancel failed: {exc}")
 
-            progress = self.query_one(AgentProgress)
-            progress.reset()
-            self.query_one(InputArea).focus()
+        self._is_running = False
+        self._current_run_id = None
+        self._pending_approval = None
+        self._streaming_md = None
+
+        progress = self.query_one(AgentProgress)
+        progress.reset()
+
+        status_bar = self.query_one(StatusBar)
+        status_bar.set_step("")
+
+        self.query_one(InputArea).focus()
 
     def action_new_conversation(self) -> None:
         """Start a new conversation."""
@@ -361,10 +385,6 @@ class ChatScreen(Screen):
         message_list.remove_children()
         self._add_system_message("New conversation started.")
         self.query_one(InputArea).focus()
-
-    def action_quit(self) -> None:
-        """Exit the application."""
-        self.app.exit()
 
     def _add_system_message(self, text: str) -> None:
         """Add a system/info message to the message list."""
