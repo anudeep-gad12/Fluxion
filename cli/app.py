@@ -7,18 +7,18 @@ from .api_client import APIClient
 from .config import CLIConfig
 from .screens.chat_screen import ChatScreen
 
-# Monochrome zinc theme matching the web UI's austere aesthetic
+# Monochrome-plus-two: zinc base with functional accent colors
 REASONER_THEME = Theme(
     name="reasoner",
-    primary="#e4e4e7",       # zinc-200
+    primary="#60a5fa",       # blue-400 — tools, accents, focus
     secondary="#a1a1aa",     # zinc-400
-    accent="#d4d4d8",        # zinc-300
-    warning="#a1a1aa",       # zinc-400
-    error="#f87171",         # red-400 (only color used)
-    success="#a1a1aa",       # zinc-400
-    background="#0a0a0b",    # Near-black with slight blue tint
-    surface="#0f0f11",       # Neutral dark
-    panel="#18181b",         # zinc-900
+    accent="#60a5fa",        # blue-400 — links, interactive
+    warning="#d97706",       # amber-600 — approval prompts
+    error="#f87171",         # red-400 — errors
+    success="#4ade80",       # green-400 — tool success
+    background="#09090b",    # zinc-950
+    surface="#18181b",       # zinc-900 — card backgrounds
+    panel="#27272a",         # zinc-800 — raised panels
 )
 
 

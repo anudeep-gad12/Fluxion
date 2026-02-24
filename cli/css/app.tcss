@@ -1,4 +1,4 @@
-/* Reasoner CLI — Monochrome Zinc Theme */
+/* Reasoner CLI — Monochrome + Functional Accent Theme */
 
 Screen {
     background: $background;
@@ -28,8 +28,8 @@ Footer {
     padding: 1 0;
     scrollbar-size: 1 1;
     scrollbar-color: $surface-lighten-2;
-    scrollbar-color-hover: $surface-lighten-3;
-    scrollbar-color-active: $surface-lighten-3;
+    scrollbar-color-hover: $primary;
+    scrollbar-color-active: $primary;
 }
 
 /* ── Input Area ─────────────────────────────────────── */
@@ -51,15 +51,14 @@ Footer {
 }
 
 #input-area:focus {
-    border: tall $surface-lighten-3;
+    border: tall $primary;
 }
 
 #input-hint {
     height: 1;
-    color: $text-muted;
+    color: $text-disabled;
     text-align: right;
     padding: 0 1;
-    text-style: dim;
 }
 
 /* ── Status Bar ─────────────────────────────────────── */
@@ -78,8 +77,12 @@ StatusBar .status-item {
 }
 
 StatusBar .status-mode {
-    color: $text;
+    color: $primary;
     text-style: bold;
+}
+
+StatusBar .status-separator {
+    color: $text-disabled;
 }
 
 StatusBar .status-provider {
@@ -96,8 +99,12 @@ StatusBar .status-activity {
     text-style: italic;
 }
 
+StatusBar .status-spacer {
+    width: 1fr;
+}
+
 StatusBar .status-connection {
-    color: $text-muted;
+    color: $success;
 }
 
 StatusBar .status-disconnected {
@@ -111,7 +118,16 @@ StatusBar .status-disconnected {
     padding: 1 2;
     height: auto;
     color: $text-muted;
-    text-align: center;
+    border: tall $surface-lighten-1;
+    background: $surface;
+}
+
+/* ── Turn Separator ────────────────────────────────── */
+
+.turn-separator {
+    height: 1;
+    margin: 1 4;
+    color: $text-disabled;
 }
 
 /* ── Message Bubbles ────────────────────────────────── */
@@ -120,6 +136,17 @@ MessageBubble {
     height: auto;
     margin: 0 2 1 2;
     padding: 0;
+}
+
+MessageBubble.user {
+    margin-top: 1;
+    border-left: thick $surface-lighten-2;
+    padding-left: 1;
+}
+
+MessageBubble.assistant {
+    border-left: thick $primary;
+    padding-left: 1;
 }
 
 MessageBubble .message-role {
@@ -134,7 +161,7 @@ MessageBubble.user .message-role {
 }
 
 MessageBubble.assistant .message-role {
-    color: $text;
+    color: $primary;
 }
 
 MessageBubble .message-content {
@@ -149,13 +176,13 @@ ToolCallPanel {
     padding: 0 1;
     height: auto;
     max-height: 12;
-    border-left: thick $surface-lighten-2;
-    background: $surface;
+    border-left: thick $primary;
+    background: $panel;
 }
 
 ToolCallPanel .tool-header {
     text-style: bold;
-    color: $text;
+    color: $primary;
     height: 1;
 }
 
@@ -166,7 +193,7 @@ ToolCallPanel .tool-args {
 }
 
 ToolCallPanel .tool-result {
-    color: $text-muted;
+    color: $success;
     padding: 0 0 0 2;
 }
 
@@ -176,7 +203,7 @@ ToolCallPanel .tool-error {
 }
 
 ToolCallPanel .tool-approval {
-    color: $text;
+    color: $warning;
     text-style: bold;
     padding: 0 0 0 2;
 }
@@ -187,9 +214,10 @@ ThinkingPanel {
     margin: 0 3 1 3;
     height: auto;
     max-height: 8;
-    border-left: thick $surface-lighten-2;
+    border-left: thick $surface-lighten-1;
     background: $surface;
     padding: 0 1;
+    color: $text-muted;
 }
 
 /* ── Streaming Markdown ─────────────────────────────── */
@@ -204,7 +232,7 @@ StreamingMarkdown {
 #agent-progress {
     height: 1;
     margin: 0 2;
-    color: $text;
+    color: $primary;
     text-style: bold;
     display: none;
 }

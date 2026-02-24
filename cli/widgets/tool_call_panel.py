@@ -19,11 +19,21 @@ _TOOL_ICONS = {
     "python_execute": "Python",
 }
 
+# Keys to extract as the primary argument for compact display
+_PRIMARY_ARG_KEYS = [
+    "path", "file_path", "filepath",
+    "command", "cmd",
+    "query", "search", "q",
+    "pattern", "glob", "regex",
+    "url",
+    "directory", "dir",
+]
+
 
 class ToolCallPanel(Vertical):
     """Panel showing a tool call and its result.
 
-    Shows tool name, arguments summary, result, and optional approval prompt.
+    Shows tool name with primary arg inline, result, and optional approval prompt.
     Styling is handled by the app.tcss file.
     """
 
@@ -57,31 +67,31 @@ class ToolCallPanel(Vertical):
     def compose(self) -> ComposeResult:
         """Compose the tool call panel."""
         display_name = _TOOL_ICONS.get(self._tool_name, self._tool_name)
-        args_summary = self._format_args()
+        primary_arg = self._primary_arg()
 
-        header = f"{display_name}"
-        if self._step_label:
-            header = f"[dim]{self._step_label}[/dim]  {header}"
+        header = display_name
+        if primary_arg:
+            header = f"{display_name}  [dim]{primary_arg}[/dim]"
 
         yield Label(header, classes="tool-header")
-        if args_summary:
-            yield Label(args_summary, classes="tool-args")
-        self._result_label = Label("→ running...", classes="tool-result")
+        self._result_label = Label("  ... running", classes="tool-result")
         yield self._result_label
 
-    def _format_args(self) -> str:
-        """Format arguments for display."""
+    def _primary_arg(self) -> str:
+        """Extract the most informative argument for compact display."""
         if not self._arguments:
             return ""
-
-        parts = []
-        for key, value in self._arguments.items():
-            val_str = str(value)
-            if len(val_str) > 80:
-                val_str = val_str[:77] + "..."
-            parts.append(f"  {key}={val_str}")
-
-        return "\n".join(parts[:5])
+        for key in _PRIMARY_ARG_KEYS:
+            if key in self._arguments:
+                val = str(self._arguments[key])
+                if len(val) > 80:
+                    val = val[:77] + "..."
+                return val
+        # Fallback: first argument value
+        first_val = str(next(iter(self._arguments.values())))
+        if len(first_val) > 80:
+            first_val = first_val[:77] + "..."
+        return first_val
 
     def set_result(self, summary: str, success: bool = True) -> None:
         """Set the tool result."""
@@ -118,7 +128,7 @@ class ToolCallPanel(Vertical):
         self._needs_approval = False
         if self._result_label:
             if approved:
-                self._result_label.update("→ executing...")
+                self._result_label.update("  ... executing")
                 self._result_label.remove_class("tool-approval", "tool-error")
                 self._result_label.add_class("tool-result")
             else:
