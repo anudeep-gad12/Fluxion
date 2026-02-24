@@ -130,6 +130,8 @@ class ChatScreen(Screen):
     async def _start_run(self, query: str) -> None:
         """Start an agent run and begin streaming events."""
         self._is_running = True
+        status_bar = self.query_one(StatusBar)
+        status_bar.set_busy(True)
 
         try:
             result = await self._api_client.create_agent_run(
@@ -298,6 +300,7 @@ class ChatScreen(Screen):
         progress.reset()
 
         status_bar = self.query_one(StatusBar)
+        status_bar.set_busy(False)
         status_bar.set_step("")
 
         # Re-focus input
@@ -317,6 +320,7 @@ class ChatScreen(Screen):
         progress.reset()
 
         status_bar = self.query_one(StatusBar)
+        status_bar.set_busy(False)
         status_bar.set_step("")
 
         self.query_one(InputArea).focus()
@@ -374,6 +378,7 @@ class ChatScreen(Screen):
         progress.reset()
 
         status_bar = self.query_one(StatusBar)
+        status_bar.set_busy(False)
         status_bar.set_step("")
 
         self.query_one(InputArea).focus()
