@@ -229,6 +229,7 @@ chatgpt:
   token_url: "https://auth.openai.com/oauth/token"
   backend_url: "https://chatgpt.com/backend-api"
   callback_path: "/auth/callback"
+  callback_url: ${CHATGPT_CALLBACK_URL:-}
   default_model: "gpt-5.2-codex"
   reasoning_effort: "medium"
   available_models:
