@@ -197,6 +197,7 @@ async def _run_agent_task(
     filesystem_enabled: bool = False,
     working_dir: Optional[str] = None,
     permission_policy: str = "strict",
+    profile_name: Optional[str] = None,
 ) -> None:
     """Background task that runs the agent.
 
@@ -211,6 +212,7 @@ async def _run_agent_task(
         filesystem_enabled: If True, register filesystem tools.
         working_dir: Working directory for filesystem tools.
         permission_policy: Permission policy ("strict", "relaxed", "yolo").
+        profile_name: Agent profile name ("research", "coding", "full").
     """
     # Import here to avoid circular imports
     from orchestrator.agent.factory import create_agent_engine
@@ -292,6 +294,7 @@ async def _run_agent_task(
             filesystem_enabled=filesystem_enabled,
             working_dir=working_dir,
             approval_callback=approval_callback if permission_policy != "yolo" else None,
+            profile_name=profile_name,
         )
         result = await engine.run(
             run_id=run_id,
@@ -437,6 +440,7 @@ async def create_agent_run(request: CreateAgentRunRequest, http_request: Request
                 filesystem_enabled=request.filesystem_enabled,
                 working_dir=request.working_dir,
                 permission_policy=request.permission_policy,
+                profile_name=request.profile,
             )
         )
 

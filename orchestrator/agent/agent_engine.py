@@ -14,29 +14,30 @@ import re
 import time
 from dataclasses import dataclass, field
 from datetime import date
-from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
-from orchestrator.logging_config import get_logger
-from orchestrator.schemas import AgentStepState
-from orchestrator.agent.state_machine import (
-    AgentStateMachine,
-    MaxStepsExceededError,
-    RecoveryContext,
-)
 from orchestrator.agent.context_pruner import ContextPruner
 from orchestrator.agent.recovery import (
     build_recovery_messages,
     create_idempotency_key,
 )
+from orchestrator.agent.state_machine import (
+    AgentStateMachine,
+    MaxStepsExceededError,
+    RecoveryContext,
+)
+from orchestrator.logging_config import get_logger
+from orchestrator.schemas import AgentStepState
 from orchestrator.utils.sanitize import sanitize_harmony_tokens
 
 if TYPE_CHECKING:
+    from orchestrator.agent.planner import ResearchPlan
+    from orchestrator.agent.profile import AgentProfile
+    from orchestrator.agent.tools.base import ToolResult
+    from orchestrator.agent.tools.registry import ToolRegistry
     from orchestrator.providers.base import LLMProvider, LLMResponse
     from orchestrator.storage.repositories.agent_repo import AgentRepo
     from orchestrator.storage.repositories.trace_repo import TraceRepo
-    from orchestrator.agent.tools.registry import ToolRegistry
-    from orchestrator.agent.tools.base import ToolResult
-    from orchestrator.agent.planner import ResearchPlan
 
 logger = get_logger(__name__)
 
@@ -261,6 +262,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
         max_plan_steps: int = 5,
         approval_callback: Optional[Callable] = None,
         permission_policy: str = "strict",
+        profile: Optional["AgentProfile"] = None,
     ) -> None:
         """Initialize agent engine.
 
@@ -284,6 +286,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
             slow_response_threshold: Seconds before emitting slow_response warning.
             planning_enabled: Whether to create research plans before execution.
             max_plan_steps: Maximum steps the planner can create (default 5).
+            profile: Agent profile for behavior customization.
         """
         self._provider = provider
         self._repo = repo
@@ -298,6 +301,9 @@ To provide your final answer, respond WITHOUT calling any tools."""
         self._tool_choice = tool_choice
         self._max_context_tokens = max_context_tokens
         self._slow_response_threshold = slow_response_threshold
+
+        # Agent profile
+        self._profile = profile
 
         # Findings accumulator for improved synthesis
         self._findings: List[Dict[str, Any]] = []
@@ -314,6 +320,9 @@ To provide your final answer, respond WITHOUT calling any tools."""
         # Permission system
         self._approval_callback = approval_callback
         self._permission_policy = permission_policy
+
+        # Run metrics accumulator
+        self._tool_call_log: List[Dict[str, Any]] = []
 
     async def run(
         self,
@@ -339,6 +348,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
         self._findings = []
         self._current_query = query
         self._total_tokens = 0
+        self._tool_call_log = []
 
         # Emit start event
         self._emit(event_callback, "agent_started", run_id=run_id, query=query)
@@ -734,6 +744,9 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         duration_ms=total_timing_ms,
                     )
 
+                    # Compute and store run metrics
+                    await self._store_run_metrics(run_id, total_timing_ms)
+
                     return AgentResult(
                         run_id=run_id,
                         success=True,
@@ -783,6 +796,9 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 },
                 duration_ms=total_timing_ms,
             )
+
+            # Compute and store run metrics
+            await self._store_run_metrics(run_id, total_timing_ms)
 
             return AgentResult(
                 run_id=run_id,
@@ -947,11 +963,19 @@ To provide your final answer, respond WITHOUT calling any tools."""
             actor="system",
         )
 
-        planner = Planner(
-            provider=self._provider,
-            model_name=self._model_name,
-            max_plan_steps=self._max_plan_steps,
-        )
+        # Use profile-specific planning prompt and step types if available
+        planning_kwargs: Dict[str, Any] = {
+            "provider": self._provider,
+            "model_name": self._model_name,
+            "max_plan_steps": self._max_plan_steps,
+        }
+        if self._profile:
+            if self._profile.planning_prompt_template:
+                planning_kwargs["planning_prompt"] = self._profile.planning_prompt_template
+            if self._profile.plan_step_types:
+                planning_kwargs["valid_step_types"] = self._profile.plan_step_types
+
+        planner = Planner(**planning_kwargs)
 
         plan = await planner.create_plan(query, self._registry.tool_names)
 
@@ -1096,13 +1120,18 @@ When you complete each step, proceed to the next."""
         Returns:
             Message list with system, history, and user messages.
         """
-        # Inject date context into system prompt
-        today = date.today()
-        date_context = (
-            f"Current date: {today.strftime('%B %d, %Y')}\n"
-            f"Your knowledge cutoff: June 2024. For information after this date, use web_search."
-        )
-        system_prompt = self._system_prompt.format(date_context=date_context)
+        # Build system prompt: if profile is set, the factory already formatted
+        # the prompt with date_context and project_context. Otherwise, inject
+        # date context for backward compatibility.
+        if self._profile:
+            system_prompt = self._system_prompt
+        else:
+            today = date.today()
+            date_context = (
+                f"Current date: {today.strftime('%B %d, %Y')}\n"
+                f"Your knowledge cutoff: June 2024. For information after this date, use web_search."
+            )
+            system_prompt = self._system_prompt.format(date_context=date_context)
 
         messages: List[Dict[str, Any]] = [
             {"role": "system", "content": system_prompt},
@@ -1683,6 +1712,14 @@ When you complete each step, proceed to the next."""
 
             results.append((tool_call, result))
 
+            # Log tool call for run metrics
+            self._tool_call_log.append({
+                "tool_name": tool_call.name,
+                "arguments": tool_call.arguments,
+                "success": result.success,
+                "step_number": step_number,
+            })
+
         return results
 
     def _format_tool_result(self, result: "ToolResult") -> str:
@@ -1925,6 +1962,8 @@ When you complete each step, proceed to the next."""
     ) -> Optional[Dict[str, Any]]:
         """Extract a key finding from a tool result.
 
+        Uses profile.findings_tools to determine which tools produce findings.
+
         Args:
             tool_name: Name of the tool.
             arguments: Tool arguments.
@@ -1937,10 +1976,14 @@ When you complete each step, proceed to the next."""
         if not result_summary or len(result_summary) < 20:
             return None
 
+        # Check if this tool produces findings (profile-aware)
+        if self._profile and self._profile.findings_tools:
+            if tool_name not in self._profile.findings_tools:
+                return None
+
         # For web_search, extract the query and summarize results
         if tool_name == "web_search":
             query = arguments.get("query", "")
-            # Take first 300 chars of summary as the finding
             summary = result_summary[:300]
             if len(result_summary) > 300:
                 summary += "..."
@@ -1955,7 +1998,6 @@ When you complete each step, proceed to the next."""
         if tool_name == "web_extract":
             urls = arguments.get("urls", [])
             url_str = urls[0] if urls else "unknown"
-            # Take first 400 chars of summary
             summary = result_summary[:400]
             if len(result_summary) > 400:
                 summary += "..."
@@ -1968,7 +2010,6 @@ When you complete each step, proceed to the next."""
 
         # For python_execute, note the calculation result
         if tool_name == "python_execute":
-            # Only include if there's actual output (not just errors)
             if "Error" not in result_summary and len(result_summary) < 500:
                 return {
                     "step": step_number,
@@ -1976,7 +2017,146 @@ When you complete each step, proceed to the next."""
                     "content": f"Python result: {result_summary[:200]}",
                 }
 
+        # For filesystem tools (coding profile), extract findings
+        if tool_name in ("read_file", "grep", "glob"):
+            summary = result_summary[:400]
+            if len(result_summary) > 400:
+                summary += "..."
+
+            if tool_name == "read_file":
+                file_path = arguments.get("file_path", "unknown")
+                return {
+                    "step": step_number,
+                    "tool": tool_name,
+                    "file_path": file_path,
+                    "content": f"Read {file_path}: {summary}",
+                }
+            elif tool_name == "grep":
+                pattern = arguments.get("pattern", "")
+                return {
+                    "step": step_number,
+                    "tool": tool_name,
+                    "pattern": pattern,
+                    "content": f"Grep for '{pattern}': {summary}",
+                }
+            elif tool_name == "glob":
+                pattern = arguments.get("pattern", "")
+                return {
+                    "step": step_number,
+                    "tool": tool_name,
+                    "pattern": pattern,
+                    "content": f"Glob '{pattern}': {summary}",
+                }
+
         return None
+
+    def _compute_run_metrics(self) -> Dict[str, Any]:
+        """Compute run metrics from tool call log.
+
+        Returns:
+            Dict with navigation_overhead, total_tool_calls, distinct_files_read,
+            distinct_files_modified, retries, profile name.
+        """
+        read_tools = {"read_file", "glob", "grep", "list_directory"}
+        write_tools = {"write_file", "edit_file"}
+
+        total_tool_calls = len(self._tool_call_log)
+        files_read: set = set()
+        files_modified: set = set()
+
+        # Count navigation overhead: read/glob/grep/list calls before first write/edit
+        navigation_overhead = 0
+        first_write_seen = False
+
+        # Track retries: same tool + same primary argument
+        call_signatures: Dict[str, int] = {}
+        retries = 0
+
+        for entry in self._tool_call_log:
+            tool_name = entry["tool_name"]
+            arguments = entry["arguments"]
+
+            # Track files read
+            if tool_name == "read_file":
+                fp = arguments.get("file_path", "")
+                if fp:
+                    files_read.add(fp)
+            elif tool_name in ("grep", "glob"):
+                pattern = arguments.get("pattern", "")
+                if pattern:
+                    files_read.add(f"<{tool_name}:{pattern}>")
+
+            # Track files modified
+            if tool_name in write_tools:
+                fp = arguments.get("file_path", "")
+                if fp:
+                    files_modified.add(fp)
+                if not first_write_seen:
+                    first_write_seen = True
+
+            # Navigation overhead
+            if not first_write_seen and tool_name in read_tools:
+                navigation_overhead += 1
+
+            # Retries: same tool + same primary arg
+            primary_arg = ""
+            if tool_name in ("read_file", "write_file", "edit_file"):
+                primary_arg = arguments.get("file_path", "")
+            elif tool_name == "grep":
+                primary_arg = arguments.get("pattern", "")
+            elif tool_name == "glob":
+                primary_arg = arguments.get("pattern", "")
+            elif tool_name == "web_search":
+                primary_arg = arguments.get("query", "")
+
+            sig = f"{tool_name}:{primary_arg}"
+            call_signatures[sig] = call_signatures.get(sig, 0) + 1
+            if call_signatures[sig] > 1:
+                retries += 1
+
+        return {
+            "navigation_overhead": navigation_overhead,
+            "total_tool_calls": total_tool_calls,
+            "distinct_files_read": len(files_read),
+            "distinct_files_modified": len(files_modified),
+            "retries": retries,
+            "context_tokens": len(self._system_prompt) // 4,  # Approximate
+            "profile": self._profile.name if self._profile else "unknown",
+        }
+
+    async def _store_run_metrics(self, run_id: str, timing_ms: int) -> None:
+        """Compute and store run metrics in the database.
+
+        Args:
+            run_id: Run ID.
+            timing_ms: Total run timing in milliseconds.
+        """
+        try:
+            metrics = self._compute_run_metrics()
+            metrics["timing_ms"] = timing_ms
+            metrics["total_tokens"] = self._total_tokens
+
+            # Store via trace_repo usage_stats (accepts dict, serializes to JSON)
+            if self._trace_repo:
+                await self._trace_repo.update_run(
+                    run_id,
+                    usage_stats=metrics,
+                )
+                logger.info(
+                    "Run metrics stored",
+                    extra={
+                        "run_id": run_id,
+                        "profile": metrics.get("profile"),
+                        "navigation_overhead": metrics.get("navigation_overhead"),
+                        "total_tool_calls": metrics.get("total_tool_calls"),
+                        "retries": metrics.get("retries"),
+                    },
+                )
+        except Exception as e:
+            logger.warning(
+                "Failed to store run metrics",
+                extra={"run_id": run_id, "error": str(e)},
+            )
 
     async def _store_citations_from_tool(
         self,
