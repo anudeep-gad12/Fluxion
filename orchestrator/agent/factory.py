@@ -43,6 +43,7 @@ async def create_agent_engine(
     working_dir: Optional[str] = None,
     approval_callback: Optional[object] = None,
     profile_name: Optional[str] = None,
+    python_provider: Optional[str] = None,
 ) -> AgentEngine:
     """Create a fully configured AgentEngine.
 
@@ -125,7 +126,9 @@ async def create_agent_engine(
         )
 
     # Create tool registry from profile
-    registry = create_tool_registry_from_profile(config, profile, working_dir)
+    registry = create_tool_registry_from_profile(
+        config, profile, working_dir, python_provider=python_provider,
+    )
 
     # Create repositories
     db = await get_db()

@@ -66,6 +66,7 @@ class APIClient:
             "filesystem_enabled": self._config.mode == "agent",
             "working_dir": self._config.working_dir,
             "permission_policy": self._config.permission,
+            "python_provider": "local",  # CLI runs locally, no need for remote sandboxes
         }
         if self._config.profile:
             payload["profile"] = self._config.profile
