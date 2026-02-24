@@ -185,6 +185,11 @@ For ANY calculation, you MUST use python_execute:
 - Unit conversions (miles to km, F to C)
 - Counting or aggregating data
 
+CRITICAL: Always use print() to output results. The tool only captures stdout.
+Code without print() returns nothing and wastes a step.
+WRONG: x = 5 * 3          → returns "(no output)"
+RIGHT: x = 5 * 3; print(x) → returns "15"
+
 Don't use python_execute to verify values already stated in the content.
 
 NEVER compute mentally or in text.
@@ -215,6 +220,8 @@ CRITICAL INSTRUCTIONS FOR CALCULATIONS:
 3. Even "simple" physics calculations (like kinetic energy, velocity, etc.) MUST use python_execute
 4. Use Python for: unit conversions, formula evaluation, numerical computation
 5. Only answer directly for trivial arithmetic like "2+2" or "5*3"
+6. ALWAYS use print() to output results - the tool only captures stdout.
+   Code without print() returns nothing and wastes a step.
 
 CALCULATION WORKFLOW:
 1. Identify the physics/math problem and relevant formula
