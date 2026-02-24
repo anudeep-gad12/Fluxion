@@ -24,6 +24,7 @@ class CLIConfig:
     working_dir: str = "."
     max_steps: int = 15
     session_cookie: Optional[str] = None
+    session_id: Optional[str] = None  # CLI session ID for ChatGPT auth
     profile: Optional[str] = None  # "research", "coding", "full"
 
     @classmethod
@@ -68,11 +69,15 @@ class CLIConfig:
             profile=profile,
         )
 
-        # Try loading session cookie from config dir
+        # Try loading saved session from config dir
         config_dir = Path.home() / ".config" / "reasoner"
         cookie_file = config_dir / "session"
         if cookie_file.exists():
             config.session_cookie = cookie_file.read_text().strip()
+
+        session_file = config_dir / "cli_session"
+        if session_file.exists():
+            config.session_id = session_file.read_text().strip()
 
         return config
 
@@ -82,3 +87,18 @@ class CLIConfig:
         config_dir.mkdir(parents=True, exist_ok=True)
         (config_dir / "session").write_text(cookie)
         self.session_cookie = cookie
+
+    def save_cli_session(self, session_id: str) -> None:
+        """Save CLI session ID for ChatGPT auth."""
+        config_dir = Path.home() / ".config" / "reasoner"
+        config_dir.mkdir(parents=True, exist_ok=True)
+        (config_dir / "cli_session").write_text(session_id)
+        self.session_id = session_id
+
+    def clear_cli_session(self) -> None:
+        """Clear saved CLI session."""
+        config_dir = Path.home() / ".config" / "reasoner"
+        session_file = config_dir / "cli_session"
+        if session_file.exists():
+            session_file.unlink()
+        self.session_id = None

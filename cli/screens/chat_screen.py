@@ -94,7 +94,7 @@ class ChatScreen(Screen):
                 f"  mode     [bold]{self._config.mode}[/bold]\n"
                 f"  provider [bold]{self._config.provider}[/bold]\n"
                 f"  cwd      [dim]{self._config.working_dir}[/dim]\n\n"
-                "[dim]Type a message to begin.[/dim]"
+                "[dim]Type a message to begin. /login for ChatGPT.[/dim]"
             )
             message_list.mount(welcome)
 
@@ -108,6 +108,11 @@ class ChatScreen(Screen):
 
         query = event.value
         if not query:
+            return
+
+        # Handle slash commands
+        if query.startswith("/"):
+            await self._handle_slash_command(query)
             return
 
         # Remove welcome message if present
@@ -392,6 +397,72 @@ class ChatScreen(Screen):
         message_list.remove_children()
         self._add_system_message("New conversation started.")
         self.query_one(InputArea).focus()
+
+    async def _handle_slash_command(self, command: str) -> None:
+        """Handle slash commands (/login, /logout, /status, /help)."""
+        cmd = command.strip().lower()
+
+        if cmd == "/login":
+            await self._cmd_login()
+        elif cmd == "/logout":
+            await self._cmd_logout()
+        elif cmd == "/status":
+            await self._cmd_status()
+        elif cmd == "/help":
+            self._add_system_message(
+                "Commands: `/login` · `/logout` · `/status` · `/help`\n\n"
+                "Keys: Enter send · Shift+Enter newline · Esc stop · Ctrl+N new · Ctrl+C exit"
+            )
+        else:
+            self._add_system_message(f"Unknown command: `{command}`. Type `/help` for commands.")
+
+    async def _cmd_login(self) -> None:
+        """Handle /login — start ChatGPT OAuth flow."""
+        from ..auth import login
+
+        self._add_system_message("Opening browser for ChatGPT login...")
+
+        session_id = await login(self._config.api_url)
+        if session_id:
+            self._config.save_cli_session(session_id)
+            self._api_client.set_session(session_id)
+            self._add_system_message("Logged in to ChatGPT. Provider switched to chatgpt.")
+
+            # Update status bar
+            status_bar = self.query_one(StatusBar)
+            status_bar.set_mode(f"{self._config.mode} · chatgpt")
+        else:
+            self._add_system_message("Login timed out or failed. Try `/login` again.")
+
+    async def _cmd_logout(self) -> None:
+        """Handle /logout — clear ChatGPT session."""
+        self._config.clear_cli_session()
+        self._add_system_message("Logged out. Switched back to default provider.")
+
+        status_bar = self.query_one(StatusBar)
+        status_bar.set_mode(self._config.mode)
+
+    async def _cmd_status(self) -> None:
+        """Handle /status — show auth and config status."""
+        from ..auth import check_auth
+
+        parts = [
+            f"mode: {self._config.mode}",
+            f"provider: {self._config.provider}",
+            f"profile: {self._config.profile or 'default'}",
+        ]
+
+        if self._config.session_id:
+            auth = await check_auth(self._config.api_url, self._config.session_id)
+            if auth.get("authenticated"):
+                model = auth.get("model", "unknown")
+                parts.append(f"chatgpt: authenticated (model: {model})")
+            else:
+                parts.append("chatgpt: session expired — run `/login`")
+        else:
+            parts.append("chatgpt: not logged in")
+
+        self._add_system_message("\n".join(parts))
 
     def _add_system_message(self, text: str) -> None:
         """Add a system/info message to the message list."""
