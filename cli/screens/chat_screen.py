@@ -90,7 +90,7 @@ class ChatScreen(Screen):
             message_list = self.query_one(MessageList)
             welcome = Static(id="welcome")
             welcome.update(
-                "[bold #a78bfa]Reasoner CLI[/bold #a78bfa]\n\n"
+                "[bold]reasoner>[/bold]\n\n"
                 f"Mode: [bold]{self._config.mode}[/bold]  ·  "
                 f"Provider: [bold]{self._config.provider}[/bold]\n"
                 "Working dir: "
