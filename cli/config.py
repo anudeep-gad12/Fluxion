@@ -24,6 +24,7 @@ class CLIConfig:
     working_dir: str = "."
     max_steps: int = 15
     session_cookie: Optional[str] = None
+    profile: Optional[str] = None  # "research", "coding", "full"
 
     @classmethod
     def from_args(
@@ -35,6 +36,7 @@ class CLIConfig:
         permission: str = "strict",
         working_dir: str = ".",
         max_steps: int = 15,
+        profile: Optional[str] = None,
     ) -> "CLIConfig":
         """Create config from CLI arguments.
 
@@ -46,10 +48,15 @@ class CLIConfig:
             permission: Permission policy.
             working_dir: Working directory for filesystem tools.
             max_steps: Max agent steps.
+            profile: Agent profile override.
 
         Returns:
             CLIConfig instance.
         """
+        # Default profile: "coding" for agent mode, "research" for chat mode
+        if profile is None and mode == "agent":
+            profile = "coding"
+
         config = cls(
             api_url=api_url.rstrip("/"),
             provider=provider,
@@ -58,6 +65,7 @@ class CLIConfig:
             permission=permission,
             working_dir=str(Path(working_dir).resolve()),
             max_steps=max_steps,
+            profile=profile,
         )
 
         # Try loading session cookie from config dir

@@ -59,6 +59,12 @@ import click
     type=int,
     help="Maximum agent steps",
 )
+@click.option(
+    "--profile",
+    default=None,
+    type=click.Choice(["research", "coding", "full"]),
+    help="Agent profile (default: coding for agent mode, research for chat)",
+)
 def main(
     api_url: str,
     provider: str,
@@ -67,6 +73,7 @@ def main(
     permission: str,
     working_dir: str,
     max_steps: int,
+    profile: str | None,
 ) -> None:
     """Reasoner CLI — terminal coding assistant."""
     from .app import ReasonerApp
@@ -80,6 +87,7 @@ def main(
         permission=permission,
         working_dir=working_dir,
         max_steps=max_steps,
+        profile=profile,
     )
 
     app = ReasonerApp(config)
