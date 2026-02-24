@@ -16,6 +16,7 @@ import { withRetry } from '@/lib/retry';
 const API_BASE = '/api';
 const OWNER_TOKEN_KEY = 'reasoner_owner_token';
 const PROVIDER_PREF_KEY = 'reasoner_provider';
+const MODEL_PREF_KEY = 'reasoner_chatgpt_model';
 
 function getOwnerToken(): string | null {
   return localStorage.getItem(OWNER_TOKEN_KEY);
@@ -23,6 +24,10 @@ function getOwnerToken(): string | null {
 
 function getProviderPreference(): string | null {
   return localStorage.getItem(PROVIDER_PREF_KEY);
+}
+
+function getModelPreference(): string | null {
+  return localStorage.getItem(MODEL_PREF_KEY);
 }
 
 class ApiError extends Error {
@@ -35,10 +40,12 @@ class ApiError extends Error {
 async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
   const ownerToken = getOwnerToken();
   const providerPref = getProviderPreference();
+  const modelPref = getModelPreference();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(ownerToken ? { 'X-Owner-Token': ownerToken } : {}),
     ...(providerPref ? { 'X-Provider': providerPref } : {}),
+    ...(providerPref === 'chatgpt' && modelPref ? { 'X-Model': modelPref } : {}),
     ...(options?.headers as Record<string, string>),
   };
 
