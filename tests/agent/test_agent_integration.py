@@ -126,6 +126,7 @@ class TestAgentIntegrationTokyoPopulation:
             ]
         )
         repo.mark_citations_used = AsyncMock()
+        repo.create_run_artifact = AsyncMock()
 
         # Mock state machine
         step_count = 0
@@ -155,6 +156,7 @@ class TestAgentIntegrationTokyoPopulation:
         mock_sm.record_tool_call = AsyncMock(return_value={"id": "tc-search-1"})
         mock_sm.start_tool_execution = AsyncMock()
         mock_sm.complete_tool_call = AsyncMock()
+        mock_sm.record_approval = AsyncMock()
         mock_sm.current_step = 1
         mock_sm.steps_remaining = 9
 
@@ -243,6 +245,7 @@ class TestAgentIntegrationTokyoPopulation:
         repo = MagicMock()
         repo.get_citations_for_run = AsyncMock(return_value=[])
         repo.mark_citations_used = AsyncMock()
+        repo.create_run_artifact = AsyncMock()
 
         registry = MagicMock()
         registry.get_openai_schemas.return_value = []
@@ -355,6 +358,7 @@ class TestAgentIntegrationMultiStep:
         repo.create_citation = AsyncMock()
         repo.get_citations_for_run = AsyncMock(return_value=[])
         repo.mark_citations_used = AsyncMock()
+        repo.create_run_artifact = AsyncMock()
 
         # Mock state machine for 3 steps
         step_count = 0
@@ -391,6 +395,7 @@ class TestAgentIntegrationMultiStep:
         mock_sm.record_tool_call = AsyncMock(side_effect=record_tool)
         mock_sm.start_tool_execution = AsyncMock()
         mock_sm.complete_tool_call = AsyncMock()
+        mock_sm.record_approval = AsyncMock()
         mock_sm.current_step = 1
         mock_sm.steps_remaining = 9
 
@@ -464,6 +469,7 @@ class TestAgentIntegrationRecovery:
         repo = MagicMock()
         repo.get_citations_for_run = AsyncMock(return_value=[])
         repo.mark_citations_used = AsyncMock()
+        repo.create_run_artifact = AsyncMock()
 
         registry = MagicMock()
         registry.get_openai_schemas.return_value = []
@@ -549,6 +555,7 @@ class TestAgentIntegrationErrors:
         repo.create_citation = AsyncMock()
         repo.get_citations_for_run = AsyncMock(return_value=[])
         repo.mark_citations_used = AsyncMock()
+        repo.create_run_artifact = AsyncMock()
 
         step_count = 0
 
@@ -574,6 +581,7 @@ class TestAgentIntegrationErrors:
         mock_sm.record_tool_call = AsyncMock(return_value={"id": "tc-1"})
         mock_sm.start_tool_execution = AsyncMock()
         mock_sm.complete_tool_call = AsyncMock()
+        mock_sm.record_approval = AsyncMock()
         mock_sm.current_step = 1
         mock_sm.steps_remaining = 9
 

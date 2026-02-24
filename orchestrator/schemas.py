@@ -221,6 +221,10 @@ class AgentToolCallResponse(BaseModel):
     completed_at: Optional[str] = None
     idempotency_key: str
     execution_attempt: int = 1
+    approval_decision: Optional[str] = None
+    approval_policy: Optional[str] = None
+    approval_decided_at: Optional[str] = None
+    result_detail: Optional[str] = None
 
 
 class AgentCitationResponse(BaseModel):
@@ -267,6 +271,18 @@ class AgentRunStatusResponse(BaseModel):
     updated_at: Optional[str] = None
 
 
+class RunArtifactResponse(BaseModel):
+    """File change or command execution artifact."""
+    id: str
+    run_id: str
+    artifact_type: str
+    file_path: Optional[str] = None
+    action: str
+    detail: Optional[str] = None
+    tool_call_id: Optional[str] = None
+    created_at: str
+
+
 class AgentRunTraceResponse(BaseModel):
     """Full trace of an agent run."""
     run_id: str
@@ -275,6 +291,7 @@ class AgentRunTraceResponse(BaseModel):
     steps: list[AgentStepResponse]
     tool_calls: list[AgentToolCallResponse]
     citations: list[AgentCitationResponse]
+    artifacts: list[RunArtifactResponse] = []
     final_answer: Optional[str] = None
 
 

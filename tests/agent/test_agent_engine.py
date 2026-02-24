@@ -38,6 +38,7 @@ def create_mock_repo():
     repo.get_citations_for_run = AsyncMock(return_value=[])
     repo.mark_citations_used = AsyncMock()
     repo.create_citation = AsyncMock()
+    repo.create_run_artifact = AsyncMock()
     return repo
 
 
@@ -84,6 +85,7 @@ def create_mock_state_machine(
     mock_sm.record_tool_call = AsyncMock()
     mock_sm.start_tool_execution = AsyncMock()
     mock_sm.complete_tool_call = AsyncMock()
+    mock_sm.record_approval = AsyncMock()
     mock_sm.current_step = 1
     mock_sm.steps_remaining = 9
     return mock_sm

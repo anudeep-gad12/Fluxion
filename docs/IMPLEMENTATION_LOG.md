@@ -9,6 +9,7 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| test | Observability gaps fix — approval audit, result_detail, SSE persistence, file tracking | done | 2026-02-24 |
 | feature/chatgpt-oauth | ChatGPT OAuth integration — use ChatGPT Plus/Pro subscription as provider | in progress | 2026-02-23 |
 | feature/cli-terminal-theme | CLI terminal theme — black & white monochrome | done | 2026-02-22 |
 | docs/update-stale-docs | Update stale docs: BENCHMARKS, DATA_MODELS, ARCHITECTURE | done | 2026-02-14 |
@@ -30,6 +31,33 @@
 | feature/preset-question-chips | Demo preset questions | done | 2026-01-23 |
 | feature/gaia-benchmark | GAIA Benchmark Evaluation | done | 2026-01-21 |
 | feature/agent-planning | Agent Planning Step | done | 2026-01-20 |
+
+### 2026-02-24: Observability Gaps Fix
+
+**Branch:** `test`
+**Status:** done
+
+**Description:**
+Closed 5 observability data gaps identified in audit. All changes are additive (new columns, new tables) — nothing breaks existing functionality. Both web UI agent mode and CLI TUI mode benefit since they share the same backend pipeline.
+
+**What was fixed:**
+1. **Tool approval audit trail** — Record every approval decision (approved/denied/auto/timeout) with policy and timestamp on `agent_tool_calls`.
+2. **Full tool results** — Store up to 10k chars of `result_detail` for write/edit/bash tools (previously only ~300-500 char summary).
+3. **SSE event persistence** — Fire-and-forget persist every SSE event to `run_events` table. Survives the 5-minute in-memory cleanup.
+4. **File change tracking** — New `run_artifacts` table records every file write/edit/command per run, linked to tool call.
+5. **Timestamps** — Added `updated_at` columns to `conversations` and `agent_steps`.
+
+**Changes:**
+- `orchestrator/storage/schema.sql` — Added 4 columns to `agent_tool_calls` (approval_decision, approval_policy, approval_decided_at, result_detail), `updated_at` to conversations/agent_steps, new `run_events` and `run_artifacts` tables with indexes.
+- `orchestrator/storage/db.py` — Migrations 6-9: column additions + table creation for existing databases.
+- `orchestrator/storage/repositories/agent_repo.py` — Extended `update_tool_call()` with 4 new params. Added `create_run_event()`, `get_run_events()`, `create_run_artifact()`, `get_run_artifacts()`.
+- `orchestrator/agent/state_machine.py` — Added `record_approval()` method, `result_detail` param to `complete_tool_call()`.
+- `orchestrator/agent/agent_engine.py` — Records approval decisions after callback returns (approved/denied) and for auto-approved tools. Captures `result_detail` for write tools. Creates `run_artifacts` for file changes.
+- `orchestrator/routes/agent_runs.py` — Added `_persist_run_event()` fire-and-forget helper. Wired into `event_callback`. Added timeout warning log. Exposed artifacts in trace endpoint.
+- `orchestrator/schemas.py` — Added `RunArtifactResponse`, extended `AgentToolCallResponse` with approval/result_detail fields, added `artifacts` to `AgentRunTraceResponse`.
+- `tests/storage/test_observability.py` — 17 new tests covering all new columns, tables, and CRUD operations.
+- `tests/agent/test_agent_engine.py` — Updated mock fixtures for `record_approval` and `create_run_artifact`.
+- `tests/agent/test_agent_integration.py` — Updated mock fixtures for `record_approval` and `create_run_artifact`.
 
 ### 2026-02-23: ChatGPT OAuth Integration
 
