@@ -62,10 +62,16 @@ _approval_queues: Dict[str, Dict[str, asyncio.Future]] = {}
 def get_session_context(request: Request) -> Tuple[Optional[str], bool]:
     """Extract session context from request.
 
+    CLI clients pass session ID via X-CLI-Session header (used to look
+    up ChatGPT tokens). Falls back to session middleware cookie.
+
     Returns:
         Tuple of (session_id, is_owner).
     """
-    session_id = getattr(request.state, "session_id", None)
+    session_id = (
+        request.headers.get("x-cli-session")
+        or getattr(request.state, "session_id", None)
+    )
     is_owner = getattr(request.state, "is_owner", True)
     return session_id, is_owner
 

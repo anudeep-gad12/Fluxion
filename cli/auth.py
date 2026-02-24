@@ -1,9 +1,11 @@
 """ChatGPT OAuth authentication for the CLI.
 
-Opens browser for OAuth flow, polls backend for status.
+Opens browser for OAuth flow, polls backend for completion.
+Uses a CLI-generated session ID passed via query param so
+tokens get linked to the CLI's session, not the browser's.
 """
 
-import asyncio
+import secrets
 import webbrowser
 from typing import Optional
 
@@ -13,61 +15,64 @@ import httpx
 async def login(api_url: str) -> Optional[str]:
     """Start ChatGPT OAuth login flow.
 
-    Opens browser to the OAuth login page and polls for completion.
+    Generates a session ID, opens the browser with it, then polls
+    the status endpoint until authentication completes.
 
     Args:
         api_url: Backend API URL.
 
     Returns:
-        Session cookie string if successful, None otherwise.
+        Session ID string if successful, None otherwise.
     """
-    login_url = f"{api_url}/api/auth/chatgpt/login"
+    # Generate a session ID for the CLI to use
+    session_id = secrets.token_urlsafe(32)
 
-    # Open browser
+    # Open browser with CLI session so tokens get stored under our ID
+    login_url = f"{api_url}/api/auth/chatgpt/login?cli_session={session_id}"
     webbrowser.open(login_url)
 
-    # Poll for auth completion
+    # Poll for auth completion (check every 3s for up to 5 minutes)
     async with httpx.AsyncClient(base_url=api_url, timeout=5.0) as client:
-        for _ in range(60):  # 5 minutes max
-            await asyncio.sleep(5)
+        for _ in range(100):
+            import asyncio
+            await asyncio.sleep(3)
             try:
-                response = await client.get("/api/auth/status")
+                response = await client.get(
+                    "/api/auth/chatgpt/status",
+                    params={"cli_session": session_id},
+                )
                 if response.status_code == 200:
                     data = response.json()
                     if data.get("authenticated"):
-                        # Extract session cookie
-                        for cookie in response.cookies.jar:
-                            if cookie.name == "demo_session":
-                                return cookie.value
-                        return data.get("session_id")
+                        return session_id
             except Exception:
                 continue
 
     return None
 
 
-async def check_auth(api_url: str, session_cookie: Optional[str] = None) -> bool:
-    """Check if current session is authenticated.
+async def check_auth(api_url: str, session_id: Optional[str] = None) -> dict:
+    """Check if current session is authenticated with ChatGPT.
 
     Args:
         api_url: Backend API URL.
-        session_cookie: Session cookie to check.
+        session_id: CLI session ID to check.
 
     Returns:
-        True if authenticated.
+        Status dict with 'authenticated' bool and optional details.
     """
-    cookies = {}
-    if session_cookie:
-        cookies["demo_session"] = session_cookie
+    if not session_id:
+        return {"authenticated": False}
 
     try:
-        async with httpx.AsyncClient(
-            base_url=api_url, cookies=cookies, timeout=5.0
-        ) as client:
-            response = await client.get("/api/auth/status")
+        async with httpx.AsyncClient(base_url=api_url, timeout=5.0) as client:
+            response = await client.get(
+                "/api/auth/chatgpt/status",
+                params={"cli_session": session_id},
+            )
             if response.status_code == 200:
-                return response.json().get("authenticated", False)
+                return response.json()
     except Exception:
         pass
 
-    return False
+    return {"authenticated": False}
