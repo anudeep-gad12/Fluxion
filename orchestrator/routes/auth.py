@@ -445,26 +445,34 @@ async def _process_oauth_callback(
 
 
 async def start_callback_server() -> None:
-    """Start the fallback OAuth callback server on port 1455.
+    """Start the OAuth callback server on port 1455.
 
-    This is optional — the primary callback is handled by the FastAPI
-    /api/auth/chatgpt/callback route. Port 1455 is kept as a fallback
-    for backward compatibility with the Codex CLI's redirect_uri.
+    This port is the only redirect_uri whitelisted by OpenAI for the
+    Codex CLI client_id. Without it, local OAuth login won't work.
+    Uses SO_REUSEADDR to reclaim the port from stale processes.
     """
+    import socket
+
     global _callback_server
     try:
+        # Create socket with SO_REUSEADDR to reclaim from stale processes
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind(("127.0.0.1", CALLBACK_PORT))
+        sock.setblocking(False)
+
         _callback_server = await asyncio.start_server(
             _handle_callback_connection,
-            "127.0.0.1",
-            CALLBACK_PORT,
+            sock=sock,
         )
         logger.info(
-            f"OAuth fallback callback server on port {CALLBACK_PORT}"
+            f"OAuth callback server on port {CALLBACK_PORT}"
         )
     except OSError as e:
-        logger.info(
-            f"OAuth fallback server on port {CALLBACK_PORT} unavailable "
-            f"({e}). Using FastAPI callback route instead."
+        logger.warning(
+            f"OAuth callback server on port {CALLBACK_PORT} unavailable "
+            f"({e}). Local ChatGPT login will not work — kill the process "
+            f"on port {CALLBACK_PORT} and restart."
         )
         _callback_server = None
 
@@ -485,20 +493,27 @@ async def stop_callback_server() -> None:
 
 
 def _get_callback_url(request: Request) -> str:
-    """Derive OAuth callback URL from request or config.
+    """Derive OAuth callback URL.
 
     Priority:
     1. ChatGPT config callback_url (set via CHATGPT_CALLBACK_URL env var)
-    2. Auto-derive from the request's origin (works on localhost & Railway)
+    2. Localhost requests → always use the Codex CLI whitelisted URI
+       (http://localhost:1455/auth/callback) since that's the only
+       redirect_uri registered with OpenAI for this client_id
+    3. Non-localhost (Railway etc.) → derive from request origin
     """
     config = get_chat_config()
     chatgpt_config = config.chatgpt
     if chatgpt_config and chatgpt_config.callback_url:
         return chatgpt_config.callback_url
 
-    # Auto-derive from request headers (Railway sets x-forwarded-proto)
-    scheme = request.headers.get("x-forwarded-proto", request.url.scheme)
+    # For localhost requests, always use the Codex CLI whitelisted URI
     host = request.headers.get("host", "localhost:9000")
+    if "localhost" in host or "127.0.0.1" in host:
+        return CALLBACK_URI
+
+    # Non-localhost: derive from request headers (Railway sets x-forwarded-proto)
+    scheme = request.headers.get("x-forwarded-proto", request.url.scheme)
     return f"{scheme}://{host}/api/auth/chatgpt/callback"
 
 
