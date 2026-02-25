@@ -1633,10 +1633,7 @@ When you complete each step, proceed to the next."""
                                 success=False,
                                 result_summary=result.result_summary,
                             )
-                            results.append({
-                                "tool_call_id": tool_call.id,
-                                "content": result.error_message or "Denied",
-                            })
+                            results.append((tool_call, result))
                             continue
                     else:
                         # Auto-approved tool (no approval needed)
