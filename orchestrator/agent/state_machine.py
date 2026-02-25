@@ -101,7 +101,7 @@ class AgentStateMachine:
                          -> ERROR
 
     Example:
-        sm = AgentStateMachine(run_id, repo, registry, max_steps=10)
+        sm = AgentStateMachine(run_id, repo, registry, max_steps=25)
         await sm.initialize()
 
         step = await sm.start_step()
@@ -137,7 +137,7 @@ class AgentStateMachine:
         run_id: str,
         repo: "AgentRepo",
         tool_registry: "ToolRegistry",
-        max_steps: int = 10,
+        max_steps: int = 25,
     ) -> None:
         """Initialize state machine.
 

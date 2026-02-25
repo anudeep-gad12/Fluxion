@@ -253,7 +253,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
         registry: "ToolRegistry",
         trace_repo: Optional["TraceRepo"] = None,
         model_name: str = "openai/gpt-oss-120b",
-        max_steps: int = 10,
+        max_steps: int = 25,
         max_tokens: int = 4096,
         temperature: float = 0.7,
         system_prompt: Optional[str] = None,
@@ -696,22 +696,6 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         self._update_plan_progress(parsed_calls, step_number)
 
                     tool_steps_completed += 1
-
-                    # Nudge synthesis if agent has accumulated enough findings
-                    if self._should_nudge_synthesis(step_number):
-                        findings_preview = "; ".join(
-                            f["content"][:80] for f in self._findings[-3:]
-                        )
-                        messages.append({
-                            "role": "system",
-                            "content": (
-                                f"You have gathered {len(self._findings)} findings so far. "
-                                f"Recent: {findings_preview}. "
-                                f"If you have enough information to answer the original query, "
-                                f"respond with your FINAL ANSWER now (no tools). "
-                                f"Only continue using tools if you genuinely need MORE information."
-                            ),
-                        })
 
                     await state_machine.complete_step(
                         decision="call_tool",
@@ -2179,28 +2163,6 @@ When you complete each step, proceed to the next."""
 
         return redundant
 
-    def _should_nudge_synthesis(self, step_number: int) -> bool:
-        """Check if agent has enough findings to synthesize an answer.
-
-        Nudges the model to consider stopping when:
-        1. At least 2 steps completed with findings
-        2. Have 3+ findings (enough data points)
-        3. Past halfway through max_steps
-
-        Args:
-            step_number: Current step number.
-
-        Returns:
-            True if agent should be nudged toward synthesis.
-        """
-        if step_number < 2:
-            return False
-        if len(self._findings) < 3:
-            return False
-        if step_number < self._max_steps // 2:
-            return False
-        return True
-
     def _compute_run_metrics(self) -> Dict[str, Any]:
         """Compute run metrics from tool call log.
 
@@ -2484,27 +2446,38 @@ When you complete each step, proceed to the next."""
             Synthesized answer.
         """
         # Build synthesis prompt with accumulated findings
+        # Inspired by OpenCode's forced summarization: require structured output
         if self._findings:
             findings_text = "\n".join(
                 f"- {f['content']}" for f in self._findings
             )
             synthesis_content = (
-                f"IMPORTANT: You have reached the maximum number of research steps and NO MORE TOOLS ARE AVAILABLE.\n"
-                f"Do NOT attempt to use any tools or output JSON.\n\n"
+                f"MAXIMUM STEPS REACHED. Tools are disabled. Respond with text only.\n\n"
+                f"STRICT REQUIREMENTS:\n"
+                f"1. Do NOT make any tool calls — they will fail.\n"
+                f"2. You MUST provide a text response that DIRECTLY ANSWERS the user's question.\n"
+                f"3. Do NOT output your internal thoughts, plans, or next steps as the answer.\n\n"
                 f"ORIGINAL QUERY: {self._current_query}\n\n"
-                f"KEY FINDINGS FROM YOUR RESEARCH ({len(self._findings)} items):\n"
+                f"KEY FINDINGS ({len(self._findings)} items):\n"
                 f"{findings_text}\n\n"
-                f"Based on these findings, provide your FINAL ANSWER directly as plain text.\n"
-                f"Address the original query directly and comprehensively.\n"
-                f"Do NOT include inline citation numbers like [1], [2] - the UI will show sources automatically."
+                f"Your response must include:\n"
+                f"- A direct answer to the original query based on findings above\n"
+                f"- Any important caveats or gaps in the research\n\n"
+                f"Do NOT include inline citation numbers like [1], [2] - the UI shows sources automatically."
             )
         else:
             synthesis_content = (
-                "IMPORTANT: You have reached the maximum number of research steps and NO MORE TOOLS ARE AVAILABLE. "
-                "Do NOT attempt to use any tools or output JSON. "
-                "Based on the information you have gathered so far, provide your FINAL ANSWER directly as plain text. "
-                "Summarize the key findings and insights from your research. "
-                "Do NOT include inline citation numbers like [1], [2] - the UI will show sources automatically."
+                "MAXIMUM STEPS REACHED. Tools are disabled. Respond with text only.\n\n"
+                "STRICT REQUIREMENTS:\n"
+                "1. Do NOT make any tool calls — they will fail.\n"
+                "2. You MUST provide a text response that DIRECTLY ANSWERS the user's question.\n"
+                "3. Do NOT output your internal thoughts, plans, or next steps as the answer.\n\n"
+                f"ORIGINAL QUERY: {self._current_query}\n\n"
+                "Your response must include:\n"
+                "- A summary of what you found so far\n"
+                "- What you were unable to determine\n"
+                "- Recommendations for what the user could try next\n\n"
+                "Do NOT include inline citation numbers like [1], [2] - the UI shows sources automatically."
             )
 
         force_msg = {
