@@ -2,14 +2,14 @@
 
 from textual.app import ComposeResult
 from textual.containers import Vertical
-from textual.widgets import Label, Markdown, Static
+from textual.widgets import Static
 
 
 class MessageBubble(Vertical):
     """A single message bubble (user or assistant).
 
-    User messages are styled differently from assistant messages.
-    Styling is handled by the app.tcss file.
+    User messages render as `❯ content` with no border.
+    Assistant messages are empty shells — StreamingMarkdown is mounted externally.
     """
 
     def __init__(self, role: str, content: str = "", **kwargs) -> None:
@@ -26,10 +26,5 @@ class MessageBubble(Vertical):
 
     def compose(self) -> ComposeResult:
         """Compose the message bubble."""
-        role_label = "you" if self._role == "user" else "assistant"
-        yield Label(f"{role_label}", classes="message-role")
-        if self._content:
-            if self._role == "user":
-                yield Static(self._content, classes="message-content")
-            else:
-                yield Markdown(self._content, classes="message-content")
+        if self._role == "user" and self._content:
+            yield Static(f"[dim]❯[/dim] {self._content}", classes="user-message")

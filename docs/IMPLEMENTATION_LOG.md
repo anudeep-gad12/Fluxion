@@ -9,6 +9,7 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| test | CLI terminal UI redesign — Claude Code style (⏺/⎿ markers, no borders/chrome) | done | 2026-02-25 |
 | test | Observability gaps fix — approval audit, result_detail, SSE persistence, file tracking | done | 2026-02-24 |
 | feature/chatgpt-oauth | ChatGPT OAuth integration — use ChatGPT Plus/Pro subscription as provider | in progress | 2026-02-23 |
 | feature/cli-terminal-theme | CLI terminal theme — black & white monochrome | done | 2026-02-22 |
