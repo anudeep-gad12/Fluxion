@@ -14,7 +14,14 @@ Detailed documentation of every component in the Reasoner system.
    - [Storage Layer](#storage-layer)
    - [Routes Layer](#routes-layer)
    - [Utilities](#utilities)
-2. [Frontend Components](#frontend-components)
+2. [CLI/TUI Components](#clitui-components)
+   - [Entry Point & App](#entry-point--app)
+   - [Screens](#screens)
+   - [Widgets](#widgets)
+   - [Events](#events)
+   - [CLI API Client](#cli-api-client)
+   - [CLI Configuration](#cli-configuration)
+3. [Frontend Components](#frontend-components)
    - [Core Components](#core-components)
    - [Message Components](#message-components)
    - [Agent Components](#agent-components)
@@ -330,6 +337,31 @@ class LLMProvider(Protocol):
 - `failure_threshold`: 5 failures to open
 - `recovery_timeout_seconds`: 30s
 - `success_threshold`: 2 to close
+
+### `orchestrator/providers/chatgpt.py`
+
+**Purpose**: ChatGPT OAuth provider translating to Codex Responses API.
+
+**Class: `ChatGPTProvider`**
+
+**Features**:
+- OAuth access token from CLI `/login` flow
+- Translates chat completions format → Codex Responses API (`chatgpt.com/backend-api/codex/responses`)
+- Request translation: system → instructions, tools → flattened format
+- Response translation: `output_text.delta` → content, `reasoning_summary_text.delta` → reasoning, `function_call` → tool calls
+- Token refresh via `update_token()`
+- Exponential backoff retry (3 max)
+
+**Key Methods**:
+
+| Method | Description |
+|--------|-------------|
+| `complete()` | Non-streaming completion via Codex API |
+| `complete_streaming()` | Streaming with delta translation |
+| `update_token(token)` | Refresh OAuth access token |
+| `health_check()` | Validate token is still valid |
+
+**Models**: gpt-5.2-codex, o4-mini, gpt-4o, o3
 
 ### `orchestrator/providers/factory.py`
 
@@ -761,18 +793,72 @@ The plan is appended to the system message content (not as a separate message) t
 - `create_idempotency_key()` - Hash for tool call dedup
 - `build_recovery_messages()` - Resume context
 
+### `orchestrator/agent/profile.py`
+
+**Purpose**: Agent profile definitions with tool sets, system prompts, and context strategies.
+
+**Dataclass: `AgentProfile`**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | str | `"research"` or `"coding"` |
+| `display_name` | str | UI label |
+| `system_prompt_template` | str | With `{date_context}` and `{project_context}` slots |
+| `tool_sets` | list[str] | `["web", "python", "filesystem"]` |
+| `context_strategy` | str | `"research"` or `"coding"` |
+| `planning_prompt_template` | str | Profile-specific planner prompt |
+| `plan_step_types` | list[str] | Valid step types per profile |
+| `max_steps` | int | Agent step limit |
+| `max_plan_steps` | int | Planner step limit |
+| `findings_tools` | list[str] | Tools producing findings for synthesis |
+
+**Built-in Profiles**:
+
+| Profile | Tool Sets | Context | Step Types | Max Steps |
+|---------|-----------|---------|------------|-----------|
+| `research` | web, python | Date + cutoff | search, extract, calculate, synthesize | 25 |
+| `coding` | web, python, filesystem | 5-layer project context | read, implement, test, debug, synthesize | 30 |
+
+**System Prompt Structure** (both profiles):
+- UNDERSTAND INTENT section
+- STEP BACK WHEN STUCK rule
+- STAY ON TASK directive
+- TOOLS section (profile-specific tool list)
+- RULES section (quality guardrails)
+- STOPPING CRITERIA (when to synthesize)
+
+### `orchestrator/agent/context.py`
+
+**Purpose**: Context strategies that inject profile-specific information into the system prompt.
+
+**Class: `ResearchContextStrategy`**
+- Returns current date + knowledge cutoff message
+
+**Class: `CodingContextStrategy`**
+- Gathers 5-layer project context concurrently via asyncio:
+  1. **Environment**: OS, Python version, Node version
+  2. **Project rules**: `.reasoner/rules.md`, `CLAUDE.md`, or `AGENTS.md`
+  3. **Structure**: File tree (max 3 levels, 60 entries) + dependencies (pyproject.toml, package.json)
+  4. **Git state**: Branch, status (short), last 3 commits
+  5. **Working directory**: Path for context
+- Token budget: ~400 tokens total across all layers
+- Subprocess timeout: 5 seconds per command
+- Graceful fallback if any command fails
+
 ### `orchestrator/agent/tools/base.py`
 
-**Purpose**: Base tool protocol.
+**Purpose**: Base tool protocol and shared types.
 
 **Protocol: `BaseTool`**
 
 ```python
 class BaseTool(Protocol):
     name: str
-    schema: dict  # {name, description, parameters}
+    schema: ToolSchema
 
     async def execute(self, **kwargs) -> ToolResult: ...
+    async def health_check(self) -> bool: ...
+    async def close(self) -> None: ...
 ```
 
 **Dataclass: `ToolResult`**
@@ -780,8 +866,26 @@ class BaseTool(Protocol):
 | Field | Type | Description |
 |-------|------|-------------|
 | `success` | bool | Execution success |
-| `output` | str | Result content |
+| `summary` | str | 1-line summary for DB storage |
+| `result_data` | str | Full result (in-memory only, not persisted) |
 | `error` | str | Error message |
+| `duration_ms` | int | Execution duration |
+| `metadata` | dict | Tool-specific metadata |
+
+**Dataclass: `ToolSchema`**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | str | Tool identifier |
+| `description` | str | Human-readable description |
+| `parameters` | dict | JSON Schema for arguments |
+| `is_idempotent` | bool | Safe to retry |
+| `permission_level` | str | `"auto"`, `"confirm"`, or `"dangerous"` |
+
+**Exception Classes**:
+- `ToolError` — Base exception
+- `ToolTimeoutError` — Execution timeout
+- `ToolExecutionError` — Runtime failure
 
 ### `orchestrator/agent/tools/registry.py`
 
@@ -881,6 +985,184 @@ class BaseTool(Protocol):
 
 **Note**: This tool exists but is not registered. Use `LocalPythonTool` or `DaytonaPythonTool` instead.
 
+### `orchestrator/agent/tools/bash_tool.py`
+
+**Purpose**: Shell command execution with persistent working directory.
+
+**Class: `BashTool`**
+
+**Permission**: `dangerous` (always requires approval unless yolo mode)
+
+**Schema**:
+```python
+{
+    "name": "bash",
+    "parameters": {
+        "command": {"type": "string", "description": "Shell command to execute"},
+        "timeout": {"type": "integer", "description": "Timeout in seconds (max 600)"}
+    }
+}
+```
+
+**Features**:
+- Persistent working directory across calls
+- Configurable timeout (default 120s, max 600s)
+- Output truncated at 30,000 chars
+- Returns exit code, stdout, stderr in metadata
+
+### `orchestrator/agent/tools/read_file.py`
+
+**Purpose**: File reading with line numbers and pagination.
+
+**Class: `ReadFileTool`**
+
+**Permission**: `auto` (read-only, no approval needed)
+
+**Schema**:
+```python
+{
+    "name": "read_file",
+    "parameters": {
+        "file_path": {"type": "string"},
+        "offset": {"type": "integer", "description": "Start line (1-based)"},
+        "limit": {"type": "integer", "description": "Max lines (default 2000)"}
+    }
+}
+```
+
+**Features**:
+- 1-based line numbering (cat -n style)
+- Binary file detection (rejects null bytes)
+- Long line truncation at 2000 chars
+- Path resolution relative to working_dir
+
+### `orchestrator/agent/tools/write_file.py`
+
+**Purpose**: File creation or overwrite.
+
+**Class: `WriteFileTool`**
+
+**Permission**: `confirm` (requires approval in strict/relaxed modes)
+
+**Schema**:
+```python
+{
+    "name": "write_file",
+    "parameters": {
+        "file_path": {"type": "string"},
+        "content": {"type": "string"}
+    }
+}
+```
+
+**Features**:
+- Auto-creates parent directories
+- Path validation within working directory
+
+### `orchestrator/agent/tools/edit_file.py`
+
+**Purpose**: Exact string find-and-replace editing.
+
+**Class: `EditFileTool`**
+
+**Permission**: `confirm` (requires approval in strict/relaxed modes)
+
+**Schema**:
+```python
+{
+    "name": "edit_file",
+    "parameters": {
+        "file_path": {"type": "string"},
+        "old_string": {"type": "string", "description": "Exact text to find"},
+        "new_string": {"type": "string", "description": "Replacement text"}
+    }
+}
+```
+
+**Features**:
+- `old_string` must appear exactly once (prevents ambiguous edits)
+- Diff-style summary of changes
+- No regex — exact match only for reliability
+
+### `orchestrator/agent/tools/glob_tool.py`
+
+**Purpose**: File pattern matching.
+
+**Class: `GlobTool`**
+
+**Permission**: `auto` (read-only)
+
+**Schema**:
+```python
+{
+    "name": "glob",
+    "parameters": {
+        "pattern": {"type": "string", "description": "Glob pattern (e.g., '**/*.py')"},
+        "path": {"type": "string", "description": "Directory to search in"}
+    }
+}
+```
+
+**Features**:
+- Results sorted by modification time (most recent first)
+- Skips: `.git`, `__pycache__`, `node_modules`, `.venv`, `.env`, `.tox`, `.mypy_cache`
+- Max 1000 results with truncation indicator
+- Relative path display
+
+### `orchestrator/agent/tools/grep_tool.py`
+
+**Purpose**: Regex content search across files.
+
+**Class: `GrepTool`**
+
+**Permission**: `auto` (read-only)
+
+**Schema**:
+```python
+{
+    "name": "grep",
+    "parameters": {
+        "pattern": {"type": "string", "description": "Regex pattern"},
+        "path": {"type": "string", "description": "File or directory to search"},
+        "glob": {"type": "string", "description": "File filter (e.g., '*.py')"},
+        "context": {"type": "integer", "description": "Context lines before/after"}
+    }
+}
+```
+
+**Features**:
+- Uses `ripgrep` (`rg`) if available, falls back to Python `re` module
+- File glob filtering
+- Configurable context lines
+- Max results (default 50)
+- Skips binary files
+
+### `orchestrator/agent/tools/list_directory.py`
+
+**Purpose**: Tree-style directory listing.
+
+**Class: `ListDirectoryTool`**
+
+**Permission**: `auto` (read-only)
+
+**Schema**:
+```python
+{
+    "name": "list_directory",
+    "parameters": {
+        "path": {"type": "string", "description": "Directory to list"},
+        "recursive": {"type": "boolean", "description": "Include subdirectories"},
+        "max_depth": {"type": "integer", "description": "Max depth (default 3)"}
+    }
+}
+```
+
+**Features**:
+- Tree connectors (├──, └──, │)
+- File sizes formatted as B/KB/MB/GB
+- Respects `.gitignore` patterns
+- Max 500 entries with truncation
+
 ---
 
 ## Storage Layer
@@ -910,8 +1192,10 @@ class BaseTool(Protocol):
 - `runs` - Chat/agent runs
 - `trace_events` - Granular event timeline
 - `agent_steps` - Agent step tracking
-- `agent_tool_calls` - Tool execution records
+- `agent_tool_calls` - Tool execution records (includes approval fields)
 - `agent_citations` - Evidence sources
+- `run_events` - Persisted SSE events (survives in-memory cleanup)
+- `run_artifacts` - File change tracking (writes, edits, commands)
 - `eval_runs` - Benchmark execution sessions
 - `eval_samples` - Individual evaluation samples
 
@@ -1036,7 +1320,7 @@ async with self._seq_lock:
 
 ### `orchestrator/routes/agent_runs.py`
 
-**Purpose**: Agent run endpoints with SSE streaming.
+**Purpose**: Agent run endpoints with SSE streaming and tool approval.
 
 **Endpoints**:
 
@@ -1046,7 +1330,15 @@ async with self._seq_lock:
 | `GET` | `/api/agent/runs/{id}` | Get status |
 | `GET` | `/api/agent/runs/{id}/trace` | Full trace |
 | `GET` | `/api/agent/runs/{id}/stream` | SSE stream |
+| `POST` | `/api/agent/runs/{id}/approve/{tool_call_id}` | Approve pending tool |
+| `POST` | `/api/agent/runs/{id}/deny/{tool_call_id}` | Deny pending tool |
 | `POST` | `/api/agent/runs/{id}/cancel` | Cancel agent |
+
+**Tool Approval Flow**:
+- In-memory `_approval_queues`: `Dict[run_id, Dict[tool_call_id, asyncio.Future[bool]]]`
+- Agent engine creates a Future when a tool needs approval, emits `tool_approval_required` SSE event
+- `/approve` resolves the Future with `True`, `/deny` resolves with `False`
+- Approval timeout: 5 minutes (tool is denied if no response)
 
 **SSE Stream Token Auth**:
 - Each `POST /api/agent/runs` generates a per-run `secrets.token_urlsafe(16)` stored in `_run_tokens`
@@ -1065,6 +1357,7 @@ _EVENT_TYPE_MAP = {
     "step_started": "step_start",
     "thinking": "thinking",
     "tool_start": "tool_start",
+    "tool_approval_required": "tool_approval_required",
     "tool_result": "tool_result",
     "answer_token": "answer",
     "agent_complete": "complete",
@@ -1099,6 +1392,253 @@ _EVENT_TYPE_MAP = {
 
 **Functions**:
 - `parse_harmony_response(text)` - Extract channels from Harmony format
+
+---
+
+# CLI/TUI Components
+
+Built with the [Textual](https://textual.textualize.io/) framework. Always uses the `coding` profile.
+
+## Entry Point & App
+
+### `cli/__main__.py`
+
+**Purpose**: Click CLI entry point.
+
+**Command**: `reasoner` (installed via pyproject.toml `[project.scripts]`)
+
+**Options**:
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--api-url` | str | `http://localhost:9000` | Backend API URL |
+| `--provider` | choice | `default` | `default` or `chatgpt` |
+| `--model` | str | None | Override model name |
+| `--mode` | choice | `agent` | `chat` or `agent` |
+| `--permission` | choice | `relaxed` | `strict`, `relaxed`, or `yolo` |
+| `--working-dir` | path | cwd | Filesystem root for tools |
+| `--max-steps` | int | 25 | Max agent steps |
+| `--local` | flag | False | Interactive local model picker |
+
+### `cli/app.py`
+
+**Purpose**: Textual App subclass with custom theme.
+
+**Class: `ReasonerApp(App)`**
+
+**Features**:
+- Custom "reasoner" theme (zinc-based with functional accent colors)
+- Color palette: primary `#60a5fa` (blue), accent colors, warning/error
+- Title displays mode + provider/model info
+- Mounts `ChatScreen` as the main screen
+
+## Screens
+
+### `cli/screens/chat_screen.py`
+
+**Purpose**: Main UI surface handling all user interaction and SSE event consumption.
+
+**Class: `ChatScreen(Screen)`**
+
+**Bindings**:
+- `Escape` — Stop current run
+- `Ctrl+N` — New conversation
+
+**State**:
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `_current_run_id` | str | Active agent run |
+| `_current_stream_token` | str | SSE auth token |
+| `_conversation_id` | str | Multi-turn context |
+| `_is_running` | bool | Run state flag |
+| `_current_step` | int | Step counter |
+| `_pending_approval` | ToolCallPanel | Panel awaiting approval |
+
+**Message Handlers** (SSE → Widget):
+
+| Handler | Trigger | Action |
+|---------|---------|--------|
+| `on_input_area_submitted` | User submits text | Create agent run, subscribe SSE |
+| `on_step_start_event` | New step | Update StatusBar step counter |
+| `on_thinking_event` | Thinking token | ThinkingPanel.append_token() |
+| `on_tool_start_event` | Tool starting | Create ToolCallPanel |
+| `on_tool_approval_required_event` | Approval needed | Switch InputArea to approval mode |
+| `on_tool_result_event` | Tool finished | ToolCallPanel.set_result() |
+| `on_answer_token_event` | Answer token | StreamingMarkdown.append_token() |
+| `on_agent_complete_event` | Run done | Finalize, show context usage |
+| `on_agent_error_event` | Error | Display error message |
+
+**Slash Commands**: `/login`, `/logout`, `/status`, `/help`
+
+**Approval Flow**:
+1. `ToolApprovalRequiredEvent` received → stores `_pending_approval` reference
+2. InputArea switches to approval mode (read-only, shows full tool args)
+3. User presses `y` (approve) or `n` (deny)
+4. Calls `POST /api/agent/runs/{id}/approve/{tool_call_id}` or `/deny/`
+5. Restores normal input mode
+
+## Widgets
+
+### `cli/widgets/input_area.py`
+
+**Purpose**: Multi-line text input with approval mode.
+
+**Class: `InputArea(TextArea)`**
+
+**Modes**:
+- **Normal**: Enter to submit, Shift+Enter for newline
+- **Approval**: Read-only display of full tool arguments, captures `y`/`n` key responses
+
+**Messages**:
+- `Submitted(value: str)` — User submitted text
+- `ApprovalDecision(approved: bool)` — User approved or denied a tool
+
+### `cli/widgets/thinking_panel.py`
+
+**Purpose**: Expandable display of model reasoning tokens.
+
+**Class: `ThinkingPanel`**
+
+**Features**:
+- **Collapsed**: Shows last ~100 chars on single line with ∴ symbol
+- **Expanded**: Full thinking text
+- Click to toggle expand/collapse
+- `append_token(token)` for streaming accumulation
+
+### `cli/widgets/tool_call_panel.py`
+
+**Purpose**: Expandable tool call display with approval support.
+
+**Class: `ToolCallPanel`**
+
+**Features**:
+- **Collapsed**: `▸ ToolName(primary_arg)` — primary argument extraction (path, command, query, etc.)
+- **Expanded**: `▾ ToolName` with full key-value argument pairs
+- Tool icon mapping per tool name
+- Result display with success/error status
+
+**Key Methods**:
+- `show_approval_prompt()` — Display approval UI
+- `set_result(success, summary, error, duration_ms)` — Update with execution result
+- `resolve_approval(approved)` — Mark approval decision
+
+**Properties**: `run_id`, `tool_call_id`
+
+### `cli/widgets/streaming_markdown.py`
+
+**Purpose**: Markdown rendering with streaming token updates.
+
+**Class: `StreamingMarkdown`**
+
+- `append_token(token)` — Accumulate and re-render
+
+### `cli/widgets/message_bubble.py`
+
+**Purpose**: Container for user and assistant messages.
+
+**Class: `MessageBubble`**
+
+- Children: ThinkingPanel, ToolCallPanel, StreamingMarkdown
+
+### `cli/widgets/message_list.py`
+
+**Purpose**: Scrollable container for all message bubbles.
+
+**Class: `MessageList`**
+
+- Auto-scroll to bottom on new content
+
+### `cli/widgets/status_bar.py`
+
+**Purpose**: Status information display.
+
+**Class: `StatusBar`**
+
+**Displays**: mode, provider/model, connection status, step counter, context usage
+
+**Methods**:
+- `set_busy(is_busy)` — Show/hide spinner
+- `set_step(current, max)` — Update step counter
+- `set_context_usage(tokens_used, tokens_max)` — Show token usage
+- `set_connected(connected)` — Connection indicator
+- `set_mode(mode)` — Update mode display
+
+### `cli/widgets/agent_progress.py`
+
+**Purpose**: Agent progress indicator widget.
+
+**Class: `AgentProgress`**
+
+## Events
+
+### `cli/events.py`
+
+**Purpose**: Textual message classes that bridge SSE events to widget updates.
+
+**Base Class**: `AgentEvent(Message)` — all events inherit from this
+
+| Event Class | Fields | Description |
+|-------------|--------|-------------|
+| `StepStartEvent` | step_number, steps_remaining | New agent step |
+| `ThinkingEvent` | content | Reasoning token chunk |
+| `ToolStartEvent` | tool_call_id, tool_name, arguments | Tool execution starting |
+| `ToolApprovalRequiredEvent` | tool_call_id, tool_name, arguments | Approval needed before execution |
+| `ToolResultEvent` | tool_call_id, success, result_summary, error_message, duration_ms | Tool completion |
+| `AnswerTokenEvent` | content | Final answer token chunk |
+| `AgentCompleteEvent` | success, final_answer, citations, total_steps, timing_ms, total_tokens, context_usage | Run finished |
+| `AgentErrorEvent` | error, step | Error occurred |
+| `AgentStateEvent` | state, current_step, max_steps | State transition |
+| `HeartbeatEvent` | — | SSE keepalive |
+
+## CLI API Client
+
+### `cli/api_client.py`
+
+**Purpose**: HTTP + SSE client for backend communication.
+
+**Class: `APIClient`**
+
+**Methods**:
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `create_agent_run(query, conversation_id)` | POST /api/agent/runs | Start an agent run |
+| `stream_agent_events(run_id, token, since_seq)` | GET /api/agent/runs/{id}/stream | SSE event stream |
+| `approve_tool(run_id, tool_call_id)` | POST /api/agent/runs/{id}/approve/{tc_id} | Approve pending tool |
+| `deny_tool(run_id, tool_call_id)` | POST /api/agent/runs/{id}/deny/{tc_id} | Deny pending tool |
+| `cancel_run(run_id)` | POST /api/agent/runs/{id}/cancel | Cancel active run |
+| `health_check()` | GET /api/health | Check backend connectivity |
+
+**Headers**: `X-Provider`, `X-Model`, `X-CLI-Session`
+
+## CLI Configuration
+
+### `cli/config.py`
+
+**Purpose**: CLI configuration with session persistence.
+
+**Class: `CLIConfig`**
+
+**Properties**:
+- `api_url`, `provider`, `model`, `mode`, `permission`, `working_dir`, `max_steps`
+- `session_cookie` — Demo session persistence
+- `session_id` — CLI session for ChatGPT OAuth
+- `profile` — Always `"coding"` for CLI
+
+**Methods**:
+- `from_args()` — Create from Click CLI flags
+- `save_session()` — Persist to `~/.config/reasoner/config.json`
+- `save_cli_session()` — Persist CLI session ID
+- `clear_cli_session()` — Clear on logout
+
+### `cli/auth.py`
+
+**Purpose**: ChatGPT OAuth PKCE authentication flow.
+
+**Functions**:
+- `login(api_url)` — Opens browser for OAuth, returns session_id
+- `check_auth(api_url, session_id)` — Validate authentication status
 
 ---
 

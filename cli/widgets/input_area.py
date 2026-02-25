@@ -1,4 +1,4 @@
-"""Multi-line input area with Enter to submit."""
+"""Multi-line input area with Enter to submit and approval mode."""
 
 from textual.message import Message
 from textual.widgets import TextArea
@@ -9,6 +9,9 @@ class InputArea(TextArea):
 
     Enter submits the message.
     Shift+Enter inserts a newline.
+
+    Approval mode: replaces input with read-only tool details,
+    responds to y/n keys for approve/deny.
     """
 
     class Submitted(Message):
@@ -18,6 +21,13 @@ class InputArea(TextArea):
             super().__init__()
             self.value = value
 
+    class ApprovalDecision(Message):
+        """User decided on tool approval."""
+
+        def __init__(self, approved: bool) -> None:
+            super().__init__()
+            self.approved = approved
+
     def __init__(self, **kwargs) -> None:
         super().__init__(
             language=None,
@@ -25,11 +35,51 @@ class InputArea(TextArea):
             show_line_numbers=False,
             **kwargs,
         )
+        self._approval_mode = False
+
+    @property
+    def approval_mode(self) -> bool:
+        """Whether the input area is in approval mode."""
+        return self._approval_mode
+
+    def enter_approval_mode(self, tool_display: str) -> None:
+        """Switch input to approval mode showing tool details."""
+        self._approval_mode = True
+        self.text = tool_display
+        self.read_only = True
+        self.add_class("approval-mode")
+
+    def exit_approval_mode(self) -> None:
+        """Restore normal input mode."""
+        if not self._approval_mode:
+            return
+        self._approval_mode = False
+        self.read_only = False
+        self.text = ""
+        self.remove_class("approval-mode")
 
     def _on_key(self, event) -> None:
-        """Route Enter vs Shift+Enter."""
+        """Route keys based on mode."""
+        if self._approval_mode:
+            if event.key == "y":
+                event.prevent_default()
+                event.stop()
+                self.post_message(self.ApprovalDecision(approved=True))
+            elif event.key == "n":
+                event.prevent_default()
+                event.stop()
+                self.post_message(self.ApprovalDecision(approved=False))
+            elif event.key == "escape":
+                # Let escape bubble up to chat screen for cancel
+                return
+            else:
+                # Block all other keys in approval mode
+                event.prevent_default()
+                event.stop()
+            return
+
+        # Normal mode: Enter submits, Shift+Enter inserts newline
         if event.key == "shift+enter":
-            # Let TextArea handle it as a normal newline
             return
         if event.key == "enter":
             event.prevent_default()
