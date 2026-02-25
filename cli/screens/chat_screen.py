@@ -151,6 +151,10 @@ class ChatScreen(Screen):
             self._current_run_id = result["run_id"]
             self._current_stream_token = result.get("stream_token", "")
 
+            # Track conversation for message history
+            if not self._conversation_id:
+                self._conversation_id = result.get("conversation_id")
+
             # Add assistant bubble and mount streaming markdown inside it
             message_list = self.query_one(MessageList)
             bubble = MessageBubble("assistant", "")

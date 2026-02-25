@@ -257,6 +257,7 @@ class CreateAgentRunResponse(BaseModel):
     status: str
     stream_url: str
     stream_token: str
+    conversation_id: Optional[str] = None
 
 
 class AgentRunStatusResponse(BaseModel):
