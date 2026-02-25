@@ -3,9 +3,9 @@
 from textual.app import ComposeResult
 from textual.containers import Vertical
 from textual.message import Message
-from textual.widgets import Label
+from textual.widgets import Static
 
-# Tool name to icon mapping
+# Tool name to display name mapping
 _TOOL_ICONS = {
     "read_file": "Read",
     "write_file": "Write",
@@ -33,8 +33,9 @@ _PRIMARY_ARG_KEYS = [
 class ToolCallPanel(Vertical):
     """Panel showing a tool call and its result.
 
-    Shows tool name with primary arg inline, result, and optional approval prompt.
-    Styling is handled by the app.tcss file.
+    Renders as:
+        ⏺ Tool(primary_arg)
+          ⎿  ✓ result summary
     """
 
     class ApprovalResponse(Message):
@@ -62,20 +63,21 @@ class ToolCallPanel(Vertical):
         self._run_id = run_id
         self._tool_call_id = tool_call_id
         self._needs_approval = False
-        self._result_label: Label | None = None
+        self._result_widget: Static | None = None
 
     def compose(self) -> ComposeResult:
         """Compose the tool call panel."""
         display_name = _TOOL_ICONS.get(self._tool_name, self._tool_name)
         primary_arg = self._primary_arg()
 
-        header = display_name
         if primary_arg:
-            header = f"{display_name}  [dim]{primary_arg}[/dim]"
+            header = f"[bold $primary]⏺[/bold $primary] {display_name}([dim]{primary_arg}[/dim])"
+        else:
+            header = f"[bold $primary]⏺[/bold $primary] {display_name}()"
 
-        yield Label(header, classes="tool-header")
-        self._result_label = Label("  ... running", classes="tool-result")
-        yield self._result_label
+        yield Static(header, classes="tool-header")
+        self._result_widget = Static("  ⎿  [dim]Running…[/dim]", classes="tool-result")
+        yield self._result_widget
 
     def _primary_arg(self) -> str:
         """Extract the most informative argument for compact display."""
@@ -84,31 +86,37 @@ class ToolCallPanel(Vertical):
         for key in _PRIMARY_ARG_KEYS:
             if key in self._arguments:
                 val = str(self._arguments[key])
-                if len(val) > 80:
-                    val = val[:77] + "..."
+                if len(val) > 60:
+                    val = val[:57] + "..."
                 return val
         # Fallback: first argument value
         first_val = str(next(iter(self._arguments.values())))
-        if len(first_val) > 80:
-            first_val = first_val[:77] + "..."
+        if len(first_val) > 60:
+            first_val = first_val[:57] + "..."
         return first_val
 
     def set_result(self, summary: str, success: bool = True) -> None:
         """Set the tool result."""
-        if self._result_label:
-            display = summary[:200] if len(summary) > 200 else summary
-            marker = "✓" if success else "✗"
-            self._result_label.update(f"{marker} {display}")
-            self._result_label.remove_class("tool-result", "tool-error", "tool-approval")
-            self._result_label.add_class("tool-result" if success else "tool-error")
+        if self._result_widget:
+            display = summary[:120] if len(summary) > 120 else summary
+            if success:
+                self._result_widget.update(f"  ⎿  [green]✓ {display}[/green]")
+                self._result_widget.remove_class("tool-error", "tool-approval")
+                self._result_widget.add_class("tool-result")
+            else:
+                self._result_widget.update(f"  ⎿  [red]✗ {display}[/red]")
+                self._result_widget.remove_class("tool-result", "tool-approval")
+                self._result_widget.add_class("tool-error")
 
     def show_approval_prompt(self) -> None:
         """Show the approval prompt."""
         self._needs_approval = True
-        if self._result_label:
-            self._result_label.update("⋯ [y] approve  /  [n] deny")
-            self._result_label.remove_class("tool-result", "tool-error")
-            self._result_label.add_class("tool-approval")
+        if self._result_widget:
+            self._result_widget.update(
+                "  ⎿  [bold yellow]Allow? [y] approve · [n] deny[/bold yellow]"
+            )
+            self._result_widget.remove_class("tool-result", "tool-error")
+            self._result_widget.add_class("tool-approval")
 
     @property
     def needs_approval(self) -> bool:
@@ -126,12 +134,12 @@ class ToolCallPanel(Vertical):
     def resolve_approval(self, approved: bool) -> None:
         """Mark approval as resolved."""
         self._needs_approval = False
-        if self._result_label:
+        if self._result_widget:
             if approved:
-                self._result_label.update("  ... executing")
-                self._result_label.remove_class("tool-approval", "tool-error")
-                self._result_label.add_class("tool-result")
+                self._result_widget.update("  ⎿  [dim]Running…[/dim]")
+                self._result_widget.remove_class("tool-approval", "tool-error")
+                self._result_widget.add_class("tool-result")
             else:
-                self._result_label.update("✗ denied by user")
-                self._result_label.remove_class("tool-approval", "tool-result")
-                self._result_label.add_class("tool-error")
+                self._result_widget.update("  ⎿  [red]✗ Denied[/red]")
+                self._result_widget.remove_class("tool-approval", "tool-result")
+                self._result_widget.add_class("tool-error")
