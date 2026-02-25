@@ -9,6 +9,8 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| test | System prompt overhaul — HOW TO THINK guidelines, removed synthesis nudge, force-synthesis rewrite, max_steps bump (25/30), industry research | done | 2026-02-25 |
+| test | CLI expandable panels + input area approval flow | done | 2026-02-25 |
 | test | Agent quality guardrails — stopping criteria, redundancy detection, synthesis nudging; removed dead `full` profile | done | 2026-02-25 |
 | test | Context management system — token-aware history, turn summaries, context usage in SSE/UI/CLI | done | 2026-02-25 |
 | test | CLI terminal UI redesign — Claude Code style (⏺/⎿ markers, no borders/chrome) | done | 2026-02-25 |

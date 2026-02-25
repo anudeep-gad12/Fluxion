@@ -1,4 +1,4 @@
-"""Tool call display panel with optional approval prompt."""
+"""Tool call display panel with optional approval prompt and click-to-expand."""
 
 from textual.app import ComposeResult
 from textual.containers import Vertical
@@ -33,9 +33,12 @@ _PRIMARY_ARG_KEYS = [
 class ToolCallPanel(Vertical):
     """Panel showing a tool call and its result.
 
-    Renders as:
-        ⏺ Tool(primary_arg)
-          ⎿  ✓ result summary
+    Click the header to expand/collapse full arguments.
+
+    Collapsed: ▸ Tool(primary_arg)
+    Expanded:  ▾ Tool
+                 key: value
+                 key: value
     """
 
     class ApprovalResponse(Message):
@@ -63,21 +66,34 @@ class ToolCallPanel(Vertical):
         self._run_id = run_id
         self._tool_call_id = tool_call_id
         self._needs_approval = False
+        self._expanded = False
         self._result_widget: Static | None = None
+        self._header_widget: Static | None = None
+        self._details_widget: Static | None = None
+        self._result_text = ""
+        self._result_success = True
 
     def compose(self) -> ComposeResult:
         """Compose the tool call panel."""
-        display_name = _TOOL_ICONS.get(self._tool_name, self._tool_name)
-        primary_arg = self._primary_arg()
-
-        if primary_arg:
-            header = f"[bold $primary]⏺[/bold $primary] {display_name}([dim]{primary_arg}[/dim])"
-        else:
-            header = f"[bold $primary]⏺[/bold $primary] {display_name}()"
-
-        yield Static(header, classes="tool-header")
+        header = self._build_header_text()
+        self._header_widget = Static(header, classes="tool-header")
+        yield self._header_widget
+        self._details_widget = Static("", classes="tool-details")
+        yield self._details_widget
         self._result_widget = Static("  ⎿  [dim]Running…[/dim]", classes="tool-result")
         yield self._result_widget
+
+    def _build_header_text(self) -> str:
+        """Build the header text with expand/collapse indicator."""
+        display_name = _TOOL_ICONS.get(self._tool_name, self._tool_name)
+        if self._expanded:
+            return f"[bold $primary]▾[/bold $primary] {display_name}"
+        else:
+            primary_arg = self._primary_arg()
+            if primary_arg:
+                return f"[bold $primary]▸[/bold $primary] {display_name}([dim]{primary_arg}[/dim])"
+            else:
+                return f"[bold $primary]▸[/bold $primary] {display_name}()"
 
     def _primary_arg(self) -> str:
         """Extract the most informative argument for compact display."""
@@ -95,16 +111,83 @@ class ToolCallPanel(Vertical):
             first_val = first_val[:57] + "..."
         return first_val
 
+    def get_full_arguments_display(self) -> str:
+        """Return formatted full arguments for display.
+
+        Used by the input area approval flow and expanded view.
+        """
+        display_name = _TOOL_ICONS.get(self._tool_name, self._tool_name)
+        lines = [f"⏺ {display_name} — approve this tool call?\n"]
+        if not self._arguments:
+            lines.append("  (no arguments)")
+            return "\n".join(lines)
+        for key, value in self._arguments.items():
+            val_str = str(value)
+            if "\n" in val_str:
+                lines.append(f"{key}:")
+                for vline in val_str.split("\n"):
+                    lines.append(f"  {vline}")
+            else:
+                lines.append(f"{key}: {val_str}")
+        return "\n".join(lines)
+
+    def _get_details_markup(self) -> str:
+        """Return Rich markup for the details section."""
+        if not self._arguments:
+            return "  [dim](no arguments)[/dim]"
+        lines = []
+        for key, value in self._arguments.items():
+            val_str = str(value)
+            if "\n" in val_str:
+                lines.append(f"  [dim]{key}:[/dim]")
+                for vline in val_str.split("\n"):
+                    lines.append(f"    {vline}")
+            else:
+                lines.append(f"  [dim]{key}:[/dim] {val_str}")
+        return "\n".join(lines)
+
+    def on_click(self) -> None:
+        """Toggle expanded/collapsed state on click."""
+        self._expanded = not self._expanded
+        if self._expanded:
+            self.add_class("expanded")
+            if self._header_widget:
+                self._header_widget.update(self._build_header_text())
+            if self._details_widget:
+                self._details_widget.update(self._get_details_markup())
+            # Show full result when expanded
+            if self._result_widget and self._result_text:
+                self._update_result_display(self._result_text, self._result_success)
+        else:
+            self.remove_class("expanded")
+            if self._header_widget:
+                self._header_widget.update(self._build_header_text())
+            if self._details_widget:
+                self._details_widget.update("")
+            # Truncate result when collapsed
+            if self._result_widget and self._result_text:
+                self._update_result_display(self._result_text, self._result_success)
+
+    def _update_result_display(self, summary: str, success: bool) -> None:
+        """Update result widget with appropriate truncation."""
+        if not self._result_widget:
+            return
+        display = summary if self._expanded else (summary[:120] if len(summary) > 120 else summary)
+        if success:
+            self._result_widget.update(f"  ⎿  [green]✓ {display}[/green]")
+        else:
+            self._result_widget.update(f"  ⎿  [red]✗ {display}[/red]")
+
     def set_result(self, summary: str, success: bool = True) -> None:
         """Set the tool result."""
+        self._result_text = summary
+        self._result_success = success
         if self._result_widget:
-            display = summary[:120] if len(summary) > 120 else summary
+            self._update_result_display(summary, success)
             if success:
-                self._result_widget.update(f"  ⎿  [green]✓ {display}[/green]")
                 self._result_widget.remove_class("tool-error", "tool-approval")
                 self._result_widget.add_class("tool-result")
             else:
-                self._result_widget.update(f"  ⎿  [red]✗ {display}[/red]")
                 self._result_widget.remove_class("tool-result", "tool-approval")
                 self._result_widget.add_class("tool-error")
 
