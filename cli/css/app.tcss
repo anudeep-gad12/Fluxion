@@ -1,4 +1,4 @@
-/* Reasoner CLI — Monochrome + Functional Accent Theme */
+/* Reasoner CLI — Clean Terminal UI (Claude Code style) */
 
 Screen {
     background: $background;
@@ -89,11 +89,6 @@ StatusBar .status-provider {
     color: $text-muted;
 }
 
-StatusBar .status-step {
-    color: $text;
-    text-style: bold;
-}
-
 StatusBar .status-activity {
     color: $text-muted;
     text-style: italic;
@@ -118,16 +113,6 @@ StatusBar .status-disconnected {
     padding: 1 2;
     height: auto;
     color: $text-muted;
-    border: tall $surface-lighten-1;
-    background: $surface;
-}
-
-/* ── Turn Separator ────────────────────────────────── */
-
-.turn-separator {
-    height: 1;
-    margin: 1 4;
-    color: $text-disabled;
 }
 
 /* ── Message Bubbles ────────────────────────────────── */
@@ -140,103 +125,51 @@ MessageBubble {
 
 MessageBubble.user {
     margin-top: 1;
-    border-left: thick $surface-lighten-2;
-    padding-left: 1;
 }
 
 MessageBubble.assistant {
-    border-left: thick $primary;
-    padding-left: 1;
-}
-
-MessageBubble .message-role {
-    text-style: bold;
-    margin-bottom: 0;
     padding: 0;
-    height: 1;
 }
 
-MessageBubble.user .message-role {
-    color: $text-muted;
-}
-
-MessageBubble.assistant .message-role {
-    color: $primary;
-}
-
-MessageBubble .message-content {
-    padding: 0 0 0 2;
-    margin: 0;
+.user-message {
+    color: $text;
 }
 
 /* ── Tool Call Panels ───────────────────────────────── */
 
 ToolCallPanel {
-    margin: 0 3 1 3;
-    padding: 0 1;
+    margin: 0 2 0 2;
+    padding: 0;
     height: auto;
-    max-height: 12;
-    border-left: thick $primary;
-    background: $panel;
 }
 
 ToolCallPanel .tool-header {
-    text-style: bold;
-    color: $primary;
     height: 1;
 }
 
-ToolCallPanel .tool-args {
-    color: $text-muted;
-    text-style: dim;
-    padding: 0 0 0 2;
-}
-
 ToolCallPanel .tool-result {
-    color: $success;
-    padding: 0 0 0 2;
+    padding: 0;
 }
 
 ToolCallPanel .tool-error {
-    color: $error;
-    padding: 0 0 0 2;
+    padding: 0;
 }
 
 ToolCallPanel .tool-approval {
-    color: $warning;
-    text-style: bold;
-    padding: 0 0 0 2;
+    padding: 0;
 }
 
-/* ── Thinking Panel ─────────────────────────────────── */
+/* ── Thinking Panel ────────────────────────────────── */
 
 ThinkingPanel {
-    margin: 0 3 1 3;
-    height: auto;
-    max-height: 8;
-    border-left: thick $surface-lighten-1;
-    background: $surface;
-    padding: 0 1;
-    color: $text-muted;
+    color: $text-disabled;
+    height: 1;
+    margin: 0 2;
 }
 
 /* ── Streaming Markdown ─────────────────────────────── */
 
 StreamingMarkdown {
-    margin: 0 2 1 4;
+    margin: 0 2 1 2;
     padding: 0;
-}
-
-/* ── Agent Progress ─────────────────────────────────── */
-
-#agent-progress {
-    height: 1;
-    margin: 0 2;
-    color: $primary;
-    text-style: bold;
-    display: none;
-}
-
-#agent-progress.visible {
-    display: block;
 }

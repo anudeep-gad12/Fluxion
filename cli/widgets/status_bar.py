@@ -1,41 +1,15 @@
-"""Bottom status bar showing mode, provider, model, and step info."""
-
-import random
+"""Bottom status bar showing mode, provider, step info, and connection."""
 
 from textual.app import ComposeResult
 from textual.containers import Horizontal
-from textual.timer import Timer
 from textual.widgets import Static
-
-_THINKING_PHRASES = [
-    "thinking...",
-    "pondering...",
-    "brewing ideas...",
-    "connecting dots...",
-    "crunching...",
-    "reasoning...",
-    "cooking up...",
-    "digging in...",
-    "on it...",
-    "working...",
-    "processing...",
-    "analyzing...",
-    "contemplating...",
-    "computing...",
-    "figuring out...",
-    "brainstorming...",
-    "sifting through...",
-    "wrapping head...",
-    "assembling...",
-    "piecing together...",
-]
 
 
 class StatusBar(Horizontal):
     """Bottom status bar for the TUI.
 
-    Shows: mode | provider/model | activity  ···  connection dot.
-    Cycling activity phrases while agent is running.
+    Shows: mode · provider · Step N/M · ●
+    Static "working…" when busy, no rotating phrases.
     """
 
     def __init__(
@@ -52,7 +26,6 @@ class StatusBar(Horizontal):
         self._step_text = ""
         self._connected = False
         self._is_busy = False
-        self._phrase_timer: Timer | None = None
 
     def compose(self) -> ComposeResult:
         """Compose the status bar."""
@@ -61,7 +34,7 @@ class StatusBar(Horizontal):
             classes="status-item status-mode",
             id="status-mode",
         )
-        yield Static(" | ", classes="status-item status-separator")
+        yield Static(" · ", classes="status-item status-separator")
         provider_text = (
             f"{self._provider}/{self._model}" if self._model else self._provider
         )
@@ -70,7 +43,7 @@ class StatusBar(Horizontal):
             classes="status-item status-provider",
             id="status-provider",
         )
-        yield Static(" | ", classes="status-item status-separator")
+        yield Static(" · ", classes="status-item status-separator")
         yield Static("", classes="status-item status-activity", id="status-activity")
         yield Static("", classes="status-spacer")
         yield Static(
@@ -92,22 +65,13 @@ class StatusBar(Horizontal):
         activity.update(f" {text} " if text else "")
 
     def set_busy(self, busy: bool) -> None:
-        """Start or stop the cycling activity phrases."""
+        """Show or hide the static 'working…' indicator."""
         if busy and not self._is_busy:
             self._is_busy = True
-            self._cycle_phrase()
-            self._phrase_timer = self.set_interval(2.0, self._cycle_phrase)
+            self.query_one("#status-activity", Static).update(" working… ")
         elif not busy and self._is_busy:
             self._is_busy = False
-            if self._phrase_timer:
-                self._phrase_timer.stop()
-                self._phrase_timer = None
             self.query_one("#status-activity", Static).update("")
-
-    def _cycle_phrase(self) -> None:
-        """Pick a random thinking phrase."""
-        phrase = random.choice(_THINKING_PHRASES)
-        self.query_one("#status-activity", Static).update(f" {phrase} ")
 
     def set_connected(self, connected: bool) -> None:
         """Update connection status."""

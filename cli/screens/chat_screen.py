@@ -20,7 +20,6 @@ from ..events import (
     ToolResultEvent,
     ToolStartEvent,
 )
-from ..widgets.agent_progress import AgentProgress
 from ..widgets.input_area import InputArea
 from ..widgets.message_bubble import MessageBubble
 from ..widgets.message_list import MessageList
@@ -55,11 +54,11 @@ class ChatScreen(Screen):
         self._streaming_md: StreamingMarkdown | None = None
         self._pending_approval: ToolCallPanel | None = None
         self._is_running = False
+        self._current_step = 0
 
     def compose(self) -> ComposeResult:
         """Compose the chat screen layout."""
         yield Header(show_clock=False)
-        yield AgentProgress(id="agent-progress")
         yield MessageList(id="message-list")
         with Vertical(id="input-container"):
             yield InputArea(id="input-area")
@@ -90,11 +89,11 @@ class ChatScreen(Screen):
             message_list = self.query_one(MessageList)
             welcome = Static(id="welcome")
             welcome.update(
-                "[bold]reasoner[/bold]\n\n"
+                "[bold]reasoner[/bold]\n"
                 f"  mode     [bold]{self._config.mode}[/bold]\n"
                 f"  provider [bold]{self._config.provider}[/bold]\n"
                 f"  cwd      [dim]{self._config.working_dir}[/dim]\n\n"
-                "[dim]Type a message to begin. /login for ChatGPT.[/dim]"
+                "[dim]Type a message to begin.[/dim]"
             )
             message_list.mount(welcome)
 
@@ -122,14 +121,8 @@ class ChatScreen(Screen):
         except Exception:
             pass
 
-        # Add turn separator if messages already exist
-        message_list = self.query_one(MessageList)
-        if message_list.children:
-            message_list.mount(
-                Static("─" * 40, classes="turn-separator")
-            )
-
         # Add user message
+        message_list = self.query_one(MessageList)
         message_list.mount(MessageBubble("user", query))
         message_list.scroll_to_bottom()
 
@@ -139,6 +132,7 @@ class ChatScreen(Screen):
     async def _start_run(self, query: str) -> None:
         """Start an agent run and begin streaming events."""
         self._is_running = True
+        self._current_step = 0
         status_bar = self.query_one(StatusBar)
         status_bar.set_busy(True)
 
@@ -211,11 +205,10 @@ class ChatScreen(Screen):
             self.post_message(AgentErrorEvent({"error": str(exc)}))
 
     def on_step_start_event(self, event: StepStartEvent) -> None:
-        """Handle step start."""
+        """Handle step start — update status bar only."""
         step = event.data.get("step_number", 0)
         max_steps = event.data.get("max_steps", 0)
-        progress = self.query_one(AgentProgress)
-        progress.update_step(step, max_steps)
+        self._current_step = step
 
         status_bar = self.query_one(StatusBar)
         if max_steps:
@@ -245,12 +238,11 @@ class ChatScreen(Screen):
         tool_name = event.data.get("tool_name", "unknown")
         arguments = event.data.get("arguments", {})
         tool_call_id = event.data.get("tool_call_id", "")
-        step = self.query_one(AgentProgress)._current_step
 
         panel = ToolCallPanel(
             tool_name=tool_name,
             arguments=arguments,
-            step_label=f"Step {step}" if step else "",
+            step_label=f"Step {self._current_step}" if self._current_step else "",
             run_id=self._current_run_id or "",
             tool_call_id=tool_call_id,
             id=f"tool-{tool_call_id}" if tool_call_id else None,
@@ -294,7 +286,6 @@ class ChatScreen(Screen):
 
     def on_answer_token_event(self, event: AnswerTokenEvent) -> None:
         """Handle answer token (streaming response)."""
-        # Backend emits "content" field, not "token"
         content = event.data.get("content", "")
         if content and self._streaming_md:
             self._streaming_md.append_token(content)
@@ -307,10 +298,8 @@ class ChatScreen(Screen):
         self._current_run_id = None
         self._pending_approval = None
         self._streaming_md = None
+        self._current_step = 0
         self._hide_approval_bindings()
-
-        progress = self.query_one(AgentProgress)
-        progress.reset()
 
         status_bar = self.query_one(StatusBar)
         status_bar.set_busy(False)
@@ -328,10 +317,8 @@ class ChatScreen(Screen):
         self._current_run_id = None
         self._pending_approval = None
         self._streaming_md = None
+        self._current_step = 0
         self._hide_approval_bindings()
-
-        progress = self.query_one(AgentProgress)
-        progress.reset()
 
         status_bar = self.query_one(StatusBar)
         status_bar.set_busy(False)
@@ -389,9 +376,7 @@ class ChatScreen(Screen):
         self._current_run_id = None
         self._pending_approval = None
         self._streaming_md = None
-
-        progress = self.query_one(AgentProgress)
-        progress.reset()
+        self._current_step = 0
 
         status_bar = self.query_one(StatusBar)
         status_bar.set_busy(False)

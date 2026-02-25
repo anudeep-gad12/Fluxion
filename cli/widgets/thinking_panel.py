@@ -1,40 +1,28 @@
-"""Collapsible thinking/reasoning display panel."""
+"""Inline thinking/reasoning indicator."""
 
-from textual.app import ComposeResult
-from textual.widgets import Collapsible, Static
+from textual.widgets import Static
 
 
-class ThinkingPanel(Collapsible):
-    """Collapsible panel for displaying reasoning/thinking text.
+class ThinkingPanel(Static):
+    """Inline thinking indicator — shows truncated reasoning on one dim line.
 
-    Starts collapsed; user can expand to see the model's reasoning.
-    Styling is handled by the app.tcss file.
+    Renders as: ∴ some reasoning text here…
     """
 
     def __init__(self, **kwargs) -> None:
-        super().__init__(title="thinking", collapsed=True, **kwargs)
+        super().__init__("", **kwargs)
         self._buffer = ""
-        self._content_widget: Static | None = None
-
-    def compose(self) -> ComposeResult:
-        """Compose the thinking panel."""
-        self._content_widget = Static("", classes="thinking-content")
-        yield self._content_widget
 
     def append_token(self, token: str) -> None:
         """Append a thinking token."""
         self._buffer += token
-        if self._content_widget:
-            # Show last 500 chars to keep it manageable
-            display = (
-                self._buffer[-500:]
-                if len(self._buffer) > 500
-                else self._buffer
-            )
-            self._content_widget.update(display)
+        # Show last ~100 chars, single line
+        display = self._buffer.replace("\n", " ").strip()
+        if len(display) > 100:
+            display = "…" + display[-100:]
+        self.update(f"∴ {display}")
 
     def clear_content(self) -> None:
         """Clear thinking content."""
         self._buffer = ""
-        if self._content_widget:
-            self._content_widget.update("")
+        self.update("")
