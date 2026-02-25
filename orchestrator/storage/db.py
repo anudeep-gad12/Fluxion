@@ -50,6 +50,74 @@ class Database:
         # Migration 4: Session scoping for demo mode user isolation
         await self._add_column_if_not_exists("conversations", "session_id", "TEXT")
         await self._add_column_if_not_exists("runs", "session_id", "TEXT")
+        # Migration 5: ChatGPT OAuth token storage
+        await self._create_table_if_not_exists(
+            "chatgpt_tokens",
+            """
+            CREATE TABLE IF NOT EXISTS chatgpt_tokens (
+                session_id TEXT PRIMARY KEY,
+                access_token TEXT NOT NULL,
+                refresh_token TEXT NOT NULL,
+                account_id TEXT NOT NULL,
+                expires_at INTEGER NOT NULL,
+                created_at TEXT DEFAULT (datetime('now'))
+            )
+            """,
+        )
+        # Migration 6: Observability — approval audit trail + full tool results
+        await self._add_column_if_not_exists("agent_tool_calls", "approval_decision", "TEXT")
+        await self._add_column_if_not_exists("agent_tool_calls", "approval_policy", "TEXT")
+        await self._add_column_if_not_exists("agent_tool_calls", "approval_decided_at", "TEXT")
+        await self._add_column_if_not_exists("agent_tool_calls", "result_detail", "TEXT")
+        # Migration 7: Observability — updated_at timestamps
+        await self._add_column_if_not_exists("conversations", "updated_at", "TEXT")
+        await self._add_column_if_not_exists("agent_steps", "updated_at", "TEXT")
+        # Migration 8: Observability — SSE event persistence
+        await self._create_table_if_not_exists(
+            "run_events",
+            """
+            CREATE TABLE IF NOT EXISTS run_events (
+                id TEXT PRIMARY KEY,
+                run_id TEXT NOT NULL,
+                seq INTEGER NOT NULL,
+                event_type TEXT NOT NULL,
+                event_data TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(run_id) REFERENCES runs(run_id) ON DELETE CASCADE
+            )
+            """,
+        )
+        # Migration 9: Context management — turn_summary for cross-turn history
+        await self._add_column_if_not_exists("runs", "turn_summary", "TEXT")
+        # Migration 10: Observability — file change tracking
+        await self._create_table_if_not_exists(
+            "run_artifacts",
+            """
+            CREATE TABLE IF NOT EXISTS run_artifacts (
+                id TEXT PRIMARY KEY,
+                run_id TEXT NOT NULL,
+                artifact_type TEXT NOT NULL,
+                file_path TEXT,
+                action TEXT NOT NULL,
+                detail TEXT,
+                tool_call_id TEXT,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(run_id) REFERENCES runs(run_id) ON DELETE CASCADE,
+                FOREIGN KEY(tool_call_id) REFERENCES agent_tool_calls(id) ON DELETE CASCADE
+            )
+            """,
+        )
+
+    async def _create_table_if_not_exists(
+        self, table: str, create_sql: str
+    ) -> None:
+        """Create a table if it doesn't already exist.
+
+        Args:
+            table: Table name (for logging).
+            create_sql: Full CREATE TABLE IF NOT EXISTS statement.
+        """
+        await self._connection.execute(create_sql)
 
     async def _add_column_if_not_exists(
         self, table: str, column: str, column_type: str

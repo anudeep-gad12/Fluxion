@@ -9,6 +9,11 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| test | Agent quality guardrails — stopping criteria, redundancy detection, synthesis nudging; removed dead `full` profile | done | 2026-02-25 |
+| test | Context management system — token-aware history, turn summaries, context usage in SSE/UI/CLI | done | 2026-02-25 |
+| test | CLI terminal UI redesign — Claude Code style (⏺/⎿ markers, no borders/chrome) | done | 2026-02-25 |
+| test | Observability gaps fix — approval audit, result_detail, SSE persistence, file tracking | done | 2026-02-24 |
+| feature/chatgpt-oauth | ChatGPT OAuth integration — use ChatGPT Plus/Pro subscription as provider | in progress | 2026-02-23 |
 | feature/cli-terminal-theme | CLI terminal theme — black & white monochrome | done | 2026-02-22 |
 | docs/update-stale-docs | Update stale docs: BENCHMARKS, DATA_MODELS, ARCHITECTURE | done | 2026-02-14 |
 | fix/owner-token-api-client | Wire owner token into API client for full owner access | done | 2026-02-10 |
@@ -29,6 +34,106 @@
 | feature/preset-question-chips | Demo preset questions | done | 2026-01-23 |
 | feature/gaia-benchmark | GAIA Benchmark Evaluation | done | 2026-01-21 |
 | feature/agent-planning | Agent Planning Step | done | 2026-01-20 |
+
+### 2026-02-24: CLI UI Polish + ChatGPT OAuth in CLI + Sanity Test Fixes
+
+**Branch:** `test`
+**Status:** done
+
+**Description:**
+Three areas of work: (1) CLI visual hierarchy overhaul — monochrome-plus-two design with functional accent colors, (2) ChatGPT OAuth wired into CLI via `/login` command, (3) sanity test fixes for profile agent tests.
+
+**CLI UI Polish:**
+- Monochrome-plus-two theme: zinc base + blue (#60a5fa) tools/accents, green (#4ade80) success, amber (#d97706) warnings
+- Border-left colors differentiate message types (gray user, blue assistant, blue tools, dim thinking)
+- Compact tool call panels: single-line header with primary arg inline
+- Status bar: pipe separators, spacer, green/red connection dot
+- Welcome card: structured key-value layout with border
+- Turn separators, blue focus ring, streaming markdown inside assistant bubble
+
+**ChatGPT OAuth in CLI:**
+- `/login` command opens browser for OAuth, polls for completion, saves session to `~/.config/reasoner/cli_session`
+- `/logout`, `/status`, `/help` slash commands
+- `cli_session` query param on `/login` and `/status` endpoints so tokens link to CLI session (not browser's)
+- `X-CLI-Session` header on API requests for token lookup
+- Fixed OAuth redirect_uri: local requests use whitelisted `localhost:1455` URI (was sending `localhost:9000` causing OpenAI "unknown_error")
+- Callback server uses SO_REUSEADDR to reclaim port from stale processes
+
+**CLI Local Python Execution:**
+- CLI sends `python_provider: "local"` — bypasses Daytona sandboxes (meant for web UI isolation)
+- New param threaded through schema → route → factory → registry
+
+**Sanity Test Fixes:**
+- Sections 7a/7b/7c/9: bash brace expansion was eating Python dict `{...}` in `$(python3 -c "...{...}...")`. Replaced with `jq -n` for JSON construction.
+- Score: 65/69 → 82/83
+
+**Files changed:**
+- `cli/app.py`, `cli/css/app.tcss`, `cli/screens/chat_screen.py`, `cli/widgets/` (6 widgets)
+- `cli/auth.py`, `cli/config.py`, `cli/api_client.py`
+- `orchestrator/routes/auth.py`, `orchestrator/routes/agent_runs.py`
+- `orchestrator/agent/factory.py`, `orchestrator/agent/tools/registry.py`
+- `orchestrator/schemas.py`, `scripts/sanity_test.sh`
+
+---
+
+### 2026-02-24: Observability Gaps Fix
+
+**Branch:** `test`
+**Status:** done
+
+**Description:**
+Closed 5 observability data gaps identified in audit. All changes are additive (new columns, new tables) — nothing breaks existing functionality. Both web UI agent mode and CLI TUI mode benefit since they share the same backend pipeline.
+
+**What was fixed:**
+1. **Tool approval audit trail** — Record every approval decision (approved/denied/auto/timeout) with policy and timestamp on `agent_tool_calls`.
+2. **Full tool results** — Store up to 10k chars of `result_detail` for write/edit/bash tools (previously only ~300-500 char summary).
+3. **SSE event persistence** — Fire-and-forget persist every SSE event to `run_events` table. Survives the 5-minute in-memory cleanup.
+4. **File change tracking** — New `run_artifacts` table records every file write/edit/command per run, linked to tool call.
+5. **Timestamps** — Added `updated_at` columns to `conversations` and `agent_steps`.
+
+**Changes:**
+- `orchestrator/storage/schema.sql` — Added 4 columns to `agent_tool_calls` (approval_decision, approval_policy, approval_decided_at, result_detail), `updated_at` to conversations/agent_steps, new `run_events` and `run_artifacts` tables with indexes.
+- `orchestrator/storage/db.py` — Migrations 6-9: column additions + table creation for existing databases.
+- `orchestrator/storage/repositories/agent_repo.py` — Extended `update_tool_call()` with 4 new params. Added `create_run_event()`, `get_run_events()`, `create_run_artifact()`, `get_run_artifacts()`.
+- `orchestrator/agent/state_machine.py` — Added `record_approval()` method, `result_detail` param to `complete_tool_call()`.
+- `orchestrator/agent/agent_engine.py` — Records approval decisions after callback returns (approved/denied) and for auto-approved tools. Captures `result_detail` for write tools. Creates `run_artifacts` for file changes.
+- `orchestrator/routes/agent_runs.py` — Added `_persist_run_event()` fire-and-forget helper. Wired into `event_callback`. Added timeout warning log. Exposed artifacts in trace endpoint.
+- `orchestrator/schemas.py` — Added `RunArtifactResponse`, extended `AgentToolCallResponse` with approval/result_detail fields, added `artifacts` to `AgentRunTraceResponse`.
+- `tests/storage/test_observability.py` — 17 new tests covering all new columns, tables, and CRUD operations.
+- `tests/agent/test_agent_engine.py` — Updated mock fixtures for `record_approval` and `create_run_artifact`.
+- `tests/agent/test_agent_integration.py` — Updated mock fixtures for `record_approval` and `create_run_artifact`.
+
+### 2026-02-23: ChatGPT OAuth Integration
+
+**Branch:** `test`
+**Status:** in progress
+
+**Description:**
+Users with ChatGPT Plus/Pro subscriptions can now use OpenAI models (GPT-5.x, Codex) through the app at no extra API cost. Implements a native `ChatGPTProvider` that translates between the existing OpenAI-compatible interface and the ChatGPT backend Codex Responses API (`chatgpt.com/backend-api/codex/responses`). Includes full OAuth 2.0 PKCE login flow via `auth.openai.com`, per-user provider routing, and frontend UI for login/provider switching.
+
+**Changes:**
+- `orchestrator/providers/chatgpt.py` — New `ChatGPTProvider` implementing `LLMProvider` protocol. Translates messages to Responses API input format (system→instructions, user→input_text, assistant→output_text, tool_calls→function_call, tool_results→function_call_output). Parses SSE events back to standard `LLMResponse`. Supports both streaming and non-streaming modes with retry logic.
+- `orchestrator/routes/auth.py` — OAuth PKCE endpoints: login (generates code_verifier/challenge, redirects to OpenAI), callback (exchanges code for tokens, extracts account_id from JWT, stores tokens), status, logout, refresh. Auto-refreshes tokens within 5-minute expiry buffer.
+- `orchestrator/storage/db.py` — Migration 5: `chatgpt_tokens` table for per-session OAuth token storage. Added `_create_table_if_not_exists()` helper.
+- `orchestrator/app.py` — Registered auth router. Updated CSP for OAuth popup inline script.
+- `orchestrator/providers/factory.py` — Added `create_chatgpt_provider(tokens, chatgpt_config)` function.
+- `orchestrator/providers/__init__.py` — Exported `ChatGPTProvider`, `create_chatgpt_provider`.
+- `orchestrator/config.py` — Added `ChatGPTConfig` Pydantic model with OAuth endpoints, client_id, default_model, reasoning_effort.
+- `orchestrator/chat_config.yaml` — Added `chatgpt:` config section with env var support.
+- `orchestrator/engine/chat_engine.py` — Accepts optional `provider` parameter for override.
+- `orchestrator/routes/runs.py` — Added `_get_provider_for_session()` helper; chat routes check X-Provider header and create ChatGPT provider when requested.
+- `orchestrator/routes/agent_runs.py` — Agent task accepts session_id/provider_preference; creates ChatGPT provider override in background task.
+- `orchestrator/agent/factory.py` — Accepts `provider_override` parameter.
+- `ui/src/hooks/useChatGPTAuth.ts` — React hook for OAuth state management (popup login, postMessage, status polling, provider persistence in localStorage).
+- `ui/src/api/client.ts` — Added X-Provider header from localStorage preference.
+- `ui/src/components/ConversationView.tsx` — Auth button, provider toggle dropdown, status indicators in both empty-state and active-conversation toolbars.
+- `tests/providers/test_chatgpt.py` — 21 tests: request translation, response translation, headers, conversation roundtrip.
+- `tests/routes/test_auth.py` — 7 tests: PKCE generation, JWT account_id extraction.
+
+**Files changed:** 17 (8 new, 9 modified)
+**Tests:** 28/28 passed (new tests); full suite pre-existing failures only
+
+---
 
 ### 2026-02-22: Fix Agent Streaming Jumbled Text & Send Button Lock
 

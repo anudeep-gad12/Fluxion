@@ -216,6 +216,33 @@ agent_planning:
   max_plan_steps: 5       # Maximum steps planner can create
 
 # =============================================================================
+# ChatGPT OAuth Integration
+# =============================================================================
+# Allows users with ChatGPT Plus/Pro subscriptions to use OpenAI models
+# through the Codex backend API at no extra API cost.
+# Users authenticate via OAuth PKCE flow through auth.openai.com.
+
+chatgpt:
+  enabled: ${CHATGPT_OAUTH_ENABLED:-true}
+  client_id: "app_EMoamEEZ73f0CkXaXp7hrann"
+  auth_url: "https://auth.openai.com/oauth/authorize"
+  token_url: "https://auth.openai.com/oauth/token"
+  backend_url: "https://chatgpt.com/backend-api"
+  callback_path: "/auth/callback"
+  callback_url: ${CHATGPT_CALLBACK_URL:-}
+  default_model: "gpt-5.2-codex"
+  reasoning_effort: "medium"
+  available_models:
+    - id: "gpt-5.2-codex"
+      label: "GPT-5.2 Codex"
+    - id: "o4-mini"
+      label: "o4-mini"
+    - id: "gpt-4o"
+      label: "GPT-4o"
+    - id: "o3"
+      label: "o3"
+
+# =============================================================================
 # Demo Mode
 # =============================================================================
 # Settings for demo/showcase deployments.

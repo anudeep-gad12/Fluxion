@@ -2,8 +2,8 @@
 
 from enum import Enum
 from typing import Any, Optional
-from pydantic import BaseModel, Field
 
+from pydantic import BaseModel, Field
 
 # ==================== Run Schemas ====================
 
@@ -148,7 +148,8 @@ class TraceEventResponse(BaseModel):
     run_id: str
     seq: int
     created_at: str
-    event_type: str  # llm_request | llm_response | reasoning | tool_call | tool_response | error | retry
+    # llm_request | llm_response | reasoning | tool_call | tool_response | error | retry
+    event_type: str
     event_status: str  # pending | success | error | skipped
     actor: str  # model | system | tool:<name>
     endpoint: Optional[str] = None
@@ -220,6 +221,10 @@ class AgentToolCallResponse(BaseModel):
     completed_at: Optional[str] = None
     idempotency_key: str
     execution_attempt: int = 1
+    approval_decision: Optional[str] = None
+    approval_policy: Optional[str] = None
+    approval_decided_at: Optional[str] = None
+    result_detail: Optional[str] = None
 
 
 class AgentCitationResponse(BaseModel):
@@ -239,6 +244,11 @@ class CreateAgentRunRequest(BaseModel):
     query: str
     conversation_id: Optional[str] = None
     max_steps: int = 10
+    filesystem_enabled: bool = False
+    working_dir: Optional[str] = None
+    permission_policy: str = "strict"
+    profile: Optional[str] = None  # "research", "coding" — overrides filesystem_enabled
+    python_provider: Optional[str] = None  # "local" or "daytona" — overrides PYTHON_PROVIDER env var
 
 
 class CreateAgentRunResponse(BaseModel):
@@ -247,6 +257,7 @@ class CreateAgentRunResponse(BaseModel):
     status: str
     stream_url: str
     stream_token: str
+    conversation_id: Optional[str] = None
 
 
 class AgentRunStatusResponse(BaseModel):
@@ -263,6 +274,18 @@ class AgentRunStatusResponse(BaseModel):
     updated_at: Optional[str] = None
 
 
+class RunArtifactResponse(BaseModel):
+    """File change or command execution artifact."""
+    id: str
+    run_id: str
+    artifact_type: str
+    file_path: Optional[str] = None
+    action: str
+    detail: Optional[str] = None
+    tool_call_id: Optional[str] = None
+    created_at: str
+
+
 class AgentRunTraceResponse(BaseModel):
     """Full trace of an agent run."""
     run_id: str
@@ -271,6 +294,7 @@ class AgentRunTraceResponse(BaseModel):
     steps: list[AgentStepResponse]
     tool_calls: list[AgentToolCallResponse]
     citations: list[AgentCitationResponse]
+    artifacts: list[RunArtifactResponse] = []
     final_answer: Optional[str] = None
 
 

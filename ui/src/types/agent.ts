@@ -183,6 +183,14 @@ export interface AnswerEvent extends AgentSSEEventBase {
   content: string;
 }
 
+/** Context usage from budget tracker */
+export interface ContextUsage {
+  total_tokens_used: number;
+  history_tokens: number;
+  max_tokens: number;
+  utilization_pct: number;
+}
+
 /** Complete event */
 export interface CompleteEvent extends AgentSSEEventBase {
   type: 'complete';
@@ -192,6 +200,7 @@ export interface CompleteEvent extends AgentSSEEventBase {
   total_steps: number;
   timing_ms: number;
   total_tokens?: number;
+  context_usage?: ContextUsage;
 }
 
 /** Error event */
@@ -229,4 +238,5 @@ export interface AgentUIState {
   lastSeq: number;
   timing_ms?: number;
   total_tokens?: number;
+  context_usage?: ContextUsage;
 }

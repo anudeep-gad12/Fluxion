@@ -168,26 +168,18 @@ class TestCreateAgentRun:
         response = client.post("/api/agent/runs", json={})
         assert response.status_code == 422
 
-    def test_accepts_optional_conversation_id(self, client, test_db):
+    def test_accepts_optional_conversation_id(self, client):
         """Can specify conversation_id."""
-        import asyncio
-
-        # Create a conversation first
-        async def create_conv():
-            from orchestrator.storage.repositories.conversation_repo import ConversationRepo
-            conv_repo = ConversationRepo(test_db)
-            await conv_repo.create(conversation_id="conv-123", title="Test conv")
-
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(create_conv())
-        loop.close()
+        # Create a conversation via the API (uses TestClient's event loop)
+        conv_resp = client.post("/api/conversations", json={"title": "Test conv"})
+        assert conv_resp.status_code == 200
+        conv_id = conv_resp.json()["conversation_id"]
 
         response = client.post(
             "/api/agent/runs",
             json={
                 "query": "Test query",
-                "conversation_id": "conv-123",
+                "conversation_id": conv_id,
             },
         )
         assert response.status_code == 200

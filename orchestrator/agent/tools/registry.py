@@ -4,6 +4,7 @@ The registry provides:
 - Tool registration and discovery
 - OpenAI function schemas for LLM
 - Lifecycle management (init, cleanup)
+- Profile-based tool set registration
 """
 
 import os
@@ -14,6 +15,7 @@ from orchestrator.logging_config import get_logger
 from .base import BaseTool
 
 if TYPE_CHECKING:
+    from orchestrator.agent.profile import AgentProfile
     from orchestrator.config import ChatConfig
 
 logger = get_logger(__name__)
@@ -136,6 +138,8 @@ class ToolRegistry:
 def create_tool_registry(
     config: "ChatConfig",
     calculation_only: bool = False,
+    filesystem_enabled: bool = False,
+    working_dir: Optional[str] = None,
 ) -> ToolRegistry:
     """Factory function to create registry with configured tools.
 
@@ -144,6 +148,8 @@ def create_tool_registry(
         calculation_only: If True, tool_choice=python_execute is used (tools still registered).
             Used for calculation queries where we want to force code execution
             without web search distraction.
+        filesystem_enabled: If True, register filesystem and shell tools (CLI mode).
+        working_dir: Working directory for filesystem tools (required if filesystem_enabled).
 
     Returns:
         Configured ToolRegistry with tools.
@@ -212,4 +218,127 @@ def create_tool_registry(
         )
         logger.info("Registered web tools (web_search, web_extract)")
 
+    # Register filesystem and shell tools (CLI mode)
+    if filesystem_enabled:
+        wd = working_dir or os.getcwd()
+        from .bash_tool import BashTool
+        from .edit_file import EditFileTool
+        from .glob_tool import GlobTool
+        from .grep_tool import GrepTool
+        from .list_directory import ListDirectoryTool
+        from .read_file import ReadFileTool
+        from .write_file import WriteFileTool
+
+        registry.register(ReadFileTool(working_dir=wd))
+        registry.register(ListDirectoryTool(working_dir=wd))
+        registry.register(GlobTool(working_dir=wd))
+        registry.register(GrepTool(working_dir=wd))
+        registry.register(WriteFileTool(working_dir=wd))
+        registry.register(EditFileTool(working_dir=wd))
+        registry.register(BashTool(working_dir=wd))
+        logger.info(
+            "Registered filesystem tools",
+            extra={"working_dir": wd, "tools": 7},
+        )
+
+    return registry
+
+
+def create_tool_registry_from_profile(
+    config: "ChatConfig",
+    profile: "AgentProfile",
+    working_dir: Optional[str] = None,
+    python_provider: Optional[str] = None,
+) -> ToolRegistry:
+    """Create a tool registry based on an agent profile's tool_sets.
+
+    This is the profile-aware replacement for create_tool_registry.
+    It reads the profile's tool_sets list and registers the corresponding tools.
+
+    Args:
+        config: Chat configuration with tool settings.
+        profile: Agent profile defining which tool sets to register.
+        working_dir: Working directory for filesystem tools.
+        python_provider: Python execution provider override ("local" or "daytona").
+            If None, falls back to PYTHON_PROVIDER env var (default: "local").
+
+    Returns:
+        Configured ToolRegistry with tools.
+    """
+    from .python_local import LocalPythonTool
+    from .web_extract import WebExtractTool
+    from .web_search import WebSearchTool
+
+    registry = ToolRegistry()
+
+    # Get tool configs from chat_config
+    parallel_config = getattr(config, "parallel", None)
+    python_config = getattr(config, "python", None)
+    timeout = 30
+    if python_config:
+        timeout = getattr(python_config, "timeout_seconds", 30)
+
+    for tool_set_name in profile.tool_sets:
+        if tool_set_name == "python":
+            # Choose Python execution provider: explicit param > env var > "local"
+            resolved_provider = python_provider or os.environ.get("PYTHON_PROVIDER", "local")
+            if resolved_provider == "daytona":
+                from .python_daytona import DaytonaPythonTool
+
+                daytona_api_key = os.environ.get("DAYTONA_API_KEY") or os.environ.get("DAYTONA_API")
+                if daytona_api_key:
+                    registry.register(DaytonaPythonTool(
+                        api_key=daytona_api_key,
+                        timeout_seconds=timeout,
+                    ))
+                else:
+                    registry.register(LocalPythonTool(timeout_seconds=timeout))
+            else:
+                registry.register(LocalPythonTool(timeout_seconds=timeout))
+
+        elif tool_set_name == "web":
+            if parallel_config and parallel_config.api_key:
+                registry.register(
+                    WebSearchTool(
+                        base_url=parallel_config.base_url,
+                        api_key=parallel_config.api_key,
+                        max_results=parallel_config.search.max_results,
+                        timeout_ms=parallel_config.search.timeout_ms,
+                    )
+                )
+                registry.register(
+                    WebExtractTool(
+                        base_url=parallel_config.base_url,
+                        api_key=parallel_config.api_key,
+                        max_urls=parallel_config.extract.max_urls_per_request,
+                        timeout_ms=parallel_config.extract.timeout_ms,
+                    )
+                )
+
+        elif tool_set_name == "filesystem":
+            wd = working_dir or os.getcwd()
+            from .bash_tool import BashTool
+            from .edit_file import EditFileTool
+            from .glob_tool import GlobTool
+            from .grep_tool import GrepTool
+            from .list_directory import ListDirectoryTool
+            from .read_file import ReadFileTool
+            from .write_file import WriteFileTool
+
+            registry.register(ReadFileTool(working_dir=wd))
+            registry.register(ListDirectoryTool(working_dir=wd))
+            registry.register(GlobTool(working_dir=wd))
+            registry.register(GrepTool(working_dir=wd))
+            registry.register(WriteFileTool(working_dir=wd))
+            registry.register(EditFileTool(working_dir=wd))
+            registry.register(BashTool(working_dir=wd))
+
+    logger.info(
+        "Tool registry created from profile",
+        extra={
+            "profile": profile.name,
+            "tool_sets": profile.tool_sets,
+            "tools": registry.tool_names,
+        },
+    )
     return registry

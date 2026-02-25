@@ -46,6 +46,8 @@ from orchestrator.agent.agent_engine import (
     ParsedToolCall,
 )
 from orchestrator.agent.factory import create_agent_engine
+from orchestrator.agent.profile import AgentProfile, get_profile
+from orchestrator.agent.context import get_context_strategy
 
 __all__ = [
     # Base types
@@ -85,4 +87,9 @@ __all__ = [
     "ParsedToolCall",
     # Factory
     "create_agent_engine",
+    # Profiles
+    "AgentProfile",
+    "get_profile",
+    # Context
+    "get_context_strategy",
 ]

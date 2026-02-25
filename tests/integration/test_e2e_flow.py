@@ -320,14 +320,13 @@ class TestHealthAndConfig:
         assert response.json()["status"] == "ok"
 
     def test_config_endpoint(self, client):
-        """GET /api/config returns configuration."""
+        """GET /api/config returns demo mode status."""
         response = client.get("/api/config")
 
         assert response.status_code == 200
         data = response.json()
-        assert "config" in data
-        assert "model" in data["config"]
-        assert "provider" in data["config"]
+        assert "demo" in data
+        assert "enabled" in data["demo"]
 
 
 class TestDatabaseIntegrity:
