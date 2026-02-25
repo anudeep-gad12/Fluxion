@@ -6,9 +6,12 @@ Complete documentation of request lifecycles, streaming patterns, and data flow 
 
 1. [Chat Mode Flow](#chat-mode-flow)
 2. [Research/Agent Mode Flow](#researchagent-mode-flow)
-3. [Provider Failover Flow](#provider-failover-flow)
-4. [SSE Streaming Protocol](#sse-streaming-protocol)
-5. [Database Operations](#database-operations)
+3. [CLI Data Flow](#cli-data-flow)
+4. [Tool Approval Flow](#tool-approval-flow)
+5. [Context Pipeline](#context-pipeline)
+6. [Provider Failover Flow](#provider-failover-flow)
+7. [SSE Streaming Protocol](#sse-streaming-protocol)
+8. [Database Operations](#database-operations)
 
 ---
 
@@ -352,6 +355,259 @@ while not (synthesis_decision or step >= max_steps):
 
 ---
 
+## CLI Data Flow
+
+### Overview
+
+The CLI/TUI communicates with the same FastAPI backend as the web UI, using HTTP for commands and SSE for streaming events. The key difference is the tool approval flow.
+
+### Sequence Diagram
+
+```
+┌──────────┐     ┌──────────┐     ┌──────────┐     ┌──────────┐     ┌──────────┐
+│ Terminal  │     │ Textual  │     │  API     │     │  FastAPI │     │  Agent   │
+│          │     │ Widgets  │     │  Client  │     │  Routes  │     │  Engine  │
+└────┬─────┘     └────┬─────┘     └────┬─────┘     └────┬─────┘     └────┬─────┘
+     │                │                │                │                │
+     │  User types    │                │                │                │
+     │  query         │                │                │                │
+     │───────────────>│                │                │                │
+     │                │                │                │                │
+     │                │ InputArea.     │                │                │
+     │                │ Submitted      │                │                │
+     │                │───────────────>│                │                │
+     │                │                │                │                │
+     │                │                │ POST /api/agent/runs             │
+     │                │                │ {query, profile: "coding",      │
+     │                │                │  permission: "relaxed",         │
+     │                │                │  working_dir: "/path"}          │
+     │                │                │───────────────>│                │
+     │                │                │                │ Start engine   │
+     │                │                │                │───────────────>│
+     │                │                │                │                │
+     │                │                │ {run_id,       │                │
+     │                │                │  stream_token} │                │
+     │                │                │<───────────────│                │
+     │                │                │                │                │
+     │                │                │ GET /stream?token=xxx            │
+     │                │                │───────────────>│                │
+     │                │                │                │                │
+     │                │                │ SSE: step_start│                │
+     │                │ StepStartEvent │<───────────────│<──────────────│
+     │                │<───────────────│                │                │
+     │  StatusBar     │                │                │                │
+     │  "Step 1/25"   │                │                │                │
+     │<───────────────│                │                │                │
+     │                │                │                │                │
+     │                │                │ SSE: tool_start│                │
+     │                │ ToolStartEvent │<───────────────│<──────────────│
+     │                │<───────────────│                │                │
+     │  ToolCallPanel │                │                │                │
+     │  ▸ read_file() │                │                │                │
+     │<───────────────│                │                │                │
+     │                │                │                │                │
+     │                │                │ SSE: tool_approval_required     │
+     │                │ ToolApproval   │<───────────────│<──────────────│
+     │                │ RequiredEvent  │                │  (bash tool)  │
+     │                │<───────────────│                │                │
+     │  InputArea →   │                │                │                │
+     │  approval mode │                │                │                │
+     │  "[y/n] bash..."│               │                │                │
+     │<───────────────│                │                │                │
+     │                │                │                │                │
+     │  User: y       │                │                │                │
+     │───────────────>│                │                │                │
+     │                │ ApprovalDecision                │                │
+     │                │───────────────>│                │                │
+     │                │                │ POST /approve/ │                │
+     │                │                │ {tool_call_id} │                │
+     │                │                │───────────────>│ Future.set(T)  │
+     │                │                │                │───────────────>│
+     │                │                │                │                │
+     │                │                │ SSE: tool_result                │
+     │                │ ToolResultEvent│<───────────────│<──────────────│
+     │                │<───────────────│                │                │
+     │  ToolCallPanel │                │                │                │
+     │  ✓ bash (2.3s) │                │                │                │
+     │<───────────────│                │                │                │
+     │                │                │                │                │
+     │                │                │ SSE: answer    │                │
+     │                │ AnswerToken    │<───────────────│<──────────────│
+     │                │ Event          │                │                │
+     │                │<───────────────│                │                │
+     │  StreamingMD   │                │                │                │
+     │  renders answer │               │                │                │
+     │<───────────────│                │                │                │
+     │                │                │                │                │
+     │                │                │ SSE: complete  │                │
+     │                │ AgentComplete  │<───────────────│<──────────────│
+     │                │ Event          │                │                │
+     │                │<───────────────│                │                │
+     │  Show context  │                │                │                │
+     │  usage in bar  │                │                │                │
+     │<───────────────│                │                │                │
+```
+
+### Key Differences from Web UI
+
+| Aspect | Web UI | CLI/TUI |
+|--------|--------|---------|
+| Profile | `research` (default) | `coding` (always) |
+| Tools | web + python | web + python + filesystem |
+| Approval | Not supported | Permission-gated (strict/relaxed/yolo) |
+| Context | Date only | 5-layer project context |
+| Provider | Request header override | `--provider` flag or `/login` command |
+| Session | Cookie-based | `X-CLI-Session` header |
+
+---
+
+## Tool Approval Flow
+
+### Permission Decision Tree
+
+```
+┌───────────────────────────────────────────────────────────┐
+│                  TOOL APPROVAL DECISION                     │
+└───────────────────────────────────────────────────────────┘
+
+         Tool execution requested
+                   │
+                   ▼
+         ┌──────────────────┐
+         │ Tool permission  │
+         │ level?           │
+         └────────┬─────────┘
+                  │
+     ┌────────────┼────────────────┐
+     ▼            ▼                ▼
+  "auto"      "confirm"       "dangerous"
+  (read-only)  (write ops)    (bash)
+     │            │                │
+     ▼            │                │
+  Execute         │                │
+  immediately     │                │
+                  ▼                ▼
+         ┌──────────────────┐
+         │ Policy?          │
+         └────────┬─────────┘
+                  │
+     ┌────────────┼────────────────┐
+     ▼            ▼                ▼
+  "yolo"      "relaxed"       "strict"
+     │            │                │
+     ▼            │                │
+  Execute         ▼                ▼
+  immediately  ┌──────────┐   Require
+               │ confirm  │   approval
+               │ or       │   for ALL
+               │ dangerous?│   (incl.
+               └──┬───┬───┘   confirm)
+              yes │   │ no        │
+                  │   ▼           │
+                  │ Execute       │
+                  │ immediately   │
+                  ▼               ▼
+         ┌──────────────────────────┐
+         │    APPROVAL REQUIRED      │
+         │                           │
+         │  1. Create Future[bool]   │
+         │  2. Emit SSE event:       │
+         │     tool_approval_required│
+         │  3. Wait for response     │
+         │     (5 min timeout)       │
+         └─────────┬────────────────┘
+                   │
+          ┌────────┴─────────┐
+          ▼                  ▼
+     /approve/          /deny/ or timeout
+          │                  │
+          ▼                  ▼
+     Execute tool       Skip tool
+     Record:            Record:
+     approval_decision  approval_decision
+     = "approved"       = "denied"/"timeout"
+```
+
+### Backend State
+
+The approval flow uses in-memory state (single-process):
+
+```python
+_approval_queues: Dict[run_id, Dict[tool_call_id, asyncio.Future[bool]]]
+```
+
+- Agent engine creates a `Future` when approval is needed
+- `/approve/{tool_call_id}` resolves with `True`
+- `/deny/{tool_call_id}` resolves with `False`
+- Timeout (5 min): resolves with `False` automatically
+- Futures are cleaned up when the run completes
+
+---
+
+## Context Pipeline
+
+### Agent Loop with Context Management
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                      AGENT LOOP (with context pipeline)                          │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+Step 0: INITIALIZATION
+    │
+    ├── Load AgentProfile (research or coding)
+    ├── Build context via ContextStrategy:
+    │   ├── Research: date + knowledge cutoff
+    │   └── Coding: environment + rules + structure + git + working_dir
+    ├── Format system prompt with context slots
+    └── Create planner with profile-specific prompt
+    │
+    ▼
+Step 1: PLANNING (optional)
+    │
+    ├── Planner generates ResearchPlan
+    ├── Plan injected into system message (not separate message)
+    └── Plan includes: analysis, approach, steps with tool hints
+    │
+    ▼
+Step 2+: MAIN LOOP (while not synthesis and step < max_steps)
+    │
+    ├── 1. CONTEXT PRUNING (ContextPruner)
+    │   ├── Calculate current token usage
+    │   ├── If over budget:
+    │   │   ├── Keep last 2 steps detailed
+    │   │   ├── Summarize older tool results via LLM
+    │   │   │   (query-aware: only facts relevant to user query)
+    │   │   ├── Python output: head/tail pattern (not LLM)
+    │   │   └── Cache summaries to prevent duplicate LLM calls
+    │   └── Fallback to basic truncation on error
+    │
+    ├── 2. HISTORY BUILDING (HistoryBuilder)
+    │   ├── Load prior runs for conversation
+    │   ├── Use turn_summary if available (~10x more history)
+    │   ├── Else use raw user_message + final_answer pairs
+    │   └── Apply token budget with sliding window
+    │
+    ├── 3. LLM CALL with tool schemas
+    │   └── Messages: system + history + current context + user query
+    │
+    ├── 4. PARSE RESPONSE
+    │   ├── tool_calls → check approval → execute tools → extract findings
+    │   └── synthesize decision → break to synthesis
+    │
+    └── 5. RECORD (DB + SSE events)
+    │
+    ▼
+SYNTHESIS
+    │
+    ├── Generate final answer (streaming)
+    ├── Include accumulated findings in prompt
+    ├── Store turn_summary for future context
+    └── Extract citations
+```
+
+---
+
 ## Provider Failover Flow
 
 ### Circuit Breaker State Machine
@@ -612,6 +868,7 @@ Connection opened
 | `step_start` | New step | `{step_number: N, steps_remaining: M}` |
 | `thinking` | Thinking token | `{content: "..."}` |
 | `tool_start` | Tool starting | `{tool_call_id, tool_name, arguments}` |
+| `tool_approval_required` | Approval needed | `{tool_call_id, tool_name, arguments}` |
 | `tool_result` | Tool finished | `{tool_call_id, success, result_summary}` |
 | `answer` | Answer token | `{content: "..."}` |
 | `complete` | Agent done | `{final_answer, citations, total_steps, timing_ms}` |
