@@ -667,7 +667,11 @@ POST /api/agent/runs
 {
   "query": "What are the latest developments in quantum computing?",
   "conversation_id": "abc12345",
-  "max_steps": 10
+  "max_steps": 10,
+  "profile": "coding",
+  "permission_policy": "relaxed",
+  "working_dir": "/path/to/project",
+  "filesystem_enabled": true
 }
 ```
 
@@ -676,6 +680,10 @@ POST /api/agent/runs
 | `query` | string | Yes | - | Research query |
 | `conversation_id` | string | No | null | Optional conversation |
 | `max_steps` | int | No | 10 | Maximum agent steps |
+| `profile` | string | No | `"research"` | Agent profile: `"research"` or `"coding"` |
+| `permission_policy` | string | No | `"relaxed"` | Tool approval: `"strict"`, `"relaxed"`, `"yolo"` |
+| `working_dir` | string | No | null | Filesystem root for coding tools |
+| `filesystem_enabled` | bool | No | false | Enable filesystem tools |
 
 **Response** (200 OK):
 ```json
@@ -781,6 +789,10 @@ GET /api/agent/runs/{run_id}/trace
       },
       "status": "success",
       "result_summary": "Found 5 relevant articles about quantum computing breakthroughs...",
+      "result_detail": null,
+      "approval_decision": "auto",
+      "approval_policy": "relaxed",
+      "approval_decided_at": null,
       "error_message": null,
       "duration_ms": 2500,
       "created_at": "2024-01-15T10:31:01Z",
@@ -788,6 +800,18 @@ GET /api/agent/runs/{run_id}/trace
       "completed_at": "2024-01-15T10:31:03Z",
       "idempotency_key": "abc123def456",
       "execution_attempt": 1
+    }
+  ],
+  "artifacts": [
+    {
+      "id": "art_001",
+      "run_id": "agent_001",
+      "artifact_type": "file_edit",
+      "file_path": "src/main.py",
+      "action": "edit_file",
+      "detail": "Changed function name from foo to bar",
+      "tool_call_id": "tc_002",
+      "created_at": "2024-01-15T10:31:05Z"
     }
   ],
   "citations": [
@@ -804,6 +828,67 @@ GET /api/agent/runs/{run_id}/trace
   ]
 }
 ```
+
+---
+
+### Approve Tool Execution
+
+Approve a pending tool call that requires user consent.
+
+**Request**:
+```
+POST /api/agent/runs/{run_id}/approve/{tool_call_id}
+```
+
+**Response** (200 OK):
+```json
+{
+  "status": "approved",
+  "tool_call_id": "tc_001"
+}
+```
+
+**Error** (404 Not Found):
+```json
+{
+  "detail": "No pending approval for this tool call"
+}
+```
+
+**Notes**:
+- Only works when a `tool_approval_required` SSE event has been emitted for this tool_call_id
+- The agent engine is blocked waiting for this response
+- After approval, the tool executes and a `tool_result` event follows
+
+---
+
+### Deny Tool Execution
+
+Deny a pending tool call. The tool is skipped and the agent continues.
+
+**Request**:
+```
+POST /api/agent/runs/{run_id}/deny/{tool_call_id}
+```
+
+**Response** (200 OK):
+```json
+{
+  "status": "denied",
+  "tool_call_id": "tc_001"
+}
+```
+
+**Error** (404 Not Found):
+```json
+{
+  "detail": "No pending approval for this tool call"
+}
+```
+
+**Notes**:
+- The denied tool is recorded with `approval_decision: "denied"` and `status: "interrupted"`
+- The agent continues execution (may call other tools or synthesize)
 
 ---
 
@@ -1062,6 +1147,7 @@ data: {"error": "Connection failed", "code": "PROVIDER_ERROR"}
 | `step_start` | New step | `{step_number, steps_remaining}` |
 | `thinking` | Thinking token | `{content}` |
 | `tool_start` | Tool starting | `{tool_call_id, tool_name, arguments}` |
+| `tool_approval_required` | Approval needed | `{tool_call_id, tool_name, arguments}` |
 | `tool_result` | Tool finished | `{tool_call_id, success, result_summary, duration_ms}` |
 | `answer` | Answer token | `{content}` |
 | `complete` | Agent done | `{success, final_answer, citations, total_steps, timing_ms, total_tokens}` |
@@ -1079,6 +1165,8 @@ data: {"seq": 2, "type": "step_start", "step_number": 1, "steps_remaining": 9}
 data: {"seq": 3, "type": "thinking", "content": "I need to search for..."}
 
 data: {"seq": 4, "type": "tool_start", "tool_call_id": "tc_001", "tool_name": "web_search", "arguments": {"query": "..."}}
+
+data: {"seq": 4, "type": "tool_approval_required", "tool_call_id": "tc_002", "tool_name": "bash", "arguments": {"command": "npm test"}}
 
 data: {"seq": 5, "type": "tool_result", "tool_call_id": "tc_001", "success": true, "result_summary": "Found 5 results...", "duration_ms": 2500}
 
