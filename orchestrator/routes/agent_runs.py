@@ -528,7 +528,7 @@ async def get_agent_run_status(run_id: str, http_request: Request):
         agent_state=run.get("agent_state"),
         current_step=current_step,
         total_steps=total_steps,
-        max_steps=run.get("max_steps", 10),
+        max_steps=run.get("max_steps", 25),
         final_answer=run.get("final_answer"),
         error_message=run.get("error_message"),
         created_at=run.get("created_at", ""),
