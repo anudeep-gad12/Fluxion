@@ -9,6 +9,7 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| test | Agent quality guardrails — stopping criteria, redundancy detection, synthesis nudging; removed dead `full` profile | done | 2026-02-25 |
 | test | Context management system — token-aware history, turn summaries, context usage in SSE/UI/CLI | done | 2026-02-25 |
 | test | CLI terminal UI redesign — Claude Code style (⏺/⎿ markers, no borders/chrome) | done | 2026-02-25 |
 | test | Observability gaps fix — approval audit, result_detail, SSE persistence, file tracking | done | 2026-02-24 |

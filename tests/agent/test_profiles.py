@@ -8,7 +8,6 @@ from orchestrator.agent.profile import (
     get_profile,
     RESEARCH_SYSTEM_PROMPT,
     CODING_SYSTEM_PROMPT,
-    FULL_SYSTEM_PROMPT,
 )
 
 
@@ -27,19 +26,19 @@ class TestGetProfile:
         assert profile.display_name == "Coding Assistant"
         assert profile.context_strategy == "coding"
 
-    def test_get_full_profile(self):
-        profile = get_profile("full")
-        assert profile.name == "full"
-        assert profile.display_name == "Full Assistant"
-        assert profile.context_strategy == "full"
-
     def test_invalid_profile_raises_value_error(self):
         with pytest.raises(ValueError, match="Unknown profile 'nonexistent'"):
             get_profile("nonexistent")
 
     def test_invalid_profile_lists_valid_names(self):
-        with pytest.raises(ValueError, match="coding, full, research"):
+        with pytest.raises(ValueError, match="coding, research"):
             get_profile("invalid")
+
+    def test_full_profile_no_longer_exists(self):
+        """The full profile has been removed (dead code)."""
+        assert "full" not in PROFILES
+        with pytest.raises(ValueError):
+            get_profile("full")
 
 
 class TestProfileToolSets:
@@ -52,12 +51,6 @@ class TestProfileToolSets:
 
     def test_coding_tool_sets(self):
         profile = get_profile("coding")
-        assert "filesystem" in profile.tool_sets
-        assert "web" in profile.tool_sets
-        assert "python" in profile.tool_sets
-
-    def test_full_tool_sets(self):
-        profile = get_profile("full")
         assert "filesystem" in profile.tool_sets
         assert "web" in profile.tool_sets
         assert "python" in profile.tool_sets
@@ -76,11 +69,6 @@ class TestProfileSystemPrompts:
         assert "{date_context}" in profile.system_prompt_template
         assert "{project_context}" in profile.system_prompt_template
 
-    def test_full_prompt_has_slots(self):
-        profile = get_profile("full")
-        assert "{date_context}" in profile.system_prompt_template
-        assert "{project_context}" in profile.system_prompt_template
-
     def test_research_prompt_no_three_tools_claim(self):
         """The old 'ONLY three tools' claim should not be in research prompt."""
         assert "ONLY three tools" not in RESEARCH_SYSTEM_PROMPT
@@ -93,6 +81,27 @@ class TestProfileSystemPrompts:
     def test_coding_prompt_warns_about_remote_sandbox(self):
         """Coding prompt should warn that python_execute is remote."""
         assert "remote sandbox" in CODING_SYSTEM_PROMPT
+
+    def test_research_prompt_has_stopping_criteria(self):
+        """Research prompt includes stopping criteria."""
+        assert "STOPPING CRITERIA" in RESEARCH_SYSTEM_PROMPT
+        assert "FINAL ANSWER" in RESEARCH_SYSTEM_PROMPT
+
+    def test_research_prompt_has_quality_rules(self):
+        """Research prompt includes quality rules."""
+        assert "QUALITY RULES" in RESEARCH_SYSTEM_PROMPT
+        assert "Do NOT search for the same topic twice" in RESEARCH_SYSTEM_PROMPT
+
+    def test_coding_prompt_has_stopping_criteria(self):
+        """Coding prompt includes stopping criteria."""
+        assert "STOPPING CRITERIA" in CODING_SYSTEM_PROMPT
+        assert "FINAL ANSWER" in CODING_SYSTEM_PROMPT
+
+    def test_coding_prompt_has_quality_rules(self):
+        """Coding prompt includes quality rules."""
+        assert "QUALITY RULES" in CODING_SYSTEM_PROMPT
+        assert "Do NOT glob or list_directory the entire project" in CODING_SYSTEM_PROMPT
+        assert "Do NOT re-read files" in CODING_SYSTEM_PROMPT
 
 
 class TestProfilePlanStepTypes:
@@ -111,12 +120,6 @@ class TestProfilePlanStepTypes:
         assert "test" in profile.plan_step_types
         assert "debug" in profile.plan_step_types
         assert "synthesize" in profile.plan_step_types
-
-    def test_full_step_types(self):
-        profile = get_profile("full")
-        # Full has both research and coding types
-        assert "search" in profile.plan_step_types
-        assert "implement" in profile.plan_step_types
 
 
 class TestProfileFindingsTools:
@@ -153,9 +156,17 @@ class TestProfilePlanningPrompts:
         assert "{query}" in profile.planning_prompt_template
         assert "{project_context}" in profile.planning_prompt_template
 
-    def test_full_planning_prompt(self):
-        profile = get_profile("full")
-        assert "{query}" in profile.planning_prompt_template
+    def test_research_planning_has_anti_redundancy(self):
+        """Research planning prompt includes anti-redundancy guidelines."""
+        profile = get_profile("research")
+        assert "NEVER plan steps that overlap" in profile.planning_prompt_template
+        assert "Each step must produce NEW information" in profile.planning_prompt_template
+
+    def test_coding_planning_has_anti_redundancy(self):
+        """Coding planning prompt includes anti-redundancy guidelines."""
+        profile = get_profile("coding")
+        assert "NEVER plan steps that overlap" in profile.planning_prompt_template
+        assert "Each step must produce NEW information" in profile.planning_prompt_template
 
 
 class TestProfileDefaults:

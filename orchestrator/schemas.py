@@ -247,7 +247,7 @@ class CreateAgentRunRequest(BaseModel):
     filesystem_enabled: bool = False
     working_dir: Optional[str] = None
     permission_policy: str = "strict"
-    profile: Optional[str] = None  # "research", "coding", "full" — overrides filesystem_enabled
+    profile: Optional[str] = None  # "research", "coding" — overrides filesystem_enabled
     python_provider: Optional[str] = None  # "local" or "daytona" — overrides PYTHON_PROVIDER env var
 
 
