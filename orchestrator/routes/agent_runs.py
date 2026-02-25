@@ -468,6 +468,7 @@ async def create_agent_run(request: CreateAgentRunRequest, http_request: Request
             status="running",
             stream_url=f"/api/agent/runs/{run_id}/stream?token={stream_token}",
             stream_token=stream_token,
+            conversation_id=conversation_id,
         )
 
     except HTTPException:
