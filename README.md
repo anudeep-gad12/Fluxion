@@ -28,6 +28,7 @@ Comprehensive documentation is available in the `docs/` folder:
 | [docs/BENCHMARKS.md](docs/BENCHMARKS.md) | GAIA benchmark results and methodology |
 | [docs/IMPLEMENTATION_LOG.md](docs/IMPLEMENTATION_LOG.md) | Feature tracking and change history |
 | [docs/WORKFLOW.md](docs/WORKFLOW.md) | Development process guide |
+| [docs/NEW_FEATURE.md](docs/NEW_FEATURE.md) | Details about the new feature |
 
 ## Architecture Snapshot
 

@@ -15,7 +15,6 @@ from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, field_validator
 
-
 # =============================================================================
 # Base Paths
 # =============================================================================
@@ -263,6 +262,38 @@ class SandboxConfig(BaseModel):
 # =============================================================================
 
 
+class ChatGPTConfig(BaseModel):
+    """ChatGPT OAuth integration configuration.
+
+    Allows users with ChatGPT Plus/Pro subscriptions to use OpenAI models
+    through the Codex backend API at no extra API cost.
+    """
+
+    enabled: bool = True
+    client_id: str = "app_EMoamEEZ73f0CkXaXp7hrann"
+    auth_url: str = "https://auth.openai.com/oauth/authorize"
+    token_url: str = "https://auth.openai.com/oauth/token"
+    backend_url: str = "https://chatgpt.com/backend-api"
+    callback_path: str = "/auth/callback"
+    callback_url: Optional[str] = None  # Auto-detect from request if None
+    default_model: str = "gpt-5.2-codex"
+    reasoning_effort: Literal["low", "medium", "high"] = "medium"
+    available_models: List[Dict[str, str]] = [
+        {"id": "gpt-5.2-codex", "label": "GPT-5.2 Codex"},
+        {"id": "o4-mini", "label": "o4-mini"},
+        {"id": "gpt-4o", "label": "GPT-4o"},
+        {"id": "o3", "label": "o3"},
+    ]
+
+    @field_validator("callback_url", mode="before")
+    @classmethod
+    def empty_callback_to_none(cls, v: Any) -> Optional[str]:
+        """Convert empty string to None for callback_url."""
+        if v == "" or v is None:
+            return None
+        return v
+
+
 class ChatModelConfig(BaseModel):
     """Model generation parameters."""
 
@@ -395,6 +426,9 @@ class ChatConfig(BaseModel):
     query_classification: Optional[QueryClassificationConfig] = None
     python: Optional[PythonConfig] = None
 
+    # ChatGPT OAuth integration
+    chatgpt: Optional[ChatGPTConfig] = None
+
     # Demo mode (rate limiting, sidebar lock)
     demo: Optional[DemoConfig] = None
 
@@ -427,6 +461,8 @@ class ChatConfig(BaseModel):
             snapshot["query_classification"] = self.query_classification.model_dump()
         if self.python:
             snapshot["python"] = self.python.model_dump()
+        if self.chatgpt:
+            snapshot["chatgpt"] = self.chatgpt.model_dump()
         if self.demo:
             # Don't expose owner_secret in snapshot
             demo_snapshot = self.demo.model_dump()

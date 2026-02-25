@@ -81,6 +81,41 @@ def _mode_to_strategy(thinking_mode: str, mode_mapping: dict) -> str:
     return mode_mapping.get(thinking_mode, "direct")
 
 
+async def _get_provider_for_session(
+    session_id: Optional[str],
+    provider_header: Optional[str],
+    model: Optional[str] = None,
+) -> Optional[object]:
+    """Get a provider override based on session's ChatGPT tokens.
+
+    Returns a ChatGPTProvider if the user has valid ChatGPT tokens and
+    has requested the chatgpt provider. Returns None to use the default.
+
+    Args:
+        session_id: Browser session ID.
+        provider_header: Value of X-Provider header (e.g., "chatgpt").
+        model: Optional model name override (e.g., "o4-mini").
+
+    Returns:
+        LLMProvider instance or None for default.
+    """
+    if not session_id or provider_header != "chatgpt":
+        return None
+
+    try:
+        from orchestrator.routes.auth import get_valid_tokens
+        from orchestrator.providers.factory import create_chatgpt_provider
+
+        tokens = await get_valid_tokens(session_id)
+        if not tokens:
+            return None
+
+        return create_chatgpt_provider(tokens, model=model)
+    except Exception as e:
+        logger.warning("Failed to create ChatGPT provider", extra={"error": str(e)})
+        return None
+
+
 @router.post("/conversations/{conversation_id}/runs", response_model=CreateRunResponse)
 async def create_conversation_run(
     conversation_id: str,
@@ -120,7 +155,14 @@ async def create_conversation_run(
 
     async def run_chat():
         config = get_chat_config()
-        engine = ChatEngine(config)
+
+        # Check for ChatGPT provider override
+        provider_override = await _get_provider_for_session(
+            run_session_id,
+            http_request.headers.get("x-provider"),
+            model=http_request.headers.get("x-model"),
+        )
+        engine = ChatEngine(config, provider=provider_override)
 
         def event_callback(event: dict):
             try:
@@ -219,7 +261,14 @@ async def create_run(request: CreateRunRequest, http_request: Request):
 
     async def run_chat():
         config = get_chat_config()
-        engine = ChatEngine(config)
+
+        # Check for ChatGPT provider override
+        provider_override = await _get_provider_for_session(
+            run_session_id,
+            http_request.headers.get("x-provider"),
+            model=http_request.headers.get("x-model"),
+        )
+        engine = ChatEngine(config, provider=provider_override)
 
         def event_callback(event: dict):
             try:

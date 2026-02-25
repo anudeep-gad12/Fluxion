@@ -20,7 +20,7 @@ class TestBuildMessages:
         with patch("orchestrator.engine.chat_engine.get_chat_config") as mock_config:
             mock_config.return_value = MagicMock(
                 system_prompt="You are a helpful assistant.",
-                context=MagicMock(max_messages=50),
+                context=MagicMock(max_messages=50, max_tokens=100000, reserve_for_response=4096),
                 provider=MagicMock(
                     base_url="http://localhost:1234",
                     api_key=None,
@@ -62,8 +62,8 @@ class TestBuildMessages:
 
         current_message = "Thanks! Now what is 3+3?"
 
-        # Build messages
-        messages = engine._build_messages(prior_runs, current_message)
+        # Build messages (returns tuple with ContextBudget)
+        messages, budget = engine._build_messages(prior_runs, current_message)
 
         # Verify message structure
         assert len(messages) == 6  # system + 2 user + 2 assistant + current
@@ -76,12 +76,16 @@ class TestBuildMessages:
         assert messages[4] == {"role": "assistant", "content": "2+2 equals 4."}
         assert messages[5] == {"role": "user", "content": "Thanks! Now what is 3+3?"}
 
+        # Verify budget tracking
+        assert budget.history_tokens > 0
+        assert budget.system_prompt_tokens > 0
+
     def test_empty_history_only_has_system_and_current(self):
         """Verify first message in conversation has system + current only."""
         with patch("orchestrator.engine.chat_engine.get_chat_config") as mock_config:
             mock_config.return_value = MagicMock(
                 system_prompt="System prompt here.",
-                context=MagicMock(max_messages=50),
+                context=MagicMock(max_messages=50, max_tokens=100000, reserve_for_response=4096),
                 provider=MagicMock(
                     base_url="http://localhost:1234",
                     api_key=None,
@@ -100,54 +104,19 @@ class TestBuildMessages:
         prior_runs = []  # No history
         current_message = "First message"
 
-        messages = engine._build_messages(prior_runs, current_message)
+        messages, budget = engine._build_messages(prior_runs, current_message)
 
         assert len(messages) == 2
         assert messages[0]["role"] == "system"
         assert messages[1] == {"role": "user", "content": "First message"}
-
-    def test_sliding_window_respects_max_messages(self):
-        """Verify sliding window truncates old messages."""
-        with patch("orchestrator.engine.chat_engine.get_chat_config") as mock_config:
-            mock_config.return_value = MagicMock(
-                system_prompt="System",
-                context=MagicMock(max_messages=2),  # Only keep 2 recent turns
-                provider=MagicMock(
-                    base_url="http://localhost:1234",
-                    api_key=None,
-                    endpoint="responses",
-                    fallback_on_404=True,
-                    timeout=120.0,
-                ),
-                model=MagicMock(),
-                thinking=MagicMock(cot=MagicMock()),
-                tracing=MagicMock(log_level="info"),
-                endpoint="responses",
-            )
-            with patch("orchestrator.engine.chat_engine.create_provider"):
-                engine = ChatEngine()
-
-        # Create 5 prior runs
-        prior_runs = [
-            {"created_at": f"2024-01-01T10:0{i}:00Z", "user_message": f"msg{i}", "final_answer": f"resp{i}"}
-            for i in range(5)
-        ]
-
-        messages = engine._build_messages(prior_runs, "current")
-
-        # Should have: system + 2 turns (4 messages) + current = 6
-        # But with max_messages=2, we keep only last 2 runs
-        assert len(messages) == 6  # system + 2*2 + current
-        # Verify we have the LAST 2 runs (msg3, msg4)
-        assert messages[1]["content"] == "msg3"
-        assert messages[3]["content"] == "msg4"
+        assert budget.history_tokens == 0
 
     def test_skips_runs_without_final_answer(self):
-        """Verify incomplete runs (no final_answer) are handled gracefully."""
+        """Verify incomplete runs (no final_answer) are skipped entirely."""
         with patch("orchestrator.engine.chat_engine.get_chat_config") as mock_config:
             mock_config.return_value = MagicMock(
                 system_prompt="System",
-                context=MagicMock(max_messages=50),
+                context=MagicMock(max_messages=50, max_tokens=100000, reserve_for_response=4096),
                 provider=MagicMock(
                     base_url="http://localhost:1234",
                     api_key=None,
@@ -176,15 +145,51 @@ class TestBuildMessages:
             },
         ]
 
-        messages = engine._build_messages(prior_runs, "current")
+        messages, budget = engine._build_messages(prior_runs, "current")
 
-        # Should have: system + complete pair + incomplete user only + current
-        # The None final_answer should be skipped
-        assert len(messages) == 5
+        # HistoryBuilder skips runs without final_answer entirely
+        # Should have: system + complete pair (2 msgs) + current = 4
+        assert len(messages) == 4
         assert messages[1]["content"] == "Complete message"
         assert messages[2]["content"] == "Complete response"
-        assert messages[3]["content"] == "Failed message"
-        assert messages[4]["content"] == "current"
+        assert messages[3]["content"] == "current"
+
+    def test_prefers_turn_summary_over_raw_answer(self):
+        """Verify turn_summary is used when available."""
+        with patch("orchestrator.engine.chat_engine.get_chat_config") as mock_config:
+            mock_config.return_value = MagicMock(
+                system_prompt="System",
+                context=MagicMock(max_messages=50, max_tokens=100000, reserve_for_response=4096),
+                provider=MagicMock(
+                    base_url="http://localhost:1234",
+                    api_key=None,
+                    endpoint="responses",
+                    fallback_on_404=True,
+                    timeout=120.0,
+                ),
+                model=MagicMock(),
+                thinking=MagicMock(cot=MagicMock()),
+                tracing=MagicMock(log_level="info"),
+                endpoint="responses",
+            )
+            with patch("orchestrator.engine.chat_engine.create_provider"):
+                engine = ChatEngine()
+
+        prior_runs = [
+            {
+                "created_at": "2024-01-01T10:00:00Z",
+                "user_message": "What is Python?",
+                "final_answer": "Python is a very long answer..." * 50,  # ~1500 chars
+                "turn_summary": "Q: What is Python? | A: Python is a programming language",
+            },
+        ]
+
+        messages, budget = engine._build_messages(prior_runs, "current")
+
+        # Should use the compact turn_summary, not the raw final_answer
+        assert len(messages) == 4  # system + user + assistant(summary) + current
+        assert "programming language" in messages[2]["content"]
+        assert len(messages[2]["content"]) < 200  # Summary is compact
 
 
 class TestStatefulMode:

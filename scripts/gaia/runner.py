@@ -62,6 +62,25 @@ class RunConfig:
     verbose: bool = True
     api_url: str = DEFAULT_API_URL
     concurrency: int = 1
+    provider: Optional[str] = None
+    session_id: Optional[str] = None
+    model: Optional[str] = None
+
+
+def _build_extra_headers(
+    provider: Optional[str] = None,
+    session_id: Optional[str] = None,
+    model: Optional[str] = None,
+) -> dict[str, str]:
+    """Build extra HTTP headers for provider/session/model overrides."""
+    headers: dict[str, str] = {}
+    if session_id:
+        headers["Cookie"] = f"demo_session={session_id}"
+    if provider:
+        headers["X-Provider"] = provider
+    if model:
+        headers["X-Model"] = model
+    return headers
 
 
 async def check_api_health(api_url: str) -> bool:
@@ -86,6 +105,7 @@ async def run_agent_query(
     max_steps: int = 10,
     timeout_seconds: int = 1800,
     api_url: str = DEFAULT_API_URL,
+    extra_headers: Optional[dict[str, str]] = None,
 ) -> tuple[Optional[str], int, int]:
     """Run a single query through the agent via HTTP API.
 
@@ -94,6 +114,7 @@ async def run_agent_query(
         max_steps: Maximum agent steps.
         timeout_seconds: Timeout in seconds.
         api_url: API server URL.
+        extra_headers: Optional headers for provider/session/model overrides.
 
     Returns:
         Tuple of (answer, steps, time_ms).
@@ -101,7 +122,10 @@ async def run_agent_query(
     start_time = time.time()
 
     try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(timeout_seconds + 10)) as client:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(timeout_seconds + 10),
+            headers=extra_headers or {},
+        ) as client:
             # Create agent run via HTTP API
             create_response = await client.post(
                 f"{api_url}/api/agent/runs",
@@ -170,6 +194,7 @@ async def run_chat_query(
     query: str,
     timeout_seconds: int = 1800,
     api_url: str = DEFAULT_API_URL,
+    extra_headers: Optional[dict[str, str]] = None,
 ) -> tuple[Optional[str], int]:
     """Run a single query through chat mode via HTTP API.
 
@@ -177,6 +202,7 @@ async def run_chat_query(
         query: The question to ask.
         timeout_seconds: Timeout in seconds.
         api_url: API server URL.
+        extra_headers: Optional headers for provider/session/model overrides.
 
     Returns:
         Tuple of (answer, time_ms).
@@ -184,7 +210,10 @@ async def run_chat_query(
     start_time = time.time()
 
     try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(timeout_seconds + 10)) as client:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(timeout_seconds + 10),
+            headers=extra_headers or {},
+        ) as client:
             # Create a conversation for this query
             conv_response = await client.post(
                 f"{api_url}/api/conversations",
@@ -272,6 +301,7 @@ async def evaluate_single_question(
     timeout_seconds: int,
     api_url: str,
     semaphore: asyncio.Semaphore,
+    extra_headers: Optional[dict[str, str]] = None,
 ) -> tuple[int, Optional[str], int, int, Optional[ScoreResult]]:
     """Evaluate a single question with semaphore for concurrency control.
 
@@ -283,6 +313,7 @@ async def evaluate_single_question(
         timeout_seconds: Timeout per question.
         api_url: API server URL.
         semaphore: Semaphore for concurrency limiting.
+        extra_headers: Optional headers for provider/session/model overrides.
 
     Returns:
         Tuple of (index, answer, time_ms, steps, score).
@@ -294,12 +325,14 @@ async def evaluate_single_question(
                 max_steps=max_steps,
                 timeout_seconds=timeout_seconds,
                 api_url=api_url,
+                extra_headers=extra_headers,
             )
         else:
             raw_answer, time_ms = await run_chat_query(
                 question.question,
                 timeout_seconds=timeout_seconds,
                 api_url=api_url,
+                extra_headers=extra_headers,
             )
             step_count = 0
 
@@ -333,6 +366,7 @@ async def evaluate_questions(
     api_url: str = DEFAULT_API_URL,
     concurrency: int = 1,
     progress_callback: Optional[Callable[[int, int, str], None]] = None,
+    extra_headers: Optional[dict[str, str]] = None,
 ) -> tuple[List[ScoreResult], List[Optional[str]], List[int], List[int]]:
     """Evaluate a list of questions.
 
@@ -344,6 +378,7 @@ async def evaluate_questions(
         api_url: API server URL.
         concurrency: Number of parallel evaluations.
         progress_callback: Optional callback(current, total, status).
+        extra_headers: Optional headers for provider/session/model overrides.
 
     Returns:
         Tuple of (scores, answers, times, steps).
@@ -365,6 +400,7 @@ async def evaluate_questions(
                     max_steps=max_steps,
                     timeout_seconds=timeout_seconds,
                     api_url=api_url,
+                    extra_headers=extra_headers,
                 )
                 steps.append(step_count)
             else:
@@ -372,6 +408,7 @@ async def evaluate_questions(
                     question.question,
                     timeout_seconds=timeout_seconds,
                     api_url=api_url,
+                    extra_headers=extra_headers,
                 )
                 steps.append(0)
 
@@ -410,7 +447,8 @@ async def evaluate_questions(
     async def run_with_progress(idx: int, q: GAIAQuestion):
         nonlocal completed_count
         result = await evaluate_single_question(
-            idx, q, mode, max_steps, timeout_seconds, api_url, semaphore
+            idx, q, mode, max_steps, timeout_seconds, api_url, semaphore,
+            extra_headers=extra_headers,
         )
         completed_count += 1
         if progress_callback:
@@ -507,6 +545,13 @@ async def run_evaluation(config: RunConfig) -> EvaluationResults:
     chat_times = None
     agent_steps = None
 
+    # Build extra headers for provider/session/model overrides
+    extra_headers = _build_extra_headers(
+        provider=config.provider,
+        session_id=config.session_id,
+        model=config.model,
+    )
+
     def print_progress(current: int, total: int, status: str):
         if config.verbose:
             print(f"[{current}/{total}] {status}")
@@ -524,6 +569,7 @@ async def run_evaluation(config: RunConfig) -> EvaluationResults:
             api_url=config.api_url,
             concurrency=config.concurrency,
             progress_callback=print_progress,
+            extra_headers=extra_headers or None,
         )
 
     if config.mode in ("chat", "compare"):
@@ -538,6 +584,7 @@ async def run_evaluation(config: RunConfig) -> EvaluationResults:
             api_url=config.api_url,
             concurrency=config.concurrency,
             progress_callback=print_progress,
+            extra_headers=extra_headers or None,
         )
 
     # Aggregate results

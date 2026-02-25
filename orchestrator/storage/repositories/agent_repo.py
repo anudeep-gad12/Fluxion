@@ -101,6 +101,8 @@ class AgentRepo:
             values.append(error_message)
 
         if updates:
+            updates.append("updated_at = ?")
+            values.append(datetime.now(timezone.utc).isoformat())
             values.append(step_id)
             await self.db.conn.execute(
                 f"UPDATE agent_steps SET {', '.join(updates)} WHERE id = ?",
@@ -255,6 +257,10 @@ class AgentRepo:
         execution_attempt: Optional[int] = None,
         result_summary: Optional[str] = None,
         error_message: Optional[str] = None,
+        approval_decision: Optional[str] = None,
+        approval_policy: Optional[str] = None,
+        approval_decided_at: Optional[str] = None,
+        result_detail: Optional[str] = None,
     ) -> None:
         """Update an existing tool call.
 
@@ -267,6 +273,10 @@ class AgentRepo:
             execution_attempt: Attempt number (for retries).
             result_summary: One-line summary of result (not full output).
             error_message: Error message if status is error/timeout.
+            approval_decision: Approval decision (approved/denied/auto/timeout).
+            approval_policy: Permission policy (strict/relaxed/yolo).
+            approval_decided_at: ISO timestamp of approval decision.
+            result_detail: Full tool result text (up to 10k chars).
         """
         updates = []
         values = []
@@ -292,6 +302,18 @@ class AgentRepo:
         if error_message is not None:
             updates.append("error_message = ?")
             values.append(error_message)
+        if approval_decision is not None:
+            updates.append("approval_decision = ?")
+            values.append(approval_decision)
+        if approval_policy is not None:
+            updates.append("approval_policy = ?")
+            values.append(approval_policy)
+        if approval_decided_at is not None:
+            updates.append("approval_decided_at = ?")
+            values.append(approval_decided_at)
+        if result_detail is not None:
+            updates.append("result_detail = ?")
+            values.append(result_detail)
 
         if updates:
             values.append(tool_call_id)
@@ -557,6 +579,136 @@ class AgentRepo:
             [True] + citation_ids,
         )
         await self.db.conn.commit()
+
+    # --- Run Events ---
+
+    async def create_run_event(
+        self,
+        run_id: str,
+        seq: int,
+        event_type: str,
+        event_data: dict,
+    ) -> dict[str, Any]:
+        """Persist an SSE event for durable replay.
+
+        Args:
+            run_id: The run ID.
+            seq: Sequence number within the run.
+            event_type: Event type string.
+            event_data: Full event payload dict.
+
+        Returns:
+            Dict with event id and created data.
+        """
+        event_id = str(uuid.uuid4())
+        now = datetime.now(timezone.utc).isoformat()
+        event_data_json = json.dumps(event_data, ensure_ascii=False)
+
+        await self.db.conn.execute(
+            """
+            INSERT INTO run_events (id, run_id, seq, event_type, event_data, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (event_id, run_id, seq, event_type, event_data_json, now),
+        )
+        await self.db.conn.commit()
+
+        return {
+            "id": event_id,
+            "run_id": run_id,
+            "seq": seq,
+            "event_type": event_type,
+            "created_at": now,
+        }
+
+    async def get_run_events(self, run_id: str) -> List[dict[str, Any]]:
+        """Get all persisted events for a run in order.
+
+        Args:
+            run_id: The run ID.
+
+        Returns:
+            List of event dicts ordered by seq.
+        """
+        async with self.db.conn.execute(
+            "SELECT * FROM run_events WHERE run_id = ? ORDER BY seq ASC",
+            (run_id,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+            events = []
+            for row in rows:
+                e = dict(row)
+                if e.get("event_data"):
+                    e["event_data"] = json.loads(e["event_data"])
+                events.append(e)
+            return events
+
+    # --- Run Artifacts ---
+
+    async def create_run_artifact(
+        self,
+        run_id: str,
+        artifact_type: str,
+        file_path: str,
+        action: str,
+        detail: Optional[str] = None,
+        tool_call_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Record a file change or command execution artifact.
+
+        Args:
+            run_id: The run ID.
+            artifact_type: Type of artifact (file_write, file_edit, command_run).
+            file_path: Path to affected file or command string.
+            action: Tool name that produced this artifact.
+            detail: Result summary or additional detail.
+            tool_call_id: Optional link to the tool call record.
+
+        Returns:
+            Dict with artifact id and created data.
+        """
+        artifact_id = str(uuid.uuid4())
+        now = datetime.now(timezone.utc).isoformat()
+
+        await self.db.conn.execute(
+            """
+            INSERT INTO run_artifacts (
+                id, run_id, artifact_type, file_path, action,
+                detail, tool_call_id, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (artifact_id, run_id, artifact_type, file_path, action,
+             detail, tool_call_id, now),
+        )
+        await self.db.conn.commit()
+
+        return {
+            "id": artifact_id,
+            "run_id": run_id,
+            "artifact_type": artifact_type,
+            "file_path": file_path,
+            "action": action,
+            "detail": detail,
+            "tool_call_id": tool_call_id,
+            "created_at": now,
+        }
+
+    async def get_run_artifacts(self, run_id: str) -> List[dict[str, Any]]:
+        """Get all artifacts for a run.
+
+        Args:
+            run_id: The run ID.
+
+        Returns:
+            List of artifact dicts ordered by created_at.
+        """
+        async with self.db.conn.execute(
+            "SELECT * FROM run_artifacts WHERE run_id = ? ORDER BY created_at ASC",
+            (run_id,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [dict(row) for row in rows]
 
     # --- Run Agent State (updates to runs table) ---
 

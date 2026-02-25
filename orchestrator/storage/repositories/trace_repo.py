@@ -87,6 +87,7 @@ class TraceRepo:
         error_message: Optional[str] = None,
         usage_stats: Optional[dict] = None,
         last_response_id: Optional[str] = None,
+        turn_summary: Optional[str] = None,
     ) -> None:
         """Update run with results."""
         updates = []
@@ -107,6 +108,9 @@ class TraceRepo:
         if last_response_id is not None:
             updates.append("last_response_id = ?")
             values.append(last_response_id)
+        if turn_summary is not None:
+            updates.append("turn_summary = ?")
+            values.append(turn_summary)
 
         if updates:
             values.append(run_id)

@@ -20,6 +20,8 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
 from orchestrator.config import ChatConfig, get_chat_config
+from orchestrator.context.budget import ContextBudget
+from orchestrator.context.history_builder import HistoryBuilder
 from orchestrator.logging_config import get_logger, set_component
 
 logger = get_logger(__name__)
@@ -52,20 +54,30 @@ class ChatEngine:
     - direct: Uses model's native reasoning (fastest, works with gpt-oss models)
     """
 
-    def __init__(self, config: Optional[ChatConfig] = None):
+    def __init__(
+        self,
+        config: Optional[ChatConfig] = None,
+        provider: Optional[LLMProvider] = None,
+    ):
         """Initialize the chat engine.
 
         Args:
             config: Chat configuration. If None, loads from chat_config.yaml.
+            provider: Optional pre-configured LLM provider override.
+                     If None, creates one from config.
         """
         self.config = config or get_chat_config()
 
-        # Initialize LLM provider (uses provider config for endpoint selection, retries, etc.)
-        # If provider_chain is enabled, creates ProviderChain with failover support
-        self._provider = create_provider(
-            self.config.provider,
-            chain_config=self.config.provider_chain,
-        )
+        # Use provided provider or create from config
+        if provider is not None:
+            self._provider = provider
+        else:
+            # Initialize LLM provider (uses provider config for endpoint selection, retries, etc.)
+            # If provider_chain is enabled, creates ProviderChain with failover support
+            self._provider = create_provider(
+                self.config.provider,
+                chain_config=self.config.provider_chain,
+            )
 
         # Initialize thinking orchestrator (default to "direct", actual strategy chosen per-request via mode_mapping)
         self.thinking_orchestrator = ThinkingOrchestrator(default_strategy="direct")
@@ -129,8 +141,8 @@ class ChatEngine:
         # Load conversation history from runs table
         prior_runs = await trace_repo.list_runs_for_conversation(conversation_id)
         
-        # Build messages
-        messages = self._build_messages(prior_runs, message)
+        # Build messages with token-aware history
+        messages, context_budget = self._build_messages(prior_runs, message)
         
         # Log if debug
         if self.config.tracing.log_level == "debug":
@@ -405,6 +417,22 @@ class ChatEngine:
                 last_response_id=last_response_id_from_run,  # Store for stateful mode
             )
 
+            # Generate and store turn summary for cross-turn context
+            try:
+                from orchestrator.context.turn_summary import TurnSummarizer
+                summarizer = TurnSummarizer(get_token_counter())
+                turn_summary = summarizer.summarize_chat_run(
+                    message, thinking_result.final_answer
+                )
+                await trace_repo.update_run(
+                    run_id, turn_summary=turn_summary.to_context_string()
+                )
+            except Exception as ts_err:
+                logger.warning(
+                    "Failed to store turn summary",
+                    extra={"run_id": run_id, "error": str(ts_err)},
+                )
+
             # Update thinking summary if enabled
             if self.config.thinking.tracing.save_user_summary and thinking_result.thinking_summary:
                 await trace_repo.update_thinking_summary(
@@ -412,7 +440,13 @@ class ChatEngine:
                     thinking_summary=thinking_result.thinking_summary,
                 )
 
-            # Emit completion event
+            # Emit completion event with context usage
+            _chat_ctx = {
+                "total_tokens_used": context_budget.total_used,
+                "history_tokens": context_budget.history_tokens,
+                "max_tokens": context_budget.max_tokens,
+                "utilization_pct": round(context_budget.utilization_pct, 1),
+            }
             if event_callback:
                 event_callback({
                     "type": "CHAT_COMPLETED",
@@ -420,6 +454,7 @@ class ChatEngine:
                     "response": thinking_result.final_answer,
                     "thinking_summary": thinking_result.thinking_summary,
                     "strategy": strategy.name,
+                    "context_usage": _chat_ctx,
                 })
 
             return ChatResult(
@@ -467,51 +502,57 @@ class ChatEngine:
         self,
         prior_runs: list[dict],
         current_message: str,
-    ) -> list[dict]:
+    ) -> tuple[list[dict], ContextBudget]:
         """Build message list for model call from conversation history.
 
-        Messages are built from the runs table (user_message + final_answer pairs),
-        NOT from trace_events. This ensures stateless operation where each request
-        contains the full conversation context.
+        Uses HistoryBuilder for token-aware history loading. Prefers compact
+        turn_summary over raw final_answer when available.
 
         Args:
             prior_runs: Previous conversation runs from runs table.
             current_message: Current user message.
 
         Returns:
-            List of message dicts for the API.
+            Tuple of (messages list, ContextBudget accounting).
         """
-        messages = []
+        token_counter = get_token_counter()
 
-        # System message
-        messages.append({
-            "role": "system",
-            "content": self.config.system_prompt,
-        })
+        # Use config values for budget, with safe defaults
+        try:
+            max_context = int(self.config.context.max_tokens)
+        except (TypeError, ValueError):
+            max_context = 100000
+        # If max_tokens is small (legacy default 6000), use a reasonable default
+        if max_context < 50000:
+            max_context = 100000
 
-        # Add conversation history (respecting max_messages limit)
-        max_messages = self.config.context.max_messages
+        try:
+            reserve = int(self.config.context.reserve_for_response)
+        except (TypeError, ValueError):
+            reserve = 4096
 
-        # Sort by created_at ascending (oldest first)
-        sorted_runs = sorted(prior_runs, key=lambda r: r.get("created_at", ""))
+        builder = HistoryBuilder(
+            token_counter=token_counter,
+            max_context_tokens=max_context,
+            reserve_for_response=reserve,
+        )
 
-        # Apply sliding window if needed
-        if len(sorted_runs) > max_messages:
-            sorted_runs = sorted_runs[-max_messages:]
+        messages, budget = builder.build_history_messages(
+            prior_runs=prior_runs,
+            system_prompt=self.config.system_prompt,
+            current_query=current_message,
+        )
 
-        for run in sorted_runs:
-            user_msg = run.get("user_message")
-            assistant_msg = run.get("final_answer")
+        logger.info(
+            "Chat context budget allocated",
+            extra={
+                "history_tokens": budget.history_tokens,
+                "utilization_pct": round(budget.utilization_pct, 1),
+                "history_pairs": (len(messages) - 2) // 2,
+            },
+        )
 
-            if user_msg:
-                messages.append({"role": "user", "content": user_msg})
-            if assistant_msg:
-                messages.append({"role": "assistant", "content": assistant_msg})
-
-        # Add current message
-        messages.append({"role": "user", "content": current_message})
-
-        return messages
+        return messages, budget
 
     async def _call_model_streaming(
         self,

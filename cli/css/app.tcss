@@ -1,0 +1,175 @@
+/* Reasoner CLI — Clean Terminal UI (Claude Code style) */
+
+Screen {
+    background: $background;
+    layers: base overlay;
+}
+
+/* ── Header ─────────────────────────────────────────── */
+
+Header {
+    dock: top;
+    height: 1;
+    background: $surface;
+    color: $text;
+}
+
+/* ── Footer ─────────────────────────────────────────── */
+
+Footer {
+    dock: bottom;
+    background: $surface;
+}
+
+/* ── Message List (main content area) ───────────────── */
+
+#message-list {
+    height: 1fr;
+    padding: 1 0;
+    scrollbar-size: 1 1;
+    scrollbar-color: $surface-lighten-2;
+    scrollbar-color-hover: $primary;
+    scrollbar-color-active: $primary;
+}
+
+/* ── Input Area ─────────────────────────────────────── */
+
+#input-container {
+    height: auto;
+    max-height: 10;
+    margin: 0 2 0 2;
+    padding: 0;
+}
+
+#input-area {
+    height: auto;
+    min-height: 3;
+    max-height: 8;
+    border: tall $surface-lighten-2;
+    background: $surface;
+    padding: 0 1;
+}
+
+#input-area:focus {
+    border: tall $primary;
+}
+
+#input-hint {
+    height: 1;
+    color: $text-disabled;
+    text-align: right;
+    padding: 0 1;
+}
+
+/* ── Status Bar ─────────────────────────────────────── */
+
+StatusBar {
+    dock: bottom;
+    height: 1;
+    background: $surface;
+    padding: 0 1;
+    color: $text-muted;
+}
+
+StatusBar .status-item {
+    width: auto;
+    height: 1;
+}
+
+StatusBar .status-mode {
+    color: $primary;
+    text-style: bold;
+}
+
+StatusBar .status-separator {
+    color: $text-disabled;
+}
+
+StatusBar .status-provider {
+    color: $text-muted;
+}
+
+StatusBar .status-activity {
+    color: $text-muted;
+    text-style: italic;
+}
+
+StatusBar .status-spacer {
+    width: 1fr;
+}
+
+StatusBar .status-connection {
+    color: $success;
+}
+
+StatusBar .status-disconnected {
+    color: $error;
+}
+
+/* ── Welcome Message ────────────────────────────────── */
+
+#welcome {
+    margin: 2 4;
+    padding: 1 2;
+    height: auto;
+    color: $text-muted;
+}
+
+/* ── Message Bubbles ────────────────────────────────── */
+
+MessageBubble {
+    height: auto;
+    margin: 0 2 1 2;
+    padding: 0;
+}
+
+MessageBubble.user {
+    margin-top: 1;
+}
+
+MessageBubble.assistant {
+    padding: 0;
+}
+
+.user-message {
+    color: $text;
+}
+
+/* ── Tool Call Panels ───────────────────────────────── */
+
+ToolCallPanel {
+    margin: 0 2 0 2;
+    padding: 0;
+    height: auto;
+}
+
+ToolCallPanel .tool-header {
+    height: 1;
+}
+
+ToolCallPanel .tool-result {
+    padding: 0;
+}
+
+ToolCallPanel .tool-error {
+    padding: 0;
+}
+
+ToolCallPanel .tool-approval {
+    padding: 0;
+}
+
+/* ── Thinking Panel ────────────────────────────────── */
+
+ThinkingPanel {
+    color: $text-disabled;
+    height: 1;
+    margin: 0 2;
+}
+
+/* ── Streaming Markdown ─────────────────────────────── */
+
+StreamingMarkdown {
+    margin: 0 2 1 2;
+    padding: 0;
+}
