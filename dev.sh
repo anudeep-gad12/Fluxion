@@ -360,6 +360,32 @@ case "${1:-start}" in
     status)
         show_status
         ;;
+    cli)
+        # Install CLI deps if needed
+        if ! uv run python -c "import textual" 2>/dev/null; then
+            log "Installing CLI dependencies..."
+            uv sync --extra cli
+        fi
+        # Launch CLI TUI, starting API if needed
+        CLI_STARTED_API=false
+        if ! curl -s http://localhost:9000/api/health > /dev/null 2>&1; then
+            log "API not running — starting it first..."
+            start_api
+            CLI_STARTED_API=true
+        fi
+        shift
+        # Trap: kill API on exit if we started it
+        cleanup_cli() {
+            if [ "$CLI_STARTED_API" = true ]; then
+                log "Shutting down API server..."
+                kill_port 9000
+            fi
+        }
+        trap cleanup_cli EXIT INT TERM
+        log "Launching CLI..."
+        cd "$PROJECT_DIR"
+        uv run python -m cli --working-dir "$(pwd)" "$@"
+        ;;
     provider)
         switch_provider "$2"
         ;;
@@ -372,6 +398,7 @@ case "${1:-start}" in
         echo "  restart   Restart all services"
         echo "  api       Start only the API"
         echo "  ui        Start only the UI"
+        echo "  cli       Launch CLI TUI (auto-starts API)"
         echo "  logs      Tail combined logs (api.log summary + app.log live)"
         echo "  applogs   Tail structured app logs (JSON, pretty-printed)"
         echo "  debug     Show recent errors and debugging commands"

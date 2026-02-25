@@ -500,6 +500,7 @@ class AgentStateMachine:
         result_summary: str,
         duration_ms: int,
         error_message: Optional[str] = None,
+        result_detail: Optional[str] = None,
     ) -> None:
         """Complete a tool call.
 
@@ -509,6 +510,7 @@ class AgentStateMachine:
             result_summary: 1-line summary.
             duration_ms: Execution duration.
             error_message: Error message if failed.
+            result_detail: Full tool result text (for write tools).
         """
         status = (
             AgentToolCallStatus.SUCCESS.value
@@ -523,6 +525,27 @@ class AgentStateMachine:
             duration_ms=duration_ms,
             result_summary=result_summary,
             error_message=error_message,
+            result_detail=result_detail,
+        )
+
+    async def record_approval(
+        self,
+        tool_call_id: str,
+        decision: str,
+        policy: str,
+    ) -> None:
+        """Record a tool approval decision.
+
+        Args:
+            tool_call_id: The tool call ID.
+            decision: Approval decision (approved/denied/auto/timeout).
+            policy: Permission policy in effect (strict/relaxed/yolo).
+        """
+        await self._repo.update_tool_call(
+            tool_call_id,
+            approval_decision=decision,
+            approval_policy=policy,
+            approval_decided_at=datetime.now(timezone.utc).isoformat(),
         )
 
     async def timeout_tool_call(

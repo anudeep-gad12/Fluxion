@@ -33,6 +33,7 @@ from orchestrator.schemas import (
     AgentToolCallResponse,
     CreateAgentRunRequest,
     CreateAgentRunResponse,
+    RunArtifactResponse,
 )
 from orchestrator.storage.db import get_db
 from orchestrator.storage.repositories.agent_repo import AgentRepo
@@ -54,15 +55,23 @@ _event_history: Dict[str, List[Dict[str, Any]]] = {}  # Append-only event log pe
 _event_notify: Dict[str, asyncio.Event] = {}  # Notifies SSE generators of new events
 _run_tokens: Dict[str, str] = {}  # Per-run stream auth tokens
 _run_sessions: Dict[str, str] = {}  # Per-run session IDs for access control
+# run_id -> {tool_call_id -> Future[bool]}
+_approval_queues: Dict[str, Dict[str, asyncio.Future]] = {}
 
 
 def get_session_context(request: Request) -> Tuple[Optional[str], bool]:
     """Extract session context from request.
 
+    CLI clients pass session ID via X-CLI-Session header (used to look
+    up ChatGPT tokens). Falls back to session middleware cookie.
+
     Returns:
         Tuple of (session_id, is_owner).
     """
-    session_id = getattr(request.state, "session_id", None)
+    session_id = (
+        request.headers.get("x-cli-session")
+        or getattr(request.state, "session_id", None)
+    )
     is_owner = getattr(request.state, "is_owner", True)
     return session_id, is_owner
 
@@ -77,6 +86,7 @@ _EVENT_TYPE_MAP = {
     "step_started": "step_start",
     "thinking": "thinking",
     "tool_start": "tool_start",
+    "tool_approval_required": "tool_approval_required",
     "tool_result": "tool_result",
     "synthesizing": "agent_state",
     "answer_token": "answer",
@@ -122,6 +132,27 @@ def _translate_event(event: Dict[str, Any], seq: int) -> Dict[str, Any]:
 # =============================================================================
 
 
+async def _persist_run_event(run_id: str, seq: int, event: Dict[str, Any]) -> None:
+    """Fire-and-forget: persist a single SSE event to the database.
+
+    Args:
+        run_id: The run ID.
+        seq: Sequence number.
+        event: Event dict to persist.
+    """
+    try:
+        db = await get_db()
+        repo = AgentRepo(db)
+        await repo.create_run_event(
+            run_id, seq, event.get("type", "unknown"), event
+        )
+    except Exception as e:
+        logger.warning(
+            "Failed to persist run event",
+            extra={"run_id": run_id, "seq": seq, "error": str(e)},
+        )
+
+
 async def _cleanup_run(run_id: str, delay_seconds: float = 5.0) -> None:
     """Clean up run state after completion.
 
@@ -136,6 +167,7 @@ async def _cleanup_run(run_id: str, delay_seconds: float = 5.0) -> None:
     _abort_signals.pop(run_id, None)
     _event_notify.pop(run_id, None)
     _run_sessions.pop(run_id, None)
+    _approval_queues.pop(run_id, None)
     logger.debug("Cleaned up run state", extra={"run_id": run_id})
 
     # Schedule history cleanup (keep longer for resumption)
@@ -161,7 +193,18 @@ async def _cleanup_history(run_id: str, delay_seconds: float) -> None:
 
 
 async def _run_agent_task(
-    run_id: str, query: str, conversation_id: Optional[str], max_steps: int
+    run_id: str,
+    query: str,
+    conversation_id: Optional[str],
+    max_steps: int,
+    session_id: Optional[str] = None,
+    provider_preference: Optional[str] = None,
+    model_override: Optional[str] = None,
+    filesystem_enabled: bool = False,
+    working_dir: Optional[str] = None,
+    permission_policy: str = "strict",
+    profile_name: Optional[str] = None,
+    python_provider: Optional[str] = None,
 ) -> None:
     """Background task that runs the agent.
 
@@ -170,6 +213,14 @@ async def _run_agent_task(
         query: User's research query.
         conversation_id: Optional conversation context.
         max_steps: Maximum steps for agent execution.
+        session_id: Optional session ID for provider routing.
+        provider_preference: Optional provider preference ("chatgpt" or None).
+        model_override: Optional model name override (e.g., "o4-mini").
+        filesystem_enabled: If True, register filesystem tools.
+        working_dir: Working directory for filesystem tools.
+        permission_policy: Permission policy ("strict", "relaxed", "yolo").
+        profile_name: Agent profile name ("research", "coding").
+        python_provider: Python execution provider ("local" or "daytona").
     """
     # Import here to avoid circular imports
     from orchestrator.agent.factory import create_agent_engine
@@ -195,14 +246,65 @@ async def _run_agent_task(
         seq += 1
         event["seq"] = seq
         _event_history.setdefault(run_id, []).append(event.copy())
+        # Persist event to DB (fire-and-forget)
+        asyncio.create_task(_persist_run_event(run_id, seq, event))
         # Wake up all SSE generators waiting for new events
         notify = _event_notify.get(run_id)
         if notify:
             notify.set()
 
     try:
+        # Resolve provider override if ChatGPT is selected
+        provider_override = None
+        if session_id and provider_preference == "chatgpt":
+            try:
+                from orchestrator.providers.factory import create_chatgpt_provider
+                from orchestrator.routes.auth import get_valid_tokens
+
+                tokens = await get_valid_tokens(session_id)
+                if tokens:
+                    provider_override = create_chatgpt_provider(tokens, model=model_override)
+            except Exception as e:
+                logger.warning(
+                    "Failed to create ChatGPT provider for agent",
+                    extra={"error": str(e)},
+                )
+
+        # Build approval callback for permission system
+        async def approval_callback(
+            rid: str, tool_call_id: str, tool_name: str, arguments: dict
+        ) -> bool:
+            """Wait for user to approve/deny a tool call."""
+            loop = asyncio.get_event_loop()
+            future = loop.create_future()
+            _approval_queues.setdefault(rid, {})[tool_call_id] = future
+            try:
+                return await asyncio.wait_for(future, timeout=300)  # 5 min timeout
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "Tool approval timed out",
+                    extra={
+                        "run_id": rid,
+                        "tool_call_id": tool_call_id,
+                        "tool_name": tool_name,
+                        "timeout_seconds": 300,
+                    },
+                )
+                return False
+            finally:
+                _approval_queues.get(rid, {}).pop(tool_call_id, None)
+
         # Create engine and run (pass query for classification)
-        engine = await create_agent_engine(max_steps=max_steps, query=query)
+        engine = await create_agent_engine(
+            max_steps=max_steps,
+            query=query,
+            provider_override=provider_override,
+            filesystem_enabled=filesystem_enabled,
+            working_dir=working_dir,
+            approval_callback=approval_callback if permission_policy != "yolo" else None,
+            profile_name=profile_name,
+            python_provider=python_provider,
+        )
         result = await engine.run(
             run_id=run_id,
             query=query,
@@ -221,6 +323,7 @@ async def _run_agent_task(
                     "total_steps": result.total_steps,
                     "timing_ms": result.timing_ms,
                     "total_tokens": result.total_tokens,
+                    "context_usage": result.context_usage,
                 },
             }
             _event_history.setdefault(run_id, []).append(end_event)
@@ -332,13 +435,23 @@ async def create_agent_run(request: CreateAgentRunRequest, http_request: Request
             max_steps=request.max_steps,
         )
 
-        # Start background task
+        # Start background task (pass provider/model preference from headers)
+        provider_preference = http_request.headers.get("x-provider")
+        model_override = http_request.headers.get("x-model")
         asyncio.create_task(
             _run_agent_task(
                 run_id=run_id,
                 query=request.query,
                 conversation_id=conversation_id,
                 max_steps=request.max_steps,
+                session_id=session_id,
+                provider_preference=provider_preference,
+                model_override=model_override,
+                filesystem_enabled=request.filesystem_enabled,
+                working_dir=request.working_dir,
+                permission_policy=request.permission_policy,
+                profile_name=request.profile,
+                python_provider=request.python_provider,
             )
         )
 
@@ -356,6 +469,7 @@ async def create_agent_run(request: CreateAgentRunRequest, http_request: Request
             status="running",
             stream_url=f"/api/agent/runs/{run_id}/stream?token={stream_token}",
             stream_token=stream_token,
+            conversation_id=conversation_id,
         )
 
     except HTTPException:
@@ -389,7 +503,6 @@ async def get_agent_run_status(run_id: str, http_request: Request):
 
     db = await get_db()
     trace_repo = TraceRepo(db)
-    agent_repo = AgentRepo(db)
 
     # Get run from trace_repo with session check
     run = await trace_repo.get_run_with_session_check(
@@ -695,7 +808,11 @@ async def get_agent_run_trace(run_id: str, http_request: Request):
             run_id=tc["run_id"],
             step_id=tc["step_id"],
             tool_name=tc["tool_name"],
-            arguments=tc.get("arguments", {}) if isinstance(tc.get("arguments"), dict) else json.loads(tc.get("arguments", "{}")),
+            arguments=(
+                tc.get("arguments", {})
+                if isinstance(tc.get("arguments"), dict)
+                else json.loads(tc.get("arguments", "{}"))
+            ),
             status=tc["status"],
             result_summary=tc.get("result_summary"),
             error_message=tc.get("error_message"),
@@ -705,6 +822,10 @@ async def get_agent_run_trace(run_id: str, http_request: Request):
             completed_at=tc.get("completed_at"),
             idempotency_key=tc.get("idempotency_key", ""),
             execution_attempt=tc.get("execution_attempt", 1),
+            approval_decision=tc.get("approval_decision"),
+            approval_policy=tc.get("approval_policy"),
+            approval_decided_at=tc.get("approval_decided_at"),
+            result_detail=tc.get("result_detail"),
         )
         for tc in tool_calls_raw
     ]
@@ -725,6 +846,22 @@ async def get_agent_run_trace(run_id: str, http_request: Request):
         for c in citations_raw
     ]
 
+    # Get all artifacts
+    artifacts_raw = await agent_repo.get_run_artifacts(run_id)
+    artifacts = [
+        RunArtifactResponse(
+            id=a["id"],
+            run_id=a["run_id"],
+            artifact_type=a["artifact_type"],
+            file_path=a.get("file_path"),
+            action=a["action"],
+            detail=a.get("detail"),
+            tool_call_id=a.get("tool_call_id"),
+            created_at=a["created_at"],
+        )
+        for a in artifacts_raw
+    ]
+
     return AgentRunTraceResponse(
         run_id=run_id,
         status=run.get("status", "unknown"),
@@ -732,5 +869,55 @@ async def get_agent_run_trace(run_id: str, http_request: Request):
         steps=steps,
         tool_calls=tool_calls,
         citations=citations,
+        artifacts=artifacts,
         final_answer=run.get("final_answer"),
     )
+
+
+# =============================================================================
+# Tool Approval Endpoints
+# =============================================================================
+
+
+@router.post("/runs/{run_id}/approve/{tool_call_id}")
+async def approve_tool_call(run_id: str, tool_call_id: str, http_request: Request):
+    """Approve a tool call that requires permission.
+
+    Resolves the approval Future with True, allowing tool execution to proceed.
+    """
+    queues = _approval_queues.get(run_id, {})
+    future = queues.get(tool_call_id)
+
+    if future is None:
+        raise HTTPException(status_code=404, detail="No pending approval for this tool call")
+
+    if not future.done():
+        future.set_result(True)
+
+    logger.info(
+        "Tool call approved",
+        extra={"run_id": run_id, "tool_call_id": tool_call_id},
+    )
+    return {"status": "approved", "run_id": run_id, "tool_call_id": tool_call_id}
+
+
+@router.post("/runs/{run_id}/deny/{tool_call_id}")
+async def deny_tool_call(run_id: str, tool_call_id: str, http_request: Request):
+    """Deny a tool call that requires permission.
+
+    Resolves the approval Future with False, blocking tool execution.
+    """
+    queues = _approval_queues.get(run_id, {})
+    future = queues.get(tool_call_id)
+
+    if future is None:
+        raise HTTPException(status_code=404, detail="No pending approval for this tool call")
+
+    if not future.done():
+        future.set_result(False)
+
+    logger.info(
+        "Tool call denied",
+        extra={"run_id": run_id, "tool_call_id": tool_call_id},
+    )
+    return {"status": "denied", "run_id": run_id, "tool_call_id": tool_call_id}

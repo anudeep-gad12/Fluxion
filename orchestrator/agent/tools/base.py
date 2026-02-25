@@ -7,7 +7,6 @@ behavior across web_search, web_extract, and python_execute tools.
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional, Protocol, runtime_checkable
 
-
 # =============================================================================
 # Exceptions
 # =============================================================================
@@ -66,12 +65,14 @@ class ToolSchema:
         description: Tool description for LLM.
         parameters: JSON Schema for parameters.
         is_idempotent: Whether tool is safe to retry on crash.
+        permission_level: "auto" (read-only), "confirm" (write), "dangerous" (shell).
     """
 
     name: str
     description: str
     parameters: Dict[str, Any]
     is_idempotent: bool = True
+    permission_level: str = "auto"
 
 
 # =============================================================================

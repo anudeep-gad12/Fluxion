@@ -492,7 +492,9 @@ export function ConversationView() {
       <div className="h-full flex flex-col">
         {/* Status bar */}
         <div className="border-b border-zinc-800 px-3 sm:px-4 py-2 flex items-center justify-between bg-transparent font-mono text-xs">
-          <span className="text-zinc-600">gpt-oss-120b</span>
+          <div className="flex items-center gap-3">
+            <span className="text-zinc-600">gpt-oss-120b</span>
+          </div>
           <button
             onClick={() => navigate('/benchmarks')}
             className="text-zinc-600 hover:text-zinc-300 transition-colors"
@@ -620,9 +622,11 @@ export function ConversationView() {
   return (
     <div className="h-full flex flex-col">
       <div className="border-b border-zinc-800 px-3 sm:px-4 md:px-6 py-2 flex items-center justify-between font-mono text-xs">
-        <span className="text-zinc-600 truncate mr-4">
-          {conversation?.title || 'conversation'}
-        </span>
+        <div className="flex items-center gap-3 truncate mr-4">
+          <span className="text-zinc-600 truncate">
+            {conversation?.title || 'conversation'}
+          </span>
+        </div>
         <button
           onClick={() => navigate('/benchmarks')}
           className="text-zinc-600 hover:text-zinc-300 transition-colors flex-shrink-0"

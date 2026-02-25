@@ -14,29 +14,32 @@ import re
 import time
 from dataclasses import dataclass, field
 from datetime import date
-from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
-from orchestrator.logging_config import get_logger
-from orchestrator.schemas import AgentStepState
+from orchestrator.agent.context_pruner import ContextPruner
+from orchestrator.context.budget import ContextBudget
+from orchestrator.context.history_builder import HistoryBuilder
+from orchestrator.agent.recovery import (
+    build_recovery_messages,
+    create_idempotency_key,
+)
 from orchestrator.agent.state_machine import (
     AgentStateMachine,
     MaxStepsExceededError,
     RecoveryContext,
 )
-from orchestrator.agent.context_pruner import ContextPruner
-from orchestrator.agent.recovery import (
-    build_recovery_messages,
-    create_idempotency_key,
-)
+from orchestrator.logging_config import get_logger
+from orchestrator.schemas import AgentStepState
 from orchestrator.utils.sanitize import sanitize_harmony_tokens
 
 if TYPE_CHECKING:
+    from orchestrator.agent.planner import ResearchPlan
+    from orchestrator.agent.profile import AgentProfile
+    from orchestrator.agent.tools.base import ToolResult
+    from orchestrator.agent.tools.registry import ToolRegistry
     from orchestrator.providers.base import LLMProvider, LLMResponse
     from orchestrator.storage.repositories.agent_repo import AgentRepo
     from orchestrator.storage.repositories.trace_repo import TraceRepo
-    from orchestrator.agent.tools.registry import ToolRegistry
-    from orchestrator.agent.tools.base import ToolResult
-    from orchestrator.agent.planner import ResearchPlan
 
 logger = get_logger(__name__)
 
@@ -90,6 +93,7 @@ class AgentResult:
     error_message: Optional[str] = None
     timing_ms: int = 0
     total_tokens: int = 0
+    context_usage: Optional[Dict[str, Any]] = None
 
 
 @dataclass
@@ -185,6 +189,11 @@ For ANY calculation, you MUST use python_execute:
 - Unit conversions (miles to km, F to C)
 - Counting or aggregating data
 
+CRITICAL: Always use print() to output results. The tool only captures stdout.
+Code without print() returns nothing and wastes a step.
+WRONG: x = 5 * 3          → returns "(no output)"
+RIGHT: x = 5 * 3; print(x) → returns "15"
+
 Don't use python_execute to verify values already stated in the content.
 
 NEVER compute mentally or in text.
@@ -215,6 +224,8 @@ CRITICAL INSTRUCTIONS FOR CALCULATIONS:
 3. Even "simple" physics calculations (like kinetic energy, velocity, etc.) MUST use python_execute
 4. Use Python for: unit conversions, formula evaluation, numerical computation
 5. Only answer directly for trivial arithmetic like "2+2" or "5*3"
+6. ALWAYS use print() to output results - the tool only captures stdout.
+   Code without print() returns nothing and wastes a step.
 
 CALCULATION WORKFLOW:
 1. Identify the physics/math problem and relevant formula
@@ -252,6 +263,9 @@ To provide your final answer, respond WITHOUT calling any tools."""
         slow_response_threshold: float = 15.0,
         planning_enabled: bool = True,
         max_plan_steps: int = 5,
+        approval_callback: Optional[Callable] = None,
+        permission_policy: str = "strict",
+        profile: Optional["AgentProfile"] = None,
     ) -> None:
         """Initialize agent engine.
 
@@ -275,6 +289,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
             slow_response_threshold: Seconds before emitting slow_response warning.
             planning_enabled: Whether to create research plans before execution.
             max_plan_steps: Maximum steps the planner can create (default 5).
+            profile: Agent profile for behavior customization.
         """
         self._provider = provider
         self._repo = repo
@@ -290,6 +305,9 @@ To provide your final answer, respond WITHOUT calling any tools."""
         self._max_context_tokens = max_context_tokens
         self._slow_response_threshold = slow_response_threshold
 
+        # Agent profile
+        self._profile = profile
+
         # Findings accumulator for improved synthesis
         self._findings: List[Dict[str, Any]] = []
         self._current_query: Optional[str] = None
@@ -301,6 +319,16 @@ To provide your final answer, respond WITHOUT calling any tools."""
         self._planning_enabled = planning_enabled
         self._max_plan_steps = max_plan_steps
         self._current_plan: Optional["ResearchPlan"] = None
+
+        # Permission system
+        self._approval_callback = approval_callback
+        self._permission_policy = permission_policy
+
+        # Context budget tracking
+        self._context_budget: Optional[ContextBudget] = None
+
+        # Run metrics accumulator
+        self._tool_call_log: List[Dict[str, Any]] = []
 
     async def run(
         self,
@@ -326,6 +354,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
         self._findings = []
         self._current_query = query
         self._total_tokens = 0
+        self._tool_call_log = []
 
         # Emit start event
         self._emit(event_callback, "agent_started", run_id=run_id, query=query)
@@ -353,7 +382,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
             recovery_context = await state_machine.initialize()
 
             # Build initial messages (includes conversation history if available)
-            messages = await self._build_initial_messages(query, conversation_id)
+            messages, self._context_budget = await self._build_initial_messages(query, conversation_id)
 
             # Handle recovery if needed
             if recovery_context.needs_recovery:
@@ -402,6 +431,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
 
             # Step metadata for context pruning (maps tool_call_id -> step_number)
             step_metadata: Dict[str, int] = {}
+            tool_steps_completed = 0
 
             # Main agent loop
             while state_machine.can_continue():
@@ -435,11 +465,13 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 )
 
                 # Enforce context budget - force prune if still over limit
+                # Subtract response reserve so model has room to generate
+                effective_budget = self._max_context_tokens - self._max_tokens
                 estimated_tokens = self._pruner.estimate_tokens(pruned_messages)
                 prune_iterations = 0
                 max_prune_iterations = 20  # Safety limit to prevent infinite loop
 
-                while estimated_tokens > self._max_context_tokens and prune_iterations < max_prune_iterations:
+                while estimated_tokens > effective_budget and prune_iterations < max_prune_iterations:
                     prune_iterations += 1
                     logger.warning(
                         "Context exceeds budget, force pruning",
@@ -481,8 +513,17 @@ To provide your final answer, respond WITHOUT calling any tools."""
 
                 llm_start_time = time.perf_counter()
                 try:
-                    # Use tool_choice only on first step (if configured)
-                    step_tool_choice = self._tool_choice if step_number == 1 else None
+                    # Coding profile: force tool use until model has explored
+                    if (
+                        self._profile
+                        and self._profile.name == "coding"
+                        and tool_steps_completed == 0
+                    ):
+                        step_tool_choice = "required"
+                    elif step_number == 1 and self._tool_choice:
+                        step_tool_choice = self._tool_choice
+                    else:
+                        step_tool_choice = None
                     llm_response = await self._call_llm_with_tools(
                         messages=pruned_messages,
                         event_callback=event_callback,
@@ -565,6 +606,28 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     self._total_tokens += llm_response.usage["total_tokens"]
 
                 if tool_calls:
+                    # Check for redundant tool calls before execution
+                    parsed_for_check = self._parse_tool_calls(tool_calls)
+                    redundant = self._detect_redundant_calls(parsed_for_check)
+                    if redundant:
+                        redundant_ids = {tc.id for tc, _ in redundant}
+                        tool_calls = [tc for tc in tool_calls if tc["id"] not in redundant_ids]
+                        reasons = "; ".join(r for _, r in redundant)
+                        logger.info(
+                            "Filtered redundant tool calls",
+                            extra={"reasons": reasons, "filtered_count": len(redundant)},
+                        )
+                        messages.append({
+                            "role": "system",
+                            "content": f"[Tool calls filtered — {reasons}. Be more specific and targeted with your next tool call.]",
+                        })
+                        if not tool_calls:
+                            await state_machine.complete_step(
+                                decision="filtered",
+                                thinking_text=thinking_text,
+                            )
+                            continue
+
                     # Tool calling step
                     await state_machine.transition_to(AgentStepState.TOOL_CALLING)
 
@@ -631,6 +694,24 @@ To provide your final answer, respond WITHOUT calling any tools."""
                                 raw_arguments=raw_args,
                             ))
                         self._update_plan_progress(parsed_calls, step_number)
+
+                    tool_steps_completed += 1
+
+                    # Nudge synthesis if agent has accumulated enough findings
+                    if self._should_nudge_synthesis(step_number):
+                        findings_preview = "; ".join(
+                            f["content"][:80] for f in self._findings[-3:]
+                        )
+                        messages.append({
+                            "role": "system",
+                            "content": (
+                                f"You have gathered {len(self._findings)} findings so far. "
+                                f"Recent: {findings_preview}. "
+                                f"If you have enough information to answer the original query, "
+                                f"respond with your FINAL ANSWER now (no tools). "
+                                f"Only continue using tools if you genuinely need MORE information."
+                            ),
+                        })
 
                     await state_machine.complete_step(
                         decision="call_tool",
@@ -699,6 +780,16 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     # Trace: agent_complete
                     total_timing_ms = int((time.perf_counter() - start_time) * 1000)
 
+                    # Build context_usage payload
+                    _ctx = {}
+                    if self._context_budget:
+                        _ctx = {
+                            "total_tokens_used": self._context_budget.total_used,
+                            "history_tokens": self._context_budget.history_tokens,
+                            "max_tokens": self._max_context_tokens,
+                            "utilization_pct": round(self._context_budget.utilization_pct, 1),
+                        }
+
                     self._emit(
                         event_callback,
                         "agent_complete",
@@ -708,6 +799,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         citations=citations,
                         total_steps=step_number,
                         timing_ms=total_timing_ms,
+                        context_usage=_ctx if _ctx else None,
                     )
                     await self._add_trace_event(
                         run_id=run_id,
@@ -721,6 +813,10 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         duration_ms=total_timing_ms,
                     )
 
+                    # Compute and store run metrics + turn summary
+                    await self._store_run_metrics(run_id, total_timing_ms)
+                    await self._store_turn_summary(run_id, query, final_answer)
+
                     return AgentResult(
                         run_id=run_id,
                         success=True,
@@ -729,6 +825,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         total_steps=step_number,
                         timing_ms=total_timing_ms,
                         total_tokens=self._total_tokens,
+                        context_usage=_ctx if _ctx else None,
                     )
 
             # Max steps reached - force synthesis
@@ -748,6 +845,16 @@ To provide your final answer, respond WITHOUT calling any tools."""
             # Trace: agent_complete (max steps)
             total_timing_ms = int((time.perf_counter() - start_time) * 1000)
 
+            # Build context_usage payload
+            _ctx2 = {}
+            if self._context_budget:
+                _ctx2 = {
+                    "total_tokens_used": self._context_budget.total_used,
+                    "history_tokens": self._context_budget.history_tokens,
+                    "max_tokens": self._max_context_tokens,
+                    "utilization_pct": round(self._context_budget.utilization_pct, 1),
+                }
+
             self._emit(
                 event_callback,
                 "agent_complete",
@@ -757,6 +864,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 citations=citations,
                 total_steps=state_machine.current_step,
                 timing_ms=total_timing_ms,
+                context_usage=_ctx2 if _ctx2 else None,
             )
             await self._add_trace_event(
                 run_id=run_id,
@@ -771,6 +879,10 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 duration_ms=total_timing_ms,
             )
 
+            # Compute and store run metrics + turn summary
+            await self._store_run_metrics(run_id, total_timing_ms)
+            await self._store_turn_summary(run_id, query, final_answer)
+
             return AgentResult(
                 run_id=run_id,
                 success=True,
@@ -779,6 +891,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 total_steps=state_machine.current_step,
                 timing_ms=total_timing_ms,
                 total_tokens=self._total_tokens,
+                context_usage=_ctx2 if _ctx2 else None,
             )
 
         except MaxStepsExceededError:
@@ -934,11 +1047,19 @@ To provide your final answer, respond WITHOUT calling any tools."""
             actor="system",
         )
 
-        planner = Planner(
-            provider=self._provider,
-            model_name=self._model_name,
-            max_plan_steps=self._max_plan_steps,
-        )
+        # Use profile-specific planning prompt and step types if available
+        planning_kwargs: Dict[str, Any] = {
+            "provider": self._provider,
+            "model_name": self._model_name,
+            "max_plan_steps": self._max_plan_steps,
+        }
+        if self._profile:
+            if self._profile.planning_prompt_template:
+                planning_kwargs["planning_prompt"] = self._profile.planning_prompt_template
+            if self._profile.plan_step_types:
+                planning_kwargs["valid_step_types"] = self._profile.plan_step_types
+
+        planner = Planner(**planning_kwargs)
 
         plan = await planner.create_plan(query, self._registry.tool_names)
 
@@ -1073,59 +1194,64 @@ When you complete each step, proceed to the next."""
         self,
         query: str,
         conversation_id: Optional[str] = None,
-    ) -> List[Dict[str, Any]]:
+    ) -> tuple[List[Dict[str, Any]], ContextBudget]:
         """Build initial message list with system prompt, history, and query.
+
+        Uses HistoryBuilder for token-aware history loading. Prefers compact
+        turn_summary over raw final_answer when available (~10x more history).
 
         Args:
             query: User's research query.
             conversation_id: Optional conversation ID to load history from.
 
         Returns:
-            Message list with system, history, and user messages.
+            Tuple of (message list, ContextBudget accounting).
         """
-        # Inject date context into system prompt
-        today = date.today()
-        date_context = (
-            f"Current date: {today.strftime('%B %d, %Y')}\n"
-            f"Your knowledge cutoff: June 2024. For information after this date, use web_search."
-        )
-        system_prompt = self._system_prompt.format(date_context=date_context)
+        from orchestrator.utils.tokens import get_token_counter
 
-        messages: List[Dict[str, Any]] = [
-            {"role": "system", "content": system_prompt},
-        ]
+        # Build system prompt: if profile is set, the factory already formatted
+        # the prompt with date_context and project_context. Otherwise, inject
+        # date context for backward compatibility.
+        if self._profile:
+            system_prompt = self._system_prompt
+        else:
+            today = date.today()
+            date_context = (
+                f"Current date: {today.strftime('%B %d, %Y')}\n"
+                f"Your knowledge cutoff: June 2024. For information after this date, use web_search."
+            )
+            system_prompt = self._system_prompt.format(date_context=date_context)
 
-        # Load conversation history if conversation_id provided
+        # Load conversation history
+        prior_runs: list[dict] = []
         if conversation_id and self._trace_repo:
             prior_runs = await self._trace_repo.list_runs_for_conversation(
                 conversation_id
             )
-            # Sort by created_at ascending (oldest first)
-            sorted_runs = sorted(prior_runs, key=lambda r: r.get("created_at", ""))
 
-            # Limit to last N runs to prevent context overflow
-            max_history = 10
-            if len(sorted_runs) > max_history:
-                sorted_runs = sorted_runs[-max_history:]
+        builder = HistoryBuilder(
+            token_counter=get_token_counter(),
+            max_context_tokens=self._max_context_tokens,
+            reserve_for_response=self._max_tokens,
+        )
 
-            for run in sorted_runs:
-                user_msg = run.get("user_message")
-                assistant_msg = run.get("final_answer")
-                # Skip incomplete runs (no assistant response) to maintain
-                # strict user/assistant alternation required by some models
-                if not assistant_msg:
-                    continue
-                # Skip if this is the same query we're about to add
-                if user_msg == query:
-                    continue
-                if user_msg:
-                    messages.append({"role": "user", "content": user_msg})
-                if assistant_msg:
-                    messages.append({"role": "assistant", "content": assistant_msg})
+        messages, budget = builder.build_history_messages(
+            prior_runs=prior_runs,
+            system_prompt=system_prompt,
+            current_query=query,
+        )
 
-        # Add current query
-        messages.append({"role": "user", "content": query})
-        return messages
+        logger.info(
+            "Context budget allocated",
+            extra={
+                "history_tokens": budget.history_tokens,
+                "available_for_history": budget.available_for_history,
+                "utilization_pct": round(budget.utilization_pct, 1),
+                "history_pairs": (len(messages) - 2) // 2,  # exclude system + current query
+            },
+        )
+
+        return messages, budget
 
     async def _call_llm_with_tools(
         self,
@@ -1483,6 +1609,78 @@ When you complete each step, proceed to the next."""
                         duration_ms=0,
                     )
                 else:
+                    # Permission gate: check if tool needs approval
+                    permission_level = getattr(tool.schema, "permission_level", "auto")
+                    needs_approval = (
+                        self._permission_policy != "yolo"
+                        and permission_level != "auto"
+                        and self._approval_callback is not None
+                    )
+
+                    if needs_approval:
+                        # Emit approval request event
+                        self._emit(
+                            event_callback,
+                            "tool_approval_required",
+                            run_id=run_id,
+                            tool_call_id=tool_call.id,
+                            tool_name=tool_call.name,
+                            arguments=tool_call.arguments,
+                            permission_level=permission_level,
+                        )
+                        # Wait for approval
+                        try:
+                            approved = await self._approval_callback(
+                                run_id, tool_call.id, tool_call.name, tool_call.arguments
+                            )
+                        except Exception as e:
+                            logger.error(
+                                "Approval callback error",
+                                extra={"tool": tool_call.name, "error": str(e)},
+                            )
+                            approved = False
+
+                        # Record approval decision
+                        await state_machine.record_approval(
+                            tool_call_id=tc_record["id"],
+                            decision="approved" if approved else "denied",
+                            policy=self._permission_policy,
+                        )
+
+                        if not approved:
+                            result = ToolResult(
+                                success=False,
+                                result_summary=f"User denied {tool_call.name}",
+                                error_message="Tool execution denied by user.",
+                                duration_ms=0,
+                            )
+                            # Skip to recording completion
+                            await state_machine.complete_tool_call(
+                                tool_call_id=tc_record["id"],
+                                success=False,
+                                result_summary=result.result_summary,
+                                duration_ms=0,
+                                error_message=result.error_message,
+                            )
+                            self._emit(
+                                event_callback,
+                                "tool_result",
+                                run_id=run_id,
+                                tool_call_id=tool_call.id,
+                                tool_name=tool_call.name,
+                                success=False,
+                                result_summary=result.result_summary,
+                            )
+                            results.append((tool_call, result))
+                            continue
+                    else:
+                        # Auto-approved tool (no approval needed)
+                        await state_machine.record_approval(
+                            tool_call_id=tc_record["id"],
+                            decision="auto",
+                            policy=self._permission_policy,
+                        )
+
                     try:
                         result = await tool.execute(**tool_call.arguments)
                     except Exception as e:
@@ -1500,6 +1698,11 @@ When you complete each step, proceed to the next."""
                         duration_ms=0,
                     )
 
+            # Capture full result_detail for write tools
+            result_detail = None
+            if tool_call.name in ("write_file", "edit_file", "bash_tool") and result.result_data:
+                result_detail = json.dumps(result.result_data, ensure_ascii=False)[:10000]
+
             # Record completion
             await state_machine.complete_tool_call(
                 tool_call_id=tc_record["id"],
@@ -1507,7 +1710,33 @@ When you complete each step, proceed to the next."""
                 result_summary=result.result_summary,
                 duration_ms=result.duration_ms or 0,
                 error_message=result.error_message,
+                result_detail=result_detail,
             )
+
+            # Record file change artifact for write tools
+            if result.success and tool_call.name in ("write_file", "edit_file", "bash_tool"):
+                artifact_type = {
+                    "write_file": "file_write",
+                    "edit_file": "file_edit",
+                    "bash_tool": "command_run",
+                }.get(tool_call.name, tool_call.name)
+                file_path = tool_call.arguments.get(
+                    "file_path", tool_call.arguments.get("command", "")
+                )
+                try:
+                    await self._repo.create_run_artifact(
+                        run_id=run_id,
+                        artifact_type=artifact_type,
+                        file_path=file_path,
+                        action=tool_call.name,
+                        detail=result.result_summary,
+                        tool_call_id=tc_record["id"],
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "Failed to record artifact",
+                        extra={"run_id": run_id, "tool": tool_call.name, "error": str(e)},
+                    )
 
             # Extract citations from search/extract results
             if result.success and tool_call.name in ("web_search", "web_extract"):
@@ -1563,6 +1792,14 @@ When you complete each step, proceed to the next."""
             )
 
             results.append((tool_call, result))
+
+            # Log tool call for run metrics
+            self._tool_call_log.append({
+                "tool_name": tool_call.name,
+                "arguments": tool_call.arguments,
+                "success": result.success,
+                "step_number": step_number,
+            })
 
         return results
 
@@ -1806,6 +2043,8 @@ When you complete each step, proceed to the next."""
     ) -> Optional[Dict[str, Any]]:
         """Extract a key finding from a tool result.
 
+        Uses profile.findings_tools to determine which tools produce findings.
+
         Args:
             tool_name: Name of the tool.
             arguments: Tool arguments.
@@ -1818,10 +2057,14 @@ When you complete each step, proceed to the next."""
         if not result_summary or len(result_summary) < 20:
             return None
 
+        # Check if this tool produces findings (profile-aware)
+        if self._profile and self._profile.findings_tools:
+            if tool_name not in self._profile.findings_tools:
+                return None
+
         # For web_search, extract the query and summarize results
         if tool_name == "web_search":
             query = arguments.get("query", "")
-            # Take first 300 chars of summary as the finding
             summary = result_summary[:300]
             if len(result_summary) > 300:
                 summary += "..."
@@ -1836,7 +2079,6 @@ When you complete each step, proceed to the next."""
         if tool_name == "web_extract":
             urls = arguments.get("urls", [])
             url_str = urls[0] if urls else "unknown"
-            # Take first 400 chars of summary
             summary = result_summary[:400]
             if len(result_summary) > 400:
                 summary += "..."
@@ -1849,7 +2091,6 @@ When you complete each step, proceed to the next."""
 
         # For python_execute, note the calculation result
         if tool_name == "python_execute":
-            # Only include if there's actual output (not just errors)
             if "Error" not in result_summary and len(result_summary) < 500:
                 return {
                     "step": step_number,
@@ -1857,7 +2098,263 @@ When you complete each step, proceed to the next."""
                     "content": f"Python result: {result_summary[:200]}",
                 }
 
+        # For filesystem tools (coding profile), extract findings
+        if tool_name in ("read_file", "grep", "glob"):
+            summary = result_summary[:400]
+            if len(result_summary) > 400:
+                summary += "..."
+
+            if tool_name == "read_file":
+                file_path = arguments.get("file_path", "unknown")
+                return {
+                    "step": step_number,
+                    "tool": tool_name,
+                    "file_path": file_path,
+                    "content": f"Read {file_path}: {summary}",
+                }
+            elif tool_name == "grep":
+                pattern = arguments.get("pattern", "")
+                return {
+                    "step": step_number,
+                    "tool": tool_name,
+                    "pattern": pattern,
+                    "content": f"Grep for '{pattern}': {summary}",
+                }
+            elif tool_name == "glob":
+                pattern = arguments.get("pattern", "")
+                return {
+                    "step": step_number,
+                    "tool": tool_name,
+                    "pattern": pattern,
+                    "content": f"Glob '{pattern}': {summary}",
+                }
+
         return None
+
+    def _detect_redundant_calls(
+        self,
+        tool_calls: List["ParsedToolCall"],
+    ) -> List[tuple]:
+        """Detect redundant or low-quality tool calls.
+
+        Checks incoming tool calls against the existing tool call log to find:
+        1. Exact duplicates (same tool + same arguments)
+        2. Overly broad glob patterns that scan the entire project
+        3. Repeated list_directory calls
+
+        Args:
+            tool_calls: List of parsed tool calls to check.
+
+        Returns:
+            List of (tool_call, reason) tuples for calls that should be skipped.
+        """
+        redundant = []
+
+        for tc in tool_calls:
+            # 1. Exact duplicate check
+            is_dup = False
+            for prev in self._tool_call_log:
+                if prev["tool_name"] == tc.name and prev["arguments"] == tc.arguments:
+                    redundant.append((tc, f"Duplicate: already called {tc.name} with same arguments"))
+                    is_dup = True
+                    break
+            if is_dup:
+                continue
+
+            # 2. Overly broad glob patterns
+            if tc.name == "glob":
+                pattern = tc.arguments.get("pattern", "")
+                if pattern in ("**/*.py", "**/*.md", "**/*.ts", "**/*.tsx", "**/*"):
+                    redundant.append((tc, f"Too broad: glob '{pattern}' scans entire project"))
+                    continue
+
+            # 3. Repeated list_directory on root
+            if tc.name == "list_directory":
+                path = tc.arguments.get("path", ".")
+                if path in (".", "./", ""):
+                    for prev in self._tool_call_log:
+                        if prev["tool_name"] == "list_directory":
+                            redundant.append((tc, "Duplicate: already listed directory"))
+                            break
+
+        return redundant
+
+    def _should_nudge_synthesis(self, step_number: int) -> bool:
+        """Check if agent has enough findings to synthesize an answer.
+
+        Nudges the model to consider stopping when:
+        1. At least 2 steps completed with findings
+        2. Have 3+ findings (enough data points)
+        3. Past halfway through max_steps
+
+        Args:
+            step_number: Current step number.
+
+        Returns:
+            True if agent should be nudged toward synthesis.
+        """
+        if step_number < 2:
+            return False
+        if len(self._findings) < 3:
+            return False
+        if step_number < self._max_steps // 2:
+            return False
+        return True
+
+    def _compute_run_metrics(self) -> Dict[str, Any]:
+        """Compute run metrics from tool call log.
+
+        Returns:
+            Dict with navigation_overhead, total_tool_calls, distinct_files_read,
+            distinct_files_modified, retries, profile name.
+        """
+        read_tools = {"read_file", "glob", "grep", "list_directory"}
+        write_tools = {"write_file", "edit_file"}
+
+        total_tool_calls = len(self._tool_call_log)
+        files_read: set = set()
+        files_modified: set = set()
+
+        # Count navigation overhead: read/glob/grep/list calls before first write/edit
+        navigation_overhead = 0
+        first_write_seen = False
+
+        # Track retries: same tool + same primary argument
+        call_signatures: Dict[str, int] = {}
+        retries = 0
+
+        for entry in self._tool_call_log:
+            tool_name = entry["tool_name"]
+            arguments = entry["arguments"]
+
+            # Track files read
+            if tool_name == "read_file":
+                fp = arguments.get("file_path", "")
+                if fp:
+                    files_read.add(fp)
+            elif tool_name in ("grep", "glob"):
+                pattern = arguments.get("pattern", "")
+                if pattern:
+                    files_read.add(f"<{tool_name}:{pattern}>")
+
+            # Track files modified
+            if tool_name in write_tools:
+                fp = arguments.get("file_path", "")
+                if fp:
+                    files_modified.add(fp)
+                if not first_write_seen:
+                    first_write_seen = True
+
+            # Navigation overhead
+            if not first_write_seen and tool_name in read_tools:
+                navigation_overhead += 1
+
+            # Retries: same tool + same primary arg
+            primary_arg = ""
+            if tool_name in ("read_file", "write_file", "edit_file"):
+                primary_arg = arguments.get("file_path", "")
+            elif tool_name == "grep":
+                primary_arg = arguments.get("pattern", "")
+            elif tool_name == "glob":
+                primary_arg = arguments.get("pattern", "")
+            elif tool_name == "web_search":
+                primary_arg = arguments.get("query", "")
+
+            sig = f"{tool_name}:{primary_arg}"
+            call_signatures[sig] = call_signatures.get(sig, 0) + 1
+            if call_signatures[sig] > 1:
+                retries += 1
+
+        return {
+            "navigation_overhead": navigation_overhead,
+            "total_tool_calls": total_tool_calls,
+            "distinct_files_read": len(files_read),
+            "distinct_files_modified": len(files_modified),
+            "retries": retries,
+            "context_tokens": len(self._system_prompt) // 4,  # Approximate
+            "profile": self._profile.name if self._profile else "unknown",
+        }
+
+    async def _store_run_metrics(self, run_id: str, timing_ms: int) -> None:
+        """Compute and store run metrics in the database.
+
+        Args:
+            run_id: Run ID.
+            timing_ms: Total run timing in milliseconds.
+        """
+        try:
+            metrics = self._compute_run_metrics()
+            metrics["timing_ms"] = timing_ms
+            metrics["total_tokens"] = self._total_tokens
+
+            # Store via trace_repo usage_stats (accepts dict, serializes to JSON)
+            if self._trace_repo:
+                await self._trace_repo.update_run(
+                    run_id,
+                    usage_stats=metrics,
+                )
+                logger.info(
+                    "Run metrics stored",
+                    extra={
+                        "run_id": run_id,
+                        "profile": metrics.get("profile"),
+                        "navigation_overhead": metrics.get("navigation_overhead"),
+                        "total_tool_calls": metrics.get("total_tool_calls"),
+                        "retries": metrics.get("retries"),
+                    },
+                )
+        except Exception as e:
+            logger.warning(
+                "Failed to store run metrics",
+                extra={"run_id": run_id, "error": str(e)},
+            )
+
+    async def _store_turn_summary(
+        self, run_id: str, query: str, final_answer: str
+    ) -> None:
+        """Generate and store a compact turn summary for cross-turn context.
+
+        Args:
+            run_id: Run ID.
+            query: Original user query.
+            final_answer: Final answer text.
+        """
+        if not self._trace_repo:
+            return
+        try:
+            from orchestrator.context.turn_summary import TurnSummarizer
+            from orchestrator.utils.tokens import get_token_counter
+
+            summarizer = TurnSummarizer(get_token_counter())
+
+            # Get tool calls and artifacts for this run
+            tool_calls = await self._repo.get_tool_calls_for_run(run_id)
+            artifacts = await self._repo.get_run_artifacts(run_id)
+
+            summary = summarizer.summarize_agent_run(
+                run={
+                    "run_id": run_id,
+                    "user_message": query,
+                    "final_answer": final_answer,
+                    "thinking_summary": "",
+                    "mode": "agent",
+                },
+                tool_calls=tool_calls,
+                artifacts=artifacts,
+            )
+
+            await self._trace_repo.update_run(
+                run_id, turn_summary=summary.to_context_string()
+            )
+            logger.debug(
+                "Turn summary stored",
+                extra={"run_id": run_id, "token_cost": summary.token_cost},
+            )
+        except Exception as e:
+            logger.warning(
+                "Failed to store turn summary",
+                extra={"run_id": run_id, "error": str(e)},
+            )
 
     async def _store_citations_from_tool(
         self,

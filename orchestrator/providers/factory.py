@@ -1,6 +1,6 @@
 """Factory for creating LLM providers from configuration."""
 
-from typing import TYPE_CHECKING, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, Optional, Union
 
 from .base import LLMProvider
 from .chain import ChainedProvider, ProviderChain
@@ -8,7 +8,40 @@ from .circuit_breaker import CircuitBreaker, CircuitBreakerConfig
 from .openai_compat import OpenAICompatProvider
 
 if TYPE_CHECKING:
-    from orchestrator.config import ProviderChainConfig, ProviderConfig
+    from orchestrator.config import ChatGPTConfig, ProviderChainConfig, ProviderConfig
+
+
+def create_chatgpt_provider(
+    tokens: Dict[str, Any],
+    chatgpt_config: Optional["ChatGPTConfig"] = None,
+    model: Optional[str] = None,
+) -> "LLMProvider":
+    """Create a ChatGPT backend provider from stored tokens.
+
+    Args:
+        tokens: Dict with access_token, account_id, refresh_token, expires_at.
+        chatgpt_config: Optional ChatGPT configuration override.
+        model: Optional model name override (e.g., "o4-mini").
+
+    Returns:
+        ChatGPTProvider instance.
+    """
+    from .chatgpt import ChatGPTProvider
+
+    if chatgpt_config is None:
+        from orchestrator.config import get_chat_config
+        config = get_chat_config()
+        chatgpt_config = config.chatgpt
+
+    default_model = model or (chatgpt_config.default_model if chatgpt_config else "gpt-5.2-codex")
+
+    return ChatGPTProvider(
+        access_token=tokens["access_token"],
+        account_id=tokens["account_id"],
+        backend_url=chatgpt_config.backend_url if chatgpt_config else "https://chatgpt.com/backend-api",
+        default_model=default_model,
+        reasoning_effort=chatgpt_config.reasoning_effort if chatgpt_config else "medium",
+    )
 
 
 def create_provider(
