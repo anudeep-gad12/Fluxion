@@ -18,7 +18,6 @@ import {
 import { useConversationRuns, useSelectedConversation, useStore, useHasActiveRun } from '@/hooks/useStore';
 import { useSSE } from '@/hooks/useSSE';
 import { useAgentSSE } from '@/hooks/useAgentSSE';
-import { useChatGPTAuth } from '@/hooks/useChatGPTAuth';
 import { cn, formatRelativeTime } from '@/lib/utils';
 import type { Run, Conversation, ReasoningEffort } from '@/types';
 
@@ -151,7 +150,6 @@ export function ConversationView() {
   const conversation = useSelectedConversation();
   const runs = useConversationRuns(selectedConversationId);
   const hasActiveRun = useHasActiveRun();
-  const chatgptAuth = useChatGPTAuth();
   const [message, setMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>('medium');
@@ -495,27 +493,7 @@ export function ConversationView() {
         {/* Status bar */}
         <div className="border-b border-zinc-800 px-3 sm:px-4 py-2 flex items-center justify-between bg-transparent font-mono text-xs">
           <div className="flex items-center gap-3">
-            <span className="text-zinc-600">
-              {chatgptAuth.provider === 'chatgpt' ? chatgptAuth.model || 'chatgpt' : 'gpt-oss-120b'}
-            </span>
-            {chatgptAuth.enabled && !chatgptAuth.authenticated && (
-              <button
-                onClick={chatgptAuth.login}
-                disabled={chatgptAuth.loginPending}
-                className="text-zinc-600 hover:text-zinc-300 transition-colors"
-              >
-                {chatgptAuth.loginPending ? '[signing in...]' : '[sign in with chatgpt]'}
-              </button>
-            )}
-            {chatgptAuth.authenticated && (
-              <button
-                onClick={chatgptAuth.logout}
-                className="text-zinc-600 hover:text-zinc-300 transition-colors"
-                title="Sign out of ChatGPT"
-              >
-                [chatgpt ✓]
-              </button>
-            )}
+            <span className="text-zinc-600">gpt-oss-120b</span>
           </div>
           <button
             onClick={() => navigate('/benchmarks')}
@@ -608,32 +586,6 @@ export function ConversationView() {
                   <option value="high">deep</option>
                 </select>
               )}
-              {chatgptAuth.authenticated && (
-                <>
-                  <span className="text-zinc-700">|</span>
-                  <select
-                    value={chatgptAuth.provider}
-                    onChange={(e) => chatgptAuth.setProvider(e.target.value as 'deepinfra' | 'chatgpt')}
-                    className="bg-transparent border-none outline-none text-xs font-mono text-zinc-500 cursor-pointer"
-                    title="LLM provider"
-                  >
-                    <option value="deepinfra">deepinfra</option>
-                    <option value="chatgpt">chatgpt</option>
-                  </select>
-                </>
-              )}
-              {chatgptAuth.provider === 'chatgpt' && chatgptAuth.authenticated && chatgptAuth.availableModels.length > 0 && (
-                <select
-                  value={chatgptAuth.selectedModel || ''}
-                  onChange={(e) => chatgptAuth.setSelectedModel(e.target.value)}
-                  className="bg-transparent border-none outline-none text-xs font-mono text-zinc-500 cursor-pointer"
-                  title="ChatGPT model"
-                >
-                  {chatgptAuth.availableModels.map((m) => (
-                    <option key={m.id} value={m.id}>{m.label}</option>
-                  ))}
-                </select>
-              )}
               <span className="text-zinc-700">|</span>
               {isGenerating ? (
                 <button onClick={handleStop} className="text-red-400 hover:text-red-300 transition-colors">
@@ -674,11 +626,6 @@ export function ConversationView() {
           <span className="text-zinc-600 truncate">
             {conversation?.title || 'conversation'}
           </span>
-          {chatgptAuth.authenticated && (
-            <span className="text-zinc-600 flex-shrink-0">
-              [{chatgptAuth.provider === 'chatgpt' ? 'chatgpt' : 'deepinfra'}]
-            </span>
-          )}
         </div>
         <button
           onClick={() => navigate('/benchmarks')}
@@ -758,32 +705,6 @@ export function ConversationView() {
                 <option value="low">fast</option>
                 <option value="medium">balanced</option>
                 <option value="high">deep</option>
-              </select>
-            )}
-            {chatgptAuth.authenticated && (
-              <>
-                <span className="text-zinc-700">|</span>
-                <select
-                  value={chatgptAuth.provider}
-                  onChange={(e) => chatgptAuth.setProvider(e.target.value as 'deepinfra' | 'chatgpt')}
-                  className="bg-transparent border-none outline-none text-xs font-mono text-zinc-500 cursor-pointer"
-                  title="LLM provider"
-                >
-                  <option value="deepinfra">deepinfra</option>
-                  <option value="chatgpt">chatgpt</option>
-                </select>
-              </>
-            )}
-            {chatgptAuth.provider === 'chatgpt' && chatgptAuth.authenticated && chatgptAuth.availableModels.length > 0 && (
-              <select
-                value={chatgptAuth.selectedModel || ''}
-                onChange={(e) => chatgptAuth.setSelectedModel(e.target.value)}
-                className="bg-transparent border-none outline-none text-xs font-mono text-zinc-500 cursor-pointer"
-                title="ChatGPT model"
-              >
-                {chatgptAuth.availableModels.map((m) => (
-                  <option key={m.id} value={m.id}>{m.label}</option>
-                ))}
               </select>
             )}
             <span className="text-zinc-700">|</span>
