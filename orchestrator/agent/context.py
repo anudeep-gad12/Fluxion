@@ -7,7 +7,6 @@ it's working in, reducing wasted tool calls.
 Strategies:
 - ResearchContextStrategy: Date + knowledge cutoff only (current behavior)
 - CodingContextStrategy: 5-layer context stack (env, rules, structure, git, working dir)
-- FullContextStrategy: Research date context + full coding context
 """
 
 import asyncio
@@ -304,29 +303,6 @@ class CodingContextStrategy:
         return _truncate(result, _RUNTIME_CAP)
 
 
-class FullContextStrategy:
-    """Research date context + full coding context."""
-
-    def __init__(self) -> None:
-        self._research = ResearchContextStrategy()
-        self._coding = CodingContextStrategy()
-
-    async def gather(self, working_dir: Optional[str] = None) -> str:
-        """Gather combined research + coding context.
-
-        Args:
-            working_dir: Project working directory.
-
-        Returns:
-            Combined context string.
-        """
-        research_ctx, coding_ctx = await asyncio.gather(
-            self._research.gather(working_dir),
-            self._coding.gather(working_dir),
-        )
-        return f"{research_ctx}\n\n{coding_ctx}"
-
-
 # =============================================================================
 # Strategy Registry
 # =============================================================================
@@ -334,7 +310,6 @@ class FullContextStrategy:
 _STRATEGIES = {
     "research": ResearchContextStrategy,
     "coding": CodingContextStrategy,
-    "full": FullContextStrategy,
 }
 
 
@@ -342,7 +317,7 @@ def get_context_strategy(name: str) -> ContextStrategy:
     """Get a context strategy by name.
 
     Args:
-        name: Strategy name ("research", "coding", "full").
+        name: Strategy name ("research", "coding").
 
     Returns:
         ContextStrategy instance.

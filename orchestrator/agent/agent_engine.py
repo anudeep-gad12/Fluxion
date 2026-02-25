@@ -513,10 +513,10 @@ To provide your final answer, respond WITHOUT calling any tools."""
 
                 llm_start_time = time.perf_counter()
                 try:
-                    # Coding/full profiles: force tool use until model has explored
+                    # Coding profile: force tool use until model has explored
                     if (
                         self._profile
-                        and self._profile.name in ("coding", "full")
+                        and self._profile.name == "coding"
                         and tool_steps_completed == 0
                     ):
                         step_tool_choice = "required"
@@ -606,6 +606,28 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     self._total_tokens += llm_response.usage["total_tokens"]
 
                 if tool_calls:
+                    # Check for redundant tool calls before execution
+                    parsed_for_check = self._parse_tool_calls(tool_calls)
+                    redundant = self._detect_redundant_calls(parsed_for_check)
+                    if redundant:
+                        redundant_ids = {tc.id for tc, _ in redundant}
+                        tool_calls = [tc for tc in tool_calls if tc["id"] not in redundant_ids]
+                        reasons = "; ".join(r for _, r in redundant)
+                        logger.info(
+                            "Filtered redundant tool calls",
+                            extra={"reasons": reasons, "filtered_count": len(redundant)},
+                        )
+                        messages.append({
+                            "role": "system",
+                            "content": f"[Tool calls filtered — {reasons}. Be more specific and targeted with your next tool call.]",
+                        })
+                        if not tool_calls:
+                            await state_machine.complete_step(
+                                decision="filtered",
+                                thinking_text=thinking_text,
+                            )
+                            continue
+
                     # Tool calling step
                     await state_machine.transition_to(AgentStepState.TOOL_CALLING)
 
@@ -674,6 +696,22 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         self._update_plan_progress(parsed_calls, step_number)
 
                     tool_steps_completed += 1
+
+                    # Nudge synthesis if agent has accumulated enough findings
+                    if self._should_nudge_synthesis(step_number):
+                        findings_preview = "; ".join(
+                            f["content"][:80] for f in self._findings[-3:]
+                        )
+                        messages.append({
+                            "role": "system",
+                            "content": (
+                                f"You have gathered {len(self._findings)} findings so far. "
+                                f"Recent: {findings_preview}. "
+                                f"If you have enough information to answer the original query, "
+                                f"respond with your FINAL ANSWER now (no tools). "
+                                f"Only continue using tools if you genuinely need MORE information."
+                            ),
+                        })
 
                     await state_machine.complete_step(
                         decision="call_tool",
@@ -2092,6 +2130,76 @@ When you complete each step, proceed to the next."""
                 }
 
         return None
+
+    def _detect_redundant_calls(
+        self,
+        tool_calls: List["ParsedToolCall"],
+    ) -> List[tuple]:
+        """Detect redundant or low-quality tool calls.
+
+        Checks incoming tool calls against the existing tool call log to find:
+        1. Exact duplicates (same tool + same arguments)
+        2. Overly broad glob patterns that scan the entire project
+        3. Repeated list_directory calls
+
+        Args:
+            tool_calls: List of parsed tool calls to check.
+
+        Returns:
+            List of (tool_call, reason) tuples for calls that should be skipped.
+        """
+        redundant = []
+
+        for tc in tool_calls:
+            # 1. Exact duplicate check
+            is_dup = False
+            for prev in self._tool_call_log:
+                if prev["tool_name"] == tc.name and prev["arguments"] == tc.arguments:
+                    redundant.append((tc, f"Duplicate: already called {tc.name} with same arguments"))
+                    is_dup = True
+                    break
+            if is_dup:
+                continue
+
+            # 2. Overly broad glob patterns
+            if tc.name == "glob":
+                pattern = tc.arguments.get("pattern", "")
+                if pattern in ("**/*.py", "**/*.md", "**/*.ts", "**/*.tsx", "**/*"):
+                    redundant.append((tc, f"Too broad: glob '{pattern}' scans entire project"))
+                    continue
+
+            # 3. Repeated list_directory on root
+            if tc.name == "list_directory":
+                path = tc.arguments.get("path", ".")
+                if path in (".", "./", ""):
+                    for prev in self._tool_call_log:
+                        if prev["tool_name"] == "list_directory":
+                            redundant.append((tc, "Duplicate: already listed directory"))
+                            break
+
+        return redundant
+
+    def _should_nudge_synthesis(self, step_number: int) -> bool:
+        """Check if agent has enough findings to synthesize an answer.
+
+        Nudges the model to consider stopping when:
+        1. At least 2 steps completed with findings
+        2. Have 3+ findings (enough data points)
+        3. Past halfway through max_steps
+
+        Args:
+            step_number: Current step number.
+
+        Returns:
+            True if agent should be nudged toward synthesis.
+        """
+        if step_number < 2:
+            return False
+        if len(self._findings) < 3:
+            return False
+        if step_number < self._max_steps // 2:
+            return False
+        return True
 
     def _compute_run_metrics(self) -> Dict[str, Any]:
         """Compute run metrics from tool call log.

@@ -1212,3 +1212,170 @@ class TestAgentEngineFindingsAccumulator:
 
         assert "KEY FINDINGS" not in last_message
         assert "maximum number of research steps" in last_message
+
+
+# =============================================================================
+# Redundancy Detection Tests
+# =============================================================================
+
+
+class TestRedundancyDetection:
+    """Tests for _detect_redundant_calls method."""
+
+    def _make_engine(self):
+        return AgentEngine(
+            provider=create_mock_provider(),
+            repo=create_mock_repo(),
+            registry=create_mock_registry(),
+        )
+
+    def test_detects_exact_duplicate(self):
+        """Flags tool calls that match a previous call exactly."""
+        engine = self._make_engine()
+        engine._tool_call_log = [
+            {"tool_name": "web_search", "arguments": {"query": "Tokyo population"}, "success": True, "step_number": 1},
+        ]
+
+        calls = [ParsedToolCall(id="tc-2", name="web_search", arguments={"query": "Tokyo population"}, raw_arguments='{"query": "Tokyo population"}')]
+        redundant = engine._detect_redundant_calls(calls)
+
+        assert len(redundant) == 1
+        assert "Duplicate" in redundant[0][1]
+
+    def test_allows_different_arguments(self):
+        """Does not flag calls with different arguments."""
+        engine = self._make_engine()
+        engine._tool_call_log = [
+            {"tool_name": "web_search", "arguments": {"query": "Tokyo population"}, "success": True, "step_number": 1},
+        ]
+
+        calls = [ParsedToolCall(id="tc-2", name="web_search", arguments={"query": "Paris population"}, raw_arguments='{"query": "Paris population"}')]
+        redundant = engine._detect_redundant_calls(calls)
+
+        assert len(redundant) == 0
+
+    def test_detects_broad_glob_star_py(self):
+        """Flags overly broad glob **/*.py."""
+        engine = self._make_engine()
+        calls = [ParsedToolCall(id="tc-1", name="glob", arguments={"pattern": "**/*.py"}, raw_arguments='{"pattern": "**/*.py"}')]
+        redundant = engine._detect_redundant_calls(calls)
+
+        assert len(redundant) == 1
+        assert "Too broad" in redundant[0][1]
+
+    def test_detects_broad_glob_star_md(self):
+        """Flags overly broad glob **/*.md."""
+        engine = self._make_engine()
+        calls = [ParsedToolCall(id="tc-1", name="glob", arguments={"pattern": "**/*.md"}, raw_arguments='{"pattern": "**/*.md"}')]
+        redundant = engine._detect_redundant_calls(calls)
+
+        assert len(redundant) == 1
+        assert "Too broad" in redundant[0][1]
+
+    def test_allows_targeted_glob(self):
+        """Does not flag targeted glob patterns."""
+        engine = self._make_engine()
+        calls = [ParsedToolCall(id="tc-1", name="glob", arguments={"pattern": "src/**/*.py"}, raw_arguments='{"pattern": "src/**/*.py"}')]
+        redundant = engine._detect_redundant_calls(calls)
+
+        assert len(redundant) == 0
+
+    def test_detects_repeated_list_directory(self):
+        """Flags repeated list_directory on root."""
+        engine = self._make_engine()
+        engine._tool_call_log = [
+            {"tool_name": "list_directory", "arguments": {"path": "."}, "success": True, "step_number": 1},
+        ]
+
+        calls = [ParsedToolCall(id="tc-2", name="list_directory", arguments={"path": "."}, raw_arguments='{"path": "."}')]
+        redundant = engine._detect_redundant_calls(calls)
+
+        assert len(redundant) == 1
+        assert "Duplicate" in redundant[0][1]
+
+    def test_allows_first_list_directory(self):
+        """Does not flag the first list_directory call."""
+        engine = self._make_engine()
+        # No previous list_directory in log
+        calls = [ParsedToolCall(id="tc-1", name="list_directory", arguments={"path": "."}, raw_arguments='{"path": "."}')]
+        redundant = engine._detect_redundant_calls(calls)
+
+        assert len(redundant) == 0
+
+    def test_empty_tool_call_log(self):
+        """No redundancy when log is empty."""
+        engine = self._make_engine()
+        calls = [ParsedToolCall(id="tc-1", name="web_search", arguments={"query": "test"}, raw_arguments='{"query": "test"}')]
+        redundant = engine._detect_redundant_calls(calls)
+
+        assert len(redundant) == 0
+
+    def test_multiple_calls_mixed_redundancy(self):
+        """Correctly identifies subset of redundant calls."""
+        engine = self._make_engine()
+        engine._tool_call_log = [
+            {"tool_name": "web_search", "arguments": {"query": "test"}, "success": True, "step_number": 1},
+        ]
+
+        calls = [
+            ParsedToolCall(id="tc-a", name="web_search", arguments={"query": "test"}, raw_arguments='{"query": "test"}'),
+            ParsedToolCall(id="tc-b", name="web_search", arguments={"query": "new query"}, raw_arguments='{"query": "new query"}'),
+        ]
+        redundant = engine._detect_redundant_calls(calls)
+
+        assert len(redundant) == 1
+        assert redundant[0][0].id == "tc-a"
+
+
+# =============================================================================
+# Synthesis Nudging Tests
+# =============================================================================
+
+
+class TestSynthesisNudging:
+    """Tests for _should_nudge_synthesis method."""
+
+    def _make_engine(self, max_steps=10):
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=create_mock_repo(),
+            registry=create_mock_registry(),
+            max_steps=max_steps,
+        )
+        return engine
+
+    def test_no_nudge_early_steps(self):
+        """Should not nudge on step 1."""
+        engine = self._make_engine()
+        engine._findings = [{"content": "a"}, {"content": "b"}, {"content": "c"}]
+        assert engine._should_nudge_synthesis(1) is False
+
+    def test_no_nudge_few_findings(self):
+        """Should not nudge with fewer than 3 findings."""
+        engine = self._make_engine()
+        engine._findings = [{"content": "a"}, {"content": "b"}]
+        assert engine._should_nudge_synthesis(5) is False
+
+    def test_no_nudge_before_halfway(self):
+        """Should not nudge before halfway through max_steps."""
+        engine = self._make_engine(max_steps=10)
+        engine._findings = [{"content": "a"}, {"content": "b"}, {"content": "c"}]
+        assert engine._should_nudge_synthesis(3) is False
+
+    def test_nudge_when_conditions_met(self):
+        """Should nudge when all conditions are met."""
+        engine = self._make_engine(max_steps=10)
+        engine._findings = [{"content": "a"}, {"content": "b"}, {"content": "c"}]
+        assert engine._should_nudge_synthesis(5) is True
+
+    def test_nudge_with_many_findings(self):
+        """Should nudge with many findings past halfway."""
+        engine = self._make_engine(max_steps=10)
+        engine._findings = [{"content": f"finding-{i}"} for i in range(6)]
+        assert engine._should_nudge_synthesis(7) is True
+
+    def test_no_nudge_empty_findings(self):
+        """Should not nudge with no findings."""
+        engine = self._make_engine()
+        engine._findings = []
+        assert engine._should_nudge_synthesis(8) is False

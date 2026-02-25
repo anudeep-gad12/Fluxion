@@ -6,7 +6,6 @@ instances with all required dependencies (provider, repository, registry).
 Supports profile-based configuration:
 - "research": Web research agent (default, backward compatible)
 - "coding": Coding assistant with filesystem tools and project context
-- "full": Combined research + coding capabilities
 """
 
 from typing import TYPE_CHECKING, Optional
@@ -68,7 +67,7 @@ async def create_agent_engine(
         filesystem_enabled: Legacy flag — True maps to profile="coding".
         working_dir: Working directory for filesystem/coding tools.
         approval_callback: Callback for tool approval permission system.
-        profile_name: Agent profile ("research", "coding", "full").
+        profile_name: Agent profile ("research", "coding").
 
     Returns:
         Configured AgentEngine ready for execution.
