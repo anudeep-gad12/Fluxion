@@ -119,6 +119,9 @@ Location: `orchestrator/storage/schema.sql`
 │    idempotency_key  │                          │
 │    execution_attempt│                          │
 │    result_summary   │                          │
+│    result_detail    │ (full output)            │
+│    approval_decision│ (approved/denied/auto)   │
+│    approval_policy  │ (strict/relaxed/yolo)    │
 │    error_message    │                          │
 │    created_at       │                          │
 └─────────────────────┘                          │
@@ -152,6 +155,7 @@ Stores conversation metadata.
 | `summary` | TEXT | Conversation summary |
 | `status` | TEXT | `active`, `archived`, `closed` |
 | `created_at` | TEXT | ISO 8601 timestamp |
+| `updated_at` | TEXT | ISO 8601 timestamp (Migration 7) |
 | `metadata_json` | TEXT | Additional metadata (JSON) |
 | `session_id` | TEXT | Session UUID for demo mode isolation (Migration 4) |
 
@@ -177,9 +181,12 @@ One record per user message/response exchange.
 | `agent_state` | TEXT | Agent execution state |
 | `current_step` | INTEGER | Current agent step |
 | `max_steps` | INTEGER | Maximum agent steps |
+| `turn_summary` | TEXT | Compact context string for cross-turn history (Migration 9) |
 | `created_at` | TEXT | ISO 8601 timestamp |
 | `session_id` | TEXT | Session UUID for demo mode isolation (Migration 4) |
 | `updated_at` | TEXT | ISO 8601 timestamp |
+
+**Turn Summary**: After each run completes, a `TurnSummarizer` generates a compact context string from the user message and final answer. This `turn_summary` is used by `HistoryBuilder` for cross-turn context instead of the raw `final_answer`, providing ~10x more history within the same token budget. Format: `"User asked: <query>\nAssistant: <key points>"`. When available, the history builder uses turn_summary; otherwise falls back to raw user_message + final_answer pairs.
 
 #### trace_events
 
@@ -220,10 +227,11 @@ Tracks each step in agent execution.
 | `error_message` | TEXT | Error details if failed |
 | `created_at` | TEXT | ISO 8601 timestamp |
 | `completed_at` | TEXT | ISO 8601 timestamp |
+| `updated_at` | TEXT | ISO 8601 timestamp (Migration 7) |
 
 #### agent_tool_calls
 
-Records individual tool executions.
+Records individual tool executions, including approval decisions for permission-gated tools.
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -239,8 +247,14 @@ Records individual tool executions.
 | `idempotency_key` | TEXT | Hash for crash recovery |
 | `execution_attempt` | INTEGER | Retry count |
 | `result_summary` | TEXT | Brief result (not full output) |
+| `result_detail` | TEXT | Full result (up to 10k chars) for write/edit/bash tools |
+| `approval_decision` | TEXT | `approved`, `denied`, `auto`, `timeout` |
+| `approval_policy` | TEXT | `strict`, `relaxed`, `yolo` — policy in effect |
+| `approval_decided_at` | TEXT | ISO 8601 timestamp of approval/denial |
 | `error_message` | TEXT | Error details if failed |
 | `created_at` | TEXT | ISO 8601 timestamp |
+
+**Approval Flow**: When a tool's `permission_level` requires user consent (based on the active `approval_policy`), the tool call is created with `status=pending` and `approval_decision=NULL`. The backend emits a `tool_approval_required` SSE event and waits for the user to approve or deny via the API. The `approval_decision` is set when the user responds (or `timeout` after 5 minutes).
 
 #### agent_citations
 
@@ -255,6 +269,36 @@ Stores evidence sources for agent answers.
 | `title` | TEXT | Source title |
 | `snippet` | TEXT | Relevant text snippet |
 | `used_in_answer` | INTEGER | Boolean (0/1) |
+| `created_at` | TEXT | ISO 8601 timestamp |
+
+#### run_events
+
+Persisted SSE events that survive in-memory cleanup. Provides durable event history for reconnection and debugging.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | TEXT PK | UUID identifier |
+| `run_id` | TEXT FK | Reference to runs |
+| `seq` | INTEGER | Sequence number (UNIQUE with run_id) |
+| `event_type` | TEXT | SSE event type (e.g., `step_start`, `tool_start`, `complete`) |
+| `event_data` | TEXT | Full event payload (JSON) |
+| `created_at` | TEXT | ISO 8601 timestamp |
+
+**Purpose**: While the backend keeps SSE events in-memory (`_event_history`) for active runs, `run_events` provides persistent storage so events survive server restarts and in-memory cleanup.
+
+#### run_artifacts
+
+Tracks file changes and command executions made by agent tools. Enables auditing of what the agent modified.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | TEXT PK | UUID identifier |
+| `run_id` | TEXT FK | Reference to runs |
+| `artifact_type` | TEXT | `file_write`, `file_edit`, `command_run` |
+| `file_path` | TEXT | Path of affected file (NULL for commands) |
+| `action` | TEXT | Tool that created this: `write_file`, `edit_file`, `bash_tool` |
+| `detail` | TEXT | Change summary (diff for edits, output for commands) |
+| `tool_call_id` | TEXT FK | Reference to agent_tool_calls |
 | `created_at` | TEXT | ISO 8601 timestamp |
 
 ### Evaluation Tables
@@ -324,6 +368,8 @@ Indexes are created for performance optimization on frequently queried columns:
 | `agent_tool_calls` | `idx_agent_tool_calls_step` | `step_id` | Filter calls by step |
 | `agent_tool_calls` | `idx_agent_tool_calls_status` | `status` | Filter by status |
 | `agent_citations` | `idx_agent_citations_run` | `run_id` | Filter citations by run |
+| `run_events` | `idx_run_events_run_seq` | `run_id, seq` | Ordered event retrieval |
+| `run_artifacts` | `idx_run_artifacts_run` | `run_id` | Filter artifacts by run |
 
 ### Referential Integrity (CASCADE Deletes)
 
@@ -340,8 +386,11 @@ The schema uses `ON DELETE CASCADE` for automatic cleanup when parent records ar
 | `agent_citations` | `agent_tool_calls` | `tool_call_id` | Delete citations when call deleted |
 | `eval_samples` | `eval_runs` | `eval_run_id` | Delete samples when eval run deleted |
 | `eval_samples` | `runs` | `run_id` | Delete samples when run deleted |
+| `run_events` | `runs` | `run_id` | Delete events when run deleted |
+| `run_artifacts` | `runs` | `run_id` | Delete artifacts when run deleted |
+| `run_artifacts` | `agent_tool_calls` | `tool_call_id` | Delete artifacts when call deleted |
 
-**Note**: Deleting a `runs` record will automatically cascade to remove all related `trace_events`, `agent_steps`, `agent_tool_calls`, and `agent_citations`.
+**Note**: Deleting a `runs` record will automatically cascade to remove all related `trace_events`, `agent_steps`, `agent_tool_calls`, `agent_citations`, `run_events`, and `run_artifacts`.
 
 ---
 
@@ -482,6 +531,10 @@ class AgentToolCallResponse(BaseModel):
     arguments: dict
     status: AgentToolCallStatus
     result_summary: Optional[str]
+    result_detail: Optional[str]          # Full output for write/edit/bash tools
+    approval_decision: Optional[str]      # approved | denied | auto | timeout
+    approval_policy: Optional[str]        # strict | relaxed | yolo
+    approval_decided_at: Optional[str]    # ISO 8601 timestamp
     error_message: Optional[str]
     duration_ms: Optional[int]
     created_at: str
@@ -510,12 +563,23 @@ class AgentRunStatusResponse(BaseModel):
     created_at: str
     updated_at: Optional[str]
 
+class RunArtifactResponse(BaseModel):
+    id: str
+    run_id: str
+    artifact_type: str       # file_write | file_edit | command_run
+    file_path: Optional[str]
+    action: str              # write_file | edit_file | bash_tool
+    detail: Optional[str]
+    tool_call_id: Optional[str]
+    created_at: str
+
 class AgentRunTraceResponse(BaseModel):
     run_id: str
     status: str
     steps: List[AgentStepResponse]
     tool_calls: List[AgentToolCallResponse]
     citations: List[AgentCitationResponse]
+    artifacts: List[RunArtifactResponse]     # File changes and commands
     final_answer: Optional[str]
     agent_state: Optional[str]
 ```

@@ -54,6 +54,16 @@ Footer {
     border: tall $primary;
 }
 
+#input-area.approval-mode {
+    border: tall $warning;
+    color: $text;
+    max-height: 16;
+}
+
+#input-area.approval-mode:focus {
+    border: tall $warning;
+}
+
 #input-hint {
     height: 1;
     color: $text-disabled;
@@ -143,8 +153,23 @@ ToolCallPanel {
     height: auto;
 }
 
+MessageBubble ToolCallPanel {
+    margin: 0;
+}
+
 ToolCallPanel .tool-header {
     height: 1;
+}
+
+ToolCallPanel .tool-details {
+    display: none;
+    color: $text-muted;
+}
+
+ToolCallPanel.expanded .tool-details {
+    display: block;
+    height: auto;
+    padding: 0 0 0 2;
 }
 
 ToolCallPanel .tool-result {
@@ -165,6 +190,18 @@ ThinkingPanel {
     color: $text-disabled;
     height: 1;
     margin: 0 2;
+}
+
+ThinkingPanel.expanded {
+    height: auto;
+}
+
+MessageBubble ThinkingPanel {
+    margin: 0;
+}
+
+MessageBubble ThinkingPanel.expanded {
+    height: auto;
 }
 
 /* ── Streaming Markdown ─────────────────────────────── */

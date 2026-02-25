@@ -243,7 +243,7 @@ class CreateAgentRunRequest(BaseModel):
     """Request to start an agent run."""
     query: str
     conversation_id: Optional[str] = None
-    max_steps: int = 10
+    max_steps: int = 25
     filesystem_enabled: bool = False
     working_dir: Optional[str] = None
     permission_policy: str = "strict"
@@ -267,7 +267,7 @@ class AgentRunStatusResponse(BaseModel):
     agent_state: Optional[str] = None
     current_step: int = 0
     total_steps: Optional[int] = None  # Final step count when run completes
-    max_steps: int = 10
+    max_steps: int = 25
     final_answer: Optional[str] = None
     error_message: Optional[str] = None
     created_at: str

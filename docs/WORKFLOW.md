@@ -15,6 +15,13 @@ uv run pytest tests/xxx/ -v           # Unit tests for module
 ./dev.sh debug                         # Check for errors
 ./dev.sh traces                        # View recent runs
 
+# CLI development
+reasoner                               # Start CLI (agent mode, DeepInfra)
+reasoner --local                       # Interactive local model picker
+reasoner --provider chatgpt            # Use ChatGPT via OAuth
+reasoner --permission strict           # Require approval for all tools
+reasoner --working-dir /path           # Set filesystem root
+
 # Before merge
 uv run pytest                          # Unit + integration (mocks LLM)
 ./scripts/sanity_test.sh --debug       # True E2E (actual LLM, validates all checkpoints)
@@ -92,7 +99,7 @@ uv run pytest                          # Unit + integration tests (mocks LLM, fa
 git add .
 git commit -m "feat(<scope>): <description>
 
-Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
 
 # Merge to test
 git checkout test
@@ -201,3 +208,24 @@ grep '"level":"ERROR"' logs/app.log | tail -20 | jq '{ts: .timestamp, msg: .mess
 | `./dev.sh debug` | Show recent errors |
 | `./dev.sh traces` | View SQLite traces |
 | `./dev.sh explore <id>` | Explore specific run |
+
+### CLI Commands
+
+| Command | Purpose |
+|---------|---------|
+| `reasoner` | Start CLI (agent mode, default provider) |
+| `reasoner --local` | Interactive local model picker |
+| `reasoner --provider chatgpt` | Use ChatGPT via OAuth |
+| `reasoner --mode chat` | Chat mode (no tools) |
+| `reasoner --permission strict` | Approval for all tools |
+| `reasoner --permission yolo` | No approval needed |
+| `reasoner --working-dir /path` | Set filesystem root |
+| `reasoner --max-steps 20` | Override max agent steps |
+
+**In-CLI Commands**:
+| Command | Purpose |
+|---------|---------|
+| `/login` | Authenticate with ChatGPT (opens browser) |
+| `/logout` | Clear auth, revert to default provider |
+| `/status` | Show provider, model, and auth info |
+| `/help` | List available commands |

@@ -9,6 +9,9 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| test | Docs overhaul — update all 6 docs to match current codebase (CLI, tools, profiles, context, approval flow) | done | 2026-02-25 |
+| test | System prompt overhaul — HOW TO THINK guidelines, removed synthesis nudge, force-synthesis rewrite, max_steps bump (25/30), industry research | done | 2026-02-25 |
+| test | CLI expandable panels + input area approval flow | done | 2026-02-25 |
 | test | Agent quality guardrails — stopping criteria, redundancy detection, synthesis nudging; removed dead `full` profile | done | 2026-02-25 |
 | test | Context management system — token-aware history, turn summaries, context usage in SSE/UI/CLI | done | 2026-02-25 |
 | test | CLI terminal UI redesign — Claude Code style (⏺/⎿ markers, no borders/chrome) | done | 2026-02-25 |
@@ -34,6 +37,26 @@
 | feature/preset-question-chips | Demo preset questions | done | 2026-01-23 |
 | feature/gaia-benchmark | GAIA Benchmark Evaluation | done | 2026-01-21 |
 | feature/agent-planning | Agent Planning Step | done | 2026-01-20 |
+
+### 2026-02-25: Documentation Overhaul — All 6 Docs Updated
+
+**Branch:** `test`
+**Status:** done
+
+**Description:**
+Comprehensive docs update after major sprint. Audit found docs ~50% stale — ARCHITECTURE.md and COMPONENTS.md worst (missing CLI, 8 agent tools, profiles, context management). Updated all 6 documentation files (1,310 insertions, 89 deletions).
+
+**Files changed:**
+- `docs/ARCHITECTURE.md` — Added CLI/TUI system section, agent profiles, filesystem tools table (10 tools), context management pipeline, ChatGPT provider, updated directory tree and ER diagram
+- `docs/COMPONENTS.md` — Added all 7 filesystem tool docs, CLI widgets/screens/events, profile.py, context.py, approval endpoints, CLI API client
+- `docs/DATA_MODELS.md` — Added run_events + run_artifacts tables, approval columns on agent_tool_calls, updated_at columns, turn_summary, updated ER diagram and Pydantic models
+- `docs/DATA_FLOW.md` — Added CLI data flow sequence diagram, tool approval flow decision tree, context pipeline diagram
+- `docs/API_REFERENCE.md` — Added approve/deny tool endpoints, updated create run request/response schemas, tool_approval_required SSE event
+- `docs/WORKFLOW.md` — Added CLI commands tables, updated co-author to Opus 4.6
+
+**Tests:** 820 passed, 15 failed (pre-existing, unrelated to doc changes)
+
+---
 
 ### 2026-02-24: CLI UI Polish + ChatGPT OAuth in CLI + Sanity Test Fixes
 

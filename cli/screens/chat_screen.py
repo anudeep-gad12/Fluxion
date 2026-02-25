@@ -35,8 +35,6 @@ class ChatScreen(Screen):
     BINDINGS = [
         Binding("escape", "cancel_run", "Stop", show=True),
         Binding("ctrl+n", "new_conversation", "New", show=True),
-        Binding("y", "approve_tool", "Approve", show=False),
-        Binding("n", "deny_tool", "Deny", show=False),
     ]
 
     def __init__(
@@ -52,6 +50,7 @@ class ChatScreen(Screen):
         self._current_stream_token: str | None = None
         self._conversation_id: str | None = None
         self._streaming_md: StreamingMarkdown | None = None
+        self._current_bubble: MessageBubble | None = None
         self._pending_approval: ToolCallPanel | None = None
         self._is_running = False
         self._current_step = 0
@@ -149,13 +148,11 @@ class ChatScreen(Screen):
             if not self._conversation_id:
                 self._conversation_id = result.get("conversation_id")
 
-            # Add assistant bubble and mount streaming markdown inside it
+            # Add assistant bubble — children (thinking, tools, answer) mount inside it
             message_list = self.query_one(MessageList)
             bubble = MessageBubble("assistant", "")
             message_list.mount(bubble)
-
-            self._streaming_md = StreamingMarkdown()
-            bubble.mount(self._streaming_md)
+            self._current_bubble = bubble
 
             # Start SSE consumer as a worker
             self.run_worker(self._consume_events(), exclusive=True)
@@ -217,24 +214,26 @@ class ChatScreen(Screen):
             status_bar.set_step(f"Step {step}")
 
     def on_thinking_event(self, event: ThinkingEvent) -> None:
-        """Handle thinking token."""
+        """Handle thinking token — mount inside current assistant bubble."""
         content = event.data.get("content", "")
-        if not content:
+        if not content or not self._current_bubble:
             return
 
-        # Find or create thinking panel
-        message_list = self.query_one(MessageList)
-        thinking_panels = message_list.query(ThinkingPanel)
-        if thinking_panels:
-            panel = thinking_panels.last()
+        # Append to existing ThinkingPanel if it's the last child, else create new
+        children = self._current_bubble.children
+        if children and isinstance(children[-1], ThinkingPanel):
+            panel = children[-1]
         else:
             panel = ThinkingPanel()
-            message_list.mount(panel)
+            self._current_bubble.mount(panel)
 
         panel.append_token(content)
 
     def on_tool_start_event(self, event: ToolStartEvent) -> None:
-        """Handle tool start."""
+        """Handle tool start — mount inside current assistant bubble."""
+        if not self._current_bubble:
+            return
+
         tool_name = event.data.get("tool_name", "unknown")
         arguments = event.data.get("arguments", {})
         tool_call_id = event.data.get("tool_call_id", "")
@@ -248,26 +247,71 @@ class ChatScreen(Screen):
             id=f"tool-{tool_call_id}" if tool_call_id else None,
         )
 
+        self._current_bubble.mount(panel)
         message_list = self.query_one(MessageList)
-        message_list.mount(panel)
         message_list.scroll_to_bottom()
 
     def on_tool_approval_required_event(
         self, event: ToolApprovalRequiredEvent
     ) -> None:
-        """Handle tool approval request."""
+        """Handle tool approval request — switch input area to approval mode."""
         tool_call_id = event.data.get("tool_call_id", "")
 
         try:
             panel = self.query_one(f"#tool-{tool_call_id}", ToolCallPanel)
             panel.show_approval_prompt()
             self._pending_approval = panel
+
+            # Switch input area to approval mode with full tool details
+            input_area = self.query_one(InputArea)
+            tool_display = panel.get_full_arguments_display()
+            input_area.enter_approval_mode(tool_display)
+
+            # Update hint text
+            hint = self.query_one("#input-hint", Static)
+            hint.update("[y] approve · [n] deny · scroll to review")
         except Exception:
             pass
 
-        self._show_approval_bindings()
         message_list = self.query_one(MessageList)
         message_list.scroll_to_bottom()
+
+    def on_input_area_approval_decision(
+        self, event: InputArea.ApprovalDecision
+    ) -> None:
+        """Handle approval decision from input area."""
+        # Restore input area
+        input_area = self.query_one(InputArea)
+        input_area.exit_approval_mode()
+        input_area.focus()
+
+        # Restore hint text
+        hint = self.query_one("#input-hint", Static)
+        hint.update("Enter to send · Shift+Enter newline · Esc stop · Ctrl+C exit")
+
+        if self._pending_approval and self._current_run_id:
+            panel = self._pending_approval
+            self._pending_approval = None
+            panel.resolve_approval(event.approved)
+
+            if event.approved:
+                self.run_worker(self._approve_tool(panel.run_id, panel.tool_call_id))
+            else:
+                self.run_worker(self._deny_tool(panel.run_id, panel.tool_call_id))
+
+    async def _approve_tool(self, run_id: str, tool_call_id: str) -> None:
+        """Send tool approval to the API."""
+        try:
+            await self._api_client.approve_tool(run_id, tool_call_id)
+        except Exception as exc:
+            self._add_system_message(f"Approval failed: {exc}")
+
+    async def _deny_tool(self, run_id: str, tool_call_id: str) -> None:
+        """Send tool denial to the API."""
+        try:
+            await self._api_client.deny_tool(run_id, tool_call_id)
+        except Exception as exc:
+            self._add_system_message(f"Denial failed: {exc}")
 
     def on_tool_result_event(self, event: ToolResultEvent) -> None:
         """Handle tool result."""
@@ -287,7 +331,15 @@ class ChatScreen(Screen):
     def on_answer_token_event(self, event: AnswerTokenEvent) -> None:
         """Handle answer token (streaming response)."""
         content = event.data.get("content", "")
-        if content and self._streaming_md:
+        if not content:
+            return
+
+        # Create StreamingMarkdown on first answer token
+        if not self._streaming_md and self._current_bubble:
+            self._streaming_md = StreamingMarkdown()
+            self._current_bubble.mount(self._streaming_md)
+
+        if self._streaming_md:
             self._streaming_md.append_token(content)
             message_list = self.query_one(MessageList)
             message_list.scroll_to_bottom()
@@ -298,8 +350,16 @@ class ChatScreen(Screen):
         self._current_run_id = None
         self._pending_approval = None
         self._streaming_md = None
+        self._current_bubble = None
         self._current_step = 0
-        self._hide_approval_bindings()
+
+        # Restore input area if it was in approval mode
+        input_area = self.query_one(InputArea)
+        input_area.exit_approval_mode()
+
+        # Restore hint text
+        hint = self.query_one("#input-hint", Static)
+        hint.update("Enter to send · Shift+Enter newline · Esc stop · Ctrl+C exit")
 
         status_bar = self.query_one(StatusBar)
         status_bar.set_busy(False)
@@ -313,7 +373,7 @@ class ChatScreen(Screen):
             )
 
         # Re-focus input
-        self.query_one(InputArea).focus()
+        input_area.focus()
 
     def on_agent_error_event(self, event: AgentErrorEvent) -> None:
         """Handle agent error."""
@@ -324,14 +384,22 @@ class ChatScreen(Screen):
         self._current_run_id = None
         self._pending_approval = None
         self._streaming_md = None
+        self._current_bubble = None
         self._current_step = 0
-        self._hide_approval_bindings()
+
+        # Restore input area if it was in approval mode
+        input_area = self.query_one(InputArea)
+        input_area.exit_approval_mode()
+
+        # Restore hint text
+        hint = self.query_one("#input-hint", Static)
+        hint.update("Enter to send · Shift+Enter newline · Esc stop · Ctrl+C exit")
 
         status_bar = self.query_one(StatusBar)
         status_bar.set_busy(False)
         status_bar.set_step("")
 
-        self.query_one(InputArea).focus()
+        input_area.focus()
 
     def on_agent_state_event(self, event: AgentStateEvent) -> None:
         """Handle agent state change."""
@@ -340,36 +408,24 @@ class ChatScreen(Screen):
             status_bar = self.query_one(StatusBar)
             status_bar.set_step(state)
 
-    async def action_approve_tool(self) -> None:
-        """Approve the pending tool call."""
-        if self._pending_approval and self._current_run_id:
-            panel = self._pending_approval
-            self._pending_approval = None
-            panel.resolve_approval(True)
-            self._hide_approval_bindings()
-            try:
-                await self._api_client.approve_tool(
-                    panel.run_id, panel.tool_call_id
-                )
-            except Exception as exc:
-                self._add_system_message(f"Approval failed: {exc}")
-
-    async def action_deny_tool(self) -> None:
-        """Deny the pending tool call."""
-        if self._pending_approval and self._current_run_id:
-            panel = self._pending_approval
-            self._pending_approval = None
-            panel.resolve_approval(False)
-            self._hide_approval_bindings()
-            try:
-                await self._api_client.deny_tool(
-                    panel.run_id, panel.tool_call_id
-                )
-            except Exception as exc:
-                self._add_system_message(f"Denial failed: {exc}")
-
     async def action_cancel_run(self) -> None:
         """Cancel the current agent run (Esc key)."""
+        # If in approval mode, exit it first
+        input_area = self.query_one(InputArea)
+        if input_area.approval_mode:
+            input_area.exit_approval_mode()
+            input_area.focus()
+            hint = self.query_one("#input-hint", Static)
+            hint.update("Enter to send · Shift+Enter newline · Esc stop · Ctrl+C exit")
+
+            # Deny the pending tool
+            if self._pending_approval and self._current_run_id:
+                panel = self._pending_approval
+                self._pending_approval = None
+                panel.resolve_approval(False)
+                self.run_worker(self._deny_tool(panel.run_id, panel.tool_call_id))
+            return
+
         if not self._is_running or not self._current_run_id:
             return
 
@@ -383,13 +439,14 @@ class ChatScreen(Screen):
         self._current_run_id = None
         self._pending_approval = None
         self._streaming_md = None
+        self._current_bubble = None
         self._current_step = 0
 
         status_bar = self.query_one(StatusBar)
         status_bar.set_busy(False)
         status_bar.set_step("")
 
-        self.query_one(InputArea).focus()
+        input_area.focus()
 
     def action_new_conversation(self) -> None:
         """Start a new conversation."""
@@ -463,18 +520,6 @@ class ChatScreen(Screen):
             parts.append("chatgpt: not logged in")
 
         self._add_system_message("\n".join(parts))
-
-    def _show_approval_bindings(self) -> None:
-        """Show y/n in footer when tool needs approval."""
-        self._bindings.bind("y", "approve_tool", "Approve (y)", show=True)
-        self._bindings.bind("n", "deny_tool", "Deny (n)", show=True)
-        self.refresh_bindings()
-
-    def _hide_approval_bindings(self) -> None:
-        """Hide y/n from footer."""
-        self._bindings.bind("y", "approve_tool", "Approve", show=False)
-        self._bindings.bind("n", "deny_tool", "Deny", show=False)
-        self.refresh_bindings()
 
     def _add_system_message(self, text: str) -> None:
         """Add a system/info message to the message list."""
