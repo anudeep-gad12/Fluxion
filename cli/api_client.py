@@ -81,8 +81,7 @@ class APIClient:
             "permission_policy": self._config.permission,
             "python_provider": "local",  # CLI runs locally, no need for remote sandboxes
         }
-        if self._config.profile:
-            payload["profile"] = self._config.profile
+        payload["profile"] = "coding"
         if conversation_id:
             payload["conversation_id"] = conversation_id
 

@@ -198,39 +198,63 @@ class CodingContextStrategy:
         return None
 
     async def _gather_project_structure(self, working_dir: str) -> Optional[str]:
-        """Gather file tree (top 3 levels) and key dependency files."""
-        parts = []
+        """Gather indented file tree (max 3 levels) and key dependency files."""
+        import os
 
-        # File tree (top 3 levels, respecting .gitignore via find)
-        tree = await _run_cmd(
-            "find", ".", "-maxdepth", "3", "-type", "f",
-            "-not", "-path", "./.git/*",
-            "-not", "-path", "./node_modules/*",
-            "-not", "-path", "./.venv/*",
-            "-not", "-path", "./venv/*",
-            "-not", "-path", "./__pycache__/*",
-            "-not", "-path", "./.next/*",
-            "-not", "-path", "./dist/*",
-            "-not", "-path", "./build/*",
-            "-not", "-name", "*.pyc",
-            cwd=working_dir,
-        )
-        if tree:
-            lines = tree.split("\n")
-            # Limit to 40 files to keep it compact
-            if len(lines) > 40:
-                tree_text = "\n".join(lines[:40]) + f"\n... ({len(lines) - 40} more files)"
-            else:
-                tree_text = tree
-            parts.append(f"Files:\n{tree_text}")
+        _EXCLUDE_DIRS = {
+            ".git", "node_modules", "__pycache__", ".venv", "venv",
+            ".next", "dist", "build", ".tox", ".mypy_cache", ".ruff_cache",
+            ".pytest_cache", "eggs", "*.egg-info",
+        }
+        _EXCLUDE_EXTS = {".pyc", ".pyo", ".class", ".o", ".so"}
+        _MAX_DEPTH = 3
+        _MAX_ENTRIES = 60
+
+        wd = Path(working_dir)
+        lines: list[str] = []
+
+        def _walk_tree(directory: Path, prefix: str, depth: int) -> None:
+            if depth > _MAX_DEPTH or len(lines) >= _MAX_ENTRIES:
+                return
+            try:
+                entries = sorted(directory.iterdir(), key=lambda e: (not e.is_dir(), e.name.lower()))
+            except (OSError, PermissionError):
+                return
+
+            # Filter out excluded dirs and files
+            filtered = []
+            for entry in entries:
+                if entry.name.startswith(".") and entry.name in _EXCLUDE_DIRS:
+                    continue
+                if entry.is_dir() and entry.name in _EXCLUDE_DIRS:
+                    continue
+                if entry.is_file() and entry.suffix in _EXCLUDE_EXTS:
+                    continue
+                filtered.append(entry)
+
+            for i, entry in enumerate(filtered):
+                if len(lines) >= _MAX_ENTRIES:
+                    lines.append(f"{prefix}...")
+                    return
+                is_last = i == len(filtered) - 1
+                connector = "└── " if is_last else "├── "
+                display_name = entry.name + ("/" if entry.is_dir() else "")
+                lines.append(f"{prefix}{connector}{display_name}")
+                if entry.is_dir():
+                    extension = "    " if is_last else "│   "
+                    _walk_tree(entry, prefix + extension, depth + 1)
+
+        _walk_tree(wd, "", 0)
+
+        parts = []
+        if lines:
+            parts.append("Files:\n" + "\n".join(lines))
 
         # Dependencies: check pyproject.toml or package.json
-        wd = Path(working_dir)
         pyproject = wd / "pyproject.toml"
         if pyproject.is_file():
             try:
                 content = pyproject.read_text(encoding="utf-8", errors="replace")
-                # Extract just the [project] or [tool.poetry] section name
                 if "[project]" in content:
                     parts.append("Build: pyproject.toml (Python)")
                 elif "[tool.poetry]" in content:

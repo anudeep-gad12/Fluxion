@@ -92,7 +92,7 @@ class TestProfileSystemPrompts:
 
     def test_coding_prompt_warns_about_remote_sandbox(self):
         """Coding prompt should warn that python_execute is remote."""
-        assert "REMOTE sandbox" in CODING_SYSTEM_PROMPT
+        assert "remote sandbox" in CODING_SYSTEM_PROMPT
 
 
 class TestProfilePlanStepTypes:
