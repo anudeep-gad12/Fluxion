@@ -87,7 +87,9 @@ class Database:
             )
             """,
         )
-        # Migration 9: Observability — file change tracking
+        # Migration 9: Context management — turn_summary for cross-turn history
+        await self._add_column_if_not_exists("runs", "turn_summary", "TEXT")
+        # Migration 10: Observability — file change tracking
         await self._create_table_if_not_exists(
             "run_artifacts",
             """

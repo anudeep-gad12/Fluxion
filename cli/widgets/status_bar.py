@@ -73,6 +73,14 @@ class StatusBar(Horizontal):
             self._is_busy = False
             self.query_one("#status-activity", Static).update("")
 
+    def set_context_usage(self, used: int, total: int) -> None:
+        """Show context window utilization in the activity area."""
+        pct = (used / total * 100) if total > 0 else 0
+        color = "yellow" if pct > 80 else "dim"
+        self.query_one("#status-activity", Static).update(
+            f" [{color}]ctx {pct:.0f}%[/{color}] "
+        )
+
     def set_connected(self, connected: bool) -> None:
         """Update connection status."""
         self._connected = connected

@@ -138,6 +138,11 @@ export function AgentRunMessage({ run, onShowTrace }: AgentRunMessageProps) {
                 {formatTokens(agentState.total_tokens)} tok
               </span>
             )}
+            {!isActive && agentState?.context_usage && (
+              <span className="text-zinc-500 text-xs">
+                ctx {Math.round(agentState.context_usage.utilization_pct)}%
+              </span>
+            )}
           </div>
         </div>
       </div>

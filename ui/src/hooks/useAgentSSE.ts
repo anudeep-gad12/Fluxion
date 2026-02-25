@@ -10,6 +10,7 @@ import type {
   AgentSSEEvent,
   AgentStep,
   AgentCitation,
+  ContextUsage,
   StepStartEvent,
   ThinkingEvent,
   ToolStartEvent,
@@ -156,6 +157,7 @@ export function useAgentSSE(runId: string | null, maxSteps: number = 10) {
         total_steps: number;
         timing_ms: number;
         total_tokens?: number;
+        context_usage?: ContextUsage;
       }) => {
         if (myConnectionId !== connectionIdRef.current) return;
         // Save final step's thinking before marking complete
@@ -172,6 +174,7 @@ export function useAgentSSE(runId: string | null, maxSteps: number = 10) {
           agentState: result.success ? 'complete' : 'error',
           timing_ms: result.timing_ms,
           total_tokens: result.total_tokens,
+          context_usage: result.context_usage,
         });
 
         if (result.citations) {
