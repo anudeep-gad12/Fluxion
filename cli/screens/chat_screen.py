@@ -273,6 +273,7 @@ class ChatScreen(Screen):
         except Exception:
             pass
 
+        self._show_approval_bindings()
         message_list = self.query_one(MessageList)
         message_list.scroll_to_bottom()
 
@@ -306,6 +307,7 @@ class ChatScreen(Screen):
         self._current_run_id = None
         self._pending_approval = None
         self._streaming_md = None
+        self._hide_approval_bindings()
 
         progress = self.query_one(AgentProgress)
         progress.reset()
@@ -326,6 +328,7 @@ class ChatScreen(Screen):
         self._current_run_id = None
         self._pending_approval = None
         self._streaming_md = None
+        self._hide_approval_bindings()
 
         progress = self.query_one(AgentProgress)
         progress.reset()
@@ -349,6 +352,7 @@ class ChatScreen(Screen):
             panel = self._pending_approval
             self._pending_approval = None
             panel.resolve_approval(True)
+            self._hide_approval_bindings()
             try:
                 await self._api_client.approve_tool(
                     panel.run_id, panel.tool_call_id
@@ -362,6 +366,7 @@ class ChatScreen(Screen):
             panel = self._pending_approval
             self._pending_approval = None
             panel.resolve_approval(False)
+            self._hide_approval_bindings()
             try:
                 await self._api_client.deny_tool(
                     panel.run_id, panel.tool_call_id
@@ -453,7 +458,6 @@ class ChatScreen(Screen):
         parts = [
             f"mode: {self._config.mode}",
             f"provider: {self._config.provider}",
-            f"profile: {self._config.profile or 'default'}",
         ]
 
         if self._config.session_id:
@@ -467,6 +471,18 @@ class ChatScreen(Screen):
             parts.append("chatgpt: not logged in")
 
         self._add_system_message("\n".join(parts))
+
+    def _show_approval_bindings(self) -> None:
+        """Show y/n in footer when tool needs approval."""
+        self._bindings.bind("y", "approve_tool", "Approve (y)", show=True)
+        self._bindings.bind("n", "deny_tool", "Deny (n)", show=True)
+        self.refresh_bindings()
+
+    def _hide_approval_bindings(self) -> None:
+        """Hide y/n from footer."""
+        self._bindings.bind("y", "approve_tool", "Approve", show=False)
+        self._bindings.bind("n", "deny_tool", "Deny", show=False)
+        self.refresh_bindings()
 
     def _add_system_message(self, text: str) -> None:
         """Add a system/info message to the message list."""
