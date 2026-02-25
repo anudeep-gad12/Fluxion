@@ -425,6 +425,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
 
             # Step metadata for context pruning (maps tool_call_id -> step_number)
             step_metadata: Dict[str, int] = {}
+            tool_steps_completed = 0
 
             # Main agent loop
             while state_machine.can_continue():
@@ -504,8 +505,17 @@ To provide your final answer, respond WITHOUT calling any tools."""
 
                 llm_start_time = time.perf_counter()
                 try:
-                    # Use tool_choice only on first step (if configured)
-                    step_tool_choice = self._tool_choice if step_number == 1 else None
+                    # Coding/full profiles: force tool use until model has explored
+                    if (
+                        self._profile
+                        and self._profile.name in ("coding", "full")
+                        and tool_steps_completed == 0
+                    ):
+                        step_tool_choice = "required"
+                    elif step_number == 1 and self._tool_choice:
+                        step_tool_choice = self._tool_choice
+                    else:
+                        step_tool_choice = None
                     llm_response = await self._call_llm_with_tools(
                         messages=pruned_messages,
                         event_callback=event_callback,
@@ -654,6 +664,8 @@ To provide your final answer, respond WITHOUT calling any tools."""
                                 raw_arguments=raw_args,
                             ))
                         self._update_plan_progress(parsed_calls, step_number)
+
+                    tool_steps_completed += 1
 
                     await state_machine.complete_step(
                         decision="call_tool",
