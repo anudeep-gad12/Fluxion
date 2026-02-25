@@ -29,6 +29,9 @@ CREATE TABLE IF NOT EXISTS runs (
     error_message TEXT,
     status TEXT NOT NULL, -- running, succeeded, failed
 
+    -- Context management
+    turn_summary TEXT, -- Compact context string for cross-turn history
+
     -- Stateful mode support
     last_response_id TEXT, -- Response ID from /v1/responses for stateful chaining
 

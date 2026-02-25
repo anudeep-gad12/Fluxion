@@ -323,6 +323,7 @@ async def _run_agent_task(
                     "total_steps": result.total_steps,
                     "timing_ms": result.timing_ms,
                     "total_tokens": result.total_tokens,
+                    "context_usage": result.context_usage,
                 },
             }
             _event_history.setdefault(run_id, []).append(end_event)

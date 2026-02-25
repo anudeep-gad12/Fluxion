@@ -17,6 +17,8 @@ from datetime import date
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
 from orchestrator.agent.context_pruner import ContextPruner
+from orchestrator.context.budget import ContextBudget
+from orchestrator.context.history_builder import HistoryBuilder
 from orchestrator.agent.recovery import (
     build_recovery_messages,
     create_idempotency_key,
@@ -91,6 +93,7 @@ class AgentResult:
     error_message: Optional[str] = None
     timing_ms: int = 0
     total_tokens: int = 0
+    context_usage: Optional[Dict[str, Any]] = None
 
 
 @dataclass
@@ -321,6 +324,9 @@ To provide your final answer, respond WITHOUT calling any tools."""
         self._approval_callback = approval_callback
         self._permission_policy = permission_policy
 
+        # Context budget tracking
+        self._context_budget: Optional[ContextBudget] = None
+
         # Run metrics accumulator
         self._tool_call_log: List[Dict[str, Any]] = []
 
@@ -376,7 +382,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
             recovery_context = await state_machine.initialize()
 
             # Build initial messages (includes conversation history if available)
-            messages = await self._build_initial_messages(query, conversation_id)
+            messages, self._context_budget = await self._build_initial_messages(query, conversation_id)
 
             # Handle recovery if needed
             if recovery_context.needs_recovery:
@@ -459,11 +465,13 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 )
 
                 # Enforce context budget - force prune if still over limit
+                # Subtract response reserve so model has room to generate
+                effective_budget = self._max_context_tokens - self._max_tokens
                 estimated_tokens = self._pruner.estimate_tokens(pruned_messages)
                 prune_iterations = 0
                 max_prune_iterations = 20  # Safety limit to prevent infinite loop
 
-                while estimated_tokens > self._max_context_tokens and prune_iterations < max_prune_iterations:
+                while estimated_tokens > effective_budget and prune_iterations < max_prune_iterations:
                     prune_iterations += 1
                     logger.warning(
                         "Context exceeds budget, force pruning",
@@ -734,6 +742,16 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     # Trace: agent_complete
                     total_timing_ms = int((time.perf_counter() - start_time) * 1000)
 
+                    # Build context_usage payload
+                    _ctx = {}
+                    if self._context_budget:
+                        _ctx = {
+                            "total_tokens_used": self._context_budget.total_used,
+                            "history_tokens": self._context_budget.history_tokens,
+                            "max_tokens": self._max_context_tokens,
+                            "utilization_pct": round(self._context_budget.utilization_pct, 1),
+                        }
+
                     self._emit(
                         event_callback,
                         "agent_complete",
@@ -743,6 +761,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         citations=citations,
                         total_steps=step_number,
                         timing_ms=total_timing_ms,
+                        context_usage=_ctx if _ctx else None,
                     )
                     await self._add_trace_event(
                         run_id=run_id,
@@ -756,8 +775,9 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         duration_ms=total_timing_ms,
                     )
 
-                    # Compute and store run metrics
+                    # Compute and store run metrics + turn summary
                     await self._store_run_metrics(run_id, total_timing_ms)
+                    await self._store_turn_summary(run_id, query, final_answer)
 
                     return AgentResult(
                         run_id=run_id,
@@ -767,6 +787,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         total_steps=step_number,
                         timing_ms=total_timing_ms,
                         total_tokens=self._total_tokens,
+                        context_usage=_ctx if _ctx else None,
                     )
 
             # Max steps reached - force synthesis
@@ -786,6 +807,16 @@ To provide your final answer, respond WITHOUT calling any tools."""
             # Trace: agent_complete (max steps)
             total_timing_ms = int((time.perf_counter() - start_time) * 1000)
 
+            # Build context_usage payload
+            _ctx2 = {}
+            if self._context_budget:
+                _ctx2 = {
+                    "total_tokens_used": self._context_budget.total_used,
+                    "history_tokens": self._context_budget.history_tokens,
+                    "max_tokens": self._max_context_tokens,
+                    "utilization_pct": round(self._context_budget.utilization_pct, 1),
+                }
+
             self._emit(
                 event_callback,
                 "agent_complete",
@@ -795,6 +826,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 citations=citations,
                 total_steps=state_machine.current_step,
                 timing_ms=total_timing_ms,
+                context_usage=_ctx2 if _ctx2 else None,
             )
             await self._add_trace_event(
                 run_id=run_id,
@@ -809,8 +841,9 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 duration_ms=total_timing_ms,
             )
 
-            # Compute and store run metrics
+            # Compute and store run metrics + turn summary
             await self._store_run_metrics(run_id, total_timing_ms)
+            await self._store_turn_summary(run_id, query, final_answer)
 
             return AgentResult(
                 run_id=run_id,
@@ -820,6 +853,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 total_steps=state_machine.current_step,
                 timing_ms=total_timing_ms,
                 total_tokens=self._total_tokens,
+                context_usage=_ctx2 if _ctx2 else None,
             )
 
         except MaxStepsExceededError:
@@ -1122,16 +1156,21 @@ When you complete each step, proceed to the next."""
         self,
         query: str,
         conversation_id: Optional[str] = None,
-    ) -> List[Dict[str, Any]]:
+    ) -> tuple[List[Dict[str, Any]], ContextBudget]:
         """Build initial message list with system prompt, history, and query.
+
+        Uses HistoryBuilder for token-aware history loading. Prefers compact
+        turn_summary over raw final_answer when available (~10x more history).
 
         Args:
             query: User's research query.
             conversation_id: Optional conversation ID to load history from.
 
         Returns:
-            Message list with system, history, and user messages.
+            Tuple of (message list, ContextBudget accounting).
         """
+        from orchestrator.utils.tokens import get_token_counter
+
         # Build system prompt: if profile is set, the factory already formatted
         # the prompt with date_context and project_context. Otherwise, inject
         # date context for backward compatibility.
@@ -1145,41 +1184,36 @@ When you complete each step, proceed to the next."""
             )
             system_prompt = self._system_prompt.format(date_context=date_context)
 
-        messages: List[Dict[str, Any]] = [
-            {"role": "system", "content": system_prompt},
-        ]
-
-        # Load conversation history if conversation_id provided
+        # Load conversation history
+        prior_runs: list[dict] = []
         if conversation_id and self._trace_repo:
             prior_runs = await self._trace_repo.list_runs_for_conversation(
                 conversation_id
             )
-            # Sort by created_at ascending (oldest first)
-            sorted_runs = sorted(prior_runs, key=lambda r: r.get("created_at", ""))
 
-            # Limit to last N runs to prevent context overflow
-            max_history = 10
-            if len(sorted_runs) > max_history:
-                sorted_runs = sorted_runs[-max_history:]
+        builder = HistoryBuilder(
+            token_counter=get_token_counter(),
+            max_context_tokens=self._max_context_tokens,
+            reserve_for_response=self._max_tokens,
+        )
 
-            for run in sorted_runs:
-                user_msg = run.get("user_message")
-                assistant_msg = run.get("final_answer")
-                # Skip incomplete runs (no assistant response) to maintain
-                # strict user/assistant alternation required by some models
-                if not assistant_msg:
-                    continue
-                # Skip if this is the same query we're about to add
-                if user_msg == query:
-                    continue
-                if user_msg:
-                    messages.append({"role": "user", "content": user_msg})
-                if assistant_msg:
-                    messages.append({"role": "assistant", "content": assistant_msg})
+        messages, budget = builder.build_history_messages(
+            prior_runs=prior_runs,
+            system_prompt=system_prompt,
+            current_query=query,
+        )
 
-        # Add current query
-        messages.append({"role": "user", "content": query})
-        return messages
+        logger.info(
+            "Context budget allocated",
+            extra={
+                "history_tokens": budget.history_tokens,
+                "available_for_history": budget.available_for_history,
+                "utilization_pct": round(budget.utilization_pct, 1),
+                "history_pairs": (len(messages) - 2) // 2,  # exclude system + current query
+            },
+        )
+
+        return messages, budget
 
     async def _call_llm_with_tools(
         self,
@@ -2167,6 +2201,53 @@ When you complete each step, proceed to the next."""
         except Exception as e:
             logger.warning(
                 "Failed to store run metrics",
+                extra={"run_id": run_id, "error": str(e)},
+            )
+
+    async def _store_turn_summary(
+        self, run_id: str, query: str, final_answer: str
+    ) -> None:
+        """Generate and store a compact turn summary for cross-turn context.
+
+        Args:
+            run_id: Run ID.
+            query: Original user query.
+            final_answer: Final answer text.
+        """
+        if not self._trace_repo:
+            return
+        try:
+            from orchestrator.context.turn_summary import TurnSummarizer
+            from orchestrator.utils.tokens import get_token_counter
+
+            summarizer = TurnSummarizer(get_token_counter())
+
+            # Get tool calls and artifacts for this run
+            tool_calls = await self._repo.get_tool_calls_for_run(run_id)
+            artifacts = await self._repo.get_run_artifacts(run_id)
+
+            summary = summarizer.summarize_agent_run(
+                run={
+                    "run_id": run_id,
+                    "user_message": query,
+                    "final_answer": final_answer,
+                    "thinking_summary": "",
+                    "mode": "agent",
+                },
+                tool_calls=tool_calls,
+                artifacts=artifacts,
+            )
+
+            await self._trace_repo.update_run(
+                run_id, turn_summary=summary.to_context_string()
+            )
+            logger.debug(
+                "Turn summary stored",
+                extra={"run_id": run_id, "token_cost": summary.token_cost},
+            )
+        except Exception as e:
+            logger.warning(
+                "Failed to store turn summary",
                 extra={"run_id": run_id, "error": str(e)},
             )
 
