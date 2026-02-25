@@ -10,7 +10,6 @@ Profiles define the behavior of the agent engine:
 Built-in profiles:
 - research: Web research agent (default, backward compatible)
 - coding: Coding assistant with filesystem tools and project context
-- full: Combined research + coding capabilities
 """
 
 from dataclasses import dataclass, field
@@ -59,6 +58,21 @@ Don't use python_execute to verify values already stated in the content.
 
 NEVER compute mentally or in text.
 
+=== STOPPING CRITERIA ===
+
+Stop using tools and give your FINAL ANSWER when:
+- You found a clear, authoritative answer from a good source
+- You have consistent facts from 2+ sources
+- Further searches would not add new information
+- You have enough data to perform any needed calculations
+
+=== QUALITY RULES ===
+
+- Every tool call must have a clear purpose tied to the user's query
+- Do NOT search for the same topic twice with slightly different wording
+- If web_extract gives you the answer, stop — do not extract more pages
+- If a search returns good results, use them — do not search again
+
 === RESPONSE FORMAT ===
 
 Do NOT include inline citation numbers like [1], [2] in your answer text. The UI automatically displays a Sources section at the bottom with all the web pages you consulted during research.
@@ -88,34 +102,22 @@ RULES:
 5. python_execute cannot access local files. Use read_file/grep/glob instead.
 6. Always use print() in python_execute — no print = no output.
 
+STOPPING CRITERIA — Stop using tools and give your FINAL ANSWER when:
+- You have read the relevant code and can answer the question
+- You have made the requested changes and verified them
+- You have gathered consistent information from 2+ sources
+- Further tool calls would not add new information
+
+QUALITY RULES:
+- Every tool call must have a clear purpose tied to the user's request
+- Do NOT glob or list_directory the entire project — target specific paths
+- Do NOT run python_execute for tasks that read_file/grep can handle
+- Do NOT re-read files you already have in context
+- If a tool call fails, try a different approach — do not retry the same call
+- Prefer grep/read_file over broad exploration (glob **/*.py)
+
 When you have enough information, respond without calling tools."""
 
-
-FULL_SYSTEM_PROMPT = """You are a versatile assistant that combines web research and coding capabilities. You can search the web, analyze information, AND work directly with the user's codebase.
-
-{date_context}
-
-{project_context}
-
-=== TOOL PRIORITY ===
-
-For code tasks: use read_file, grep, glob, list_directory, edit_file, write_file, bash
-For research: use web_search, web_extract
-For calculations: use python_execute
-
-IMPORTANT:
-- Use read_file/grep/glob for reading code. Do NOT use python_execute for local files.
-- python_execute runs in a REMOTE sandbox — it cannot access the local filesystem.
-- Filesystem tools operate relative to the working directory.
-- After using web_extract, read the content directly — no "search within page" tools exist.
-
-=== GUIDELINES ===
-
-1. For code tasks: Read before modifying. Make minimal changes. Match existing style.
-2. For research: Use good sources. One good source is often enough.
-3. For calculations: Always use python_execute with print() for output.
-
-When ready to give your final answer, respond without calling any tools."""
 
 
 # =============================================================================
@@ -158,6 +160,9 @@ Guidelines:
 - For calculations, include python_execute early
 - Final synthesis step has expected_tool: null
 - Create at most {max_steps} steps total
+- NEVER plan steps that overlap or repeat the same action
+- Each step must produce NEW information not available from previous steps
+- If 1-2 steps can answer the query, do not plan 5 steps
 - Output ONLY JSON, no other text"""
 
 
@@ -200,39 +205,11 @@ Guidelines:
 - For new features: read → implement → test
 - Final synthesis step has expected_tool: null
 - Create at most {max_steps} steps total
+- NEVER plan steps that overlap or repeat the same action
+- Each step must produce NEW information not available from previous steps
+- If 1-2 steps can answer the query, do not plan 5 steps
 - Output ONLY JSON, no other text"""
 
-
-FULL_PLANNING_PROMPT = """You are a planning assistant for tasks that may involve both coding and research. Given a user request, create a focused plan.
-
-User Request: {query}
-
-{project_context}
-
-Create a plan with at most {max_steps} steps. Use any combination of research and coding steps as needed.
-
-Output ONLY valid JSON:
-{{
-  "query_analysis": "Brief analysis of what the user needs",
-  "approach": "High-level approach (1 sentence)",
-  "estimated_complexity": "low|medium|high",
-  "steps": [
-    {{
-      "step_number": 1,
-      "step_type": "search|extract|read|implement|test|debug|calculate|synthesize",
-      "description": "What to do",
-      "expected_tool": "web_search|web_extract|read_file|glob|grep|edit_file|write_file|bash|python_execute|null",
-      "rationale": "Why this step"
-    }}
-  ]
-}}
-
-Guidelines:
-- Match plan complexity to task complexity
-- For research: use web_search/web_extract
-- For code: read before modifying
-- Create at most {max_steps} steps total
-- Output ONLY JSON, no other text"""
 
 
 # =============================================================================
@@ -245,11 +222,11 @@ class AgentProfile:
     """Defines agent behavior for a specific execution mode.
 
     Attributes:
-        name: Internal identifier ("research", "coding", "full").
+        name: Internal identifier ("research", "coding").
         display_name: Human-readable name for UI display.
         system_prompt_template: System prompt with {date_context} and {project_context} slots.
         tool_sets: List of tool set names to register ("web", "python", "filesystem").
-        context_strategy: Name of context strategy ("research", "coding", "full").
+        context_strategy: Name of context strategy ("research", "coding").
         planning_prompt_template: Profile-specific planning prompt (empty string to disable).
         plan_step_types: Valid step types for the planner.
         max_steps: Default maximum agent steps.
@@ -301,24 +278,6 @@ PROFILES: Dict[str, AgentProfile] = {
             "read_file", "grep", "glob",
         ],
     ),
-    "full": AgentProfile(
-        name="full",
-        display_name="Full Assistant",
-        system_prompt_template=FULL_SYSTEM_PROMPT,
-        tool_sets=["web", "python", "filesystem"],
-        context_strategy="full",
-        planning_prompt_template=FULL_PLANNING_PROMPT,
-        plan_step_types=[
-            "search", "extract", "read", "implement",
-            "test", "debug", "calculate", "synthesize",
-        ],
-        max_steps=15,
-        max_plan_steps=5,
-        findings_tools=[
-            "web_search", "web_extract", "python_execute",
-            "read_file", "grep", "glob",
-        ],
-    ),
 }
 
 
@@ -326,7 +285,7 @@ def get_profile(name: str) -> AgentProfile:
     """Look up an agent profile by name.
 
     Args:
-        name: Profile name ("research", "coding", "full").
+        name: Profile name ("research", "coding").
 
     Returns:
         The matching AgentProfile.

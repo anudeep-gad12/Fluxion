@@ -9,7 +9,6 @@ import pytest
 
 from orchestrator.agent.context import (
     CodingContextStrategy,
-    FullContextStrategy,
     ResearchContextStrategy,
     get_context_strategy,
     _truncate,
@@ -28,9 +27,10 @@ class TestGetContextStrategy:
         strategy = get_context_strategy("coding")
         assert isinstance(strategy, CodingContextStrategy)
 
-    def test_get_full_strategy(self):
-        strategy = get_context_strategy("full")
-        assert isinstance(strategy, FullContextStrategy)
+    def test_full_strategy_no_longer_exists(self):
+        """The full context strategy has been removed."""
+        with pytest.raises(ValueError, match="Unknown context strategy"):
+            get_context_strategy("full")
 
     def test_invalid_strategy_raises(self):
         with pytest.raises(ValueError, match="Unknown context strategy"):
@@ -177,20 +177,6 @@ class TestCodingContextStrategy:
         result = await strategy._gather_project_structure(str(tmp_path))
         assert result is not None
         assert "Files:" in result
-
-
-class TestFullContextStrategy:
-    """Test FullContextStrategy."""
-
-    @pytest.mark.asyncio
-    async def test_combines_research_and_coding(self):
-        strategy = FullContextStrategy()
-        result = await strategy.gather("/tmp")
-        # Should have date context from research
-        today = date.today()
-        assert today.strftime("%B %d, %Y") in result
-        # Should have project context from coding
-        assert "PROJECT CONTEXT" in result
 
 
 class TestRunCmd:

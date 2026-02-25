@@ -219,7 +219,7 @@ async def _run_agent_task(
         filesystem_enabled: If True, register filesystem tools.
         working_dir: Working directory for filesystem tools.
         permission_policy: Permission policy ("strict", "relaxed", "yolo").
-        profile_name: Agent profile name ("research", "coding", "full").
+        profile_name: Agent profile name ("research", "coding").
         python_provider: Python execution provider ("local" or "daytona").
     """
     # Import here to avoid circular imports
