@@ -6,68 +6,73 @@ Comprehensive technical documentation of the Reasoner system architecture.
 
 1. [System Overview](#system-overview)
 2. [Backend Architecture](#backend-architecture)
-3. [Frontend Architecture](#frontend-architecture)
-4. [Provider Layer](#provider-layer)
-5. [Thinking System](#thinking-system)
-6. [Agent Framework](#agent-framework)
-7. [Storage Layer](#storage-layer)
-8. [Configuration System](#configuration-system)
+3. [CLI/TUI System](#clitui-system)
+4. [Frontend Architecture](#frontend-architecture)
+5. [Provider Layer](#provider-layer)
+6. [Thinking System](#thinking-system)
+7. [Agent Framework](#agent-framework)
+8. [Storage Layer](#storage-layer)
+9. [Configuration System](#configuration-system)
 
 ---
 
 ## System Overview
 
-Reasoner is an AI chat application with multi-strategy reasoning capabilities. It consists of a FastAPI backend (orchestrator) and a React/Vite frontend (ui), connected to OpenAI-compatible LLM providers. Default configuration uses DeepInfra cloud, but supports local providers (llama-server, vLLM, Ollama) via environment variables.
+Reasoner is an AI chat application with multi-strategy reasoning capabilities. It consists of a FastAPI backend (orchestrator), a React/Vite frontend (ui), and a Textual-based CLI/TUI (cli), connected to OpenAI-compatible LLM providers. Default configuration uses DeepInfra cloud, but supports local providers (llama-server, vLLM, Ollama) and ChatGPT (via OAuth) as providers.
 
 ### High-Level Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
 │                                    USER                                          │
-│                               ┌──────────┐                                       │
-│                               │ Browser  │                                       │
-│                               └────┬─────┘                                       │
-└────────────────────────────────────┼─────────────────────────────────────────────┘
-                                     │
-┌────────────────────────────────────▼─────────────────────────────────────────────┐
-│                         FRONTEND - React + Vite (:3000)                          │
-│  ┌─────────────────┐   ┌─────────────────┐   ┌────────────────────────────────┐  │
-│  │ Conversation    │───│  Zustand Store  │───│  SSE Hooks                     │  │
-│  │ Views & UI      │   │  (app state)    │   │  (useSSE, useAgentSSE)         │  │
-│  └─────────────────┘   └─────────────────┘   └─────────────┬──────────────────┘  │
-└────────────────────────────────────────────────────────────┼─────────────────────┘
-                                     │ REST API              │ SSE stream
-                                     ▼                       ▼
+│                      ┌──────────┐        ┌──────────┐                            │
+│                      │ Browser  │        │ Terminal │                            │
+│                      └────┬─────┘        └────┬─────┘                            │
+└───────────────────────────┼───────────────────┼─────────────────────────────────┘
+                            │                   │
+┌───────────────────────────▼────────┐  ┌───────▼────────────────────────────────┐
+│  FRONTEND - React + Vite (:3000)   │  │  CLI/TUI - Textual (reasoner command)  │
+│  ┌─────────────┐  ┌─────────────┐  │  │  ┌─────────────┐  ┌────────────────┐  │
+│  │ Conversation │──│ Zustand     │  │  │  │ ChatScreen  │──│ APIClient      │  │
+│  │ Views & UI   │  │ Store       │  │  │  │ + Widgets   │  │ (HTTP + SSE)   │  │
+│  └─────────────┘  └──────┬──────┘  │  │  └──────┬──────┘  └───────┬────────┘  │
+│                   SSE Hooks        │  │         │ Textual msgs     │ REST/SSE  │
+└────────────────────┬───────────────┘  └─────────┼─────────────────┼────────────┘
+                     │ REST API + SSE             │                 │
+                     ▼                            ▼                 ▼
 ┌──────────────────────────────────────────────────────────────────────────────────┐
 │                          BACKEND - FastAPI (:9000)                               │
 │  ┌──────────────┐   ┌────────────────────┐   ┌────────────────────────────────┐  │
 │  │   Routes     │───│    ChatEngine      │───│    Provider Layer              │  │
-│  │ /api/*       │   │  orchestration     │   │  LLMProvider protocol          │  │
+│  │ /api/*       │   │  orchestration     │   │  OpenAI-compat + ChatGPT      │  │
 │  └──────────────┘   └─────────┬──────────┘   └────────────────────────────────┘  │
 │                               │                                                   │
 │  ┌──────────────┐   ┌─────────▼──────────┐   ┌────────────────────────────────┐  │
 │  │ Repositories │   │ ThinkingOrchestrator│   │      Agent Engine             │  │
-│  │ SQLite DAOs  │   │  strategy routing   │   │  tool calling + synthesis     │  │
+│  │ SQLite DAOs  │   │  strategy routing   │   │  profiles + tools + approval  │  │
 │  └──────────────┘   └────────────────────┘   └────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────────────────────────────┘
                                │                              │
                                ▼                              ▼
 ┌──────────────────────────────────────────┐  ┌────────────────────────────────────┐
-│   LLM Provider (DeepInfra / llama-server │  │   SQLite (var/traces.sqlite)       │
-│   / vLLM / Ollama / OpenAI)              │  │ conversations | runs | trace_events│
-│   OpenAI-compatible API                  │  │ agent_steps | agent_tool_calls     │
-│   - /v1/chat/completions (default)       │  └────────────────────────────────────┘
-│   - /v1/responses (gpt-oss native)       │
+│   LLM Provider                           │  │   SQLite (var/traces.sqlite)       │
+│   - DeepInfra / llama-server / vLLM      │  │ conversations | runs | trace_events│
+│   - ChatGPT (OAuth + Codex API)          │  │ agent_steps | agent_tool_calls     │
+│   - /v1/chat/completions (default)       │  │ run_events | run_artifacts         │
+│   - /v1/responses (gpt-oss native)       │  └────────────────────────────────────┘
 └──────────────────────────────────────────┘
 ```
 
 ### Key Features
 
-- **Dual Mode Operation**: Chat mode (conversational) and Research mode (agent with tools)
-- **Multi-Provider Support**: LM Studio, vLLM, Ollama, OpenAI, and any OpenAI-compatible API
+- **Triple Interface**: Web UI (React), CLI/TUI (Textual), and REST API
+- **Agent Profiles**: Research (web + python) and Coding (filesystem + web + python) modes
+- **Filesystem Tools**: bash, glob, grep, read_file, edit_file, write_file, list_directory
+- **Tool Approval Flow**: Permission-gated tool execution (strict/relaxed/yolo policies)
+- **Multi-Provider Support**: DeepInfra, ChatGPT (OAuth), llama-server, vLLM, Ollama
 - **Streaming-First**: Real-time token streaming via Server-Sent Events (SSE)
-- **Thinking Strategies**: Direct strategy with native reasoning support (gpt-oss models)
-- **Full Traceability**: Every LLM call, tool execution, and event is recorded in SQLite
+- **Context Management**: Token-aware history pruning, turn summaries, project context injection
+- **Full Traceability**: Every LLM call, tool execution, approval, and file change is recorded
 - **Provider Failover**: Circuit breaker pattern with automatic provider switching
 
 ---
@@ -77,65 +82,94 @@ Reasoner is an AI chat application with multi-strategy reasoning capabilities. I
 ### Directory Structure
 
 ```
-orchestrator/
-├── app.py                    # FastAPI entry point, middleware, routers
-├── config.py                 # Configuration system (ChatConfig, ProviderConfig)
-├── chat_config.yaml          # Runtime settings (single source of truth)
-├── schemas.py                # Pydantic request/response models
-├── logging_config.py         # Structured JSON logging
+cli/                              # CLI/TUI (Textual framework)
+├── __main__.py                   # Click entry point (reasoner command)
+├── app.py                        # ReasonerApp (Textual App), custom theme
+├── config.py                     # CLIConfig, session persistence (~/.config/reasoner/)
+├── api_client.py                 # APIClient (HTTP + SSE streaming, tool approval)
+├── auth.py                       # ChatGPT OAuth PKCE flow
+├── events.py                     # Textual message classes for SSE→UI routing
+├── screens/
+│   └── chat_screen.py            # ChatScreen (main UI surface, event handlers, approval flow)
+└── widgets/
+    ├── input_area.py             # InputArea (multi-line, approval mode)
+    ├── message_bubble.py         # MessageBubble (user/assistant containers)
+    ├── message_list.py           # MessageList (scrollable, auto-scroll)
+    ├── thinking_panel.py         # ThinkingPanel (expandable, ∴ symbol)
+    ├── tool_call_panel.py        # ToolCallPanel (expandable, approval display)
+    ├── streaming_markdown.py     # StreamingMarkdown (token accumulation)
+    ├── status_bar.py             # StatusBar (mode, model, step, context usage)
+    └── agent_progress.py         # AgentProgress indicator
+
+orchestrator/                     # Backend (FastAPI)
+├── app.py                        # FastAPI entry point, middleware, routers
+├── config.py                     # Configuration system (ChatConfig, ProviderConfig)
+├── chat_config.yaml              # Runtime settings (single source of truth)
+├── schemas.py                    # Pydantic request/response models
+├── logging_config.py             # Structured JSON logging
 │
 ├── engine/
-│   └── chat_engine.py        # Core chat orchestration
+│   └── chat_engine.py            # Core chat orchestration
 │
 ├── providers/
-│   ├── base.py               # LLMProvider protocol, LLMResponse dataclass
-│   ├── factory.py            # Provider factory (single or chained)
-│   ├── openai_compat.py      # OpenAI-compatible client (~825 lines)
-│   ├── chain.py              # Provider chain with failover
-│   ├── circuit_breaker.py    # Circuit breaker implementation
-│   ├── request_builders.py   # Build requests for different endpoints
-│   └── response_parsers.py   # Parse responses from different endpoints
+│   ├── base.py                   # LLMProvider protocol, LLMResponse dataclass
+│   ├── factory.py                # Provider factory (single or chained)
+│   ├── openai_compat.py          # OpenAI-compatible client
+│   ├── chatgpt.py                # ChatGPT OAuth provider (Codex Responses API)
+│   ├── chain.py                  # Provider chain with failover
+│   ├── circuit_breaker.py        # Circuit breaker implementation
+│   ├── request_builders.py       # Build requests for different endpoints
+│   └── response_parsers.py       # Parse responses from different endpoints
 │
 ├── thinking/
-│   ├── base.py               # ThinkingStrategy ABC, StreamParser, data models
-│   ├── orchestrator.py       # Strategy registry and routing
+│   ├── base.py                   # ThinkingStrategy ABC, StreamParser, data models
+│   ├── orchestrator.py           # Strategy registry and routing
 │   └── strategies/
-│       └── direct.py         # Single model call (fastest)
+│       └── direct.py             # Single model call (fastest)
 │
 ├── agent/
-│   ├── agent_engine.py       # Agent loop with tool calling
-│   ├── planner.py            # Research plan generation
-│   ├── state_machine.py      # Agent state management
-│   ├── context_pruner.py     # Token budget management
-│   ├── query_classifier.py   # Query type classification
-│   ├── recovery.py           # Crash recovery support
+│   ├── agent_engine.py           # Agent loop with tool calling + approval
+│   ├── profile.py                # AgentProfile (research/coding), system prompts
+│   ├── context.py                # Context strategies (research/coding)
+│   ├── planner.py                # Research plan generation
+│   ├── state_machine.py          # Agent state management
+│   ├── context_pruner.py         # Token budget management
+│   ├── query_classifier.py       # Query type classification
+│   ├── recovery.py               # Crash recovery support
 │   └── tools/
-│       ├── base.py           # BaseTool protocol
-│       ├── registry.py       # Tool registry
-│       ├── web_search.py     # Parallel.ai web search
-│       ├── web_extract.py    # Content extraction
-│       ├── python_local.py   # Local Python execution
-│       ├── python_daytona.py # Daytona cloud sandbox
-│       └── python_sandbox.py # E2B sandbox (deprecated)
+│       ├── base.py               # BaseTool protocol, ToolResult, ToolSchema
+│       ├── registry.py           # Tool registry
+│       ├── bash_tool.py          # Shell command execution (dangerous)
+│       ├── read_file.py          # File reading with line numbers (auto)
+│       ├── write_file.py         # File creation/overwrite (confirm)
+│       ├── edit_file.py          # Exact string replacement (confirm)
+│       ├── glob_tool.py          # File pattern matching (auto)
+│       ├── grep_tool.py          # Regex content search (auto)
+│       ├── list_directory.py     # Tree-style directory listing (auto)
+│       ├── web_search.py         # Parallel.ai web search
+│       ├── web_extract.py        # Content extraction
+│       ├── python_local.py       # Local Python execution
+│       ├── python_daytona.py     # Daytona cloud sandbox
+│       └── python_sandbox.py     # E2B sandbox (deprecated)
 │
 ├── routes/
-│   ├── conversations.py      # Conversation CRUD
-│   ├── runs.py               # Chat runs + SSE streaming
-│   ├── agent_runs.py         # Agent runs + SSE streaming
-│   └── benchmarks.py         # GAIA benchmark traces API
+│   ├── conversations.py          # Conversation CRUD
+│   ├── runs.py                   # Chat runs + SSE streaming
+│   ├── agent_runs.py             # Agent runs + SSE + tool approval endpoints
+│   └── benchmarks.py             # GAIA benchmark traces API
 │
 ├── storage/
-│   ├── db.py                 # Async SQLite wrapper
-│   ├── schema.sql            # Database schema
+│   ├── db.py                     # Async SQLite wrapper
+│   ├── schema.sql                # Database schema
 │   └── repositories/
 │       ├── conversation_repo.py  # Conversation data access
 │       ├── trace_repo.py         # Runs and trace events
 │       └── agent_repo.py         # Agent-specific tables
 │
 └── utils/
-    ├── tokens.py             # Token counting (cl100k_base)
-    ├── sanitize.py           # Response sanitization
-    └── harmony_parser.py     # gpt-oss Harmony format parsing
+    ├── tokens.py                 # Token counting (cl100k_base)
+    ├── sanitize.py               # Response sanitization
+    └── harmony_parser.py         # gpt-oss Harmony format parsing
 ```
 
 ### Application Entry Point (`app.py`)
@@ -216,6 +250,137 @@ class ChatResult:
     token_usage: Optional[dict]
     thinking_summary: str
 ```
+
+---
+
+## CLI/TUI System
+
+The CLI provides a terminal-based interface to the Reasoner agent, built with the [Textual](https://textual.textualize.io/) framework.
+
+### Installation & Invocation
+
+```bash
+# Installed via pyproject.toml entry point
+reasoner                          # Default (DeepInfra, agent mode)
+reasoner --provider chatgpt       # ChatGPT OAuth provider
+reasoner --local                  # Interactive local model picker
+reasoner --mode chat              # Chat mode (no tools)
+reasoner --permission strict      # Require approval for all tools
+reasoner --working-dir /path      # Set filesystem root
+reasoner --max-steps 20           # Override max agent steps
+```
+
+### Screen Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Header (mode + provider/model info)                             │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                   │
+│  MessageList (scrollable, auto-scroll)                            │
+│  ├── MessageBubble (user)                                        │
+│  │   └── "What files handle routing?"                            │
+│  ├── MessageBubble (assistant)                                   │
+│  │   ├── ThinkingPanel (expandable, ∴ symbol)                    │
+│  │   ├── ToolCallPanel (expandable, ▸/▾ toggle)                  │
+│  │   │   └── "read_file(path=orchestrator/routes/runs.py)"       │
+│  │   ├── ToolCallPanel (approval mode)                           │
+│  │   │   └── "[y/n] bash(command=grep -r 'router' ...)"         │
+│  │   └── StreamingMarkdown (answer tokens)                       │
+│  └── ...                                                         │
+│                                                                   │
+├─────────────────────────────────────────────────────────────────┤
+│  InputArea (multi-line, Enter to submit, Shift+Enter newline)    │
+│  [Approval mode: read-only, shows full args, y/n to decide]     │
+├─────────────────────────────────────────────────────────────────┤
+│  StatusBar (mode | model | step N/M | context usage)             │
+├─────────────────────────────────────────────────────────────────┤
+│  Footer (keybindings)                                            │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Tool Approval Flow
+
+The CLI implements a permission-gated approval system for dangerous tool operations:
+
+```
+Agent wants to run bash("rm -rf /tmp/old")
+        │
+        ▼
+┌─────────────────────┐
+│ Check permission     │
+│ policy               │
+└──────────┬──────────┘
+           │
+    ┌──────┴──────┬──────────────┐
+    ▼             ▼              ▼
+ "yolo"       "relaxed"      "strict"
+ (auto)    (auto for read,  (approve all)
+           confirm writes)
+    │             │              │
+    │      ┌──────┴──────┐      │
+    │      │ permission  │      │
+    │      │ = "auto"?   │      │
+    │      └──┬──────┬───┘      │
+    │     yes │      │ no       │
+    │         │      ▼          │
+    │         │  ┌──────────┐   │
+    │         │  │ Require  │◄──┘
+    │         │  │ approval │
+    │         │  └────┬─────┘
+    │         │       │
+    │         │       ▼
+    │         │  SSE: tool_approval_required
+    │         │       │
+    │         │       ▼
+    │         │  InputArea switches to approval mode
+    │         │  User presses y (approve) or n (deny)
+    │         │       │
+    │         │       ▼
+    │         │  POST /api/agent/runs/{id}/approve/{tool_call_id}
+    │         │  POST /api/agent/runs/{id}/deny/{tool_call_id}
+    │         │       │
+    ▼         ▼       ▼
+       Tool executes (or skipped if denied)
+```
+
+**Permission Levels** (per tool):
+- `auto` — Read-only tools (read_file, glob, grep, list_directory). Always execute.
+- `confirm` — Write tools (edit_file, write_file). Require approval in strict/relaxed.
+- `dangerous` — Shell execution (bash). Require approval unless yolo.
+
+**Approval Timeout**: 5 minutes. Tool is denied if no response.
+
+### Slash Commands
+
+| Command | Description |
+|---------|-------------|
+| `/login` | Initiate ChatGPT OAuth (opens browser) |
+| `/logout` | Clear session, revert to default provider |
+| `/status` | Show auth status, provider, and model info |
+| `/help` | Show available commands |
+
+### Event System
+
+The CLI uses Textual message classes to bridge SSE events to widget updates:
+
+| SSE Event | Textual Message | Widget Handler |
+|-----------|-----------------|----------------|
+| `step_start` | `StepStartEvent` | StatusBar step counter |
+| `thinking` | `ThinkingEvent` | ThinkingPanel.append_token() |
+| `tool_start` | `ToolStartEvent` | Creates ToolCallPanel |
+| `tool_approval_required` | `ToolApprovalRequiredEvent` | InputArea → approval mode |
+| `tool_result` | `ToolResultEvent` | ToolCallPanel.set_result() |
+| `answer` | `AnswerTokenEvent` | StreamingMarkdown.append_token() |
+| `complete` | `AgentCompleteEvent` | Finalize run, show context usage |
+| `error` | `AgentErrorEvent` | Display error message |
+
+### Configuration
+
+CLI config is stored at `~/.config/reasoner/`:
+- `config.json` — Session cookie, CLI session ID
+- Provider/model selection via CLI flags or `/login` command
+- Profile is always `coding` for CLI usage
 
 ---
 
@@ -380,6 +545,17 @@ The provider supports two OpenAI endpoints with automatic fallback:
 1. Try `/v1/responses` first
 2. On 404/405, cache result and use `/v1/chat/completions`
 3. Cached per `base_url` for session
+
+### ChatGPT Provider
+
+The `ChatGPTProvider` (`orchestrator/providers/chatgpt.py`) enables direct access to ChatGPT models via OAuth:
+
+- **Auth**: OAuth PKCE flow initiated from CLI (`/login` command) or web UI
+- **API**: Translates to ChatGPT's Codex Responses API (`chatgpt.com/backend-api/codex/responses`)
+- **Translation**: Converts chat completions format → Codex format, maps streaming deltas back
+- **Models**: gpt-5.2-codex, o4-mini, gpt-4o, o3
+- **Token refresh**: Supports `update_token()` for session management
+- **Retry**: Exponential backoff (3 attempts max)
 
 ### Provider Switching
 
@@ -621,17 +797,69 @@ agent_planning:
 Any state can transition to ERROR on failure
 ```
 
+### Agent Profiles
+
+Profiles configure the agent's tool set, system prompt, and context strategy:
+
+| Profile | Tools | Context | Max Steps | Use Case |
+|---------|-------|---------|-----------|----------|
+| `research` | web_search, web_extract, python_execute | Date + knowledge cutoff | 25 | Web UI research mode |
+| `coding` | All filesystem + web + python (10 tools) | 5-layer project context | 30 | CLI coding assistant |
+
+**System Prompt Architecture**:
+- **UNDERSTAND INTENT**: Focus on what users want, not literal words
+- **STEP BACK WHEN STUCK**: If 2 attempts fail, reconsider approach
+- **STAY ON TASK**: Track back to original question
+- **BEFORE EACH TOOL CALL**: State why (1 sentence max)
+- **STOPPING CRITERIA**: Profile-specific rules for when to synthesize
+- Forced synthesis at max steps includes accumulated findings
+
 ### Available Tools
 
-| Tool | Description | Provider | Registration |
-|------|-------------|----------|--------------|
-| `python_execute` | Execute Python code | Local subprocess or Daytona | Always registered |
-| `web_search` | Search the web for information | Parallel.ai | Requires `PARALLEL_API_KEY` |
-| `web_extract` | Extract content from URLs | Parallel.ai | Requires `PARALLEL_API_KEY` |
+| Tool | Description | Permission | Idempotent | Profile |
+|------|-------------|------------|------------|---------|
+| `bash` | Shell command execution | `dangerous` | No | coding |
+| `read_file` | Read file with line numbers | `auto` | Yes | coding |
+| `write_file` | Create/overwrite file | `confirm` | No | coding |
+| `edit_file` | Exact string replacement | `confirm` | No | coding |
+| `glob` | File pattern matching | `auto` | Yes | coding |
+| `grep` | Regex content search (uses ripgrep if available) | `auto` | Yes | coding |
+| `list_directory` | Tree-style directory listing | `auto` | Yes | coding |
+| `web_search` | Search the web for information | `auto` | Yes | research, coding |
+| `web_extract` | Extract content from URLs | `auto` | Yes | research, coding |
+| `python_execute` | Execute Python code | `auto` | No | research, coding |
 
 **Python Execution Providers** (set via `PYTHON_PROVIDER` env var):
 - `local` (default): Fast subprocess execution
 - `daytona`: Secure cloud sandbox via Daytona SDK (~90ms startup)
+
+### Context Management
+
+The context system prevents token blowout while maintaining relevant information:
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                  Context Pipeline                         │
+│                                                           │
+│  1. Context Strategy (profile-dependent)                  │
+│     ├─ Research: date + knowledge cutoff                  │
+│     └─ Coding: 5-layer project context                    │
+│        ├─ Environment (OS, Python/Node versions)          │
+│        ├─ Project rules (.reasoner/rules.md, CLAUDE.md)   │
+│        ├─ Structure (file tree, dependencies)             │
+│        ├─ Git state (branch, status, last 3 commits)      │
+│        └─ Working directory                               │
+│                                                           │
+│  2. History Builder (conversation turns → messages)       │
+│                                                           │
+│  3. Context Pruner (token-aware)                          │
+│     ├─ Keep last 2 steps detailed                         │
+│     ├─ Summarize older tool results via LLM               │
+│     ├─ Python output: head/tail pattern (not LLM)         │
+│     ├─ Cache summaries to prevent duplicates              │
+│     └─ Fallback to basic truncation on error              │
+└─────────────────────────────────────────────────────────┘
+```
 
 ### Crash Recovery
 
@@ -695,6 +923,9 @@ The agent tracks total tokens used across all LLM calls:
                      │    │ thinking_text   │  │    │ arguments       │
                      │    │ decision        │  │    │ status          │
                      │    └─────────────────┘  │    │ result_summary  │
+                     │                         │    │ approval_decision│ (NEW)
+                     │                         │    │ approval_policy │ (NEW)
+                     │                         │    │ result_detail   │ (NEW)
                      │                         │    │ idempotency_key │
                      │                         │    └─────────────────┘
                      │                         │
@@ -707,6 +938,19 @@ The agent tracks total tokens used across all LLM calls:
                      │                              │ source_url      │
                      │                              │ snippet         │
                      │                              │ used_in_answer  │
+                     │                              └─────────────────┘
+                     │
+                     │    ┌─────────────────┐       ┌─────────────────┐
+                     │    │   run_events    │ (NEW) │  run_artifacts  │ (NEW)
+                     │    ├─────────────────┤       ├─────────────────┤
+                     │    │ id              │       │ id              │
+                     │    │ run_id          │       │ run_id          │
+                     │    │ seq             │       │ artifact_type   │
+                     │    │ event_type      │       │ file_path       │
+                     │    │ event_data      │       │ action          │
+                     │    │ created_at      │       │ detail          │
+                     │    └─────────────────┘       │ tool_call_id    │
+                     │                              │ created_at      │
                      │                              └─────────────────┘
                      │
                      └─── (1:N relationship)
