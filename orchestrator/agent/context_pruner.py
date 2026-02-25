@@ -433,15 +433,13 @@ Output 2-3 sentences max. Do not include navigation, ads, or boilerplate."""
         return self._summarize_tool_result(msg)
 
     def estimate_tokens(self, messages: List[Dict[str, Any]]) -> int:
-        """Estimate token count for messages.
+        """Count tokens for messages using tiktoken.
 
         Args:
             messages: List of message dicts.
 
         Returns:
-            Estimated token count.
+            Token count.
         """
-        total_chars = sum(len(str(m.get("content", ""))) for m in messages)
-        # Add overhead for message structure
-        overhead = len(messages) * 10
-        return int((total_chars + overhead) / self.CHARS_PER_TOKEN)
+        from orchestrator.utils.tokens import get_token_counter
+        return get_token_counter().count_message_dicts(messages)

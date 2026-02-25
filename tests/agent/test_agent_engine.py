@@ -238,13 +238,15 @@ class TestAgentEngineHelpers:
             system_prompt="You are helpful.",
         )
 
-        messages = await engine._build_initial_messages("What is 2+2?")
+        messages, budget = await engine._build_initial_messages("What is 2+2?")
 
         assert len(messages) == 2
         assert messages[0]["role"] == "system"
         assert messages[0]["content"] == "You are helpful."
         assert messages[1]["role"] == "user"
         assert messages[1]["content"] == "What is 2+2?"
+        assert budget.max_tokens == 100000
+        assert budget.history_tokens == 0
 
     def test_extract_thinking_with_tags(self):
         """Extract thinking from Harmony format."""

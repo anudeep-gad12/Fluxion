@@ -305,6 +305,13 @@ class ChatScreen(Screen):
         status_bar.set_busy(False)
         status_bar.set_step("")
 
+        # Show context usage if available
+        ctx = event.data.get("context_usage")
+        if ctx and ctx.get("max_tokens"):
+            status_bar.set_context_usage(
+                ctx["total_tokens_used"], ctx["max_tokens"]
+            )
+
         # Re-focus input
         self.query_one(InputArea).focus()
 

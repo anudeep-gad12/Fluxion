@@ -255,13 +255,13 @@ class TestContextPrunerEstimateTokens:
     """Tests for token estimation."""
 
     def test_estimate_tokens_basic(self):
-        """Token estimation works for basic messages."""
+        """Token estimation works for basic messages (tiktoken)."""
         pruner = ContextPruner()
-        messages = [{"role": "user", "content": "A" * 400}]
+        messages = [{"role": "user", "content": "Hello, how are you doing today?"}]
         tokens = pruner.estimate_tokens(messages)
-        # 400 chars + 10 overhead = 410, / 4 = ~102
+        # tiktoken: ~8 tokens + 4 overhead = ~12
         assert tokens > 0
-        assert tokens < 200
+        assert tokens < 50
 
     def test_estimate_tokens_empty(self):
         """Empty messages returns minimal tokens."""
@@ -273,12 +273,12 @@ class TestContextPrunerEstimateTokens:
         """Multiple messages accumulate tokens."""
         pruner = ContextPruner()
         messages = [
-            {"role": "user", "content": "A" * 100},
-            {"role": "assistant", "content": "B" * 100},
+            {"role": "user", "content": "The quick brown fox jumps over the lazy dog"},
+            {"role": "assistant", "content": "Indeed it does, and quite gracefully at that"},
         ]
         tokens = pruner.estimate_tokens(messages)
-        # 200 chars + 20 overhead = 220, / 4 = 55
-        assert tokens > 50
+        # tiktoken: ~20 text tokens + 8 overhead = ~28
+        assert tokens > 20
 
 
 class TestPruneStats:
