@@ -293,9 +293,7 @@ reasoner --max-steps 20           # Override max agent steps
 │  InputArea (multi-line, Enter to submit, Shift+Enter newline)    │
 │  [Approval mode: read-only, shows full args, y/n to decide]     │
 ├─────────────────────────────────────────────────────────────────┤
-│  StatusBar (mode | model | step N/M | context usage)             │
-├─────────────────────────────────────────────────────────────────┤
-│  Footer (keybindings)                                            │
+│  StatusBar (mode | model | step N/M | ctx 15% (14.8k))           │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -351,6 +349,12 @@ Agent wants to run bash("rm -rf /tmp/old")
 
 **Approval Timeout**: 5 minutes. Tool is denied if no response.
 
+**Resilience**:
+- If the server restarts mid-approval (POST returns 404), the CLI shows "Run was interrupted (server restarted)" and resets.
+- SSE connection loss (closed/reset/refused) is detected and surfaced as "Connection lost — server may have restarted."
+- After approval, the status bar shows "executing tool…" until the tool result arrives.
+- `_force_reset_run()` cancels the backend run and resets all UI state on unrecoverable failures.
+
 ### Slash Commands
 
 | Command | Description |
@@ -358,6 +362,7 @@ Agent wants to run bash("rm -rf /tmp/old")
 | `/login` | Initiate ChatGPT OAuth (opens browser) |
 | `/logout` | Clear session, revert to default provider |
 | `/status` | Show auth status, provider, and model info |
+| `/switch [provider]` | Switch provider mid-session (default, chatgpt) |
 | `/help` | Show available commands |
 
 ### Event System
@@ -379,8 +384,12 @@ The CLI uses Textual message classes to bridge SSE events to widget updates:
 
 CLI config is stored at `~/.config/reasoner/`:
 - `config.json` — Session cookie, CLI session ID
-- Provider/model selection via CLI flags or `/login` command
+- `provider` — Persisted provider preference (survives restarts)
+- `chatgpt_auth.json` — Backed-up ChatGPT OAuth tokens (survives DB wipes/reinstalls)
+- Provider/model selection via CLI flags, `/login`, or `/switch` command
 - Profile is always `coding` for CLI usage
+
+**ChatGPT Auth Persistence**: On login, tokens are backed up to `~/.config/reasoner/chatgpt_auth.json`. On startup, the CLI auto-checks saved auth against the backend. If the session expired but backup tokens exist, it attempts a restore via refresh token.
 
 ---
 
