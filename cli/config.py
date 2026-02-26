@@ -22,7 +22,7 @@ class CLIConfig:
     mode: str = "agent"
     permission: str = "strict"
     working_dir: str = "."
-    max_steps: int = 15
+    max_steps: int = 1000
     session_cookie: Optional[str] = None
     session_id: Optional[str] = None  # CLI session ID for ChatGPT auth
     profile: str = "coding"  # CLI always uses coding profile
@@ -36,7 +36,7 @@ class CLIConfig:
         mode: str = "agent",
         permission: str = "strict",
         working_dir: str = ".",
-        max_steps: int = 15,
+        max_steps: int = 1000,
     ) -> "CLIConfig":
         """Create config from CLI arguments.
 

@@ -111,7 +111,7 @@ class TestChatModelConfig:
         config = ChatModelConfig()
         assert config.name == "openai/gpt-oss-120b"
         assert config.temperature == 0.7
-        assert config.max_tokens == 4096
+        assert config.max_tokens == 16384
         assert config.reasoning_effort is None
 
     def test_reasoning_effort_values(self):

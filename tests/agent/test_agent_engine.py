@@ -177,8 +177,8 @@ class TestAgentEngineInit:
         )
 
         assert engine._model_name == "openai/gpt-oss-120b"
-        assert engine._max_steps == 10
-        assert engine._max_tokens == 4096
+        assert engine._max_steps == 1000
+        assert engine._max_tokens == 16384
         assert engine._temperature == 0.7
 
     def test_init_with_custom_settings(self):
