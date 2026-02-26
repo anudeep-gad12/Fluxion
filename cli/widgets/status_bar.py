@@ -111,14 +111,15 @@ class StatusBar(Horizontal):
         Args:
             context_tokens: Current context window fill (tokens in messages).
             context_max: Max context window size.
-            total_tokens_used: Cumulative API tokens across all LLM calls.
+            total_tokens_used: Ignored (cumulative API billing, not useful to show).
         """
-        self._update_context_display(context_tokens, context_max, total_tokens_used)
+        self._update_context_display(context_tokens, context_max)
 
-    def _update_context_display(
-        self, used: int, total: int, total_tokens_used: int = 0
-    ) -> None:
-        """Update the context info display."""
+    def _update_context_display(self, used: int, total: int) -> None:
+        """Update the context info display.
+
+        Shows context window fill as percentage, e.g. "ctx 15% (14.8k)".
+        """
         if total <= 0:
             return
 
@@ -129,16 +130,13 @@ class StatusBar(Horizontal):
                 return f"{n / 1_000:.1f}k"
             return str(n)
 
-        # Context window fill percentage
         pct = used / total * 100
         if pct > 80:
-            ctx_color = "yellow"
+            color = "yellow"
         else:
-            ctx_color = "dim"
+            color = "dim"
 
-        text = f"[{ctx_color}]{_fmt(used)}/{_fmt(total)}[/{ctx_color}]"
-        if total_tokens_used:
-            text += f" [dim]{_fmt(total_tokens_used)} tokens[/dim]"
+        text = f"[{color}]ctx {int(pct)}% ({_fmt(used)})[/{color}]"
 
         try:
             self.query_one("#status-context", Static).update(f" {text} ")
