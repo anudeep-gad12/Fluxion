@@ -272,7 +272,7 @@ class AgentProfile:
     context_strategy: str
     planning_prompt_template: str
     plan_step_types: List[str]
-    max_steps: int = 25
+    max_steps: int = 1000
     max_plan_steps: int = 5
     findings_tools: List[str] = field(default_factory=list)
 
@@ -290,7 +290,7 @@ PROFILES: Dict[str, AgentProfile] = {
         context_strategy="research",
         planning_prompt_template=RESEARCH_PLANNING_PROMPT,
         plan_step_types=["search", "extract", "calculate", "synthesize"],
-        max_steps=25,
+        max_steps=1000,
         max_plan_steps=5,
         findings_tools=["web_search", "web_extract", "python_execute"],
     ),
@@ -302,7 +302,7 @@ PROFILES: Dict[str, AgentProfile] = {
         context_strategy="coding",
         planning_prompt_template=CODING_PLANNING_PROMPT,
         plan_step_types=["read", "implement", "test", "debug", "synthesize"],
-        max_steps=30,
+        max_steps=1000,
         max_plan_steps=5,
         findings_tools=[
             "web_search", "web_extract", "python_execute",

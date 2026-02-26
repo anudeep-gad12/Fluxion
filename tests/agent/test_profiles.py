@@ -174,11 +174,11 @@ class TestProfileDefaults:
 
     def test_research_max_steps(self):
         profile = get_profile("research")
-        assert profile.max_steps == 10
+        assert profile.max_steps == 1000
 
     def test_coding_max_steps(self):
         profile = get_profile("coding")
-        assert profile.max_steps == 15
+        assert profile.max_steps == 1000
 
     def test_all_profiles_have_max_plan_steps(self):
         for name in PROFILES:
