@@ -46,6 +46,8 @@ class StatusBar(Horizontal):
         yield Static(" · ", classes="status-item status-separator")
         yield Static("", classes="status-item status-activity", id="status-activity")
         yield Static("", classes="status-spacer")
+        yield Static("", classes="status-item status-context", id="status-context")
+        yield Static(" · ", classes="status-item status-separator")
         yield Static(
             " ○ " if not self._connected else " ● ",
             classes="status-item "
@@ -74,12 +76,46 @@ class StatusBar(Horizontal):
             self.query_one("#status-activity", Static).update("")
 
     def set_context_usage(self, used: int, total: int) -> None:
-        """Show context window utilization in the activity area."""
-        pct = (used / total * 100) if total > 0 else 0
-        color = "yellow" if pct > 80 else "dim"
-        self.query_one("#status-activity", Static).update(
-            f" [{color}]ctx {pct:.0f}%[/{color}] "
-        )
+        """Show context window utilization (final, after run completes)."""
+        self._update_context_display(used, total)
+
+    def set_context_live(
+        self, context_tokens: int, context_max: int, total_tokens_used: int
+    ) -> None:
+        """Update live context/token display during a run."""
+        self._update_context_display(context_tokens, context_max, total_tokens_used)
+
+    def _update_context_display(
+        self, used: int, total: int, total_tokens_used: int = 0
+    ) -> None:
+        """Update the context info display."""
+        if total <= 0:
+            return
+        pct = used / total * 100
+
+        # Format token counts as compact strings (e.g. 12.5k, 250k)
+        def _fmt(n: int) -> str:
+            if n >= 1_000_000:
+                return f"{n / 1_000_000:.1f}M"
+            if n >= 1_000:
+                return f"{n / 1_000:.0f}k"
+            return str(n)
+
+        if pct > 80:
+            color = "yellow"
+        elif pct > 50:
+            color = "dim"
+        else:
+            color = "dim"
+
+        parts = f"[{color}]{_fmt(used)}/{_fmt(total)}[/{color}]"
+        if total_tokens_used:
+            parts += f" [dim]· {_fmt(total_tokens_used)} used[/dim]"
+
+        try:
+            self.query_one("#status-context", Static).update(f" {parts} ")
+        except Exception:
+            pass
 
     def set_connected(self, connected: bool) -> None:
         """Update connection status."""
