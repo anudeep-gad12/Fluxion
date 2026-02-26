@@ -646,6 +646,51 @@ async def chatgpt_status(request: Request, cli_session: Optional[str] = None):
     }
 
 
+@router.get("/export")
+async def chatgpt_export(request: Request, cli_session: Optional[str] = None):
+    """Export refresh token for CLI backup.
+
+    The CLI calls this after login to save credentials locally so they
+    survive database wipes / reinstalls.
+    """
+    session_id = cli_session or _get_session_id(request)
+    if not session_id:
+        raise HTTPException(status_code=401, detail="No session")
+
+    tokens = await _get_tokens(session_id)
+    if not tokens:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    return {
+        "session_id": session_id,
+        "refresh_token": tokens["refresh_token"],
+        "account_id": tokens["account_id"],
+    }
+
+
+@router.post("/restore")
+async def chatgpt_restore(request: Request):
+    """Restore ChatGPT tokens from a backup refresh token.
+
+    The CLI calls this on startup when the database has no tokens
+    but a local backup file exists.
+    """
+    body = await request.json()
+    session_id = body.get("session_id")
+    refresh_token = body.get("refresh_token")
+    if not session_id or not refresh_token:
+        raise HTTPException(status_code=400, detail="Missing session_id or refresh_token")
+
+    tokens = await _refresh_access_token(session_id, refresh_token)
+    if not tokens:
+        raise HTTPException(
+            status_code=401,
+            detail="Refresh token expired. Please re-login.",
+        )
+
+    return {"status": "restored", "expires_at": tokens["expires_at"]}
+
+
 @router.post("/logout")
 async def chatgpt_logout(request: Request):
     """Clear stored ChatGPT tokens."""

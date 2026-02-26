@@ -149,6 +149,14 @@ MessageBubble.assistant {
     color: $text;
 }
 
+MessageBubble.system {
+    padding: 0;
+}
+
+.system-message {
+    color: $text-muted;
+}
+
 /* ── Tool Call Panels ───────────────────────────────── */
 
 ToolCallPanel {
