@@ -4,7 +4,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
 from textual.screen import Screen
-from textual.widgets import Footer, Header, Static
+from textual.widgets import Header, Static
 
 from ..api_client import APIClient
 from ..config import CLIConfig
@@ -55,6 +55,7 @@ class ChatScreen(Screen):
         self._is_running = False
         self._current_step = 0
         self._chatgpt_available = False
+        self._cancel_requested = False
 
     def compose(self) -> ComposeResult:
         """Compose the chat screen layout."""
@@ -62,16 +63,11 @@ class ChatScreen(Screen):
         yield MessageList(id="message-list")
         with Vertical(id="input-container"):
             yield InputArea(id="input-area")
-            yield Static(
-                "Enter to send · Shift+Enter newline · Esc stop · Ctrl+C exit",
-                id="input-hint",
+            yield StatusBar(
+                mode=self._config.mode,
+                provider=self._config.provider,
+                model=self._config.model or "",
             )
-        yield StatusBar(
-            mode=self._config.mode,
-            provider=self._config.provider,
-            model=self._config.model or "",
-        )
-        yield Footer()
 
     async def on_mount(self) -> None:
         """Check backend connection and show welcome on mount."""
@@ -137,6 +133,7 @@ class ChatScreen(Screen):
         """Start an agent run and begin streaming events."""
         self._is_running = True
         self._current_step = 0
+        self._cancel_requested = False
         status_bar = self.query_one(StatusBar)
         status_bar.set_busy(True)
 
@@ -175,6 +172,10 @@ class ChatScreen(Screen):
             async for event in self._api_client.stream_agent_events(
                 self._current_run_id, self._current_stream_token
             ):
+                # Stop consuming if run was cancelled locally
+                if self._cancel_requested:
+                    break
+
                 event_type = event.get("event", "")
                 data = event.get("data", {})
 
@@ -204,7 +205,8 @@ class ChatScreen(Screen):
                     break
 
         except Exception as exc:
-            self.post_message(AgentErrorEvent({"error": str(exc)}))
+            if not self._cancel_requested:
+                self.post_message(AgentErrorEvent({"error": str(exc)}))
 
     def on_step_start_event(self, event: StepStartEvent) -> None:
         """Handle step start — update status bar with step and context info."""
@@ -266,28 +268,40 @@ class ChatScreen(Screen):
     ) -> None:
         """Handle tool approval request — switch input area to approval mode."""
         tool_call_id = event.data.get("tool_call_id", "")
+        tool_name = event.data.get("tool_name", "unknown")
         diff_preview = event.data.get("diff_preview")
 
+        # Find the matching tool panel
         try:
             panel = self.query_one(f"#tool-{tool_call_id}", ToolCallPanel)
+        except Exception:
+            # Panel not mounted yet or ID mismatch — create a fallback
+            panel = None
 
-            # Attach diff preview if available (write_file on existing file)
+        if panel:
             if diff_preview:
                 panel._diff_preview = diff_preview
-
             panel.show_approval_prompt()
             self._pending_approval = panel
 
             # Switch input area to approval mode with full tool details
             input_area = self.query_one(InputArea)
-            tool_display = panel.get_full_arguments_display()
+            try:
+                tool_display = panel.get_full_arguments_display()
+            except Exception:
+                tool_display = f"Approve {tool_name}?"
             input_area.enter_approval_mode(tool_display)
+        else:
+            # Fallback: still ask for approval even without the panel
+            self._pending_approval_ids = (
+                self._current_run_id or "",
+                tool_call_id,
+            )
+            input_area = self.query_one(InputArea)
+            input_area.enter_approval_mode(f"Approve {tool_name}?")
 
-            # Update hint text
-            hint = self.query_one("#input-hint", Static)
-            hint.update("Enter approve · [n] deny · scroll to review")
-        except Exception:
-            pass
+        status_bar = self.query_one(StatusBar)
+        status_bar.set_step("Enter approve · [n] deny")
 
         message_list = self.query_one(MessageList)
         message_list.scroll_to_bottom()
@@ -301,10 +315,10 @@ class ChatScreen(Screen):
         input_area.exit_approval_mode()
         input_area.focus()
 
-        # Restore hint text
-        hint = self.query_one("#input-hint", Static)
-        hint.update("Enter to send · Shift+Enter newline · Esc stop · Ctrl+C exit")
+        status_bar = self.query_one(StatusBar)
+        status_bar.set_step("")
 
+        # Primary path: panel-based approval
         if self._pending_approval and self._current_run_id:
             panel = self._pending_approval
             self._pending_approval = None
@@ -314,6 +328,17 @@ class ChatScreen(Screen):
                 self.run_worker(self._approve_tool(panel.run_id, panel.tool_call_id))
             else:
                 self.run_worker(self._deny_tool(panel.run_id, panel.tool_call_id))
+            return
+
+        # Fallback path: panel wasn't found, use stored IDs
+        fallback = getattr(self, "_pending_approval_ids", None)
+        if fallback and self._current_run_id:
+            run_id, tool_call_id = fallback
+            self._pending_approval_ids = None
+            if event.approved:
+                self.run_worker(self._approve_tool(run_id, tool_call_id))
+            else:
+                self.run_worker(self._deny_tool(run_id, tool_call_id))
 
     async def _approve_tool(self, run_id: str, tool_call_id: str) -> None:
         """Send tool approval to the API."""
@@ -321,6 +346,7 @@ class ChatScreen(Screen):
             await self._api_client.approve_tool(run_id, tool_call_id)
         except Exception as exc:
             self._add_system_message(f"Approval failed: {exc}")
+            await self._force_reset_run(run_id)
 
     async def _deny_tool(self, run_id: str, tool_call_id: str) -> None:
         """Send tool denial to the API."""
@@ -328,6 +354,32 @@ class ChatScreen(Screen):
             await self._api_client.deny_tool(run_id, tool_call_id)
         except Exception as exc:
             self._add_system_message(f"Denial failed: {exc}")
+            await self._force_reset_run(run_id)
+
+    async def _force_reset_run(self, run_id: str) -> None:
+        """Force-cancel and reset all run state after an unrecoverable failure."""
+        self._cancel_requested = True
+
+        try:
+            await self._api_client.cancel_run(run_id)
+        except Exception:
+            pass
+
+        self._is_running = False
+        self._current_run_id = None
+        self._pending_approval = None
+        self._streaming_md = None
+        self._current_bubble = None
+        self._current_step = 0
+
+        input_area = self.query_one(InputArea)
+        input_area.exit_approval_mode()
+
+        status_bar = self.query_one(StatusBar)
+        status_bar.set_busy(False)
+        status_bar.set_step("")
+
+        input_area.focus()
 
     def on_tool_result_event(self, event: ToolResultEvent) -> None:
         """Handle tool result."""
@@ -375,9 +427,6 @@ class ChatScreen(Screen):
         input_area.exit_approval_mode()
 
         # Restore hint text
-        hint = self.query_one("#input-hint", Static)
-        hint.update("Enter to send · Shift+Enter newline · Esc stop · Ctrl+C exit")
-
         status_bar = self.query_one(StatusBar)
         status_bar.set_busy(False)
         status_bar.set_step("")
@@ -409,9 +458,6 @@ class ChatScreen(Screen):
         input_area.exit_approval_mode()
 
         # Restore hint text
-        hint = self.query_one("#input-hint", Static)
-        hint.update("Enter to send · Shift+Enter newline · Esc stop · Ctrl+C exit")
-
         status_bar = self.query_one(StatusBar)
         status_bar.set_busy(False)
         status_bar.set_step("")
@@ -427,31 +473,32 @@ class ChatScreen(Screen):
 
     async def action_cancel_run(self) -> None:
         """Cancel the current agent run (Esc key)."""
-        # If in approval mode, exit it first
         input_area = self.query_one(InputArea)
+
+        # If in approval mode, deny the pending tool first
         if input_area.approval_mode:
             input_area.exit_approval_mode()
-            input_area.focus()
-            hint = self.query_one("#input-hint", Static)
-            hint.update("Enter to send · Shift+Enter newline · Esc stop · Ctrl+C exit")
-
-            # Deny the pending tool
-            if self._pending_approval and self._current_run_id:
+            if self._pending_approval:
                 panel = self._pending_approval
                 self._pending_approval = None
                 panel.resolve_approval(False)
-                self.run_worker(self._deny_tool(panel.run_id, panel.tool_call_id))
-            return
+                # Fire-and-forget deny — we're cancelling the whole run anyway
+                try:
+                    await self._api_client.deny_tool(panel.run_id, panel.tool_call_id)
+                except Exception:
+                    pass
+            # Fall through to cancel the run (don't return)
 
         if not self._is_running or not self._current_run_id:
+            input_area.focus()
             return
 
-        try:
-            await self._api_client.cancel_run(self._current_run_id)
-            self._add_system_message("Run cancelled.")
-        except Exception as exc:
-            self._add_system_message(f"Cancel failed: {exc}")
+        run_id = self._current_run_id
 
+        # Signal the SSE consumer to stop
+        self._cancel_requested = True
+
+        # Reset state immediately so UI is responsive
         self._is_running = False
         self._current_run_id = None
         self._pending_approval = None
@@ -464,6 +511,12 @@ class ChatScreen(Screen):
         status_bar.set_step("")
 
         input_area.focus()
+
+        try:
+            await self._api_client.cancel_run(run_id)
+            self._add_system_message("Run cancelled.")
+        except Exception as exc:
+            self._add_system_message(f"Cancel failed: {exc}")
 
     def action_new_conversation(self) -> None:
         """Start a new conversation."""
