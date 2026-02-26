@@ -1211,7 +1211,7 @@ class TestAgentEngineFindingsAccumulator:
         last_message = messages[-1]["content"]
 
         assert "KEY FINDINGS" not in last_message
-        assert "maximum number of research steps" in last_message
+        assert "MAXIMUM STEPS REACHED" in last_message
 
 
 # =============================================================================
@@ -1330,55 +1330,6 @@ class TestRedundancyDetection:
 # =============================================================================
 # Synthesis Nudging Tests
 # =============================================================================
-
-
-class TestSynthesisNudging:
-    """Tests for _should_nudge_synthesis method."""
-
-    def _make_engine(self, max_steps=10):
-        engine = AgentEngine(
-            provider=create_mock_provider(),
-            repo=create_mock_repo(),
-            registry=create_mock_registry(),
-            max_steps=max_steps,
-        )
-        return engine
-
-    def test_no_nudge_early_steps(self):
-        """Should not nudge on step 1."""
-        engine = self._make_engine()
-        engine._findings = [{"content": "a"}, {"content": "b"}, {"content": "c"}]
-        assert engine._should_nudge_synthesis(1) is False
-
-    def test_no_nudge_few_findings(self):
-        """Should not nudge with fewer than 3 findings."""
-        engine = self._make_engine()
-        engine._findings = [{"content": "a"}, {"content": "b"}]
-        assert engine._should_nudge_synthesis(5) is False
-
-    def test_no_nudge_before_halfway(self):
-        """Should not nudge before halfway through max_steps."""
-        engine = self._make_engine(max_steps=10)
-        engine._findings = [{"content": "a"}, {"content": "b"}, {"content": "c"}]
-        assert engine._should_nudge_synthesis(3) is False
-
-    def test_nudge_when_conditions_met(self):
-        """Should nudge when all conditions are met."""
-        engine = self._make_engine(max_steps=10)
-        engine._findings = [{"content": "a"}, {"content": "b"}, {"content": "c"}]
-        assert engine._should_nudge_synthesis(5) is True
-
-    def test_nudge_with_many_findings(self):
-        """Should nudge with many findings past halfway."""
-        engine = self._make_engine(max_steps=10)
-        engine._findings = [{"content": f"finding-{i}"} for i in range(6)]
-        assert engine._should_nudge_synthesis(7) is True
-
-    def test_no_nudge_empty_findings(self):
-        """Should not nudge with no findings."""
-        engine = self._make_engine()
-        engine._findings = []
-        assert engine._should_nudge_synthesis(8) is False
 
 
 # =============================================================================

@@ -108,6 +108,10 @@ StatusBar .status-spacer {
     width: 1fr;
 }
 
+StatusBar .status-context {
+    color: $text-muted;
+}
+
 StatusBar .status-connection {
     color: $success;
 }

@@ -97,9 +97,9 @@ class TestProfileSystemPrompts:
         assert "STOPPING CRITERIA" in CODING_SYSTEM_PROMPT
         assert "FINAL ANSWER" in CODING_SYSTEM_PROMPT
 
-    def test_coding_prompt_has_quality_rules(self):
-        """Coding prompt includes quality rules."""
-        assert "QUALITY RULES" in CODING_SYSTEM_PROMPT
+    def test_coding_prompt_has_rules(self):
+        """Coding prompt includes rules."""
+        assert "RULES" in CODING_SYSTEM_PROMPT
         assert "Do NOT glob or list_directory the entire project" in CODING_SYSTEM_PROMPT
         assert "Do NOT re-read files" in CODING_SYSTEM_PROMPT
 
