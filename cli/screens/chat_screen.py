@@ -1,10 +1,11 @@
 """Main chat/agent screen — the primary interaction surface."""
 
+import httpx
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
 from textual.screen import Screen
-from textual.widgets import Footer, Header, Static
+from textual.widgets import Header, Static
 
 from ..api_client import APIClient
 from ..config import CLIConfig
@@ -54,6 +55,8 @@ class ChatScreen(Screen):
         self._pending_approval: ToolCallPanel | None = None
         self._is_running = False
         self._current_step = 0
+        self._chatgpt_available = False
+        self._cancel_requested = False
 
     def compose(self) -> ComposeResult:
         """Compose the chat screen layout."""
@@ -61,16 +64,11 @@ class ChatScreen(Screen):
         yield MessageList(id="message-list")
         with Vertical(id="input-container"):
             yield InputArea(id="input-area")
-            yield Static(
-                "Enter to send · Shift+Enter newline · Esc stop · Ctrl+C exit",
-                id="input-hint",
+            yield StatusBar(
+                mode=self._config.mode,
+                provider=self._config.provider,
+                model=self._config.model or "",
             )
-        yield StatusBar(
-            mode=self._config.mode,
-            provider=self._config.provider,
-            model=self._config.model or "",
-        )
-        yield Footer()
 
     async def on_mount(self) -> None:
         """Check backend connection and show welcome on mount."""
@@ -95,6 +93,10 @@ class ChatScreen(Screen):
                 "[dim]Type a message to begin.[/dim]"
             )
             message_list.mount(welcome)
+
+        # Check saved ChatGPT auth in background
+        if connected:
+            self.run_worker(self._check_chatgpt_auth())
 
         # Focus input
         self.query_one(InputArea).focus()
@@ -132,6 +134,7 @@ class ChatScreen(Screen):
         """Start an agent run and begin streaming events."""
         self._is_running = True
         self._current_step = 0
+        self._cancel_requested = False
         status_bar = self.query_one(StatusBar)
         status_bar.set_busy(True)
 
@@ -170,6 +173,10 @@ class ChatScreen(Screen):
             async for event in self._api_client.stream_agent_events(
                 self._current_run_id, self._current_stream_token
             ):
+                # Stop consuming if run was cancelled locally
+                if self._cancel_requested:
+                    break
+
                 event_type = event.get("event", "")
                 data = event.get("data", {})
 
@@ -199,19 +206,32 @@ class ChatScreen(Screen):
                     break
 
         except Exception as exc:
-            self.post_message(AgentErrorEvent({"error": str(exc)}))
+            if not self._cancel_requested:
+                # Detect connection loss (server restart, network error)
+                err_str = str(exc).lower()
+                if any(k in err_str for k in ("closed", "disconnect", "reset", "refused", "eof")):
+                    self.post_message(AgentErrorEvent({
+                        "error": "Connection lost — server may have restarted. Please re-send your message."
+                    }))
+                else:
+                    self.post_message(AgentErrorEvent({"error": str(exc)}))
 
     def on_step_start_event(self, event: StepStartEvent) -> None:
-        """Handle step start — update status bar only."""
+        """Handle step start — update status bar with step and context info."""
         step = event.data.get("step_number", 0)
-        max_steps = event.data.get("max_steps", 0)
         self._current_step = step
 
         status_bar = self.query_one(StatusBar)
-        if max_steps:
-            status_bar.set_step(f"Step {step}/{max_steps}")
-        else:
-            status_bar.set_step(f"Step {step}")
+        status_bar.set_step(f"Step {step}")
+
+        # Update live context/token display
+        context_tokens = event.data.get("context_tokens", 0)
+        context_max = event.data.get("context_max", 0)
+        total_tokens_used = event.data.get("total_tokens_used", 0)
+        if context_max > 0:
+            status_bar.set_context_live(
+                context_tokens, context_max, total_tokens_used
+            )
 
     def on_thinking_event(self, event: ThinkingEvent) -> None:
         """Handle thinking token — mount inside current assistant bubble."""
@@ -256,22 +276,40 @@ class ChatScreen(Screen):
     ) -> None:
         """Handle tool approval request — switch input area to approval mode."""
         tool_call_id = event.data.get("tool_call_id", "")
+        tool_name = event.data.get("tool_name", "unknown")
+        diff_preview = event.data.get("diff_preview")
 
+        # Find the matching tool panel
         try:
             panel = self.query_one(f"#tool-{tool_call_id}", ToolCallPanel)
+        except Exception:
+            # Panel not mounted yet or ID mismatch — create a fallback
+            panel = None
+
+        if panel:
+            if diff_preview:
+                panel._diff_preview = diff_preview
             panel.show_approval_prompt()
             self._pending_approval = panel
 
             # Switch input area to approval mode with full tool details
             input_area = self.query_one(InputArea)
-            tool_display = panel.get_full_arguments_display()
+            try:
+                tool_display = panel.get_full_arguments_display()
+            except Exception:
+                tool_display = f"Approve {tool_name}?"
             input_area.enter_approval_mode(tool_display)
+        else:
+            # Fallback: still ask for approval even without the panel
+            self._pending_approval_ids = (
+                self._current_run_id or "",
+                tool_call_id,
+            )
+            input_area = self.query_one(InputArea)
+            input_area.enter_approval_mode(f"Approve {tool_name}?")
 
-            # Update hint text
-            hint = self.query_one("#input-hint", Static)
-            hint.update("[y] approve · [n] deny · scroll to review")
-        except Exception:
-            pass
+        status_bar = self.query_one(StatusBar)
+        status_bar.set_step("Enter approve · [n] deny")
 
         message_list = self.query_one(MessageList)
         message_list.scroll_to_bottom()
@@ -285,10 +323,13 @@ class ChatScreen(Screen):
         input_area.exit_approval_mode()
         input_area.focus()
 
-        # Restore hint text
-        hint = self.query_one("#input-hint", Static)
-        hint.update("Enter to send · Shift+Enter newline · Esc stop · Ctrl+C exit")
+        status_bar = self.query_one(StatusBar)
+        if event.approved:
+            status_bar.set_step("executing tool…")
+        else:
+            status_bar.set_step("")
 
+        # Primary path: panel-based approval
         if self._pending_approval and self._current_run_id:
             panel = self._pending_approval
             self._pending_approval = None
@@ -298,30 +339,85 @@ class ChatScreen(Screen):
                 self.run_worker(self._approve_tool(panel.run_id, panel.tool_call_id))
             else:
                 self.run_worker(self._deny_tool(panel.run_id, panel.tool_call_id))
+            return
+
+        # Fallback path: panel wasn't found, use stored IDs
+        fallback = getattr(self, "_pending_approval_ids", None)
+        if fallback and self._current_run_id:
+            run_id, tool_call_id = fallback
+            self._pending_approval_ids = None
+            if event.approved:
+                self.run_worker(self._approve_tool(run_id, tool_call_id))
+            else:
+                self.run_worker(self._deny_tool(run_id, tool_call_id))
 
     async def _approve_tool(self, run_id: str, tool_call_id: str) -> None:
         """Send tool approval to the API."""
         try:
             await self._api_client.approve_tool(run_id, tool_call_id)
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                self._add_system_message(
+                    "Run was interrupted (server restarted). Please re-send your message."
+                )
+            else:
+                self._add_system_message(f"Approval failed: {exc}")
+            await self._force_reset_run(run_id)
         except Exception as exc:
             self._add_system_message(f"Approval failed: {exc}")
+            await self._force_reset_run(run_id)
 
     async def _deny_tool(self, run_id: str, tool_call_id: str) -> None:
         """Send tool denial to the API."""
         try:
             await self._api_client.deny_tool(run_id, tool_call_id)
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                self._add_system_message(
+                    "Run was interrupted (server restarted). Please re-send your message."
+                )
+            else:
+                self._add_system_message(f"Denial failed: {exc}")
+            await self._force_reset_run(run_id)
         except Exception as exc:
             self._add_system_message(f"Denial failed: {exc}")
+            await self._force_reset_run(run_id)
+
+    async def _force_reset_run(self, run_id: str) -> None:
+        """Force-cancel and reset all run state after an unrecoverable failure."""
+        self._cancel_requested = True
+
+        try:
+            await self._api_client.cancel_run(run_id)
+        except Exception:
+            pass
+
+        self._is_running = False
+        self._current_run_id = None
+        self._pending_approval = None
+        self._streaming_md = None
+        self._current_bubble = None
+        self._current_step = 0
+
+        input_area = self.query_one(InputArea)
+        input_area.exit_approval_mode()
+
+        status_bar = self.query_one(StatusBar)
+        status_bar.set_busy(False)
+        status_bar.set_step("")
+
+        input_area.focus()
 
     def on_tool_result_event(self, event: ToolResultEvent) -> None:
         """Handle tool result."""
         tool_call_id = event.data.get("tool_call_id", "")
         result_summary = event.data.get("result_summary", "")
         success = event.data.get("success", True)
+        result_data = event.data.get("result_data")
 
         try:
             panel = self.query_one(f"#tool-{tool_call_id}", ToolCallPanel)
-            panel.set_result(result_summary, success)
+            panel.set_result(result_summary, success, result_data=result_data)
         except Exception:
             pass
 
@@ -358,9 +454,6 @@ class ChatScreen(Screen):
         input_area.exit_approval_mode()
 
         # Restore hint text
-        hint = self.query_one("#input-hint", Static)
-        hint.update("Enter to send · Shift+Enter newline · Esc stop · Ctrl+C exit")
-
         status_bar = self.query_one(StatusBar)
         status_bar.set_busy(False)
         status_bar.set_step("")
@@ -392,9 +485,6 @@ class ChatScreen(Screen):
         input_area.exit_approval_mode()
 
         # Restore hint text
-        hint = self.query_one("#input-hint", Static)
-        hint.update("Enter to send · Shift+Enter newline · Esc stop · Ctrl+C exit")
-
         status_bar = self.query_one(StatusBar)
         status_bar.set_busy(False)
         status_bar.set_step("")
@@ -410,31 +500,32 @@ class ChatScreen(Screen):
 
     async def action_cancel_run(self) -> None:
         """Cancel the current agent run (Esc key)."""
-        # If in approval mode, exit it first
         input_area = self.query_one(InputArea)
+
+        # If in approval mode, deny the pending tool first
         if input_area.approval_mode:
             input_area.exit_approval_mode()
-            input_area.focus()
-            hint = self.query_one("#input-hint", Static)
-            hint.update("Enter to send · Shift+Enter newline · Esc stop · Ctrl+C exit")
-
-            # Deny the pending tool
-            if self._pending_approval and self._current_run_id:
+            if self._pending_approval:
                 panel = self._pending_approval
                 self._pending_approval = None
                 panel.resolve_approval(False)
-                self.run_worker(self._deny_tool(panel.run_id, panel.tool_call_id))
-            return
+                # Fire-and-forget deny — we're cancelling the whole run anyway
+                try:
+                    await self._api_client.deny_tool(panel.run_id, panel.tool_call_id)
+                except Exception:
+                    pass
+            # Fall through to cancel the run (don't return)
 
         if not self._is_running or not self._current_run_id:
+            input_area.focus()
             return
 
-        try:
-            await self._api_client.cancel_run(self._current_run_id)
-            self._add_system_message("Run cancelled.")
-        except Exception as exc:
-            self._add_system_message(f"Cancel failed: {exc}")
+        run_id = self._current_run_id
 
+        # Signal the SSE consumer to stop
+        self._cancel_requested = True
+
+        # Reset state immediately so UI is responsive
         self._is_running = False
         self._current_run_id = None
         self._pending_approval = None
@@ -448,6 +539,12 @@ class ChatScreen(Screen):
 
         input_area.focus()
 
+        try:
+            await self._api_client.cancel_run(run_id)
+            self._add_system_message("Run cancelled.")
+        except Exception as exc:
+            self._add_system_message(f"Cancel failed: {exc}")
+
     def action_new_conversation(self) -> None:
         """Start a new conversation."""
         self._conversation_id = None
@@ -457,8 +554,10 @@ class ChatScreen(Screen):
         self.query_one(InputArea).focus()
 
     async def _handle_slash_command(self, command: str) -> None:
-        """Handle slash commands (/login, /logout, /status, /help)."""
-        cmd = command.strip().lower()
+        """Handle slash commands (/login, /logout, /status, /switch, /help)."""
+        parts = command.strip().split(None, 1)
+        cmd = parts[0].lower()
+        args = parts[1] if len(parts) > 1 else ""
 
         if cmd == "/login":
             await self._cmd_login()
@@ -466,9 +565,11 @@ class ChatScreen(Screen):
             await self._cmd_logout()
         elif cmd == "/status":
             await self._cmd_status()
+        elif cmd == "/switch":
+            await self._cmd_switch(args)
         elif cmd == "/help":
             self._add_system_message(
-                "Commands: `/login` · `/logout` · `/status` · `/help`\n\n"
+                "Commands: `/login` · `/logout` · `/status` · `/switch [provider]` · `/help`\n\n"
                 "Keys: Enter send · Shift+Enter newline · Esc stop · Ctrl+N new · Ctrl+C exit"
             )
         else:
@@ -476,29 +577,41 @@ class ChatScreen(Screen):
 
     async def _cmd_login(self) -> None:
         """Handle /login — start ChatGPT OAuth flow."""
-        from ..auth import login
+        from ..auth import backup_tokens, login
 
         self._add_system_message("Opening browser for ChatGPT login...")
 
-        session_id = await login(self._config.api_url)
+        session_id = await login(self._config.api_url, self._config.session_id)
         if session_id:
             self._config.save_cli_session(session_id)
             self._api_client.set_session(session_id)
+            self._chatgpt_available = True
             self._add_system_message("Logged in to ChatGPT. Provider switched to chatgpt.")
+
+            # Backup tokens so they survive DB wipes
+            await backup_tokens(self._config.api_url, session_id)
 
             # Update status bar
             status_bar = self.query_one(StatusBar)
-            status_bar.set_mode(f"{self._config.mode} · chatgpt")
+            status_bar.set_provider(f"chatgpt")
         else:
             self._add_system_message("Login timed out or failed. Try `/login` again.")
 
     async def _cmd_logout(self) -> None:
         """Handle /logout — clear ChatGPT session."""
         self._config.clear_cli_session()
+        self._chatgpt_available = False
+
+        # Switch back to default if currently on chatgpt
+        if self._config.provider == "chatgpt":
+            self._config.provider = "default"
+            self._api_client.set_provider("default")
+            self._config.save_provider_preference("default")
+
         self._add_system_message("Logged out. Switched back to default provider.")
 
         status_bar = self.query_one(StatusBar)
-        status_bar.set_mode(self._config.mode)
+        status_bar.set_provider("default")
 
     async def _cmd_status(self) -> None:
         """Handle /status — show auth and config status."""
@@ -521,8 +634,71 @@ class ChatScreen(Screen):
 
         self._add_system_message("\n".join(parts))
 
+    async def _cmd_switch(self, args: str) -> None:
+        """Handle /switch — toggle between providers."""
+        target = args.strip().lower() if args else ""
+
+        if not target:
+            current = self._config.provider
+            lines = [f"Current provider: {current}"]
+            lines.append("Available: default (DeepInfra), chatgpt")
+            if self._chatgpt_available:
+                lines.append("ChatGPT: authenticated")
+            else:
+                lines.append("ChatGPT: not logged in — run `/login` first")
+            self._add_system_message("\n".join(lines))
+            return
+
+        if target == "chatgpt":
+            if not self._chatgpt_available:
+                self._add_system_message("Not logged into ChatGPT. Run `/login` first.")
+                return
+            self._config.provider = "chatgpt"
+            self._api_client.set_provider("chatgpt")
+            self._config.save_provider_preference("chatgpt")
+            self._add_system_message("Switched to ChatGPT.")
+        elif target in ("default", "deepinfra"):
+            self._config.provider = "default"
+            self._api_client.set_provider("default")
+            self._config.save_provider_preference("default")
+            self._add_system_message("Switched to default (DeepInfra).")
+        else:
+            self._add_system_message(f"Unknown provider: {target}. Use: default, chatgpt")
+            return
+
+        # Update status bar
+        status_bar = self.query_one(StatusBar)
+        status_bar.set_provider(self._config.provider)
+
+    async def _check_chatgpt_auth(self) -> None:
+        """Check saved ChatGPT auth on startup.
+
+        If a saved session exists, validates it against the backend.
+        If expired, tries to restore from local backup file.
+        Updates _chatgpt_available and the status bar accordingly.
+        """
+        if not self._config.session_id:
+            return
+
+        from ..auth import check_auth, try_restore
+
+        auth = await check_auth(self._config.api_url, self._config.session_id)
+        if auth.get("authenticated"):
+            self._chatgpt_available = True
+            status_bar = self.query_one(StatusBar)
+            status_bar.set_provider(f"{self._config.provider}")
+            return
+
+        # Try restore from backup
+        restored = await try_restore(self._config.api_url, self._config.session_id)
+        if restored:
+            self._chatgpt_available = True
+        else:
+            # Backup expired too — clear stale session
+            self._config.clear_cli_session()
+
     def _add_system_message(self, text: str) -> None:
         """Add a system/info message to the message list."""
         message_list = self.query_one(MessageList)
-        message_list.mount(MessageBubble("assistant", f"*{text}*"))
+        message_list.mount(MessageBubble("system", text))
         message_list.scroll_to_bottom()

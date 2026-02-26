@@ -937,6 +937,57 @@ See [SSE Streaming](#sse-streaming) for event format.
 
 ---
 
+## ChatGPT Auth (CLI)
+
+### Export Tokens
+
+Export ChatGPT OAuth tokens for local backup.
+
+**Request**:
+```
+GET /api/auth/chatgpt/export?cli_session={session_id}
+```
+
+**Response** (200 OK):
+```json
+{
+  "session_id": "...",
+  "refresh_token": "...",
+  "account_id": "..."
+}
+```
+
+Returns 404 if no valid tokens for the session.
+
+---
+
+### Restore Tokens
+
+Restore ChatGPT auth from backed-up refresh token.
+
+**Request**:
+```
+POST /api/auth/chatgpt/restore
+Content-Type: application/json
+
+{
+  "session_id": "...",
+  "refresh_token": "..."
+}
+```
+
+**Response** (200 OK):
+```json
+{
+  "success": true,
+  "model": "gpt-4o"
+}
+```
+
+Returns `{"success": false, "error": "..."}` if refresh fails.
+
+---
+
 ## Benchmarks
 
 ### List Benchmark Traces

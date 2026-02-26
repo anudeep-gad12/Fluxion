@@ -106,7 +106,7 @@ model:
   # llama-server local: gpt-oss-20b (or whatever you're serving)
   name: ${LLM_MODEL:-openai/gpt-oss-120b}
   temperature: 1.0            # Required: 1.0 for reasoning models (gpt-oss, gpt-5-mini, o1, o3)
-  max_tokens: 4096
+  max_tokens: 16384
   seed: null                  # Set to integer for reproducible outputs
   top_p: null
   frequency_penalty: null
@@ -123,7 +123,7 @@ model:
 context:
   max_messages: 50            # Maximum conversation turns to keep
   max_tokens: 100000           # Token budget for conversation history (model has 128k)
-  reserve_for_response: 4096  # Tokens reserved for model response
+  reserve_for_response: 16384  # Tokens reserved for model response
   truncation_strategy: "sliding_window"  # sliding_window | oldest_first
 
 # =============================================================================

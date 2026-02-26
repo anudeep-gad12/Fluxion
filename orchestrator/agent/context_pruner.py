@@ -78,7 +78,7 @@ class ContextPruner:
         messages = await pruner.prune_async(messages, current_step=5)
     """
 
-    KEEP_FULL_STEPS: int = 2
+    KEEP_FULL_STEPS: int = 10
     MAX_PYTHON_OUTPUT_CHARS: int = 500
     CHARS_PER_TOKEN: float = 4.0  # Rough estimate
     MAX_SUMMARY_TOKENS: int = 400  # Max tokens for LLM summaries (reasoning models need more)
@@ -97,7 +97,7 @@ Output 2-3 sentences max. Do not include navigation, ads, or boilerplate."""
 
     def __init__(
         self,
-        keep_full_steps: int = 2,
+        keep_full_steps: int = 10,
         max_python_output_chars: int = 500,
     ) -> None:
         """Initialize context pruner.
@@ -348,6 +348,29 @@ Output 2-3 sentences max. Do not include navigation, ads, or boilerplate."""
             else:
                 # Short enough to keep as-is
                 return msg
+        elif tool_name == "read_file":
+            # Keep imports/headers + tail for file reads
+            if len(content) > 700:
+                head = content[:500]
+                tail = content[-200:]
+                summary = f"[read_file: {head}\n...\n{tail}]"
+            else:
+                return msg
+        elif tool_name == "grep":
+            # Keep first matches for grep results
+            if len(content) > 500:
+                summary = f"[grep results: {content[:500]}...]"
+            else:
+                return msg
+        elif tool_name in ("glob", "list_directory"):
+            # Keep first portion of directory listing
+            if len(content) > 400:
+                summary = f"[{tool_name} results: {content[:400]}...]"
+            else:
+                return msg
+        elif tool_name in ("write_file", "edit_file"):
+            # Write/edit confirmations are small — always keep
+            return msg
         else:
             summary = f"[Tool result - {len(content)} chars]"
 

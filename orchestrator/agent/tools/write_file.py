@@ -3,6 +3,7 @@
 Creates or overwrites files. Requires approval (non-idempotent).
 """
 
+import difflib
 import time
 from pathlib import Path
 from typing import Any
@@ -42,7 +43,8 @@ class WriteFileTool:
             name="write_file",
             description=(
                 "Write content to a file. Creates the file if it doesn't exist, "
-                "overwrites if it does. Creates parent directories as needed."
+                "overwrites if it does. Creates parent directories as needed. "
+                "Prefer edit_file for modifying existing files (shows targeted changes)."
             ),
             parameters={
                 "type": "object",
@@ -103,6 +105,14 @@ class WriteFileTool:
             path = self._resolve_path(file_path)
             existed = path.exists()
 
+            # Read existing content for diff generation
+            old_content = ""
+            if existed:
+                try:
+                    old_content = path.read_text(encoding="utf-8")
+                except Exception:
+                    old_content = ""
+
             # Create parent directories
             path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -117,10 +127,23 @@ class WriteFileTool:
                 display_path = str(path)
             action = "Overwrote" if existed else "Created"
 
+            # Generate unified diff for overwrites
+            if existed and old_content != content:
+                diff_lines = difflib.unified_diff(
+                    old_content.splitlines(keepends=True),
+                    content.splitlines(keepends=True),
+                    fromfile=f"a/{display_path}",
+                    tofile=f"b/{display_path}",
+                    n=3,
+                )
+                result_data = "".join(diff_lines) or f"{action} {display_path} ({byte_count} bytes)"
+            else:
+                result_data = f"{action} {display_path} ({byte_count} bytes written)"
+
             return ToolResult(
                 success=True,
                 result_summary=f"{action} {display_path} ({byte_count} bytes)",
-                result_data=f"{action} {display_path} ({byte_count} bytes written)",
+                result_data=result_data,
                 duration_ms=duration_ms,
                 metadata={"bytes": byte_count, "created": not existed},
             )

@@ -177,8 +177,8 @@ class TestAgentEngineInit:
         )
 
         assert engine._model_name == "openai/gpt-oss-120b"
-        assert engine._max_steps == 10
-        assert engine._max_tokens == 4096
+        assert engine._max_steps == 1000
+        assert engine._max_tokens == 16384
         assert engine._temperature == 0.7
 
     def test_init_with_custom_settings(self):
@@ -1211,7 +1211,7 @@ class TestAgentEngineFindingsAccumulator:
         last_message = messages[-1]["content"]
 
         assert "KEY FINDINGS" not in last_message
-        assert "maximum number of research steps" in last_message
+        assert "MAXIMUM STEPS REACHED" in last_message
 
 
 # =============================================================================
@@ -1332,50 +1332,75 @@ class TestRedundancyDetection:
 # =============================================================================
 
 
-class TestSynthesisNudging:
-    """Tests for _should_nudge_synthesis method."""
+# =============================================================================
+# Parallel Tool Execution Tests
+# =============================================================================
 
-    def _make_engine(self, max_steps=10):
-        engine = AgentEngine(
+
+class TestParallelToolExecution:
+    """Tests for parallel read-only tool execution."""
+
+    def test_parallel_tools_constant(self):
+        """PARALLEL_TOOLS contains expected read-only tools."""
+        assert "read_file" in AgentEngine.PARALLEL_TOOLS
+        assert "grep" in AgentEngine.PARALLEL_TOOLS
+        assert "glob" in AgentEngine.PARALLEL_TOOLS
+        assert "list_directory" in AgentEngine.PARALLEL_TOOLS
+        assert "web_search" in AgentEngine.PARALLEL_TOOLS
+        assert "web_extract" in AgentEngine.PARALLEL_TOOLS
+
+    def test_mutating_tools_not_parallel(self):
+        """Mutating tools are not in PARALLEL_TOOLS."""
+        assert "write_file" not in AgentEngine.PARALLEL_TOOLS
+        assert "edit_file" not in AgentEngine.PARALLEL_TOOLS
+        assert "bash_tool" not in AgentEngine.PARALLEL_TOOLS
+        assert "python_execute" not in AgentEngine.PARALLEL_TOOLS
+
+
+# =============================================================================
+# Force Prune Filesystem Tools Tests
+# =============================================================================
+
+
+class TestForcePruneFilesystemTools:
+    """Tests for _force_prune_largest with filesystem tools."""
+
+    def _make_engine(self):
+        return AgentEngine(
             provider=create_mock_provider(),
             repo=create_mock_repo(),
             registry=create_mock_registry(),
-            max_steps=max_steps,
         )
-        return engine
 
-    def test_no_nudge_early_steps(self):
-        """Should not nudge on step 1."""
+    def test_force_prune_read_file(self):
+        """Force prune keeps head+tail for read_file."""
         engine = self._make_engine()
-        engine._findings = [{"content": "a"}, {"content": "b"}, {"content": "c"}]
-        assert engine._should_nudge_synthesis(1) is False
+        content = "import os\n" + "X" * 2000
+        messages = [
+            {"role": "tool", "content": content, "name": "read_file", "_step": 1},
+        ]
+        result = engine._force_prune_largest(messages, {})
+        assert "import os" in result[0]["content"]
+        assert result[0]["_force_pruned"] is True
 
-    def test_no_nudge_few_findings(self):
-        """Should not nudge with fewer than 3 findings."""
+    def test_force_prune_grep(self):
+        """Force prune keeps first matches for grep."""
         engine = self._make_engine()
-        engine._findings = [{"content": "a"}, {"content": "b"}]
-        assert engine._should_nudge_synthesis(5) is False
+        content = "match_line_1\nmatch_line_2\n" + "X" * 2000
+        messages = [
+            {"role": "tool", "content": content, "name": "grep", "_step": 1},
+        ]
+        result = engine._force_prune_largest(messages, {})
+        assert "match_line_1" in result[0]["content"]
+        assert result[0]["_force_pruned"] is True
 
-    def test_no_nudge_before_halfway(self):
-        """Should not nudge before halfway through max_steps."""
-        engine = self._make_engine(max_steps=10)
-        engine._findings = [{"content": "a"}, {"content": "b"}, {"content": "c"}]
-        assert engine._should_nudge_synthesis(3) is False
-
-    def test_nudge_when_conditions_met(self):
-        """Should nudge when all conditions are met."""
-        engine = self._make_engine(max_steps=10)
-        engine._findings = [{"content": "a"}, {"content": "b"}, {"content": "c"}]
-        assert engine._should_nudge_synthesis(5) is True
-
-    def test_nudge_with_many_findings(self):
-        """Should nudge with many findings past halfway."""
-        engine = self._make_engine(max_steps=10)
-        engine._findings = [{"content": f"finding-{i}"} for i in range(6)]
-        assert engine._should_nudge_synthesis(7) is True
-
-    def test_no_nudge_empty_findings(self):
-        """Should not nudge with no findings."""
+    def test_force_prune_glob(self):
+        """Force prune keeps first portion for glob."""
         engine = self._make_engine()
-        engine._findings = []
-        assert engine._should_nudge_synthesis(8) is False
+        content = "src/main.py\nsrc/util.py\n" + "X" * 2000
+        messages = [
+            {"role": "tool", "content": content, "name": "glob", "_step": 1},
+        ]
+        result = engine._force_prune_largest(messages, {})
+        assert "src/main.py" in result[0]["content"]
+        assert result[0]["_force_pruned"] is True

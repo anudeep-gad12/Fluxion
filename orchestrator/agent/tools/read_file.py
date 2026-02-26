@@ -41,8 +41,10 @@ class ReadFileTool:
         return ToolSchema(
             name="read_file",
             description=(
-                "Read the contents of a file. Returns content with line numbers. "
-                "Use offset and limit for large files."
+                "Read the contents of a file with line numbers. "
+                "Reads up to 2000 lines by default — just pass file_path, "
+                "do NOT set a small limit. Only use offset/limit to page "
+                "through files longer than 2000 lines."
             ),
             parameters={
                 "type": "object",
@@ -61,7 +63,7 @@ class ReadFileTool:
                     },
                     "limit": {
                         "type": "integer",
-                        "description": "Maximum number of lines to read (default: 2000)",
+                        "description": "Maximum lines to read. Default 2000 (reads entire file). Do not reduce this.",
                         "default": 2000,
                     },
                 },
