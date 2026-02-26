@@ -72,6 +72,14 @@ class CLIConfig:
         if session_file.exists():
             config.session_id = session_file.read_text().strip()
 
+        # Load saved provider preference (only if --provider wasn't explicitly set)
+        if config.provider == "default":
+            pref_file = config_dir / "provider"
+            if pref_file.exists():
+                saved = pref_file.read_text().strip()
+                if saved in ("default", "chatgpt"):
+                    config.provider = saved
+
         return config
 
     def save_session(self, cookie: str) -> None:
@@ -95,3 +103,13 @@ class CLIConfig:
         if session_file.exists():
             session_file.unlink()
         self.session_id = None
+
+    def save_provider_preference(self, provider: str) -> None:
+        """Save last-used provider preference to config dir.
+
+        Args:
+            provider: Provider name (e.g. 'default', 'chatgpt').
+        """
+        config_dir = Path.home() / ".config" / "reasoner"
+        config_dir.mkdir(parents=True, exist_ok=True)
+        (config_dir / "provider").write_text(provider)

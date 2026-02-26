@@ -60,6 +60,14 @@ class StatusBar(Horizontal):
         self._mode = mode
         self.query_one("#status-mode", Static).update(f" {mode} ")
 
+    def set_provider(self, provider: str) -> None:
+        """Update provider display."""
+        self._provider = provider
+        provider_text = (
+            f"{self._provider}/{self._model}" if self._model else self._provider
+        )
+        self.query_one("#status-provider", Static).update(f" {provider_text} ")
+
     def set_step(self, text: str) -> None:
         """Update step/activity display."""
         self._step_text = text

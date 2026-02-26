@@ -57,6 +57,18 @@ class APIClient:
         # Also set provider to chatgpt
         self._client.headers["X-Provider"] = "chatgpt"
 
+    def set_provider(self, provider: str) -> None:
+        """Switch provider mid-session.
+
+        Args:
+            provider: Provider name (e.g. 'default', 'chatgpt').
+        """
+        self._config.provider = provider
+        if provider and provider != "default":
+            self._client.headers["X-Provider"] = provider
+        elif "X-Provider" in self._client.headers:
+            del self._client.headers["X-Provider"]
+
     async def create_agent_run(
         self,
         query: str,
