@@ -1,5 +1,6 @@
 """Main chat/agent screen — the primary interaction surface."""
 
+import httpx
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
@@ -206,7 +207,14 @@ class ChatScreen(Screen):
 
         except Exception as exc:
             if not self._cancel_requested:
-                self.post_message(AgentErrorEvent({"error": str(exc)}))
+                # Detect connection loss (server restart, network error)
+                err_str = str(exc).lower()
+                if any(k in err_str for k in ("closed", "disconnect", "reset", "refused", "eof")):
+                    self.post_message(AgentErrorEvent({
+                        "error": "Connection lost — server may have restarted. Please re-send your message."
+                    }))
+                else:
+                    self.post_message(AgentErrorEvent({"error": str(exc)}))
 
     def on_step_start_event(self, event: StepStartEvent) -> None:
         """Handle step start — update status bar with step and context info."""
@@ -316,7 +324,10 @@ class ChatScreen(Screen):
         input_area.focus()
 
         status_bar = self.query_one(StatusBar)
-        status_bar.set_step("")
+        if event.approved:
+            status_bar.set_step("executing tool…")
+        else:
+            status_bar.set_step("")
 
         # Primary path: panel-based approval
         if self._pending_approval and self._current_run_id:
@@ -344,6 +355,14 @@ class ChatScreen(Screen):
         """Send tool approval to the API."""
         try:
             await self._api_client.approve_tool(run_id, tool_call_id)
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                self._add_system_message(
+                    "Run was interrupted (server restarted). Please re-send your message."
+                )
+            else:
+                self._add_system_message(f"Approval failed: {exc}")
+            await self._force_reset_run(run_id)
         except Exception as exc:
             self._add_system_message(f"Approval failed: {exc}")
             await self._force_reset_run(run_id)
@@ -352,6 +371,14 @@ class ChatScreen(Screen):
         """Send tool denial to the API."""
         try:
             await self._api_client.deny_tool(run_id, tool_call_id)
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                self._add_system_message(
+                    "Run was interrupted (server restarted). Please re-send your message."
+                )
+            else:
+                self._add_system_message(f"Denial failed: {exc}")
+            await self._force_reset_run(run_id)
         except Exception as exc:
             self._add_system_message(f"Denial failed: {exc}")
             await self._force_reset_run(run_id)
