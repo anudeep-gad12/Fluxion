@@ -1454,6 +1454,8 @@ Built with the [Textual](https://textual.textualize.io/) framework. Always uses 
 | `_is_running` | bool | Run state flag |
 | `_current_step` | int | Step counter |
 | `_pending_approval` | ToolCallPanel | Panel awaiting approval |
+| `_chatgpt_available` | bool | Whether ChatGPT auth is valid |
+| `_cancel_requested` | bool | Signals SSE consumer to stop |
 
 **Message Handlers** (SSE → Widget):
 
@@ -1469,14 +1471,20 @@ Built with the [Textual](https://textual.textualize.io/) framework. Always uses 
 | `on_agent_complete_event` | Run done | Finalize, show context usage |
 | `on_agent_error_event` | Error | Display error message |
 
-**Slash Commands**: `/login`, `/logout`, `/status`, `/help`
+**Slash Commands**: `/login`, `/logout`, `/status`, `/switch [provider]`, `/help`
 
 **Approval Flow**:
 1. `ToolApprovalRequiredEvent` received → stores `_pending_approval` reference
-2. InputArea switches to approval mode (read-only, shows full tool args)
-3. User presses `y` (approve) or `n` (deny)
-4. Calls `POST /api/agent/runs/{id}/approve/{tool_call_id}` or `/deny/`
-5. Restores normal input mode
+2. InputArea switches to approval mode (read-only, shows full tool args + diff preview for write/edit)
+3. User presses Enter (approve) or `n` (deny)
+4. StatusBar shows "executing tool…" after approval
+5. Calls `POST /api/agent/runs/{id}/approve/{tool_call_id}` or `/deny/`
+6. On 404 (server restarted): shows clear message, calls `_force_reset_run()`
+7. Restores normal input mode
+
+**SSE Resilience**: The `_consume_events` worker detects connection loss (closed/disconnect/reset/refused/eof) and posts a clear error message instead of a raw exception. The `_cancel_requested` flag lets the cancel action break out of the SSE loop immediately.
+
+**Startup**: On mount, `_check_chatgpt_auth()` validates saved session against backend; if expired, attempts restore from `~/.config/reasoner/chatgpt_auth.json` backup.
 
 ## Widgets
 
@@ -1535,11 +1543,12 @@ Built with the [Textual](https://textual.textualize.io/) framework. Always uses 
 
 ### `cli/widgets/message_bubble.py`
 
-**Purpose**: Container for user and assistant messages.
+**Purpose**: Container for user, assistant, and system messages.
 
 **Class: `MessageBubble`**
 
-- Children: ThinkingPanel, ToolCallPanel, StreamingMarkdown
+- Roles: `user` (renders content), `assistant` (empty shell for children), `system` (dim italic info text)
+- Children (assistant only): ThinkingPanel, ToolCallPanel, StreamingMarkdown
 
 ### `cli/widgets/message_list.py`
 
@@ -1555,14 +1564,17 @@ Built with the [Textual](https://textual.textualize.io/) framework. Always uses 
 
 **Class: `StatusBar`**
 
-**Displays**: mode, provider/model, connection status, step counter, context usage
+**Displays**: connection dot (left), mode/provider/model, activity/step, context window fill % (right)
+
+**Context Display**: Shows `ctx 15% (14.8k)` — context window fill percentage with abbreviated token count. Turns yellow at >80% fill. Dropped cumulative API token count (was misleading — input tokens recounted every call).
 
 **Methods**:
 - `set_busy(is_busy)` — Show/hide spinner
-- `set_step(current, max)` — Update step counter
-- `set_context_usage(tokens_used, tokens_max)` — Show token usage
-- `set_connected(connected)` — Connection indicator
-- `set_mode(mode)` — Update mode display
+- `set_step(text)` — Update activity text (step count, "executing tool…", etc.)
+- `set_context_live(used, total, _)` — Update context fill during run
+- `set_context_usage(tokens_used, tokens_max)` — Show final context usage
+- `set_connected(connected)` — Connection indicator dot
+- `set_provider(provider)` — Update provider display
 
 ### `cli/widgets/agent_progress.py`
 
@@ -1609,6 +1621,8 @@ Built with the [Textual](https://textual.textualize.io/) framework. Always uses 
 | `deny_tool(run_id, tool_call_id)` | POST /api/agent/runs/{id}/deny/{tc_id} | Deny pending tool |
 | `cancel_run(run_id)` | POST /api/agent/runs/{id}/cancel | Cancel active run |
 | `health_check()` | GET /api/health | Check backend connectivity |
+| `set_session(session_id)` | — | Set CLI session + switch to chatgpt provider |
+| `set_provider(provider)` | — | Switch provider mid-session (updates X-Provider header) |
 
 **Headers**: `X-Provider`, `X-Model`, `X-CLI-Session`
 
@@ -1627,18 +1641,21 @@ Built with the [Textual](https://textual.textualize.io/) framework. Always uses 
 - `profile` — Always `"coding"` for CLI
 
 **Methods**:
-- `from_args()` — Create from Click CLI flags
+- `from_args()` — Create from Click CLI flags (loads saved provider preference if `--provider` not explicitly set)
 - `save_session()` — Persist to `~/.config/reasoner/config.json`
 - `save_cli_session()` — Persist CLI session ID
 - `clear_cli_session()` — Clear on logout
+- `save_provider_preference(provider)` — Persist provider choice to `~/.config/reasoner/provider`
 
 ### `cli/auth.py`
 
-**Purpose**: ChatGPT OAuth PKCE authentication flow.
+**Purpose**: ChatGPT OAuth PKCE authentication flow with token persistence.
 
 **Functions**:
-- `login(api_url)` — Opens browser for OAuth, returns session_id
+- `login(api_url, existing_session)` — Reuses valid session if provided, otherwise opens browser for OAuth
 - `check_auth(api_url, session_id)` — Validate authentication status
+- `backup_tokens(api_url, session_id)` — Export and save tokens to `~/.config/reasoner/chatgpt_auth.json`
+- `try_restore(api_url, session_id)` — Restore tokens from backup file via refresh token
 
 ---
 

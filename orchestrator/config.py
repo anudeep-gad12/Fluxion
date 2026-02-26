@@ -299,7 +299,7 @@ class ChatModelConfig(BaseModel):
 
     name: str = "openai/gpt-oss-120b"
     temperature: float = 0.7
-    max_tokens: int = 4096
+    max_tokens: int = 16384
     seed: Optional[int] = None
     top_p: Optional[float] = None
     frequency_penalty: Optional[float] = None

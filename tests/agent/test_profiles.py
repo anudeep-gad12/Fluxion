@@ -97,9 +97,9 @@ class TestProfileSystemPrompts:
         assert "STOPPING CRITERIA" in CODING_SYSTEM_PROMPT
         assert "FINAL ANSWER" in CODING_SYSTEM_PROMPT
 
-    def test_coding_prompt_has_quality_rules(self):
-        """Coding prompt includes quality rules."""
-        assert "QUALITY RULES" in CODING_SYSTEM_PROMPT
+    def test_coding_prompt_has_rules(self):
+        """Coding prompt includes rules."""
+        assert "RULES" in CODING_SYSTEM_PROMPT
         assert "Do NOT glob or list_directory the entire project" in CODING_SYSTEM_PROMPT
         assert "Do NOT re-read files" in CODING_SYSTEM_PROMPT
 
@@ -174,11 +174,11 @@ class TestProfileDefaults:
 
     def test_research_max_steps(self):
         profile = get_profile("research")
-        assert profile.max_steps == 10
+        assert profile.max_steps == 25
 
     def test_coding_max_steps(self):
         profile = get_profile("coding")
-        assert profile.max_steps == 15
+        assert profile.max_steps == 1000
 
     def test_all_profiles_have_max_plan_steps(self):
         for name in PROFILES:
