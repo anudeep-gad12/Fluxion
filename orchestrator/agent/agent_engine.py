@@ -435,12 +435,19 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 step = await state_machine.start_step()
                 step_number = step["step_number"]
 
+                # Estimate context tokens for budget tracking
+                effective_budget = self._max_context_tokens - self._max_tokens
+                estimated_tokens = self._pruner.estimate_tokens(messages)
+
                 self._emit(
                     event_callback,
                     "step_started",
                     run_id=run_id,
                     step_number=step_number,
                     steps_remaining=state_machine.steps_remaining,
+                    context_tokens=estimated_tokens,
+                    context_max=self._max_context_tokens,
+                    total_tokens_used=self._total_tokens,
                 )
 
                 # Trace: step_start
@@ -450,13 +457,11 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     content={
                         "step_number": step_number,
                         "steps_remaining": state_machine.steps_remaining,
+                        "context_tokens": estimated_tokens,
+                        "context_max": self._max_context_tokens,
                     },
                     step_number=step_number,
                 )
-
-                # Only prune if context exceeds budget
-                effective_budget = self._max_context_tokens - self._max_tokens
-                estimated_tokens = self._pruner.estimate_tokens(messages)
                 pruned_messages = messages
 
                 if estimated_tokens > effective_budget:
