@@ -9,6 +9,8 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| test | CLI resilience — approval 404 detection (server restart), SSE connection loss recovery, "executing tool…" feedback, dev.sh reload scope limit | done | 2026-02-26 |
+| test | Persistent ChatGPT auth — token backup/restore, auto-check on startup, /switch command, system messages, token display fixes | done | 2026-02-26 |
 | test | Agent UX fixes — cross-turn message context (full messages, not just summaries), write_file diff preview, denial recovery guidance, Enter-to-approve keybind | done | 2026-02-26 |
 | test | Context pruning fix — KEEP_FULL_STEPS 2→10, smart filesystem tool pruning (read_file/grep/glob head+tail), provider-aware context budget (250k for GPT-5.2), parallel read-only tool execution | done | 2026-02-26 |
 | test | Docs overhaul — update all 6 docs to match current codebase (CLI, tools, profiles, context, approval flow) | done | 2026-02-25 |
