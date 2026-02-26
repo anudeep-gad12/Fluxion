@@ -375,9 +375,6 @@ To provide your final answer, respond WITHOUT calling any tools."""
             max_steps=self._max_steps,
         )
 
-        # Enable LLM-based smart summarization for context pruning
-        self._pruner.set_llm(self._provider, self._model_name, query)
-
         try:
             recovery_context = await state_machine.initialize()
 
@@ -457,35 +454,29 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     step_number=step_number,
                 )
 
-                # Prune context before LLM call (uses LLM for smart summarization)
-                pruned_messages = await self._pruner.prune_async(
-                    messages,
-                    current_step=step_number,
-                    step_metadata=step_metadata,
-                )
-
-                # Enforce context budget - force prune if still over limit
-                # Subtract response reserve so model has room to generate
+                # Only prune if context exceeds budget
                 effective_budget = self._max_context_tokens - self._max_tokens
-                estimated_tokens = self._pruner.estimate_tokens(pruned_messages)
-                prune_iterations = 0
-                max_prune_iterations = 20  # Safety limit to prevent infinite loop
+                estimated_tokens = self._pruner.estimate_tokens(messages)
+                pruned_messages = messages
 
-                while estimated_tokens > effective_budget and prune_iterations < max_prune_iterations:
-                    prune_iterations += 1
-                    logger.warning(
-                        "Context exceeds budget, force pruning",
-                        extra={
-                            "estimated_tokens": estimated_tokens,
-                            "max_context_tokens": self._max_context_tokens,
-                            "iteration": prune_iterations,
-                            "step": step_number,
-                        },
-                    )
-                    pruned_messages = self._force_prune_largest(pruned_messages, step_metadata)
-                    estimated_tokens = self._pruner.estimate_tokens(pruned_messages)
+                if estimated_tokens > effective_budget:
+                    prune_iterations = 0
+                    max_prune_iterations = 20
 
-                if prune_iterations > 0:
+                    while estimated_tokens > effective_budget and prune_iterations < max_prune_iterations:
+                        prune_iterations += 1
+                        logger.warning(
+                            "Context exceeds budget, force pruning",
+                            extra={
+                                "estimated_tokens": estimated_tokens,
+                                "max_context_tokens": self._max_context_tokens,
+                                "iteration": prune_iterations,
+                                "step": step_number,
+                            },
+                        )
+                        pruned_messages = self._force_prune_largest(pruned_messages, step_metadata)
+                        estimated_tokens = self._pruner.estimate_tokens(pruned_messages)
+
                     logger.info(
                         "Context budget enforced",
                         extra={
@@ -2600,13 +2591,9 @@ When you complete each step, proceed to the next."""
         if not self._trace_repo:
             return
         try:
-            # Prune before storing to avoid saving 100k+ tokens
-            pruned = await self._pruner.prune_async(
-                messages, current_step=9999, step_metadata={}
-            )
             # Strip internal metadata keys before serializing
             clean = []
-            for msg in pruned:
+            for msg in messages:
                 m = {k: v for k, v in msg.items() if not k.startswith("_")}
                 clean.append(m)
             serialized = json.dumps(clean, ensure_ascii=False)
