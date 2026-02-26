@@ -202,7 +202,7 @@ class ChatScreen(Screen):
             self.post_message(AgentErrorEvent({"error": str(exc)}))
 
     def on_step_start_event(self, event: StepStartEvent) -> None:
-        """Handle step start — update status bar only."""
+        """Handle step start — update status bar with step and context info."""
         step = event.data.get("step_number", 0)
         max_steps = event.data.get("max_steps", 0)
         self._current_step = step
@@ -212,6 +212,15 @@ class ChatScreen(Screen):
             status_bar.set_step(f"Step {step}/{max_steps}")
         else:
             status_bar.set_step(f"Step {step}")
+
+        # Update live context/token display
+        context_tokens = event.data.get("context_tokens", 0)
+        context_max = event.data.get("context_max", 0)
+        total_tokens_used = event.data.get("total_tokens_used", 0)
+        if context_tokens and context_max:
+            status_bar.set_context_live(
+                context_tokens, context_max, total_tokens_used
+            )
 
     def on_thinking_event(self, event: ThinkingEvent) -> None:
         """Handle thinking token — mount inside current assistant bubble."""
