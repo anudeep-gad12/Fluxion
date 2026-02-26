@@ -88,6 +88,7 @@ class TraceRepo:
         usage_stats: Optional[dict] = None,
         last_response_id: Optional[str] = None,
         turn_summary: Optional[str] = None,
+        agent_state: Optional[str] = None,
     ) -> None:
         """Update run with results."""
         updates = []
@@ -111,6 +112,9 @@ class TraceRepo:
         if turn_summary is not None:
             updates.append("turn_summary = ?")
             values.append(turn_summary)
+        if agent_state is not None:
+            updates.append("agent_state = ?")
+            values.append(agent_state)
 
         if updates:
             values.append(run_id)

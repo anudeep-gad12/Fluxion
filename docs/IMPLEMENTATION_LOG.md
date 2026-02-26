@@ -9,6 +9,8 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| test | Agent UX fixes — cross-turn message context (full messages, not just summaries), write_file diff preview, denial recovery guidance, Enter-to-approve keybind | done | 2026-02-26 |
+| test | Context pruning fix — KEEP_FULL_STEPS 2→10, smart filesystem tool pruning (read_file/grep/glob head+tail), provider-aware context budget (250k for GPT-5.2), parallel read-only tool execution | done | 2026-02-26 |
 | test | Docs overhaul — update all 6 docs to match current codebase (CLI, tools, profiles, context, approval flow) | done | 2026-02-25 |
 | test | System prompt overhaul — HOW TO THINK guidelines, removed synthesis nudge, force-synthesis rewrite, max_steps bump (25/30), industry research | done | 2026-02-25 |
 | test | CLI expandable panels + input area approval flow | done | 2026-02-25 |

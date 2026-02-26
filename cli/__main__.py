@@ -57,7 +57,7 @@ import click
 )
 @click.option(
     "--max-steps",
-    default=15,
+    default=1000,
     type=int,
     help="Maximum agent steps",
 )

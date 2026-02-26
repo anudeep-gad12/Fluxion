@@ -57,6 +57,7 @@ class ToolCallPanel(Vertical):
         step_label: str = "",
         run_id: str = "",
         tool_call_id: str = "",
+        diff_preview: str | None = None,
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
@@ -65,6 +66,7 @@ class ToolCallPanel(Vertical):
         self._step_label = step_label
         self._run_id = run_id
         self._tool_call_id = tool_call_id
+        self._diff_preview = diff_preview
         self._needs_approval = False
         self._expanded = False
         self._result_widget: Static | None = None
@@ -115,12 +117,23 @@ class ToolCallPanel(Vertical):
         """Return formatted full arguments for display.
 
         Used by the input area approval flow and expanded view.
+        For write_file with a diff preview, shows the diff instead of raw content.
         """
         display_name = _TOOL_ICONS.get(self._tool_name, self._tool_name)
         lines = [f"⏺ {display_name} — approve this tool call?\n"]
         if not self._arguments:
             lines.append("  (no arguments)")
             return "\n".join(lines)
+
+        # For write_file with diff preview, show diff instead of raw content
+        if self._tool_name == "write_file" and self._diff_preview:
+            file_path = self._arguments.get("file_path", "")
+            lines.append(f"file_path: {file_path}\n")
+            lines.append("changes:")
+            for dline in self._diff_preview.split("\n"):
+                lines.append(f"  {dline}")
+            return "\n".join(lines)
+
         for key, value in self._arguments.items():
             val_str = str(value)
             if "\n" in val_str:
@@ -196,7 +209,7 @@ class ToolCallPanel(Vertical):
         self._needs_approval = True
         if self._result_widget:
             self._result_widget.update(
-                "  ⎿  [bold yellow]Allow? [y] approve · [n] deny[/bold yellow]"
+                "  ⎿  [bold yellow]Allow? Enter approve · [n] deny[/bold yellow]"
             )
             self._result_widget.remove_class("tool-result", "tool-error")
             self._result_widget.add_class("tool-approval")

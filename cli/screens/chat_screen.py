@@ -256,9 +256,15 @@ class ChatScreen(Screen):
     ) -> None:
         """Handle tool approval request — switch input area to approval mode."""
         tool_call_id = event.data.get("tool_call_id", "")
+        diff_preview = event.data.get("diff_preview")
 
         try:
             panel = self.query_one(f"#tool-{tool_call_id}", ToolCallPanel)
+
+            # Attach diff preview if available (write_file on existing file)
+            if diff_preview:
+                panel._diff_preview = diff_preview
+
             panel.show_approval_prompt()
             self._pending_approval = panel
 
@@ -269,7 +275,7 @@ class ChatScreen(Screen):
 
             # Update hint text
             hint = self.query_one("#input-hint", Static)
-            hint.update("[y] approve · [n] deny · scroll to review")
+            hint.update("Enter approve · [n] deny · scroll to review")
         except Exception:
             pass
 
