@@ -69,7 +69,7 @@ start_api() {
         log "Using provider: $(grep '^# Provider:' "$PROJECT_DIR/.env.provider" | cut -d: -f2)"
     fi
 
-    nohup uv run uvicorn orchestrator.app:app --reload --port 9000 --host 0.0.0.0 > "$LOG_DIR/api.log" 2>&1 &
+    nohup uv run uvicorn orchestrator.app:app --reload --reload-dir orchestrator --port 9000 --host 0.0.0.0 > "$LOG_DIR/api.log" 2>&1 &
     echo $! > "$PID_DIR/api.pid"
     sleep 2
     if curl -s http://localhost:9000/api/health > /dev/null 2>&1; then

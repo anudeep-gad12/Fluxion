@@ -165,6 +165,16 @@ async def create_agent_engine(
     planning_enabled = planning_config.enabled if planning_config else True
     max_plan_steps = planning_config.max_plan_steps if planning_config else profile.max_plan_steps
 
+    # Detect provider context capacity
+    if provider_override and hasattr(provider_override, '_default_model'):
+        model = provider_override._default_model
+        if 'gpt-5' in model or 'codex' in model:
+            max_context = 250000  # GPT-5.2 has 400k, reserve 128k for output + 22k buffer
+        else:
+            max_context = config.context.max_tokens
+    else:
+        max_context = config.context.max_tokens
+
     # Build engine with overrides
     engine = AgentEngine(
         provider=provider,
@@ -177,7 +187,7 @@ async def create_agent_engine(
         temperature=temperature or config.model.temperature,
         system_prompt=system_prompt,
         tool_choice=tool_choice,
-        max_context_tokens=config.context.max_tokens,
+        max_context_tokens=max_context,
         slow_response_threshold=config.provider.slow_response_threshold,
         planning_enabled=planning_enabled,
         max_plan_steps=max_plan_steps,

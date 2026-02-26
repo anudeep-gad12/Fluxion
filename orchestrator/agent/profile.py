@@ -139,6 +139,7 @@ Use the simplest tool for the job:
 5. If a tool call fails or returns nothing twice, try a completely different approach.
 6. Prefer grep/read_file over broad exploration (glob **/*.py).
 7. Do NOT glob or list_directory the entire project — target specific paths.
+8. When using read_file, read the FULL file (omit limit). Do NOT pass a small limit like 200-300 lines — this cuts off important code. Only use offset/limit to page through files over 2000 lines.
 
 === STOPPING CRITERIA ===
 
@@ -272,7 +273,7 @@ class AgentProfile:
     context_strategy: str
     planning_prompt_template: str
     plan_step_types: List[str]
-    max_steps: int = 25
+    max_steps: int = 1000
     max_plan_steps: int = 5
     findings_tools: List[str] = field(default_factory=list)
 
@@ -302,7 +303,7 @@ PROFILES: Dict[str, AgentProfile] = {
         context_strategy="coding",
         planning_prompt_template=CODING_PLANNING_PROMPT,
         plan_step_types=["read", "implement", "test", "debug", "synthesize"],
-        max_steps=30,
+        max_steps=1000,
         max_plan_steps=5,
         findings_tools=[
             "web_search", "web_extract", "python_execute",

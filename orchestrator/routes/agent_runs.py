@@ -528,7 +528,7 @@ async def get_agent_run_status(run_id: str, http_request: Request):
         agent_state=run.get("agent_state"),
         current_step=current_step,
         total_steps=total_steps,
-        max_steps=run.get("max_steps", 25),
+        max_steps=run.get("max_steps", 1000),
         final_answer=run.get("final_answer"),
         error_message=run.get("error_message"),
         created_at=run.get("created_at", ""),
@@ -735,6 +735,12 @@ async def cancel_agent_run(run_id: str, http_request: Request):
     # Signal abort
     if run_id in _abort_signals:
         _abort_signals[run_id].set()
+
+    # Resolve any pending approval futures so the engine unblocks immediately
+    pending_approvals = _approval_queues.pop(run_id, {})
+    for future in pending_approvals.values():
+        if not future.done():
+            future.set_result(False)
 
     # Signal cancellation to SSE clients via history + notify
     _active_runs.pop(run_id, None)

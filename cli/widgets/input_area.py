@@ -61,7 +61,7 @@ class InputArea(TextArea):
     def _on_key(self, event) -> None:
         """Route keys based on mode."""
         if self._approval_mode:
-            if event.key == "y":
+            if event.key in ("enter", "y"):
                 event.prevent_default()
                 event.stop()
                 self.post_message(self.ApprovalDecision(approved=True))

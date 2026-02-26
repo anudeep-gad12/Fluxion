@@ -253,8 +253,8 @@ To provide your final answer, respond WITHOUT calling any tools."""
         registry: "ToolRegistry",
         trace_repo: Optional["TraceRepo"] = None,
         model_name: str = "openai/gpt-oss-120b",
-        max_steps: int = 25,
-        max_tokens: int = 4096,
+        max_steps: int = 1000,
+        max_tokens: int = 16384,
         temperature: float = 0.7,
         system_prompt: Optional[str] = None,
         keep_full_steps: int = 10,
@@ -375,9 +375,6 @@ To provide your final answer, respond WITHOUT calling any tools."""
             max_steps=self._max_steps,
         )
 
-        # Enable LLM-based smart summarization for context pruning
-        self._pruner.set_llm(self._provider, self._model_name, query)
-
         try:
             recovery_context = await state_machine.initialize()
 
@@ -438,12 +435,19 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 step = await state_machine.start_step()
                 step_number = step["step_number"]
 
+                # Estimate context tokens for budget tracking
+                effective_budget = self._max_context_tokens - self._max_tokens
+                estimated_tokens = self._pruner.estimate_tokens(messages)
+
                 self._emit(
                     event_callback,
                     "step_started",
                     run_id=run_id,
                     step_number=step_number,
                     steps_remaining=state_machine.steps_remaining,
+                    context_tokens=estimated_tokens,
+                    context_max=self._max_context_tokens,
+                    total_tokens_used=self._total_tokens,
                 )
 
                 # Trace: step_start
@@ -453,39 +457,31 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     content={
                         "step_number": step_number,
                         "steps_remaining": state_machine.steps_remaining,
+                        "context_tokens": estimated_tokens,
+                        "context_max": self._max_context_tokens,
                     },
                     step_number=step_number,
                 )
+                pruned_messages = messages
 
-                # Prune context before LLM call (uses LLM for smart summarization)
-                pruned_messages = await self._pruner.prune_async(
-                    messages,
-                    current_step=step_number,
-                    step_metadata=step_metadata,
-                )
+                if estimated_tokens > effective_budget:
+                    prune_iterations = 0
+                    max_prune_iterations = 20
 
-                # Enforce context budget - force prune if still over limit
-                # Subtract response reserve so model has room to generate
-                effective_budget = self._max_context_tokens - self._max_tokens
-                estimated_tokens = self._pruner.estimate_tokens(pruned_messages)
-                prune_iterations = 0
-                max_prune_iterations = 20  # Safety limit to prevent infinite loop
+                    while estimated_tokens > effective_budget and prune_iterations < max_prune_iterations:
+                        prune_iterations += 1
+                        logger.warning(
+                            "Context exceeds budget, force pruning",
+                            extra={
+                                "estimated_tokens": estimated_tokens,
+                                "max_context_tokens": self._max_context_tokens,
+                                "iteration": prune_iterations,
+                                "step": step_number,
+                            },
+                        )
+                        pruned_messages = self._force_prune_largest(pruned_messages, step_metadata)
+                        estimated_tokens = self._pruner.estimate_tokens(pruned_messages)
 
-                while estimated_tokens > effective_budget and prune_iterations < max_prune_iterations:
-                    prune_iterations += 1
-                    logger.warning(
-                        "Context exceeds budget, force pruning",
-                        extra={
-                            "estimated_tokens": estimated_tokens,
-                            "max_context_tokens": self._max_context_tokens,
-                            "iteration": prune_iterations,
-                            "step": step_number,
-                        },
-                    )
-                    pruned_messages = self._force_prune_largest(pruned_messages, step_metadata)
-                    estimated_tokens = self._pruner.estimate_tokens(pruned_messages)
-
-                if prune_iterations > 0:
                     logger.info(
                         "Context budget enforced",
                         extra={
@@ -800,6 +796,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     # Compute and store run metrics + turn summary
                     await self._store_run_metrics(run_id, total_timing_ms)
                     await self._store_turn_summary(run_id, query, final_answer)
+                    await self._store_conversation_messages(run_id, messages)
 
                     return AgentResult(
                         run_id=run_id,
@@ -866,6 +863,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
             # Compute and store run metrics + turn summary
             await self._store_run_metrics(run_id, total_timing_ms)
             await self._store_turn_summary(run_id, query, final_answer)
+            await self._store_conversation_messages(run_id, messages)
 
             return AgentResult(
                 run_id=run_id,
@@ -1181,8 +1179,12 @@ When you complete each step, proceed to the next."""
     ) -> tuple[List[Dict[str, Any]], ContextBudget]:
         """Build initial message list with system prompt, history, and query.
 
-        Uses HistoryBuilder for token-aware history loading. Prefers compact
-        turn_summary over raw final_answer when available (~10x more history).
+        First checks for stored full message context from a prior run in the
+        same conversation. If found, appends the new query to preserve tool
+        call results and file contents across turns.
+
+        Falls back to HistoryBuilder (turn summaries) for first messages or
+        when no prior context is available.
 
         Args:
             query: User's research query.
@@ -1192,6 +1194,43 @@ When you complete each step, proceed to the next."""
             Tuple of (message list, ContextBudget accounting).
         """
         from orchestrator.utils.tokens import get_token_counter
+
+        # Try loading full message context from prior run
+        if conversation_id and self._trace_repo:
+            prior_messages = await self._load_prior_messages(conversation_id)
+            if prior_messages:
+                # Append the new user query to the existing context
+                prior_messages.append({"role": "user", "content": query})
+
+                # Build a budget estimate from loaded messages
+                token_counter = get_token_counter()
+                total_msg_tokens = sum(
+                    token_counter.count_tokens(msg.get("content") or "")
+                    for msg in prior_messages
+                )
+                budget = ContextBudget(
+                    max_tokens=self._max_context_tokens,
+                    reserve_for_response=self._max_tokens,
+                    system_prompt_tokens=token_counter.count_tokens(
+                        prior_messages[0].get("content", "")
+                    )
+                    if prior_messages
+                    else 0,
+                    history_tokens=total_msg_tokens,
+                )
+
+                logger.info(
+                    "Loaded prior conversation context",
+                    extra={
+                        "messages_count": len(prior_messages),
+                        "estimated_tokens": total_msg_tokens,
+                        "utilization_pct": round(budget.utilization_pct, 1),
+                    },
+                )
+
+                return prior_messages, budget
+
+        # Fallback: build from scratch (first message or no prior context)
 
         # Build system prompt: if profile is set, the factory already formatted
         # the prompt with date_context and project_context. Otherwise, inject
@@ -1470,6 +1509,12 @@ When you complete each step, proceed to the next."""
 
         return parsed
 
+    # Tools safe to execute in parallel (read-only, no side effects)
+    PARALLEL_TOOLS = frozenset({
+        "read_file", "grep", "glob", "list_directory",
+        "web_search", "web_extract",
+    })
+
     async def _execute_tool_calls(
         self,
         tool_calls: List[Dict[str, Any]],
@@ -1479,7 +1524,12 @@ When you complete each step, proceed to the next."""
         run_id: str,
         step_metadata: Dict[str, int],
     ) -> List[tuple["ParsedToolCall", "ToolResult"]]:
-        """Execute tool calls.
+        """Execute tool calls, parallelizing read-only tool execution.
+
+        Read-only tools (read_file, grep, glob, list_directory, web_search,
+        web_extract) have their tool.execute() calls run concurrently via
+        asyncio.gather. All DB bookkeeping (state machine, tracing) runs
+        serially to avoid SQLite transaction contention.
 
         Args:
             tool_calls: List of tool call dicts in OpenAI format.
@@ -1490,7 +1540,7 @@ When you complete each step, proceed to the next."""
             step_metadata: Metadata dict to update.
 
         Returns:
-            List of (ParsedToolCall, ToolResult) tuples.
+            List of (ParsedToolCall, ToolResult) tuples in original order.
         """
         from orchestrator.agent.tools.base import ToolResult
 
@@ -1498,282 +1548,102 @@ When you complete each step, proceed to the next."""
 
         parsed_calls = self._parse_tool_calls(tool_calls)
 
+        # Phase 1: Pre-execution bookkeeping (serial — DB writes)
+        # Collect (tool_call, tc_record, tool_call_event_id, tool_obj, execute_coro_or_result)
+        prepared: List[Dict[str, Any]] = []
+
         for tool_call in parsed_calls:
-            # Create idempotency key
-            args_hash = hashlib.md5(tool_call.raw_arguments.encode()).hexdigest()[:8]
-            idempotency_key = create_idempotency_key(
-                run_id, step_number, tool_call.name, args_hash
+            prep = await self._prepare_tool_call(
+                tool_call, state_machine, step_number,
+                event_callback, run_id,
             )
+            prepared.append(prep)
 
-            # Record tool call in state machine
-            tc_record = await state_machine.record_tool_call(
-                tool_call_id=tool_call.id,
-                tool_name=tool_call.name,
-                arguments=tool_call.arguments,
-                idempotency_key=idempotency_key,
-            )
+            # Early return for cached/denied results
+            if prep.get("early_result"):
+                continue
 
-            # Check if this was a duplicate (idempotent retry)
-            if tc_record.get("id") != tool_call.id:
-                # Only use cached result if it was successful
-                # Don't cache failures - re-execute to get fresh result
-                if tc_record.get("status") == "success":
-                    logger.debug(
-                        "Using cached tool result", extra={"key": idempotency_key}
+        # Phase 2: Execute tools — parallel for read-only, serial for mutating
+        parallel_indices: List[int] = []
+        serial_indices: List[int] = []
+        for i, prep in enumerate(prepared):
+            if prep.get("early_result"):
+                continue  # Already resolved
+            if parsed_calls[i].name in self.PARALLEL_TOOLS:
+                parallel_indices.append(i)
+            else:
+                serial_indices.append(i)
+
+        # Run read-only tool.execute() calls in parallel
+        if parallel_indices:
+            async def _safe_execute(prep: Dict[str, Any]) -> ToolResult:
+                tool = prep["tool"]
+                tc = prep["tool_call"]
+                try:
+                    return await tool.execute(**tc.arguments)
+                except Exception as e:
+                    logger.error(
+                        "Tool execution failed",
+                        extra={"tool": tc.name, "error": str(e)},
                     )
-                    cached_result = ToolResult(
-                        success=True,
-                        result_summary=tc_record.get("result_summary", ""),
-                        error_message=None,
+                    return ToolResult(
+                        success=False,
+                        result_summary=f"Tool error: {str(e)[:100]}",
+                        error_message=str(e),
+                        duration_ms=0,
                     )
-                    results.append((tool_call, cached_result))
-                    continue
-                else:
-                    logger.debug(
-                        "Ignoring cached failure, re-executing tool",
-                        extra={"key": idempotency_key, "status": tc_record.get("status")},
-                    )
-                    # Fall through to execute tool below
 
-            # Emit tool start event
-            self._emit(
-                event_callback,
-                "tool_start",
-                run_id=run_id,
-                tool_call_id=tool_call.id,
-                tool_name=tool_call.name,
-                arguments=tool_call.arguments,
+            parallel_results = await asyncio.gather(
+                *[_safe_execute(prepared[i]) for i in parallel_indices]
             )
+            for idx, result in zip(parallel_indices, parallel_results):
+                prepared[idx]["result"] = result
 
-            # Trace: tool_call
-            tool_call_event_id = await self._add_trace_event(
-                run_id=run_id,
-                event_type="tool_call",
-                content={
-                    "tool_name": tool_call.name,
-                    "arguments": tool_call.arguments,
-                    "tool_call_id": tool_call.id,
-                },
-                actor=f"tool:{tool_call.name}",
-                event_status="pending",
-                step_number=step_number,
-            )
-
-            # Mark as running
-            await state_machine.start_tool_execution(tc_record["id"])
-
-            # Get and execute tool
-            tool = self._registry.get(tool_call.name)
-            if tool is None:
-                available_tools = list(self._registry._tools.keys())
-                result = ToolResult(
+        # Run mutating tools serially
+        for idx in serial_indices:
+            prep = prepared[idx]
+            tool = prep["tool"]
+            tc = prep["tool_call"]
+            try:
+                prep["result"] = await tool.execute(**tc.arguments)
+            except Exception as e:
+                logger.error(
+                    "Tool execution failed",
+                    extra={"tool": tc.name, "error": str(e)},
+                )
+                prep["result"] = ToolResult(
                     success=False,
-                    result_summary=f"Unknown tool: {tool_call.name}",
-                    error_message=(
-                        f"Tool '{tool_call.name}' does not exist. "
-                        f"Available tools: {', '.join(available_tools)}. "
-                        f"Use web_search to find URLs, web_extract to get page content, "
-                        f"or python_execute to process/search text."
-                    ),
+                    result_summary=f"Tool error: {str(e)[:100]}",
+                    error_message=str(e),
                     duration_ms=0,
                 )
+
+        # Phase 3: Post-execution bookkeeping (serial — DB writes)
+        for prep in prepared:
+            tool_call = prep["tool_call"]
+
+            if prep.get("early_result"):
+                result = prep["early_result"]
+
+                # Finalize early results that went through bookkeeping
+                # (skip cached results which don't have tool_call_event_id key)
+                if "tool_call_event_id" in prep:
+                    await self._finalize_tool_call(
+                        tool_call, result, prep["tc_record"],
+                        prep.get("tool_call_event_id"),
+                        state_machine, step_number,
+                        event_callback, run_id,
+                    )
             else:
-                # Validate required arguments before execution
-                required_args = tool.schema.parameters.get("required", [])
-                missing_args = [arg for arg in required_args if arg not in tool_call.arguments]
-                if missing_args:
-                    arg_list = ", ".join(f"'{a}'" for a in missing_args)
-                    result = ToolResult(
-                        success=False,
-                        result_summary=f"Missing required args: {arg_list}",
-                        error_message=(
-                            f"Missing required argument(s): {arg_list}. "
-                            f"The {tool_call.name} tool requires these parameters."
-                        ),
-                        duration_ms=0,
-                    )
-                else:
-                    # Permission gate: check if tool needs approval
-                    permission_level = getattr(tool.schema, "permission_level", "auto")
-                    needs_approval = (
-                        self._permission_policy != "yolo"
-                        and permission_level != "auto"
-                        and self._approval_callback is not None
-                    )
+                result = prep["result"]
 
-                    if needs_approval:
-                        # Emit approval request event
-                        self._emit(
-                            event_callback,
-                            "tool_approval_required",
-                            run_id=run_id,
-                            tool_call_id=tool_call.id,
-                            tool_name=tool_call.name,
-                            arguments=tool_call.arguments,
-                            permission_level=permission_level,
-                        )
-                        # Wait for approval
-                        try:
-                            approved = await self._approval_callback(
-                                run_id, tool_call.id, tool_call.name, tool_call.arguments
-                            )
-                        except Exception as e:
-                            logger.error(
-                                "Approval callback error",
-                                extra={"tool": tool_call.name, "error": str(e)},
-                            )
-                            approved = False
-
-                        # Record approval decision
-                        await state_machine.record_approval(
-                            tool_call_id=tc_record["id"],
-                            decision="approved" if approved else "denied",
-                            policy=self._permission_policy,
-                        )
-
-                        if not approved:
-                            result = ToolResult(
-                                success=False,
-                                result_summary=f"User denied {tool_call.name}",
-                                error_message="Tool execution denied by user.",
-                                duration_ms=0,
-                            )
-                            # Skip to recording completion
-                            await state_machine.complete_tool_call(
-                                tool_call_id=tc_record["id"],
-                                success=False,
-                                result_summary=result.result_summary,
-                                duration_ms=0,
-                                error_message=result.error_message,
-                            )
-                            self._emit(
-                                event_callback,
-                                "tool_result",
-                                run_id=run_id,
-                                tool_call_id=tool_call.id,
-                                tool_name=tool_call.name,
-                                success=False,
-                                result_summary=result.result_summary,
-                            )
-                            results.append((tool_call, result))
-                            continue
-                    else:
-                        # Auto-approved tool (no approval needed)
-                        await state_machine.record_approval(
-                            tool_call_id=tc_record["id"],
-                            decision="auto",
-                            policy=self._permission_policy,
-                        )
-
-                    try:
-                        result = await tool.execute(**tool_call.arguments)
-                    except Exception as e:
-                        logger.error(
-                            "Tool execution failed",
-                            extra={
-                                "tool": tool_call.name,
-                                "error": str(e),
-                            },
-                        )
-                        result = ToolResult(
-                            success=False,
-                            result_summary=f"Tool error: {str(e)[:100]}",
-                            error_message=str(e),
-                        duration_ms=0,
-                    )
-
-            # Capture full result_detail for write tools
-            result_detail = None
-            if tool_call.name in ("write_file", "edit_file", "bash_tool") and result.result_data:
-                result_detail = json.dumps(result.result_data, ensure_ascii=False)[:10000]
-
-            # Record completion
-            await state_machine.complete_tool_call(
-                tool_call_id=tc_record["id"],
-                success=result.success,
-                result_summary=result.result_summary,
-                duration_ms=result.duration_ms or 0,
-                error_message=result.error_message,
-                result_detail=result_detail,
-            )
-
-            # Record file change artifact for write tools
-            if result.success and tool_call.name in ("write_file", "edit_file", "bash_tool"):
-                artifact_type = {
-                    "write_file": "file_write",
-                    "edit_file": "file_edit",
-                    "bash_tool": "command_run",
-                }.get(tool_call.name, tool_call.name)
-                file_path = tool_call.arguments.get(
-                    "file_path", tool_call.arguments.get("command", "")
+                # Post-execution recording
+                await self._finalize_tool_call(
+                    tool_call, result, prep["tc_record"],
+                    prep.get("tool_call_event_id"),
+                    state_machine, step_number,
+                    event_callback, run_id,
                 )
-                try:
-                    await self._repo.create_run_artifact(
-                        run_id=run_id,
-                        artifact_type=artifact_type,
-                        file_path=file_path,
-                        action=tool_call.name,
-                        detail=result.result_summary,
-                        tool_call_id=tc_record["id"],
-                    )
-                except Exception as e:
-                    logger.warning(
-                        "Failed to record artifact",
-                        extra={"run_id": run_id, "tool": tool_call.name, "error": str(e)},
-                    )
-
-            # Extract citations from search/extract results
-            if result.success and tool_call.name in ("web_search", "web_extract"):
-                await self._store_citations_from_tool(
-                    run_id=run_id,
-                    tool_call_id=tc_record["id"],
-                    tool_name=tool_call.name,
-                    result_data=result.result_data,
-                )
-
-            # Extract key finding from successful tool calls
-            if result.success:
-                finding = self._extract_finding_from_result(
-                    tool_name=tool_call.name,
-                    arguments=tool_call.arguments,
-                    result_summary=result.result_summary,
-                    step_number=step_number,
-                )
-                if finding:
-                    self._findings.append(finding)
-                    logger.debug(
-                        "Extracted finding from tool result",
-                        extra={"step": step_number, "tool": tool_call.name},
-                    )
-
-            # Emit tool result event
-            self._emit(
-                event_callback,
-                "tool_result",
-                run_id=run_id,
-                tool_call_id=tool_call.id,
-                tool_name=tool_call.name,
-                success=result.success,
-                result_summary=result.result_summary,
-                duration_ms=result.duration_ms,
-            )
-
-            # Trace: tool_result
-            await self._add_trace_event(
-                run_id=run_id,
-                event_type="tool_result",
-                content={
-                    "tool_name": tool_call.name,
-                    "success": result.success,
-                    "result_summary": result.result_summary,
-                    "error_message": result.error_message,
-                },
-                actor=f"tool:{tool_call.name}",
-                event_status="success" if result.success else "error",
-                step_number=step_number,
-                duration_ms=result.duration_ms or 0,
-                parent_event_id=tool_call_event_id,
-            )
 
             results.append((tool_call, result))
 
@@ -1786,6 +1656,417 @@ When you complete each step, proceed to the next."""
             })
 
         return results
+
+    async def _prepare_tool_call(
+        self,
+        tool_call: "ParsedToolCall",
+        state_machine: AgentStateMachine,
+        step_number: int,
+        event_callback: Optional[Callable[[Dict[str, Any]], None]],
+        run_id: str,
+    ) -> Dict[str, Any]:
+        """Pre-execution bookkeeping for a tool call.
+
+        Handles idempotency checks, state machine recording, tracing,
+        and approval gates. Returns a dict with preparation state.
+
+        Args:
+            tool_call: Parsed tool call.
+            state_machine: State machine.
+            step_number: Current step.
+            event_callback: SSE callback.
+            run_id: Run ID.
+
+        Returns:
+            Dict with keys: tool_call, tc_record, tool_call_event_id,
+            tool (or None), early_result (if resolved early).
+        """
+        from orchestrator.agent.tools.base import ToolResult
+
+        prep: Dict[str, Any] = {"tool_call": tool_call}
+
+        # Create idempotency key
+        args_hash = hashlib.md5(tool_call.raw_arguments.encode()).hexdigest()[:8]
+        idempotency_key = create_idempotency_key(
+            run_id, step_number, tool_call.name, args_hash
+        )
+
+        # Record tool call in state machine
+        tc_record = await state_machine.record_tool_call(
+            tool_call_id=tool_call.id,
+            tool_name=tool_call.name,
+            arguments=tool_call.arguments,
+            idempotency_key=idempotency_key,
+        )
+        prep["tc_record"] = tc_record
+
+        # Check if this was a duplicate (idempotent retry)
+        if tc_record.get("id") != tool_call.id:
+            if tc_record.get("status") == "success":
+                logger.debug(
+                    "Using cached tool result", extra={"key": idempotency_key}
+                )
+                prep["early_result"] = ToolResult(
+                    success=True,
+                    result_summary=tc_record.get("result_summary", ""),
+                    error_message=None,
+                )
+                return prep
+            else:
+                logger.debug(
+                    "Ignoring cached failure, re-executing tool",
+                    extra={"key": idempotency_key, "status": tc_record.get("status")},
+                )
+
+        # Emit tool start event
+        self._emit(
+            event_callback,
+            "tool_start",
+            run_id=run_id,
+            tool_call_id=tool_call.id,
+            tool_name=tool_call.name,
+            arguments=tool_call.arguments,
+        )
+
+        # Trace: tool_call
+        tool_call_event_id = await self._add_trace_event(
+            run_id=run_id,
+            event_type="tool_call",
+            content={
+                "tool_name": tool_call.name,
+                "arguments": tool_call.arguments,
+                "tool_call_id": tool_call.id,
+            },
+            actor=f"tool:{tool_call.name}",
+            event_status="pending",
+            step_number=step_number,
+        )
+        prep["tool_call_event_id"] = tool_call_event_id
+
+        # Mark as running
+        await state_machine.start_tool_execution(tc_record["id"])
+
+        # Get tool
+        tool = self._registry.get(tool_call.name)
+        if tool is None:
+            available_tools = list(self._registry._tools.keys())
+            prep["early_result"] = ToolResult(
+                success=False,
+                result_summary=f"Unknown tool: {tool_call.name}",
+                error_message=(
+                    f"Tool '{tool_call.name}' does not exist. "
+                    f"Available tools: {', '.join(available_tools)}. "
+                    f"Use web_search to find URLs, web_extract to get page content, "
+                    f"or python_execute to process/search text."
+                ),
+                duration_ms=0,
+            )
+            return prep
+
+        # Validate required arguments
+        required_args = tool.schema.parameters.get("required", [])
+        missing_args = [arg for arg in required_args if arg not in tool_call.arguments]
+        if missing_args:
+            arg_list = ", ".join(f"'{a}'" for a in missing_args)
+            prep["early_result"] = ToolResult(
+                success=False,
+                result_summary=f"Missing required args: {arg_list}",
+                error_message=(
+                    f"Missing required argument(s): {arg_list}. "
+                    f"The {tool_call.name} tool requires these parameters."
+                ),
+                duration_ms=0,
+            )
+            return prep
+
+        # Permission gate
+        permission_level = getattr(tool.schema, "permission_level", "auto")
+        needs_approval = (
+            self._permission_policy != "yolo"
+            and permission_level != "auto"
+            and self._approval_callback is not None
+        )
+
+        if needs_approval:
+            # Compute diff preview before showing approval
+            diff_preview = None
+            if tool_call.name == "write_file":
+                diff_preview = self._compute_write_diff_preview(tool_call.arguments)
+            elif tool_call.name == "edit_file":
+                diff_preview = self._compute_edit_diff_preview(tool_call.arguments)
+
+            self._emit(
+                event_callback,
+                "tool_approval_required",
+                run_id=run_id,
+                tool_call_id=tool_call.id,
+                tool_name=tool_call.name,
+                arguments=tool_call.arguments,
+                permission_level=permission_level,
+                diff_preview=diff_preview,
+            )
+            try:
+                approved = await self._approval_callback(
+                    run_id, tool_call.id, tool_call.name, tool_call.arguments
+                )
+            except Exception as e:
+                logger.error(
+                    "Approval callback error",
+                    extra={"tool": tool_call.name, "error": str(e)},
+                )
+                approved = False
+
+            await state_machine.record_approval(
+                tool_call_id=tc_record["id"],
+                decision="approved" if approved else "denied",
+                policy=self._permission_policy,
+            )
+
+            if not approved:
+                denial_msg = (
+                    f"The user DENIED this {tool_call.name} call. "
+                    f"This is NOT a permissions error — the user rejected this specific action. "
+                    f"Do NOT give up or say you lack permission. Instead:\n"
+                    f"- Ask the user what they'd like you to do differently\n"
+                    f"- Or try a different approach (e.g. edit_file instead of write_file)\n"
+                    f"Continue working on the user's request."
+                )
+                result = ToolResult(
+                    success=False,
+                    result_summary=f"User denied {tool_call.name} — ask user for guidance",
+                    error_message=denial_msg,
+                    duration_ms=0,
+                )
+                await state_machine.complete_tool_call(
+                    tool_call_id=tc_record["id"],
+                    success=False,
+                    result_summary=result.result_summary,
+                    duration_ms=0,
+                    error_message=result.error_message,
+                )
+                self._emit(
+                    event_callback,
+                    "tool_result",
+                    run_id=run_id,
+                    tool_call_id=tool_call.id,
+                    tool_name=tool_call.name,
+                    success=False,
+                    result_summary=result.result_summary,
+                )
+                prep["early_result"] = result
+                return prep
+        else:
+            await state_machine.record_approval(
+                tool_call_id=tc_record["id"],
+                decision="auto",
+                policy=self._permission_policy,
+            )
+
+        prep["tool"] = tool
+        return prep
+
+    async def _finalize_tool_call(
+        self,
+        tool_call: "ParsedToolCall",
+        result: "ToolResult",
+        tc_record: Dict[str, Any],
+        tool_call_event_id: Optional[str],
+        state_machine: AgentStateMachine,
+        step_number: int,
+        event_callback: Optional[Callable[[Dict[str, Any]], None]],
+        run_id: str,
+    ) -> None:
+        """Post-execution bookkeeping for a tool call.
+
+        Records completion, artifacts, citations, findings, and emits events.
+
+        Args:
+            tool_call: Parsed tool call.
+            result: Execution result.
+            tc_record: State machine tool call record.
+            tool_call_event_id: Trace event ID for the tool call.
+            state_machine: State machine.
+            step_number: Current step.
+            event_callback: SSE callback.
+            run_id: Run ID.
+        """
+        # Capture full result_detail for write tools
+        result_detail = None
+        if tool_call.name in ("write_file", "edit_file", "bash_tool") and result.result_data:
+            result_detail = json.dumps(result.result_data, ensure_ascii=False)[:10000]
+
+        # Record completion
+        await state_machine.complete_tool_call(
+            tool_call_id=tc_record["id"],
+            success=result.success,
+            result_summary=result.result_summary,
+            duration_ms=result.duration_ms or 0,
+            error_message=result.error_message,
+            result_detail=result_detail,
+        )
+
+        # Record file change artifact for write tools
+        if result.success and tool_call.name in ("write_file", "edit_file", "bash_tool"):
+            artifact_type = {
+                "write_file": "file_write",
+                "edit_file": "file_edit",
+                "bash_tool": "command_run",
+            }.get(tool_call.name, tool_call.name)
+            file_path = tool_call.arguments.get(
+                "file_path", tool_call.arguments.get("command", "")
+            )
+            try:
+                await self._repo.create_run_artifact(
+                    run_id=run_id,
+                    artifact_type=artifact_type,
+                    file_path=file_path,
+                    action=tool_call.name,
+                    detail=result.result_summary,
+                    tool_call_id=tc_record["id"],
+                )
+            except Exception as e:
+                logger.warning(
+                    "Failed to record artifact",
+                    extra={"run_id": run_id, "tool": tool_call.name, "error": str(e)},
+                )
+
+        # Extract citations from search/extract results
+        if result.success and tool_call.name in ("web_search", "web_extract"):
+            await self._store_citations_from_tool(
+                run_id=run_id,
+                tool_call_id=tc_record["id"],
+                tool_name=tool_call.name,
+                result_data=result.result_data,
+            )
+
+        # Extract key finding from successful tool calls
+        if result.success:
+            finding = self._extract_finding_from_result(
+                tool_name=tool_call.name,
+                arguments=tool_call.arguments,
+                result_summary=result.result_summary,
+                step_number=step_number,
+            )
+            if finding:
+                self._findings.append(finding)
+                logger.debug(
+                    "Extracted finding from tool result",
+                    extra={"step": step_number, "tool": tool_call.name},
+                )
+
+        # Emit tool result event (include diff data for write/edit tools)
+        emit_kwargs: Dict[str, Any] = {
+            "run_id": run_id,
+            "tool_call_id": tool_call.id,
+            "tool_name": tool_call.name,
+            "success": result.success,
+            "result_summary": result.result_summary,
+            "duration_ms": result.duration_ms,
+        }
+        if tool_call.name in ("write_file", "edit_file") and result.result_data:
+            emit_kwargs["result_data"] = str(result.result_data)[:10000]
+        self._emit(event_callback, "tool_result", **emit_kwargs)
+
+        # Trace: tool_result
+        await self._add_trace_event(
+            run_id=run_id,
+            event_type="tool_result",
+            content={
+                "tool_name": tool_call.name,
+                "success": result.success,
+                "result_summary": result.result_summary,
+                "error_message": result.error_message,
+            },
+            actor=f"tool:{tool_call.name}",
+            event_status="success" if result.success else "error",
+            step_number=step_number,
+            duration_ms=result.duration_ms or 0,
+            parent_event_id=tool_call_event_id,
+        )
+
+    def _compute_write_diff_preview(self, arguments: Dict[str, Any]) -> Optional[str]:
+        """Compute a unified diff preview for write_file before approval.
+
+        Reads the existing file and diffs against the proposed content.
+        Returns None for new files or if the file can't be read.
+
+        Args:
+            arguments: write_file arguments with file_path and content.
+
+        Returns:
+            Unified diff string (capped at 5KB), or None.
+        """
+        import difflib
+        from pathlib import Path
+
+        file_path = arguments.get("file_path", "")
+        new_content = arguments.get("content", "")
+        if not file_path:
+            return None
+
+        try:
+            # Resolve path the same way the tool does
+            path = Path(file_path)
+            if not path.is_absolute():
+                # Use registry's working dir if available
+                tool = self._registry.get("write_file")
+                if tool and hasattr(tool, "_working_dir"):
+                    path = tool._working_dir / path
+                path = path.resolve()
+
+            if not path.exists():
+                return None  # New file, no diff to show
+
+            old_content = path.read_text(encoding="utf-8")
+            if old_content == new_content:
+                return None  # No changes
+
+            diff_lines = difflib.unified_diff(
+                old_content.splitlines(keepends=True),
+                new_content.splitlines(keepends=True),
+                fromfile=f"a/{path.name}",
+                tofile=f"b/{path.name}",
+                n=3,
+            )
+            diff_text = "".join(diff_lines)
+            # Cap at 5KB to keep approval UI manageable
+            if len(diff_text) > 5000:
+                diff_text = diff_text[:5000] + "\n... (diff truncated)"
+            return diff_text or None
+        except Exception:
+            return None
+
+    def _compute_edit_diff_preview(self, arguments: Dict[str, Any]) -> Optional[str]:
+        """Compute a unified diff preview for edit_file before approval.
+
+        Uses old_string/new_string from arguments to show the change.
+
+        Args:
+            arguments: edit_file arguments with old_string and new_string.
+
+        Returns:
+            Unified diff string (capped at 5KB), or None.
+        """
+        import difflib
+
+        old_string = arguments.get("old_string", "")
+        new_string = arguments.get("new_string", "")
+        file_path = arguments.get("file_path", "unknown")
+
+        if not old_string:
+            return None
+
+        diff_lines = difflib.unified_diff(
+            old_string.splitlines(keepends=True),
+            new_string.splitlines(keepends=True),
+            fromfile=f"a/{file_path}",
+            tofile=f"b/{file_path}",
+            n=3,
+        )
+        diff_text = "".join(diff_lines)
+        if len(diff_text) > 5000:
+            diff_text = diff_text[:5000] + "\n... (diff truncated)"
+        return diff_text or None
 
     def _format_tool_result(self, result: "ToolResult") -> str:
         """Format tool result for message content.
@@ -1933,6 +2214,23 @@ When you complete each step, proceed to the next."""
                 })
             except (json.JSONDecodeError, TypeError):
                 summary = f"[Python execution results - {content_len} chars, summarized for context limit]"
+
+        elif tool_name == "read_file":
+            # Keep imports/headers + tail for file reads
+            head = content[:500]
+            tail = content[-200:] if content_len > 700 else ""
+            if tail:
+                summary = f"[read_file: {head}\n...\n{tail}]"
+            else:
+                summary = f"[read_file: {head}]"
+
+        elif tool_name == "grep":
+            # Keep first matches
+            summary = f"[grep results: {content[:500]}...]" if content_len > 500 else content
+
+        elif tool_name in ("glob", "list_directory"):
+            # Keep first portion of listing
+            summary = f"[{tool_name} results: {content[:400]}...]" if content_len > 400 else content
 
         else:
             # Generic summarization
@@ -2317,6 +2615,76 @@ When you complete each step, proceed to the next."""
                 "Failed to store turn summary",
                 extra={"run_id": run_id, "error": str(e)},
             )
+
+    async def _store_conversation_messages(
+        self, run_id: str, messages: list
+    ) -> None:
+        """Store pruned message list for cross-turn context.
+
+        Saves the current message history so the next run in the same
+        conversation can resume with full context instead of just turn summaries.
+
+        Args:
+            run_id: Run ID.
+            messages: Current message list from the agent loop.
+        """
+        if not self._trace_repo:
+            return
+        try:
+            # Strip internal metadata keys before serializing
+            clean = []
+            for msg in messages:
+                m = {k: v for k, v in msg.items() if not k.startswith("_")}
+                clean.append(m)
+            serialized = json.dumps(clean, ensure_ascii=False)
+            # Cap at 500KB to prevent DB bloat
+            if len(serialized) > 500_000:
+                return
+            await self._trace_repo.update_run(run_id, agent_state=serialized)
+        except Exception as e:
+            logger.warning(
+                "Failed to store conversation messages",
+                extra={"error": str(e)},
+            )
+
+    async def _load_prior_messages(
+        self, conversation_id: str
+    ) -> list | None:
+        """Load message list from the most recent completed run in this conversation.
+
+        Args:
+            conversation_id: Conversation ID to look up.
+
+        Returns:
+            List of messages if found, None otherwise.
+        """
+        try:
+            prior_runs = await self._trace_repo.list_runs_for_conversation(
+                conversation_id
+            )
+            # Find most recent succeeded run with stored messages
+            for run in sorted(
+                prior_runs,
+                key=lambda r: r.get("created_at", ""),
+                reverse=True,
+            ):
+                if run.get("status") != "succeeded":
+                    continue
+                agent_state = run.get("agent_state")
+                if agent_state and agent_state.startswith("["):
+                    try:
+                        messages = json.loads(agent_state)
+                        if isinstance(messages, list) and len(messages) > 1:
+                            return messages
+                    except json.JSONDecodeError:
+                        continue
+            return None
+        except Exception as e:
+            logger.warning(
+                "Failed to load prior messages",
+                extra={"error": str(e)},
+            )
+            return None
 
     async def _store_citations_from_tool(
         self,
