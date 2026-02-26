@@ -1788,10 +1788,12 @@ When you complete each step, proceed to the next."""
         )
 
         if needs_approval:
-            # Compute diff preview for write_file before showing approval
+            # Compute diff preview before showing approval
             diff_preview = None
             if tool_call.name == "write_file":
                 diff_preview = self._compute_write_diff_preview(tool_call.arguments)
+            elif tool_call.name == "edit_file":
+                diff_preview = self._compute_edit_diff_preview(tool_call.arguments)
 
             self._emit(
                 event_callback,
@@ -1952,17 +1954,18 @@ When you complete each step, proceed to the next."""
                     extra={"step": step_number, "tool": tool_call.name},
                 )
 
-        # Emit tool result event
-        self._emit(
-            event_callback,
-            "tool_result",
-            run_id=run_id,
-            tool_call_id=tool_call.id,
-            tool_name=tool_call.name,
-            success=result.success,
-            result_summary=result.result_summary,
-            duration_ms=result.duration_ms,
-        )
+        # Emit tool result event (include diff data for write/edit tools)
+        emit_kwargs: Dict[str, Any] = {
+            "run_id": run_id,
+            "tool_call_id": tool_call.id,
+            "tool_name": tool_call.name,
+            "success": result.success,
+            "result_summary": result.result_summary,
+            "duration_ms": result.duration_ms,
+        }
+        if tool_call.name in ("write_file", "edit_file") and result.result_data:
+            emit_kwargs["result_data"] = str(result.result_data)[:10000]
+        self._emit(event_callback, "tool_result", **emit_kwargs)
 
         # Trace: tool_result
         await self._add_trace_event(
@@ -2032,6 +2035,38 @@ When you complete each step, proceed to the next."""
             return diff_text or None
         except Exception:
             return None
+
+    def _compute_edit_diff_preview(self, arguments: Dict[str, Any]) -> Optional[str]:
+        """Compute a unified diff preview for edit_file before approval.
+
+        Uses old_string/new_string from arguments to show the change.
+
+        Args:
+            arguments: edit_file arguments with old_string and new_string.
+
+        Returns:
+            Unified diff string (capped at 5KB), or None.
+        """
+        import difflib
+
+        old_string = arguments.get("old_string", "")
+        new_string = arguments.get("new_string", "")
+        file_path = arguments.get("file_path", "unknown")
+
+        if not old_string:
+            return None
+
+        diff_lines = difflib.unified_diff(
+            old_string.splitlines(keepends=True),
+            new_string.splitlines(keepends=True),
+            fromfile=f"a/{file_path}",
+            tofile=f"b/{file_path}",
+            n=3,
+        )
+        diff_text = "".join(diff_lines)
+        if len(diff_text) > 5000:
+            diff_text = diff_text[:5000] + "\n... (diff truncated)"
+        return diff_text or None
 
     def _format_tool_result(self, result: "ToolResult") -> str:
         """Format tool result for message content.

@@ -333,10 +333,11 @@ class ChatScreen(Screen):
         tool_call_id = event.data.get("tool_call_id", "")
         result_summary = event.data.get("result_summary", "")
         success = event.data.get("success", True)
+        result_data = event.data.get("result_data")
 
         try:
             panel = self.query_one(f"#tool-{tool_call_id}", ToolCallPanel)
-            panel.set_result(result_summary, success)
+            panel.set_result(result_summary, success, result_data=result_data)
         except Exception:
             pass
 
