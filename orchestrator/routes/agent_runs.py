@@ -736,6 +736,12 @@ async def cancel_agent_run(run_id: str, http_request: Request):
     if run_id in _abort_signals:
         _abort_signals[run_id].set()
 
+    # Resolve any pending approval futures so the engine unblocks immediately
+    pending_approvals = _approval_queues.pop(run_id, {})
+    for future in pending_approvals.values():
+        if not future.done():
+            future.set_result(False)
+
     # Signal cancellation to SSE clients via history + notify
     _active_runs.pop(run_id, None)
     _event_history.setdefault(run_id, []).append({"type": "_STREAM_ABORTED"})
