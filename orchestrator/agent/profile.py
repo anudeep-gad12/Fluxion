@@ -290,7 +290,7 @@ PROFILES: Dict[str, AgentProfile] = {
         context_strategy="research",
         planning_prompt_template=RESEARCH_PLANNING_PROMPT,
         plan_step_types=["search", "extract", "calculate", "synthesize"],
-        max_steps=1000,
+        max_steps=25,
         max_plan_steps=5,
         findings_tools=["web_search", "web_extract", "python_execute"],
     ),

@@ -174,7 +174,7 @@ class TestProfileDefaults:
 
     def test_research_max_steps(self):
         profile = get_profile("research")
-        assert profile.max_steps == 1000
+        assert profile.max_steps == 25
 
     def test_coding_max_steps(self):
         profile = get_profile("coding")
