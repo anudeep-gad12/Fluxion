@@ -11,7 +11,7 @@ class TestContextPrunerInit:
     def test_default_values(self):
         """Default initialization uses expected values."""
         pruner = ContextPruner()
-        assert pruner.keep_full_steps == 2
+        assert pruner.keep_full_steps == 10
         assert pruner.max_python_chars == 500
 
     def test_custom_values(self):
@@ -150,6 +150,96 @@ class TestContextPrunerPrune:
         result = pruner.prune(messages, current_step=5)
         assert "Tool result" in result[0]["content"]
         assert "9 chars" in result[0]["content"]
+
+    def test_read_file_keeps_head_tail(self):
+        """read_file keeps first 500 + last 200 chars for large content."""
+        pruner = ContextPruner(keep_full_steps=1)
+        head = "import os\nimport sys\n" + "A" * 480
+        tail = "Z" * 200
+        content = head + "X" * 500 + tail
+        messages = [
+            {"role": "tool", "content": content, "_step": 1, "name": "read_file"},
+        ]
+        result = pruner.prune(messages, current_step=5)
+        assert "import os" in result[0]["content"]
+        assert "Z" * 50 in result[0]["content"]
+        assert result[0]["_pruned"] is True
+
+    def test_read_file_short_unchanged(self):
+        """read_file under 700 chars is unchanged."""
+        pruner = ContextPruner(keep_full_steps=1)
+        messages = [
+            {"role": "tool", "content": "short file", "_step": 1, "name": "read_file"},
+        ]
+        result = pruner.prune(messages, current_step=5)
+        assert result[0]["content"] == "short file"
+        assert "_pruned" not in result[0]
+
+    def test_grep_keeps_first_matches(self):
+        """grep keeps first 500 chars of matches."""
+        pruner = ContextPruner(keep_full_steps=1)
+        content = "match1\nmatch2\n" + "X" * 600
+        messages = [
+            {"role": "tool", "content": content, "_step": 1, "name": "grep"},
+        ]
+        result = pruner.prune(messages, current_step=5)
+        assert "match1" in result[0]["content"]
+        assert "grep results" in result[0]["content"]
+        assert result[0]["_pruned"] is True
+
+    def test_grep_short_unchanged(self):
+        """grep under 500 chars is unchanged."""
+        pruner = ContextPruner(keep_full_steps=1)
+        messages = [
+            {"role": "tool", "content": "match1\nmatch2", "_step": 1, "name": "grep"},
+        ]
+        result = pruner.prune(messages, current_step=5)
+        assert result[0]["content"] == "match1\nmatch2"
+        assert "_pruned" not in result[0]
+
+    def test_glob_keeps_first_portion(self):
+        """glob keeps first 400 chars of listing."""
+        pruner = ContextPruner(keep_full_steps=1)
+        content = "file1.py\nfile2.py\n" + "X" * 500
+        messages = [
+            {"role": "tool", "content": content, "_step": 1, "name": "glob"},
+        ]
+        result = pruner.prune(messages, current_step=5)
+        assert "file1.py" in result[0]["content"]
+        assert "glob results" in result[0]["content"]
+        assert result[0]["_pruned"] is True
+
+    def test_list_directory_keeps_first_portion(self):
+        """list_directory keeps first 400 chars of listing."""
+        pruner = ContextPruner(keep_full_steps=1)
+        content = "dir1/\ndir2/\n" + "X" * 500
+        messages = [
+            {"role": "tool", "content": content, "_step": 1, "name": "list_directory"},
+        ]
+        result = pruner.prune(messages, current_step=5)
+        assert "dir1/" in result[0]["content"]
+        assert "list_directory results" in result[0]["content"]
+        assert result[0]["_pruned"] is True
+
+    def test_write_file_always_kept(self):
+        """write_file confirmations are always kept unchanged."""
+        pruner = ContextPruner(keep_full_steps=1)
+        messages = [
+            {"role": "tool", "content": "File written successfully", "_step": 1, "name": "write_file"},
+        ]
+        result = pruner.prune(messages, current_step=5)
+        assert result[0]["content"] == "File written successfully"
+        assert "_pruned" not in result[0]
+
+    def test_edit_file_always_kept(self):
+        """edit_file confirmations are always kept unchanged."""
+        pruner = ContextPruner(keep_full_steps=1)
+        messages = [
+            {"role": "tool", "content": "File edited successfully", "_step": 1, "name": "edit_file"},
+        ]
+        result = pruner.prune(messages, current_step=5)
+        assert result[0]["content"] == "File edited successfully"
+        assert "_pruned" not in result[0]
 
     def test_step_metadata_mapping(self):
         """step_metadata dict is used for step lookup."""

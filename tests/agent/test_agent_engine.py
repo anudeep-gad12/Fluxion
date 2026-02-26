@@ -1379,3 +1379,77 @@ class TestSynthesisNudging:
         engine = self._make_engine()
         engine._findings = []
         assert engine._should_nudge_synthesis(8) is False
+
+
+# =============================================================================
+# Parallel Tool Execution Tests
+# =============================================================================
+
+
+class TestParallelToolExecution:
+    """Tests for parallel read-only tool execution."""
+
+    def test_parallel_tools_constant(self):
+        """PARALLEL_TOOLS contains expected read-only tools."""
+        assert "read_file" in AgentEngine.PARALLEL_TOOLS
+        assert "grep" in AgentEngine.PARALLEL_TOOLS
+        assert "glob" in AgentEngine.PARALLEL_TOOLS
+        assert "list_directory" in AgentEngine.PARALLEL_TOOLS
+        assert "web_search" in AgentEngine.PARALLEL_TOOLS
+        assert "web_extract" in AgentEngine.PARALLEL_TOOLS
+
+    def test_mutating_tools_not_parallel(self):
+        """Mutating tools are not in PARALLEL_TOOLS."""
+        assert "write_file" not in AgentEngine.PARALLEL_TOOLS
+        assert "edit_file" not in AgentEngine.PARALLEL_TOOLS
+        assert "bash_tool" not in AgentEngine.PARALLEL_TOOLS
+        assert "python_execute" not in AgentEngine.PARALLEL_TOOLS
+
+
+# =============================================================================
+# Force Prune Filesystem Tools Tests
+# =============================================================================
+
+
+class TestForcePruneFilesystemTools:
+    """Tests for _force_prune_largest with filesystem tools."""
+
+    def _make_engine(self):
+        return AgentEngine(
+            provider=create_mock_provider(),
+            repo=create_mock_repo(),
+            registry=create_mock_registry(),
+        )
+
+    def test_force_prune_read_file(self):
+        """Force prune keeps head+tail for read_file."""
+        engine = self._make_engine()
+        content = "import os\n" + "X" * 2000
+        messages = [
+            {"role": "tool", "content": content, "name": "read_file", "_step": 1},
+        ]
+        result = engine._force_prune_largest(messages, {})
+        assert "import os" in result[0]["content"]
+        assert result[0]["_force_pruned"] is True
+
+    def test_force_prune_grep(self):
+        """Force prune keeps first matches for grep."""
+        engine = self._make_engine()
+        content = "match_line_1\nmatch_line_2\n" + "X" * 2000
+        messages = [
+            {"role": "tool", "content": content, "name": "grep", "_step": 1},
+        ]
+        result = engine._force_prune_largest(messages, {})
+        assert "match_line_1" in result[0]["content"]
+        assert result[0]["_force_pruned"] is True
+
+    def test_force_prune_glob(self):
+        """Force prune keeps first portion for glob."""
+        engine = self._make_engine()
+        content = "src/main.py\nsrc/util.py\n" + "X" * 2000
+        messages = [
+            {"role": "tool", "content": content, "name": "glob", "_step": 1},
+        ]
+        result = engine._force_prune_largest(messages, {})
+        assert "src/main.py" in result[0]["content"]
+        assert result[0]["_force_pruned"] is True
