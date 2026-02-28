@@ -385,3 +385,41 @@ export function subscribeToAgentRun(
   return () => eventSource.close();
 }
 
+// =============================================================================
+// Local Models API
+// =============================================================================
+
+export interface LocalModel {
+  path: string;
+  name: string;
+  size_bytes: number;
+  size_display: string;
+}
+
+export interface ModelStatus {
+  provider: 'local' | 'cloud';
+  model_name: string | null;
+  base_url: string | null;
+  local_running: boolean;
+}
+
+export async function listLocalModels(): Promise<LocalModel[]> {
+  return fetchJson<LocalModel[]>(`${API_BASE}/models/local`);
+}
+
+export async function startLocalModel(
+  modelPath: string,
+): Promise<{ status: string; model_name: string }> {
+  return fetchJson(`${API_BASE}/models/local/start`, {
+    method: 'POST',
+    body: JSON.stringify({ model_path: modelPath }),
+  });
+}
+
+export async function stopLocalModel(): Promise<{ status: string; provider: string }> {
+  return fetchJson(`${API_BASE}/models/local/stop`, { method: 'POST' });
+}
+
+export async function getModelStatus(): Promise<ModelStatus> {
+  return fetchJson<ModelStatus>(`${API_BASE}/models/status`);
+}
