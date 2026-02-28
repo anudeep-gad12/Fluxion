@@ -222,4 +222,8 @@ def build_chat_completions_request(
         if key in kwargs and kwargs[key] is not None:
             payload[key] = kwargs[key]
 
+    # OpenRouter reasoning control (passed through from caller)
+    if "reasoning" in kwargs and kwargs["reasoning"] is not None:
+        payload["reasoning"] = kwargs["reasoning"]
+
     return payload

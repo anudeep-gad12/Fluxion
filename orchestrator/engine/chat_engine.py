@@ -587,6 +587,10 @@ class ChatEngine:
         effort = reasoning_effort or self.config.model.reasoning_effort
 
         # Use provider for streaming
+        # Pass reasoning config for providers like OpenRouter that use it
+        # to separate thinking from content in chat/completions
+        reasoning_config = {"effort": effort} if effort else None
+
         response = await self._provider.complete_streaming(
             messages=messages,
             model=self.config.model.name,
@@ -602,6 +606,7 @@ class ChatEngine:
             top_p=self.config.model.top_p,
             frequency_penalty=self.config.model.frequency_penalty,
             presence_penalty=self.config.model.presence_penalty,
+            reasoning=reasoning_config,
         )
 
         # Get response text from provider's normalized response
