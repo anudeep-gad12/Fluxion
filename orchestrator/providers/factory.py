@@ -10,6 +10,20 @@ from .openai_compat import OpenAICompatProvider
 if TYPE_CHECKING:
     from orchestrator.config import ChatGPTConfig, ProviderChainConfig, ProviderConfig
 
+# Runtime provider override — set by /api/models/local/start, cleared by /stop
+_provider_override: Optional[LLMProvider] = None
+
+
+def get_provider_override() -> Optional[LLMProvider]:
+    """Get the current runtime provider override (if any)."""
+    return _provider_override
+
+
+def set_provider_override(provider: Optional[LLMProvider]) -> None:
+    """Set or clear the runtime provider override."""
+    global _provider_override
+    _provider_override = provider
+
 
 def create_chatgpt_provider(
     tokens: Dict[str, Any],
@@ -50,6 +64,7 @@ def create_provider(
 ) -> LLMProvider:
     """Create an LLM provider from configuration.
 
+    If a runtime override is set (via local model start), returns that.
     If chain_config is provided and enabled, creates a ProviderChain with
     failover support. Otherwise, creates a single OpenAICompatProvider.
 
@@ -60,6 +75,10 @@ def create_provider(
     Returns:
         LLMProvider instance (either OpenAICompatProvider or ProviderChain).
     """
+    # Check runtime override first (local model)
+    if _provider_override is not None:
+        return _provider_override
+
     # Check if chain mode is enabled
     if chain_config and chain_config.enabled and chain_config.providers:
         return _create_provider_chain(chain_config)
