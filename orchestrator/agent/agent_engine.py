@@ -1349,9 +1349,8 @@ When you complete each step, proceed to the next."""
         def on_reasoning(reasoning: str) -> None:
             """Handle native reasoning tokens - emit to thinking panel.
 
-            Pass tokens through raw (no sanitization, no whitespace stripping)
-            to match chat mode behavior. Any cleanup happens on the frontend
-            or when final thinking_text is persisted to the database.
+            Pass tokens through raw — any cleanup (stripping tool_call XML,
+            think tags, etc.) happens on the frontend in ThinkingPanel.
             """
             first_token_received.set()
             if reasoning:
