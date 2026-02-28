@@ -491,6 +491,14 @@ class OpenAICompatProvider:
                             delta = {"content": None, "reasoning": None, "tool_call": None}
 
                     # Emit callbacks
+                    if delta["content"] and delta["reasoning"]:
+                        logger.debug(
+                            "Chunk has both content and reasoning",
+                            extra={
+                                "content_preview": str(delta["content"])[:100],
+                                "reasoning_preview": str(delta["reasoning"])[:100],
+                            },
+                        )
                     if delta["content"]:
                         # Ensure content is a string (Mistral can return list of content blocks)
                         raw_content = delta["content"]
@@ -560,26 +568,42 @@ class OpenAICompatProvider:
                 )
             raise
 
-        # Finalize accumulated streaming tool calls (for llama-server format)
+        # Finalize accumulated streaming tool calls (for llama-server format).
+        # Only add tool calls not already captured via tool_calls_complete
+        # (DeepInfra sends complete tool calls in a single chunk, which both
+        # the accumulator and parse_streaming_delta capture — skip duplicates).
         if tool_call_accumulators:
+            existing_ids = {tc.get("id") for tc in tool_calls}
             for idx in sorted(tool_call_accumulators.keys()):
                 acc = tool_call_accumulators[idx]
                 # Skip incomplete tool calls (missing id, name, or arguments)
-                # This prevents emitting tool calls with empty {} arguments
                 if acc["id"] and acc["name"] and acc["arguments_parts"]:
+                    if acc["id"] in existing_ids:
+                        logger.debug(
+                            "Skipped accumulator tool call already captured",
+                            extra={"tool_name": acc["name"], "tool_id": acc["id"]},
+                        )
+                        continue
+                    args_str = "".join(acc["arguments_parts"])
+                    if not args_str.strip() or args_str.strip() == "{}":
+                        logger.warning(
+                            "Skipped streaming tool call with empty arguments",
+                            extra={"tool_name": acc["name"], "tool_id": acc["id"]},
+                        )
+                        continue
                     tool_calls.append({
                         "id": acc["id"],
                         "type": "function",
                         "function": {
                             "name": acc["name"],
-                            "arguments": "".join(acc["arguments_parts"]),
+                            "arguments": args_str,
                         },
                     })
                     logger.debug(
                         "Finalized streaming tool call",
                         extra={
                             "tool_name": acc["name"],
-                            "arguments_length": len("".join(acc["arguments_parts"])),
+                            "arguments_length": len(args_str),
                         }
                     )
                 elif acc["id"] and acc["name"]:
@@ -588,25 +612,41 @@ class OpenAICompatProvider:
                         extra={"tool_name": acc["name"], "tool_id": acc["id"]},
                     )
 
-        # Deduplicate tool call IDs (some models like Mistral generate duplicates)
+        # Drop duplicate tool call IDs (keep first occurrence)
         if tool_calls:
             seen_ids: set[str] = set()
+            deduped: list[Dict[str, Any]] = []
             for tc in tool_calls:
                 tc_id = tc.get("id", "")
                 if tc_id in seen_ids:
-                    import uuid
-                    new_id = uuid.uuid4().hex[:9]
                     logger.warning(
-                        "Duplicate tool_call id, reassigning",
-                        extra={"old_id": tc_id, "new_id": new_id, "tool": tc.get("function", {}).get("name")},
+                        "Dropped duplicate tool call",
+                        extra={"id": tc_id, "tool": tc.get("function", {}).get("name")},
                     )
-                    tc["id"] = new_id
-                seen_ids.add(tc["id"])
+                    continue
+                seen_ids.add(tc_id)
+                deduped.append(tc)
+            tool_calls = deduped
+
+        final_text = "".join(full_content)
+        final_reasoning = "".join(full_reasoning) if full_reasoning else None
+
+        # Log when content duplicates reasoning (API sending thinking in both fields)
+        if final_text and final_reasoning and final_text.strip() in final_reasoning:
+            logger.warning(
+                "API sent content that duplicates reasoning — likely leaked thinking",
+                extra={
+                    "content_length": len(final_text),
+                    "reasoning_length": len(final_reasoning),
+                    "content_preview": final_text[:200],
+                    "finish_reason": finish_reason,
+                },
+            )
 
         return LLMResponse(
-            text="".join(full_content),
+            text=final_text,
             tool_calls=tool_calls if tool_calls else None,
-            reasoning="".join(full_reasoning) if full_reasoning else None,
+            reasoning=final_reasoning,
             response_id=response_id,
             raw={},
             endpoint_used=url,

@@ -567,7 +567,11 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     # Also try parsing from reasoning if text is empty
                     # (Some models output tool calls in reasoning_content field)
                     elif not llm_response.text and llm_response.reasoning:
-                        reasoning_tool_calls = self._parse_json_tool_calls(llm_response.reasoning)
+                        # Try Harmony format first (e.g., Qwen puts <tool_call> in reasoning)
+                        reasoning_tool_calls = self._parse_text_tool_calls(llm_response.reasoning)
+                        if not reasoning_tool_calls:
+                            # Fall back to raw JSON format
+                            reasoning_tool_calls = self._parse_json_tool_calls(llm_response.reasoning)
                         if reasoning_tool_calls:
                             tool_calls = reasoning_tool_calls
                             logger.info(
@@ -589,6 +593,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         "has_tool_calls": bool(tool_calls),
                         "tool_calls_count": len(tool_calls) if tool_calls else 0,
                         "thinking_text": thinking_text,
+                        "finish_reason": llm_response.finish_reason,
                     },
                     actor="model",
                     step_number=step_number,
@@ -600,6 +605,32 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 # Accumulate tokens for run stats
                 if llm_response.usage.get("total_tokens"):
                     self._total_tokens += llm_response.usage["total_tokens"]
+
+                # Model was truncated (hit max_tokens) — partial content
+                # is not a final answer, the model may have been mid-tool-call
+                if not tool_calls and llm_response.finish_reason == "length":
+                    logger.warning(
+                        "Model truncated (finish_reason=length), continuing",
+                        extra={
+                            "run_id": run_id,
+                            "step_number": step_number,
+                            "text_length": len(llm_response.text) if llm_response.text else 0,
+                        },
+                    )
+                    if llm_response.text:
+                        messages.append({
+                            "role": "assistant",
+                            "content": llm_response.text,
+                        })
+                    messages.append({
+                        "role": "user",
+                        "content": "Continue. Provide your final answer or call a tool.",
+                    })
+                    await state_machine.complete_step(
+                        decision="truncated",
+                        thinking_text=thinking_text,
+                    )
+                    continue
 
                 if tool_calls:
                     # Check for redundant tool calls before execution
@@ -615,7 +646,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         )
                         messages.append({
                             "role": "system",
-                            "content": f"[Tool calls filtered — {reasons}. Be more specific and targeted with your next tool call.]",
+                            "content": f"[Tool calls filtered — {reasons}. Try a different query or tool.]",
                         })
                         if not tool_calls:
                             await state_machine.complete_step(
@@ -2431,10 +2462,20 @@ When you complete each step, proceed to the next."""
             List of (tool_call, reason) tuples for calls that should be skipped.
         """
         redundant = []
+        seen_in_batch: list[dict] = []
 
         for tc in tool_calls:
-            # 1. Exact duplicate check
+            # Intra-batch duplicate check (same tool+args within this LLM response)
             is_dup = False
+            for seen in seen_in_batch:
+                if seen["tool_name"] == tc.name and seen["arguments"] == tc.arguments:
+                    redundant.append((tc, f"Duplicate in same step: {tc.name} called twice with same arguments"))
+                    is_dup = True
+                    break
+            if is_dup:
+                continue
+
+            # Exact duplicate check against history
             for prev in self._tool_call_log:
                 if prev["tool_name"] == tc.name and prev["arguments"] == tc.arguments:
                     redundant.append((tc, f"Duplicate: already called {tc.name} with same arguments"))
@@ -2443,14 +2484,16 @@ When you complete each step, proceed to the next."""
             if is_dup:
                 continue
 
-            # 2. Overly broad glob patterns
+            seen_in_batch.append({"tool_name": tc.name, "arguments": tc.arguments})
+
+            # Overly broad glob patterns
             if tc.name == "glob":
                 pattern = tc.arguments.get("pattern", "")
                 if pattern in ("**/*.py", "**/*.md", "**/*.ts", "**/*.tsx", "**/*"):
                     redundant.append((tc, f"Too broad: glob '{pattern}' scans entire project"))
                     continue
 
-            # 3. Repeated list_directory on root
+            # Repeated list_directory on root
             if tc.name == "list_directory":
                 path = tc.arguments.get("path", ".")
                 if path in (".", "./", ""):
