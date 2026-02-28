@@ -266,6 +266,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
         approval_callback: Optional[Callable] = None,
         permission_policy: str = "strict",
         profile: Optional["AgentProfile"] = None,
+        reasoning_effort: Optional[str] = None,
     ) -> None:
         """Initialize agent engine.
 
@@ -290,6 +291,9 @@ To provide your final answer, respond WITHOUT calling any tools."""
             planning_enabled: Whether to create research plans before execution.
             max_plan_steps: Maximum steps the planner can create (default 5).
             profile: Agent profile for behavior customization.
+            reasoning_effort: Reasoning effort level for providers that support it
+                (e.g., OpenRouter: "low", "medium", "high"). Passed as
+                {"effort": value} in the request payload.
         """
         self._provider = provider
         self._repo = repo
@@ -323,6 +327,9 @@ To provide your final answer, respond WITHOUT calling any tools."""
         # Permission system
         self._approval_callback = approval_callback
         self._permission_policy = permission_policy
+
+        # Reasoning config for providers like OpenRouter
+        self._reasoning_effort = reasoning_effort
 
         # Context budget tracking
         self._context_budget: Optional[ContextBudget] = None
@@ -556,32 +563,27 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     },
                 )
                 if not tool_calls:
-                    # Fallback: parse tool calls from text (Harmony format)
-                    text_tool_calls = self._parse_text_tool_calls(llm_response.text)
-                    if text_tool_calls:
-                        tool_calls = text_tool_calls
-                        logger.info(
-                            "Parsed tool calls from text",
-                            extra={"count": len(text_tool_calls), "tools": [tc["function"]["name"] for tc in text_tool_calls]},
-                        )
-                    # Also try parsing from reasoning if text is empty
-                    # (Some models output tool calls in reasoning_content field)
-                    elif not llm_response.text and llm_response.reasoning:
-                        # Try Harmony format first (e.g., Qwen puts <tool_call> in reasoning)
-                        reasoning_tool_calls = self._parse_text_tool_calls(llm_response.reasoning)
-                        if not reasoning_tool_calls:
-                            # Fall back to raw JSON format
-                            reasoning_tool_calls = self._parse_json_tool_calls(llm_response.reasoning)
-                        if reasoning_tool_calls:
-                            tool_calls = reasoning_tool_calls
+                    # Try all text-based tool call formats on both text and reasoning
+                    for source_name, source_text in [("text", llm_response.text), ("reasoning", llm_response.reasoning)]:
+                        if not source_text:
+                            continue
+                        # 1. Harmony format (gpt-oss: <|channel|> tokens)
+                        parsed = self._parse_text_tool_calls(source_text)
+                        # 2. Qwen XML format (<tool_call><function=...>)
+                        if not parsed:
+                            parsed = self._parse_xml_tool_calls(source_text)
+                        # 3. Raw JSON format ({"query": "..."})
+                        if not parsed:
+                            parsed = self._parse_json_tool_calls(source_text)
+                        if parsed:
+                            tool_calls = parsed
                             logger.info(
-                                "Parsed tool calls from reasoning",
-                                extra={"count": len(reasoning_tool_calls), "tools": [tc["function"]["name"] for tc in reasoning_tool_calls]},
+                                f"Parsed tool calls from {source_name}",
+                                extra={"count": len(parsed), "tools": [tc["function"]["name"] for tc in parsed]},
                             )
-                        else:
-                            logger.debug("No tool calls found in reasoning", extra={"reasoning_preview": llm_response.reasoning[:300] if llm_response.reasoning else ""})
+                            break
                     else:
-                        logger.debug("No tool calls found in text", extra={"text": llm_response.text[:300] if llm_response.text else ""})
+                        logger.debug("No tool calls found in text or reasoning")
 
                 # Trace: llm_response (with thinking)
                 llm_duration_ms = int((time.perf_counter() - llm_start_time) * 1000)
@@ -671,7 +673,13 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     # Add assistant message with tool calls
                     # Include truncated reasoning for context so model doesn't re-analyze
                     # each step. Limit to ~500 chars to avoid 400 errors with some providers.
+                    # Strip <tool_call> XML from text so it doesn't pollute conversation history
                     assistant_content = llm_response.text
+                    if assistant_content and "<tool_call>" in assistant_content:
+                        import re as _re
+                        assistant_content = _re.sub(
+                            r"<tool_call>.*?</tool_call>", "", assistant_content, flags=_re.DOTALL
+                        ).strip() or None
                     if not assistant_content and llm_response.reasoning:
                         # Use last portion of reasoning (most relevant to decision)
                         reasoning = llm_response.reasoning.strip()
@@ -750,21 +758,15 @@ To provide your final answer, respond WITHOUT calling any tools."""
 
                     final_answer = self._clean_answer(llm_response.text)
 
-                    # Fallback: If text is empty but reasoning exists, extract answer from it
-                    # (Some models put the answer in reasoning_content instead of content)
+                    # Provider put everything in reasoning, content is empty.
+                    # This happens when OpenRouter auto-separates thinking models
+                    # (Qwen, etc.) and routes all output to reasoning_content.
                     if not final_answer and llm_response.reasoning:
-                        # Strip any incomplete JSON fragments from reasoning
-                        reasoning_text = llm_response.reasoning
-                        # Remove trailing JSON fragments (incomplete tool calls)
-                        reasoning_text = re.sub(r'\{[^{}]*$', '', reasoning_text)  # Trailing unclosed {
-                        reasoning_text = re.sub(r'\{"[^"]*":\s*"[^}]*$', '', reasoning_text)  # Partial JSON
-                        reasoning_text = reasoning_text.strip()
-                        if reasoning_text:
-                            final_answer = self._clean_answer(reasoning_text)
-                            logger.info(
-                                "Used reasoning as fallback answer",
-                                extra={"answer_length": len(final_answer)},
-                            )
+                        final_answer = self._clean_answer(llm_response.reasoning)
+                        logger.info(
+                            "Used reasoning as answer (provider sent empty content)",
+                            extra={"answer_length": len(final_answer)},
+                        )
 
                     # Emit answer as answer_token so UI displays it in answer panel
                     # (streaming sent it to thinking, now send cleaned version to answer)
@@ -1347,9 +1349,8 @@ When you complete each step, proceed to the next."""
         def on_reasoning(reasoning: str) -> None:
             """Handle native reasoning tokens - emit to thinking panel.
 
-            Pass tokens through raw (no sanitization, no whitespace stripping)
-            to match chat mode behavior. Any cleanup happens on the frontend
-            or when final thinking_text is persisted to the database.
+            Pass tokens through raw — any cleanup (stripping tool_call XML,
+            think tags, etc.) happens on the frontend in ThinkingPanel.
             """
             first_token_received.set()
             if reasoning:
@@ -1391,6 +1392,12 @@ When you complete each step, proceed to the next."""
         monitor_task = asyncio.create_task(slow_response_monitor())
 
         try:
+            # Build extra kwargs for providers that support reasoning config
+            # (e.g., OpenRouter uses {"effort": "medium"} to separate thinking/content)
+            extra_kwargs: Dict[str, Any] = {}
+            if self._reasoning_effort:
+                extra_kwargs["reasoning"] = {"effort": self._reasoning_effort}
+
             response = await self._provider.complete_streaming(
                 messages=messages,
                 model=self._model_name,
@@ -1400,6 +1407,7 @@ When you complete each step, proceed to the next."""
                 tool_choice=tool_choice,
                 max_tokens=self._max_tokens,
                 temperature=self._temperature,
+                **extra_kwargs,
             )
         finally:
             # Signal completion and clean up monitor
@@ -1495,6 +1503,83 @@ When you complete each step, proceed to the next."""
                     )
             except json.JSONDecodeError:
                 continue
+
+        return tool_calls if tool_calls else None
+
+    def _parse_xml_tool_calls(self, text: str) -> Optional[List[Dict[str, Any]]]:
+        """Parse Qwen-style XML tool calls from text.
+
+        Qwen models output tool calls in this format:
+            <tool_call>
+            <function=web_extract>
+            <parameter=urls>["http://example.com"]</parameter>
+            </function>
+            </tool_call>
+
+        Also handles truncated/incomplete XML where closing tags are missing
+        (e.g., model hit token limit mid-tool-call).
+
+        Args:
+            text: Text that may contain XML tool call blocks.
+
+        Returns:
+            List of tool call dicts in OpenAI format, or None if no tool calls found.
+        """
+        import re
+        import uuid
+
+        if not text or "<tool_call>" not in text:
+            return None
+
+        tool_calls = []
+
+        # Match <tool_call> blocks — closing tag optional (handles truncation)
+        for block in re.finditer(
+            r"<tool_call>\s*(.*?)(?:</tool_call>|\Z)", text, re.DOTALL
+        ):
+            body = block.group(1)
+
+            # Extract function name: <function=NAME>
+            func_match = re.search(r"<function=(\w+)>", body)
+            if not func_match:
+                continue
+            func_name = func_match.group(1)
+
+            # Extract parameters — closing tag optional (handles truncation)
+            params = {}
+            for param in re.finditer(
+                r"<parameter=(\w+)>\s*(.*?)(?:</parameter>|<(?:parameter|/function|/tool_call)|\Z)",
+                body, re.DOTALL,
+            ):
+                key = param.group(1)
+                value = param.group(2).strip()
+                if not value:
+                    continue
+                # Try to parse as JSON (lists, dicts, numbers)
+                try:
+                    params[key] = json.loads(value)
+                except (json.JSONDecodeError, ValueError):
+                    params[key] = value
+
+            if not params:
+                continue
+
+            tool_calls.append({
+                "id": f"call_{uuid.uuid4().hex[:8]}",
+                "type": "function",
+                "function": {
+                    "name": func_name,
+                    "arguments": json.dumps(params),
+                },
+            })
+
+            logger.info(
+                "Parsed XML tool call (Qwen format)",
+                extra={
+                    "tool_name": func_name,
+                    "param_keys": list(params.keys()),
+                },
+            )
 
         return tool_calls if tool_calls else None
 
@@ -2938,6 +3023,11 @@ When you complete each step, proceed to the next."""
         def on_reasoning(token: str) -> None:
             reasoning_tokens.append(token)
 
+        # Build extra kwargs for reasoning config
+        extra_kwargs: Dict[str, Any] = {}
+        if self._reasoning_effort:
+            extra_kwargs["reasoning"] = {"effort": self._reasoning_effort}
+
         response = await self._provider.complete_streaming(
             messages=messages,
             model=self._model_name,
@@ -2946,6 +3036,7 @@ When you complete each step, proceed to the next."""
             tools=None,  # No tools - force text response
             max_tokens=synthesis_max_tokens,
             temperature=self._temperature,
+            **extra_kwargs,
         )
 
         # Log synthesis results for debugging

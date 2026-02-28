@@ -1,7 +1,7 @@
 // ThinkingPanel - Collapsible panel showing AI thinking process
 
 import { useState } from 'react';
-import { cn } from '@/lib/utils';
+import { cn, sanitizeThinking } from '@/lib/utils';
 import type { ThinkingStep } from '@/types';
 
 import 'katex/dist/katex.min.css';
@@ -18,18 +18,8 @@ interface ThinkingPanelProps {
   defaultExpanded?: boolean;
 }
 
-/**
- * Strip [THINK] and [/THINK] tags from content.
- * This is a safety measure to catch any tags that leaked through StreamParser.
- */
-function stripThinkTags(content: string): string {
-  if (!content) return '';
-  // Remove [THINK], [/THINK], <think>, </think> tags (case-insensitive, with optional whitespace)
-  return content
-    .replace(/\[\s*\/?\s*THINK\s*\]/gi, '')
-    .replace(/<\s*\/?\s*think\s*>/gi, '')
-    .trim();
-}
+/** Alias for backward compat within this file */
+const stripThinkTags = sanitizeThinking;
 
 /**
  * Fix common LaTeX issues that cause KaTeX parsing errors.
