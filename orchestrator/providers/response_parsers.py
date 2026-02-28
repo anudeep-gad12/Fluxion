@@ -115,8 +115,23 @@ def parse_chat_result(raw: Dict[str, Any], endpoint: str) -> LLMResponse:
     choice = choices[0]
     message = choice.get("message", {})
 
-    # Handle different reasoning field names (gpt-oss uses 'reasoning' or 'reasoning_content')
+    # Handle different reasoning field names
+    # 1. Flat string: gpt-oss uses 'reasoning' or 'reasoning_content'
     reasoning = message.get("reasoning") or message.get("reasoning_content")
+    # 2. Structured array: OpenRouter reasoning_details
+    if not reasoning:
+        reasoning_details = message.get("reasoning_details")
+        if reasoning_details and isinstance(reasoning_details, list):
+            parts = []
+            for detail in reasoning_details:
+                if isinstance(detail, dict):
+                    detail_type = detail.get("type", "")
+                    if detail_type == "reasoning.text" and detail.get("text"):
+                        parts.append(detail["text"])
+                    elif detail_type == "reasoning.summary" and detail.get("summary"):
+                        parts.append(detail["summary"])
+            if parts:
+                reasoning = "".join(parts)
 
     return LLMResponse(
         text=message.get("content", "") or "",
@@ -195,8 +210,24 @@ def parse_streaming_delta(
         if content:
             result["content"] = content
 
-        # gpt-oss native reasoning (LM Studio returns this separately)
+        # Reasoning tokens: check flat string first, then structured array
+        # 1. Flat string: gpt-oss native reasoning, or OpenRouter legacy
         reasoning = delta.get("reasoning") or delta.get("reasoning_content")
+        # 2. Structured array: OpenRouter reasoning_details
+        #    Format: [{"type": "reasoning.text", "text": "..."}, ...]
+        if not reasoning:
+            reasoning_details = delta.get("reasoning_details")
+            if reasoning_details and isinstance(reasoning_details, list):
+                parts = []
+                for detail in reasoning_details:
+                    if isinstance(detail, dict):
+                        detail_type = detail.get("type", "")
+                        if detail_type == "reasoning.text" and detail.get("text"):
+                            parts.append(detail["text"])
+                        elif detail_type == "reasoning.summary" and detail.get("summary"):
+                            parts.append(detail["summary"])
+                if parts:
+                    reasoning = "".join(parts)
         if reasoning:
             result["reasoning"] = reasoning
 
