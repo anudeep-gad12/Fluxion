@@ -462,6 +462,16 @@ class OpenAICompatProvider:
                         choices = data.get("choices", [{}])
                         if choices:
                             choice_delta = choices[0].get("delta", {})
+
+                            # Log first delta with each field type for diagnostics
+                            delta_keys = [k for k in choice_delta if choice_delta[k] is not None]
+                            if delta_keys and not any(k in ("role",) for k in delta_keys):
+                                interesting = {k: str(choice_delta[k])[:100] for k in delta_keys}
+                                logger.debug(
+                                    "Streaming delta fields",
+                                    extra={"keys": delta_keys, "preview": interesting},
+                                )
+
                             delta = parse_streaming_delta(choice_delta, "chat_completions")
                             new_finish = choices[0].get("finish_reason")
                             if new_finish:
