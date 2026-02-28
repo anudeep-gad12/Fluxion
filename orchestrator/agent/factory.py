@@ -193,6 +193,7 @@ async def create_agent_engine(
         max_plan_steps=max_plan_steps,
         approval_callback=approval_callback,
         profile=profile,
+        reasoning_effort=getattr(config.model, "reasoning_effort", None),
     )
 
     logger.info(
