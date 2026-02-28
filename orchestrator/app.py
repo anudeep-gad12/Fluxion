@@ -24,7 +24,7 @@ from orchestrator.logging_config import (
     set_component,
 )
 from orchestrator.storage.db import get_db
-from orchestrator.routes import conversations, runs, agent_runs, benchmarks, auth
+from orchestrator.routes import conversations, runs, agent_runs, benchmarks, auth, models
 from orchestrator.middleware.rate_limit import RateLimitMiddleware
 from orchestrator.middleware.session import SessionMiddleware
 
@@ -269,6 +269,7 @@ app.include_router(runs.router)
 app.include_router(agent_runs.router)
 app.include_router(benchmarks.router)
 app.include_router(auth.router)
+app.include_router(models.router)
 
 
 @app.get("/api/health")
@@ -284,7 +285,8 @@ async def get_config():
     return {
         "demo": {
             "enabled": config.demo.enabled if config.demo else False,
-        }
+        },
+        "local_models_enabled": not _is_production,
     }
 
 
