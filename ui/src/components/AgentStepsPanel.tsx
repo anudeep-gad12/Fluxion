@@ -4,7 +4,7 @@
  */
 
 import { useState } from 'react';
-import { cn } from '@/lib/utils';
+import { cn, sanitizeThinking } from '@/lib/utils';
 import { ToolCallCard } from '@/components/ToolCallCard';
 import { AnswerMarkdown } from '@/components/AnswerMarkdown';
 import type { AgentStep, AgentToolCall, AgentUIState } from '@/types/agent';
@@ -150,7 +150,7 @@ export function AgentStepsPanel({
                           no processing at all to preserve exact token order */}
                       {isCurrentStep && isActive && thinkingBuffer && (
                         <pre className="text-xs text-zinc-500 bg-zinc-800/50 rounded-none p-2 whitespace-pre-wrap font-mono leading-relaxed">
-                          {thinkingBuffer}
+                          {sanitizeThinking(thinkingBuffer)}
                           <span className="inline-block w-1.5 h-3 bg-zinc-400 animate-pulse ml-0.5" />
                         </pre>
                       )}
@@ -158,7 +158,7 @@ export function AgentStepsPanel({
                       {/* Historical thinking for completed steps */}
                       {!(isCurrentStep && isActive) && step.thinking_text && (
                         <div className="text-xs text-zinc-500 bg-zinc-800/50 rounded-none p-2 thinking-markdown">
-                          <AnswerMarkdown content={step.thinking_text} />
+                          <AnswerMarkdown content={sanitizeThinking(step.thinking_text)} />
                         </div>
                       )}
 
