@@ -298,6 +298,30 @@ class AgentRunTraceResponse(BaseModel):
     final_answer: Optional[str] = None
 
 
+# ==================== Local Model Schemas ====================
+
+class LocalModelSchema(BaseModel):
+    """A GGUF model available on disk."""
+    path: str
+    name: str
+    size_bytes: int
+    size_display: str
+
+
+class StartModelRequest(BaseModel):
+    """Request to start llama-server with a local model."""
+    model_path: str
+    ctx_size: Optional[int] = None  # None = use config context.max_tokens
+
+
+class ModelStatusResponse(BaseModel):
+    """Current provider status."""
+    provider: str  # "local" or "cloud"
+    model_name: Optional[str] = None
+    base_url: Optional[str] = None
+    local_running: bool = False
+
+
 # ==================== Helpers ====================
 
 def trace_to_run(trace: dict) -> RunResponse:

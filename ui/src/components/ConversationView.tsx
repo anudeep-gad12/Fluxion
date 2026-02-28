@@ -14,7 +14,18 @@ import {
   abortRun,
   createAgentRun,
   cancelAgentRun,
+  listLocalModels,
+  startLocalModel,
+  stopLocalModel,
+  getModelStatus,
 } from '@/api/client';
+import type { LocalModel, ModelStatus } from '@/api/client';
+import {
+  Dialog,
+  DialogHeader,
+  DialogTitle,
+  DialogContent,
+} from '@/components/ui/dialog';
 import { useConversationRuns, useSelectedConversation, useStore, useHasActiveRun } from '@/hooks/useStore';
 import { useSSE } from '@/hooks/useSSE';
 import { useAgentSSE } from '@/hooks/useAgentSSE';
@@ -27,25 +38,161 @@ const MAX_INPUT_CHARS = 8000;
 /** Preset questions showcasing multi-step agentic research capabilities */
 const PRESET_QUESTIONS = [
   {
-    label: 'Hypothetical: Smaller hearts',
-    query: 'What if humans have smaller hearts?',
+    label: "What's the total mass of all humans versus all ants?",
+    query: "What's the total mass of all humans alive today versus all ants, and which weighs more?",
   },
   {
-    label: 'Last 3 Nobel Prizes',
-    query: 'Who won the Nobel Prize in Physics for the last 3 years, what are their names and what topics did they receive it for?',
+    label: 'How long to watch every Oscar Best Picture winner back to back?',
+    query: 'How long would it take to watch every movie that won Best Picture at the Oscars back to back?',
   },
   {
-    label: 'Birth rate declines',
-    query: 'What are the birth rate declines in recent years and what are the main causes?',
+    label: '$1,000 in Apple, Google, Amazon 10 years ago — worth today?',
+    query: 'If you invested $1,000 in Apple, Google, and Amazon 10 years ago, how much would each be worth today?',
   },
   {
-    label: 'Top 5 tallest buildings',
-    query: 'What are the top 5 tallest buildings in the world, their heights, and how do they compare?',
+    label: 'How many soccer fields to cover the entire EU?',
+    query: 'How many soccer fields would it take to cover the surface area of every country in the EU?',
   },
 ];
 
 /** Mode: 'chat' for regular conversation, 'research' for agent */
 type ChatMode = 'chat' | 'research';
+
+/** Model picker component shown in the status bar */
+function ModelPicker({
+  open,
+  onOpenChange,
+  modelStatus,
+  onModelStatusChange,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  modelStatus: ModelStatus | null;
+  onModelStatusChange: (status: ModelStatus) => void;
+}) {
+  const [localModels, setLocalModels] = useState<LocalModel[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [starting, setStarting] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setLoading(true);
+    setError(null);
+    listLocalModels()
+      .then(setLocalModels)
+      .catch(() => setError('Failed to scan models'))
+      .finally(() => setLoading(false));
+  }, [open]);
+
+  const handleSelectCloud = async () => {
+    if (modelStatus?.provider === 'cloud') {
+      onOpenChange(false);
+      return;
+    }
+    setStarting('cloud');
+    try {
+      await stopLocalModel();
+      const status = await getModelStatus();
+      onModelStatusChange(status);
+      onOpenChange(false);
+    } catch {
+      setError('Failed to switch to cloud');
+    } finally {
+      setStarting(null);
+    }
+  };
+
+  const handleSelectLocal = async (model: LocalModel) => {
+    setStarting(model.path);
+    setError(null);
+    try {
+      await startLocalModel(model.path);
+      const status = await getModelStatus();
+      onModelStatusChange(status);
+      onOpenChange(false);
+    } catch {
+      setError('Failed to start model. Check logs/llama.log');
+    } finally {
+      setStarting(null);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogHeader>
+        <DialogTitle className="font-mono text-sm">Select Model</DialogTitle>
+      </DialogHeader>
+      <DialogContent>
+        {error && (
+          <p className="text-xs text-red-400 mb-2 font-mono">{error}</p>
+        )}
+        <div className="space-y-1 max-h-64 overflow-y-auto">
+          {/* Cloud option */}
+          <button
+            onClick={handleSelectCloud}
+            disabled={!!starting}
+            className={cn(
+              'w-full text-left px-3 py-2 text-xs font-mono transition-colors',
+              modelStatus?.provider === 'cloud'
+                ? 'text-zinc-200 bg-zinc-800'
+                : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50',
+              starting === 'cloud' && 'opacity-50',
+            )}
+          >
+            <span>Cloud (default)</span>
+            {modelStatus?.provider === 'cloud' && modelStatus.model_name && (
+              <span className="text-zinc-600 ml-2">{modelStatus.model_name}</span>
+            )}
+            {starting === 'cloud' && <span className="text-zinc-500 ml-2">switching...</span>}
+          </button>
+
+          {/* Divider */}
+          {localModels.length > 0 && (
+            <div className="border-t border-zinc-800 my-1" />
+          )}
+
+          {/* Local models */}
+          {loading ? (
+            <p className="text-xs text-zinc-600 font-mono px-3 py-2">Scanning models...</p>
+          ) : localModels.length === 0 ? (
+            <p className="text-xs text-zinc-600 font-mono px-3 py-2">
+              No local GGUF models found
+            </p>
+          ) : (
+            localModels.map((model) => {
+              const isActive =
+                modelStatus?.provider === 'local' &&
+                modelStatus.model_name === model.name.replace(/.*\//, '').replace(/\.gguf$/, '');
+              return (
+                <button
+                  key={model.path}
+                  onClick={() => handleSelectLocal(model)}
+                  disabled={!!starting}
+                  className={cn(
+                    'w-full text-left px-3 py-2 text-xs font-mono transition-colors',
+                    isActive
+                      ? 'text-zinc-200 bg-zinc-800'
+                      : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50',
+                    starting === model.path && 'opacity-50',
+                  )}
+                >
+                  <div className="flex justify-between items-center">
+                    <span className="truncate mr-2">{model.name}</span>
+                    <span className="text-zinc-600 flex-shrink-0">{model.size_display}</span>
+                  </div>
+                  {starting === model.path && (
+                    <p className="text-zinc-500 mt-1">Starting llama-server...</p>
+                  )}
+                </button>
+              );
+            })
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 // Empty string constant to avoid creating new references
 const EMPTY_STRING = '';
@@ -156,6 +303,20 @@ export function ConversationView() {
   const [mode, setMode] = useState<ChatMode>('research');
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Model picker state
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const [modelStatus, setModelStatus] = useState<ModelStatus | null>(null);
+  const [localModelsEnabled, setLocalModelsEnabled] = useState(false);
+
+  // Fetch model status and config on mount
+  useEffect(() => {
+    getModelStatus().then(setModelStatus).catch(() => {});
+    fetch('/api/config')
+      .then((r) => r.json())
+      .then((data) => setLocalModelsEnabled(data.local_models_enabled ?? false))
+      .catch(() => {});
+  }, []);
 
   // Stop generation state
   const [pendingMessage, setPendingMessage] = useState('');
@@ -297,7 +458,7 @@ export function ConversationView() {
         const response = await createAgentRun({
           query: messageToSend,
           conversation_id: conversationId!,
-          max_steps: 10,
+          max_steps: 25,
         });
 
         setPendingRunId(response.run_id);
@@ -493,7 +654,20 @@ export function ConversationView() {
         {/* Status bar */}
         <div className="border-b border-zinc-800 px-3 sm:px-4 py-2 flex items-center justify-between bg-transparent font-mono text-xs">
           <div className="flex items-center gap-3">
-            <span className="text-zinc-600">gpt-oss-120b</span>
+            {localModelsEnabled ? (
+              <button
+                onClick={() => setModelPickerOpen(true)}
+                className="text-zinc-600 hover:text-zinc-400 transition-colors"
+                title="Switch model"
+              >
+                {modelStatus?.model_name || 'model'}
+                {modelStatus?.provider === 'local' && (
+                  <span className="text-zinc-700 ml-1">(local)</span>
+                )}
+              </button>
+            ) : (
+              <span className="text-zinc-600">{modelStatus?.model_name || 'model'}</span>
+            )}
           </div>
           <button
             onClick={() => navigate('/benchmarks')}
@@ -503,6 +677,14 @@ export function ConversationView() {
             [benchmarks]
           </button>
         </div>
+        {localModelsEnabled && (
+          <ModelPicker
+            open={modelPickerOpen}
+            onOpenChange={setModelPickerOpen}
+            modelStatus={modelStatus}
+            onModelStatusChange={setModelStatus}
+          />
+        )}
 
         <div className="flex-1 flex flex-col items-center justify-center text-zinc-400 gap-4 sm:gap-6 px-3 sm:px-4 md:px-6 overflow-y-auto min-h-0">
           <div className="font-mono text-center">
@@ -623,6 +805,21 @@ export function ConversationView() {
     <div className="h-full flex flex-col">
       <div className="border-b border-zinc-800 px-3 sm:px-4 md:px-6 py-2 flex items-center justify-between font-mono text-xs">
         <div className="flex items-center gap-3 truncate mr-4">
+          {localModelsEnabled ? (
+            <>
+              <button
+                onClick={() => setModelPickerOpen(true)}
+                className="text-zinc-600 hover:text-zinc-400 transition-colors flex-shrink-0"
+                title="Switch model"
+              >
+                {modelStatus?.model_name || 'model'}
+                {modelStatus?.provider === 'local' && (
+                  <span className="text-zinc-700 ml-1">(local)</span>
+                )}
+              </button>
+              <span className="text-zinc-700">|</span>
+            </>
+          ) : null}
           <span className="text-zinc-600 truncate">
             {conversation?.title || 'conversation'}
           </span>
@@ -635,6 +832,14 @@ export function ConversationView() {
           [benchmarks]
         </button>
       </div>
+      {localModelsEnabled && (
+        <ModelPicker
+          open={modelPickerOpen}
+          onOpenChange={setModelPickerOpen}
+          modelStatus={modelStatus}
+          onModelStatusChange={setModelStatus}
+        />
+      )}
 
       <div className="flex-1 overflow-y-auto px-3 sm:px-4 md:px-6 py-4 sm:py-5 md:py-6" ref={scrollRef}>
         <div className="space-y-8">
