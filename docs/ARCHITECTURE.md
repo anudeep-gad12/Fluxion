@@ -566,29 +566,74 @@ The `ChatGPTProvider` (`orchestrator/providers/chatgpt.py`) enables direct acces
 - **Token refresh**: Supports `update_token()` for session management
 - **Retry**: Exponential backoff (3 attempts max)
 
+### Local Model Service
+
+The local model service (`orchestrator/services/local_models.py`) manages GGUF models and llama-server lifecycle:
+
+**Model Scanning**: Searches these directories for `.gguf` files:
+- `~/.lmstudio/models`
+- `~/models`
+- `~/.cache/huggingface`
+- `~/.cache/lm-studio/models`
+
+**llama-server Management**:
+- Start with selected GGUF model on port 8080
+- Health check polling during startup
+- Graceful shutdown via SIGTERM
+- Default context size: 100,000 tokens
+
+**API Endpoints** (`orchestrator/routes/models.py`):
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/models/local` | GET | Scan and list available GGUF models |
+| `/api/models/local/start` | POST | Start llama-server with selected model |
+| `/api/models/local/stop` | POST | Stop llama-server, revert to cloud |
+| `/api/models/status` | GET | Current provider info (local vs cloud) |
+
+**Provider Override**: Starting a local model sets a runtime provider override via `set_provider_override()` in `factory.py`. All subsequent LLM calls route to `localhost:8080`. Stopping clears the override, reverting to the configured cloud provider.
+
+### OpenRouter Support
+
+OpenRouter-hosted models (e.g., `qwen/qwen3.5-35b-a3b`) are auto-detected via base URL containing `openrouter.ai`:
+
+- Sends `reasoning: {"effort": "medium"}` parameter (OpenRouter-specific)
+- Parses `reasoning_details` array from response (OpenRouter wraps reasoning in `[{type: "thinking", thinking: "..."}]`)
+- Falls back to `reasoning_content` field for standard providers
+- XML tool call parsing from reasoning tokens when `api_tool_calls=0` (Qwen puts tool calls in `<think>` output)
+
 ### Provider Switching
 
-Switch between cloud (DeepInfra) and local (llama-server) providers:
+Switch between providers at runtime:
 
-```bash
-./dev.sh provider local      # Local llama-server on port 8080
-./dev.sh provider deepinfra  # DeepInfra cloud (default)
-./dev.sh restart             # Required after switching
+**Via API** (local models):
+```
+POST /api/models/local/start  {"model_path": "/path/to/model.gguf"}
+POST /api/models/local/stop
 ```
 
-**Supported Local Providers**:
-- `llama-server` (llama.cpp) - Tested with Ministral-3-14B-Reasoning
-- `vLLM` - OpenAI-compatible server
-- `Ollama` - Via OpenAI compatibility mode
-
-**Configuration** (`.env.provider`):
-```bash
-LLM_BASE_URL=http://localhost:8080/v1  # Local
-LLM_ENDPOINT=chat_completions
-LLM_MODEL=ministral-14b-reasoning
+**Via CLI** (`/switch` command):
+```
+/switch chatgpt    # Switch to ChatGPT (requires /login first)
+/switch default    # Switch to cloud provider (DeepInfra)
 ```
 
-**URL Building**: Handles base URLs that already contain `/v1` (e.g., llama-server) to avoid double `/v1/v1/...` paths.
+**Via environment** (`.env`):
+```bash
+LLM_BASE_URL=http://localhost:8080/v1              # Local llama-server
+LLM_BASE_URL=https://api.deepinfra.com/v1/openai   # DeepInfra (default)
+LLM_BASE_URL=https://openrouter.ai/api/v1           # OpenRouter
+LLM_MODEL=qwen/qwen3.5-35b-a3b
+```
+
+**Supported Providers**:
+- DeepInfra (cloud, default)
+- OpenRouter (cloud, reasoning model support)
+- llama-server (local, GGUF models)
+- vLLM (local, OpenAI-compatible)
+- Ollama (local, via OpenAI compatibility mode)
+- ChatGPT (via OAuth, CLI only)
+
+**URL Building**: Handles base URLs that already contain `/v1` to avoid double `/v1/v1/...` paths.
 
 **Message Alternation**: Some models (Mistral family) require strict user/assistant message alternation. The provider layer ensures:
 - Plan is appended to system message (not as separate message)

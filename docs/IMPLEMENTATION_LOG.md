@@ -9,6 +9,10 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| test | GAIA scorer fixes — multi-phase answer extraction, numeric fallback in scorer, increased timeouts for local inference (CLI 300→1800s, extraction 30→120s) | done | 2026-03-01 |
+| test | UI thinking sanitization — frontend `sanitizeThinking()` utility strips tool_call/function_call/tool_use XML from thinking panel, model-agnostic | done | 2026-03-01 |
+| test | OpenRouter/Qwen support — reasoning/content separation, `reasoning_details` array parsing, `reasoning` param for OpenRouter, XML tool call parsing from reasoning | done | 2026-03-01 |
+| test | Local model support — GGUF scanning, llama-server lifecycle management, model picker UI, provider override system, /api/models/* endpoints | done | 2026-03-01 |
 | test | CLI resilience — approval 404 detection (server restart), SSE connection loss recovery, "executing tool…" feedback, dev.sh reload scope limit | done | 2026-02-26 |
 | test | Persistent ChatGPT auth — token backup/restore, auto-check on startup, /switch command, system messages, token display fixes | done | 2026-02-26 |
 | test | Agent UX fixes — cross-turn message context (full messages, not just summaries), write_file diff preview, denial recovery guidance, Enter-to-approve keybind | done | 2026-02-26 |
@@ -41,6 +45,35 @@
 | feature/preset-question-chips | Demo preset questions | done | 2026-01-23 |
 | feature/gaia-benchmark | GAIA Benchmark Evaluation | done | 2026-01-21 |
 | feature/agent-planning | Agent Planning Step | done | 2026-01-20 |
+
+### 2026-03-01: Local Model Support, OpenRouter/Qwen, GAIA Scorer
+
+**Branch:** `test`
+**Status:** done
+
+**Changes:**
+
+1. **Local model support** (`adacb00`):
+   - `orchestrator/services/local_models.py` — GGUF scanning across `~/.lmstudio/models`, `~/models`, `~/.cache/huggingface`, `~/.cache/lm-studio/models`; llama-server lifecycle (start/stop/health); port 8080 default; 100k ctx_size default
+   - `orchestrator/routes/models.py` — `/api/models/local` (GET scan), `/api/models/local/start` (POST), `/api/models/local/stop` (POST), `/api/models/status` (GET)
+   - `orchestrator/providers/factory.py` — Runtime provider override via `get_provider_override()`/`set_provider_override()` for switching between cloud and local
+   - `orchestrator/schemas.py` — `LocalModelSchema`, `StartModelRequest`, `ModelStatusResponse`
+   - `ui/src/components/ConversationView.tsx` — Model picker dropdown with scan/start/stop controls
+   - `ui/src/api/client.ts` — `fetchLocalModels()`, `startLocalModel()`, `stopLocalModel()`, `getModelStatus()`
+
+2. **OpenRouter/Qwen reasoning support** (`a4d7bfb`):
+   - `orchestrator/providers/openai_compat.py` — OpenRouter detection via base_url, sends `reasoning: {"effort": "medium"}` param
+   - `orchestrator/providers/response_parsers.py` — Parse `reasoning_details` array (OpenRouter format), `reasoning_content` field (standard format)
+   - `orchestrator/providers/request_builders.py` — Include `reasoning` param in request body for OpenRouter
+
+3. **Frontend thinking sanitization** (`640aee2`):
+   - `ui/src/lib/utils.ts` — `sanitizeThinking()` strips `<tool_call>`, `<function_call>`, `<tool_use>`, Harmony-style `◁tool_call▷` from reasoning display
+   - `ui/src/components/ThinkingPanel.tsx` — Uses shared sanitizer
+   - `ui/src/components/AgentStepsPanel.tsx` — Uses shared sanitizer for live and historical thinking
+
+4. **GAIA benchmark improvements** (`8437dee`):
+   - `scripts/gaia/scorer.py` — Multi-phase `extract_final_answer()` (bold numbers, answer declarations, last-paragraph extraction); `_extract_number_from_text()` helper; numeric fallback in `score_answer()`; extraction timeout 30→120s
+   - `scripts/gaia/__main__.py` — CLI defaults: max-steps 10→25, timeout 300→1800s
 
 ### 2026-02-25: Documentation Overhaul — All 6 Docs Updated
 

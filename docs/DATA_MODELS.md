@@ -584,6 +584,29 @@ class AgentRunTraceResponse(BaseModel):
     agent_state: Optional[str]
 ```
 
+#### Local Model Schemas
+
+```python
+class LocalModelSchema(BaseModel):
+    """A GGUF model available on disk."""
+    path: str              # Full filesystem path to .gguf file
+    name: str              # Display name (derived from filename)
+    size_bytes: int        # File size in bytes
+    size_display: str      # Human-readable size ("35.0 GB")
+
+class StartModelRequest(BaseModel):
+    """Request to start llama-server with a local model."""
+    model_path: str                    # Path to GGUF file
+    ctx_size: Optional[int] = None     # Context window (None = use config default)
+
+class ModelStatusResponse(BaseModel):
+    """Current provider status."""
+    provider: str              # "local" or "cloud"
+    model_name: Optional[str]  # Active model name
+    base_url: Optional[str]    # Active provider URL
+    local_running: bool        # Whether llama-server is running
+```
+
 #### Tool Models
 
 ```python
