@@ -8,8 +8,9 @@ Complete documentation of all API endpoints in the Reasoner system.
 2. [Conversations](#conversations)
 3. [Runs](#runs)
 4. [Agent Runs](#agent-runs)
-5. [Benchmarks](#benchmarks)
-6. [System](#system)
+5. [Local Models](#local-models)
+6. [Benchmarks](#benchmarks)
+7. [System](#system)
 7. [SSE Streaming](#sse-streaming)
 8. [Error Handling](#error-handling)
 
@@ -985,6 +986,110 @@ Content-Type: application/json
 ```
 
 Returns `{"success": false, "error": "..."}` if refresh fails.
+
+---
+
+## Local Models
+
+### List Local Models
+
+Scan disk for available GGUF models.
+
+**Request**:
+```
+GET /api/models/local
+```
+
+**Response** (200 OK):
+```json
+[
+  {
+    "path": "/Users/user/.lmstudio/models/Qwen3.5-35B-A3B-Q8_0.gguf",
+    "name": "Qwen3.5-35B-A3B-Q8_0",
+    "size_bytes": 37580963840,
+    "size_display": "35.0 GB"
+  }
+]
+```
+
+Scans: `~/.lmstudio/models`, `~/models`, `~/.cache/huggingface`, `~/.cache/lm-studio/models`
+
+---
+
+### Start Local Model
+
+Start llama-server with a GGUF model and switch provider.
+
+**Request**:
+```
+POST /api/models/local/start
+```
+
+**Body**:
+```json
+{
+  "model_path": "/path/to/model.gguf",
+  "ctx_size": 100000
+}
+```
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `model_path` | string | Yes | - | Full path to GGUF file |
+| `ctx_size` | int | No | config `context.max_tokens` | Context window size |
+
+**Response** (200 OK):
+```json
+{
+  "status": "ok",
+  "model_name": "Qwen3.5-35B-A3B-Q8_0"
+}
+```
+
+**Error** (404): Model file not found
+**Error** (500): llama-server failed to start
+
+---
+
+### Stop Local Model
+
+Stop llama-server and revert to cloud provider.
+
+**Request**:
+```
+POST /api/models/local/stop
+```
+
+**Response** (200 OK):
+```json
+{
+  "status": "ok",
+  "provider": "cloud"
+}
+```
+
+---
+
+### Get Model Status
+
+Get current provider info.
+
+**Request**:
+```
+GET /api/models/status
+```
+
+**Response** (200 OK):
+```json
+{
+  "provider": "local",
+  "model_name": "Qwen3.5-35B-A3B-Q8_0",
+  "base_url": "http://localhost:8080/v1",
+  "local_running": true
+}
+```
+
+Provider is `"local"` when llama-server is active, `"cloud"` otherwise.
 
 ---
 
