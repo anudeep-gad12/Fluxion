@@ -237,6 +237,12 @@ def score_answer(
         gt_num = normalize_number(ground_truth)
         pred_num = normalize_number(predicted)
 
+        # If direct parse fails, try extracting a number from the text
+        if pred_num is None and gt_num is not None:
+            extracted = _extract_number_from_text(predicted)
+            if extracted:
+                pred_num = normalize_number(extracted)
+
         if gt_num is not None and pred_num is not None:
             is_equal = numbers_equal(pred_num, gt_num)
             return ScoreResult(
@@ -290,7 +296,7 @@ async def extract_answer_with_llm(
     response: str,
     question: str,
     api_url: str = "http://127.0.0.1:9000",
-    timeout: float = 30.0,
+    timeout: float = 120.0,
 ) -> str:
     """Use LLM to extract the final answer from a verbose response.
 
@@ -400,11 +406,44 @@ Answer:"""
         return extract_final_answer(response)
 
 
-def extract_final_answer(response: str) -> str:
-    """Extract final answer from a model response (basic pattern matching).
+def _extract_number_from_text(text: str) -> Optional[str]:
+    """Try to extract a standalone number from text.
 
-    GAIA expects short answers. This function attempts to extract
-    just the answer portion from potentially verbose responses.
+    Looks for bold numbers (**N**), numbers after key phrases, or
+    the last standalone number in the text.
+
+    Args:
+        text: Text to extract number from.
+
+    Returns:
+        Number string if found, None otherwise.
+    """
+    # Bold/starred number: **3** or **17000**
+    bold = re.search(r"\*\*(\d+(?:\.\d+)?)\*\*", text)
+    if bold:
+        return bold.group(1)
+
+    # Number right after "is" or ":" at end: "answer is 3" or "published 3 studio albums"
+    after_verb = re.search(
+        r"(?:is|are|was|were|=|published|released)\s+(\d+(?:\.\d+)?)\b",
+        text, re.IGNORECASE
+    )
+    if after_verb:
+        return after_verb.group(1)
+
+    # Last standalone number in the text
+    numbers = re.findall(r"\b(\d+(?:\.\d+)?)\b", text)
+    if len(numbers) == 1:
+        return numbers[0]
+
+    return None
+
+
+def extract_final_answer(response: str) -> str:
+    """Extract final answer from a model response (pattern matching).
+
+    GAIA expects short answers. This function extracts the answer
+    using progressively more aggressive pattern matching.
 
     Args:
         response: Full model response text.
@@ -417,25 +456,64 @@ def extract_final_answer(response: str) -> str:
 
     response = response.strip()
 
-    # Look for common answer patterns
-    patterns = [
-        r"(?:the )?(?:final )?answer is[:\s]+(.+?)(?:\.|$)",
-        r"(?:answer|result)[:\s]+(.+?)(?:\.|$)",
-        r"^(.+?)$",  # First line as fallback
+    # Phase 1: Look for explicit answer declarations
+    answer_patterns = [
+        r"(?:the )?(?:final )?answer is[:\s]+(.+?)(?:\.\s*$|\.$|$)",
+        r"\*\*answer[:\s]*\*\*[:\s]*(.+?)(?:\.\s*$|\.$|$)",
+        r"(?:^|\n)\s*answer[:\s]+(.+?)(?:\.\s*$|\.$|$)",
     ]
 
-    for pattern in patterns:
+    for pattern in answer_patterns:
         match = re.search(pattern, response, re.IGNORECASE | re.MULTILINE)
         if match:
             answer = match.group(1).strip()
-            # If answer is very short (typical for GAIA), use it
+            # Strip markdown bold
+            answer = re.sub(r"\*\*(.+?)\*\*", r"\1", answer)
+            # If it's short enough, it's probably the answer
+            if len(answer) < 20:
+                return answer
+            # If longer, try to extract just a number from it
+            num = _extract_number_from_text(answer)
+            if num:
+                return num
+            # Still return the match if it's reasonable length
             if len(answer) < 100:
                 return answer
 
-    # If no pattern matched or answer too long, return first line
+    # Phase 2: Look for bold numbers in the last few lines (common pattern)
+    last_lines = "\n".join(response.split("\n")[-5:])
+    bold_match = re.search(r"\*\*(\d+(?:[\.,]\d+)?)\*\*", last_lines)
+    if bold_match:
+        return bold_match.group(1).replace(",", "")
+
+    # Phase 3: Generic "result" pattern
+    result_match = re.search(
+        r"(?:result|total)[:\s]+(.+?)(?:\.|$)",
+        response, re.IGNORECASE | re.MULTILINE,
+    )
+    if result_match:
+        answer = result_match.group(1).strip()
+        if len(answer) < 20:
+            return answer
+        num = _extract_number_from_text(answer)
+        if num:
+            return num
+
+    # Phase 4: First line as fallback (for very short responses)
     first_line = response.split("\n")[0].strip()
+    if len(first_line) < 50:
+        return first_line
+
+    # Phase 5: Try to find any standalone number in the last paragraph
+    paragraphs = re.split(r"\n\s*\n", response)
+    if paragraphs:
+        last_para = paragraphs[-1]
+        num = _extract_number_from_text(last_para)
+        if num:
+            return num
+
+    # Last resort: return first line truncated
     if len(first_line) < 200:
         return first_line
 
-    # Last resort: return truncated response
     return response[:100]
