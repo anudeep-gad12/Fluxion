@@ -95,15 +95,15 @@ Examples:
     parser.add_argument(
         "--max-steps",
         type=int,
-        default=10,
-        help="Maximum agent steps (default: 10)",
+        default=25,
+        help="Maximum agent steps (default: 25)",
     )
 
     parser.add_argument(
         "--timeout",
         type=int,
-        default=300,
-        help="Timeout per question in seconds (default: 300)",
+        default=1800,
+        help="Timeout per question in seconds (default: 1800)",
     )
 
     parser.add_argument(
