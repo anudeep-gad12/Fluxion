@@ -1253,6 +1253,42 @@ async with self._seq_lock:
 
 ## Routes Layer
 
+### `orchestrator/routes/models.py`
+
+**Purpose**: Local model management — GGUF scanning, llama-server lifecycle, provider switching.
+
+**Endpoints**:
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/models/local` | Scan disk for GGUF models |
+| `POST` | `/api/models/local/start` | Start llama-server, switch to local provider |
+| `POST` | `/api/models/local/stop` | Stop llama-server, revert to cloud |
+| `GET` | `/api/models/status` | Current provider info (local vs cloud) |
+
+**Dependencies**: `orchestrator/services/local_models.py` for server management, `orchestrator/providers/factory.py` for provider override.
+
+---
+
+### `orchestrator/services/local_models.py`
+
+**Purpose**: GGUF model discovery and llama-server process management.
+
+**Key Elements**:
+
+| Element | Type | Description |
+|---------|------|-------------|
+| `MODEL_DIRS` | List[Path] | Directories to scan for .gguf files |
+| `LLAMA_PORT` | int | Default port (8080) |
+| `LocalModel` | dataclass | Model metadata (path, name, size) |
+| `scan_models()` | function | Scans all MODEL_DIRS for .gguf files |
+| `start()` | async function | Starts llama-server with `--jinja` flag, waits for health |
+| `stop()` | async function | Graceful SIGTERM shutdown |
+| `is_running()` | async function | Health check via HTTP GET |
+| `status()` | function | Returns current model name and running state |
+
+---
+
 ### `orchestrator/routes/benchmarks.py`
 
 **Purpose**: Benchmarks API for serving GAIA evaluation traces.
@@ -2059,8 +2095,33 @@ Loading placeholder.
 |----------|-------------|
 | `subscribeToRun()` | Chat mode SSE subscription |
 | `subscribeToAgentRun()` | Agent mode SSE with resumption and stream token auth |
+| `fetchLocalModels()` | GET /models/local — scan for GGUF models |
+| `startLocalModel()` | POST /models/local/start — start llama-server |
+| `stopLocalModel()` | POST /models/local/stop — stop and revert |
+| `getModelStatus()` | GET /models/status — current provider info |
 
 **Retry**: GET requests use `withRetry()` (3 retries, exponential backoff)
+
+---
+
+### `ui/src/lib/utils.ts`
+
+**Purpose**: Shared utilities for the frontend.
+
+**Key Functions**:
+
+| Function | Description |
+|----------|-------------|
+| `cn()` | Tailwind class merger (clsx + tailwind-merge) |
+| `sanitizeThinking()` | Strips tool call XML from reasoning/thinking text for display |
+
+**`sanitizeThinking()`** handles multiple formats model-agnostically:
+- `<tool_call>...</tool_call>` — standard XML tool calls
+- `<function_call>...</function_call>` — function call format
+- `<tool_use>...</tool_use>` — Anthropic-style
+- `◁tool_call▷...◁/tool_call▷` — Harmony/DeepSeek style
+- `[THINK]`/`</think>` — think tags
+- Incomplete/streaming tags (unclosed at end of buffer)
 
 ---
 
