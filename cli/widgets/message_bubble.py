@@ -8,18 +8,13 @@ from textual.widgets import Static
 class MessageBubble(Vertical):
     """A single message bubble (user, assistant, or system).
 
-    User messages render as `❯ content` with no border.
-    Assistant messages are empty shells — StreamingMarkdown is mounted externally.
-    System messages render inline as dim italic text.
+    Claude Code style:
+    - User messages: highlighted background with purple left border
+    - Assistant messages: empty shells for StreamingMarkdown
+    - System messages: dim with ❋ prefix
     """
 
     def __init__(self, role: str, content: str = "", **kwargs) -> None:
-        """Initialize message bubble.
-
-        Args:
-            role: "user", "assistant", or "system".
-            content: Message text content.
-        """
         super().__init__(**kwargs)
         self._role = role
         self._content = content
@@ -28,9 +23,9 @@ class MessageBubble(Vertical):
     def compose(self) -> ComposeResult:
         """Compose the message bubble."""
         if self._role == "user" and self._content:
-            yield Static(f"[dim]❯[/dim] {self._content}", classes="user-message")
+            yield Static(self._content, classes="user-message")
         elif self._role == "system" and self._content:
             yield Static(
-                f"[dim italic]{self._content}[/dim italic]",
+                f"[dim]❋ {self._content}[/dim]",
                 classes="system-message",
             )

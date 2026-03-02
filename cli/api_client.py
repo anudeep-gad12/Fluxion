@@ -179,6 +179,70 @@ class APIClient:
         response.raise_for_status()
         return response.json()
 
+    async def get_models(self) -> Dict[str, Any]:
+        """Get available models grouped by provider.
+
+        Returns:
+            Dict with providers, active_model, active_model_id.
+        """
+        response = await self._client.get("/api/models")
+        response.raise_for_status()
+        return response.json()
+
+    async def get_local_models(self) -> list:
+        """Get available local GGUF models.
+
+        Returns:
+            List of local model dicts.
+        """
+        response = await self._client.get("/api/models/local")
+        response.raise_for_status()
+        return response.json()
+
+    async def start_local_model(self, model_path: str) -> Dict[str, Any]:
+        """Start llama-server with a local GGUF model.
+
+        Args:
+            model_path: Absolute path to the GGUF file.
+
+        Returns:
+            Dict with status and model_name.
+        """
+        response = await self._client.post(
+            "/api/models/local/start",
+            json={"model_path": model_path},
+            timeout=60.0,  # llama-server can take a while to start
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def select_model(self, model: str) -> Dict[str, Any]:
+        """Select a model from the registry.
+
+        Args:
+            model: Model alias, full ID, or "provider:model" string.
+
+        Returns:
+            Dict with model metadata.
+        """
+        response = await self._client.post(
+            "/api/models/select", json={"model": model}
+        )
+        response.raise_for_status()
+        return response.json()
+
+    def set_model(self, model: str) -> None:
+        """Set the X-Model header for subsequent requests.
+
+        Args:
+            model: Model name to send in requests.
+        """
+        self._config.model = model
+        if model:
+            self._client.headers["X-Model"] = model
+        elif "X-Model" in self._client.headers:
+            del self._client.headers["X-Model"]
+
     async def health_check(self) -> bool:
         """Check if backend is reachable.
 

@@ -7,8 +7,10 @@ from pydantic import BaseModel, Field
 
 # ==================== Run Schemas ====================
 
+
 class CreateRunRequest(BaseModel):
     """Request to create a new run."""
+
     prompt: str
     mode: str = "chat"
     profile: str = "chat"
@@ -16,12 +18,14 @@ class CreateRunRequest(BaseModel):
 
 class CreateRunResponse(BaseModel):
     """Response from creating a run."""
+
     run_id: str
     stream_url: str
 
 
 class RunResponse(BaseModel):
     """Full run details."""
+
     run_id: str
     created_at: str
     status: str
@@ -41,12 +45,14 @@ class RunResponse(BaseModel):
 
 class RunListResponse(BaseModel):
     """List of runs."""
+
     runs: list[RunResponse]
     total: int
 
 
 class EventResponse(BaseModel):
     """Event response."""
+
     run_id: str
     seq: int
     ts: str
@@ -57,8 +63,10 @@ class EventResponse(BaseModel):
 
 # ==================== Conversation Schemas ====================
 
+
 class ConversationResponse(BaseModel):
     """Conversation metadata."""
+
     conversation_id: str
     created_at: str
     title: Optional[str] = None
@@ -69,22 +77,26 @@ class ConversationResponse(BaseModel):
 
 class ConversationListResponse(BaseModel):
     """List of conversations."""
+
     conversations: list[ConversationResponse]
     total: int
 
 
 class CreateConversationRequest(BaseModel):
     """Request to create a conversation."""
+
     title: Optional[str] = None
 
 
 class CreateConversationResponse(BaseModel):
     """Response from creating a conversation."""
+
     conversation_id: str
 
 
 class CreateConversationRunRequest(BaseModel):
     """Request to add a run to a conversation."""
+
     message: str
     thinking_mode: str = "default"  # "default" or "thinking" (maps to strategy via config)
     reasoning_effort: Optional[str] = None  # "low", "medium", "high" for native reasoning models
@@ -92,20 +104,24 @@ class CreateConversationRunRequest(BaseModel):
 
 class ConversationDetailResponse(BaseModel):
     """Conversation with runs."""
+
     conversation: ConversationResponse
     runs: list[RunResponse]
 
 
 class UpdateConversationRequest(BaseModel):
     """Request to update a conversation."""
+
     title: Optional[str] = None
     status: Optional[str] = None
 
 
 # ==================== Tool Use Schemas ====================
 
+
 class ToolFunction(BaseModel):
     """Function definition for a tool call."""
+
     name: str
     arguments: str  # JSON-encoded arguments
 
@@ -116,6 +132,7 @@ class ToolCall(BaseModel):
     Represents a function call the model wants to make.
     Compatible with OpenAI's tool_calls format.
     """
+
     id: str
     type: str = "function"
     function: ToolFunction
@@ -126,6 +143,7 @@ class ToolResponse(BaseModel):
 
     Used to send tool results back to the model.
     """
+
     tool_call_id: str
     role: str = "tool"
     content: str  # JSON-encoded result or error message
@@ -136,14 +154,17 @@ class ToolDefinition(BaseModel):
 
     Compatible with OpenAI's tools format.
     """
+
     type: str = "function"
     function: dict[str, Any]  # {name, description, parameters}
 
 
 # ==================== Trace Event Schemas ====================
 
+
 class TraceEventResponse(BaseModel):
     """A trace event in a run timeline."""
+
     id: str
     run_id: str
     seq: int
@@ -164,6 +185,7 @@ class TraceEventResponse(BaseModel):
 
 class RunTimelineResponse(BaseModel):
     """Complete timeline for a run with all events."""
+
     run_id: str
     status: str
     created_at: str
@@ -173,8 +195,10 @@ class RunTimelineResponse(BaseModel):
 
 # ==================== Agent Schemas ====================
 
+
 class AgentStepState(str, Enum):
     """State of an agent step."""
+
     PLANNING = "planning"
     TOOL_CALLING = "tool_calling"
     SYNTHESIZING = "synthesizing"
@@ -184,6 +208,7 @@ class AgentStepState(str, Enum):
 
 class AgentToolCallStatus(str, Enum):
     """Status of an agent tool call."""
+
     PENDING = "pending"
     RUNNING = "running"
     SUCCESS = "success"
@@ -194,6 +219,7 @@ class AgentToolCallStatus(str, Enum):
 
 class AgentStepResponse(BaseModel):
     """Agent step details."""
+
     id: str
     run_id: str
     step_number: int
@@ -207,6 +233,7 @@ class AgentStepResponse(BaseModel):
 
 class AgentToolCallResponse(BaseModel):
     """Agent tool call details."""
+
     id: str
     run_id: str
     step_id: str
@@ -229,6 +256,7 @@ class AgentToolCallResponse(BaseModel):
 
 class AgentCitationResponse(BaseModel):
     """Agent citation details."""
+
     id: str
     run_id: str
     tool_call_id: str
@@ -241,6 +269,7 @@ class AgentCitationResponse(BaseModel):
 
 class CreateAgentRunRequest(BaseModel):
     """Request to start an agent run."""
+
     query: str
     conversation_id: Optional[str] = None
     max_steps: int = 1000
@@ -248,11 +277,14 @@ class CreateAgentRunRequest(BaseModel):
     working_dir: Optional[str] = None
     permission_policy: str = "strict"
     profile: Optional[str] = None  # "research", "coding" — overrides filesystem_enabled
-    python_provider: Optional[str] = None  # "local" or "daytona" — overrides PYTHON_PROVIDER env var
+    python_provider: Optional[str] = (
+        None  # "local" or "daytona" — overrides PYTHON_PROVIDER env var
+    )
 
 
 class CreateAgentRunResponse(BaseModel):
     """Response from creating an agent run."""
+
     run_id: str
     status: str
     stream_url: str
@@ -262,6 +294,7 @@ class CreateAgentRunResponse(BaseModel):
 
 class AgentRunStatusResponse(BaseModel):
     """Agent run status."""
+
     run_id: str
     status: str
     agent_state: Optional[str] = None
@@ -276,6 +309,7 @@ class AgentRunStatusResponse(BaseModel):
 
 class RunArtifactResponse(BaseModel):
     """File change or command execution artifact."""
+
     id: str
     run_id: str
     artifact_type: str
@@ -288,6 +322,7 @@ class RunArtifactResponse(BaseModel):
 
 class AgentRunTraceResponse(BaseModel):
     """Full trace of an agent run."""
+
     run_id: str
     status: str
     agent_state: Optional[str] = None
@@ -300,8 +335,10 @@ class AgentRunTraceResponse(BaseModel):
 
 # ==================== Local Model Schemas ====================
 
+
 class LocalModelSchema(BaseModel):
     """A GGUF model available on disk."""
+
     path: str
     name: str
     size_bytes: int
@@ -310,19 +347,28 @@ class LocalModelSchema(BaseModel):
 
 class StartModelRequest(BaseModel):
     """Request to start llama-server with a local model."""
+
     model_path: str
     ctx_size: Optional[int] = None  # None = use config context.max_tokens
 
 
 class ModelStatusResponse(BaseModel):
     """Current provider status."""
+
     provider: str  # "local" or "cloud"
     model_name: Optional[str] = None
     base_url: Optional[str] = None
     local_running: bool = False
 
 
+class SelectModelRequest(BaseModel):
+    """Request to select a model from the registry."""
+
+    model: str  # Model alias, full ID, or "provider:model" string
+
+
 # ==================== Helpers ====================
+
 
 def trace_to_run(trace: dict) -> RunResponse:
     """Convert a trace dict to RunResponse."""

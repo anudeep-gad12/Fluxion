@@ -31,7 +31,7 @@ class InputArea(TextArea):
     def __init__(self, **kwargs) -> None:
         super().__init__(
             language=None,
-            theme="vscode_dark",
+            theme="css",
             show_line_numbers=False,
             **kwargs,
         )
