@@ -36,7 +36,7 @@ def _format_diff_rich(diff_text: str) -> str:
     """Format a unified diff into Claude Code-style Rich markup.
 
     Produces colored output with line numbers:
-      ⎿  Added 3 lines, removed 1 line
+      └ Added 3 lines, removed 1 line
           10   context line
           11 - removed line
           11 + added line
@@ -65,7 +65,7 @@ def _format_diff_rich(diff_text: str) -> str:
         parts.append(f"{removed} line{'s' if removed != 1 else ''} removed")
     summary = ", ".join(parts) if parts else "No changes"
 
-    output = [f"  ⎿  [bold]{summary}[/bold]"]
+    output = [f"  └ [bold]{summary}[/bold]"]
 
     old_line = 0
     new_line = 0
@@ -83,11 +83,11 @@ def _format_diff_rich(diff_text: str) -> str:
         elif line.startswith("-"):
             # Escape Rich markup in content
             content = _escape_rich(line[1:])
-            output.append(f"      [red]{old_line:>4} - {content}[/red]")
+            output.append(f"      [#e8e8e8 on #4d1f24]{old_line:>4} - {content}[/#e8e8e8 on #4d1f24]")
             old_line += 1
         elif line.startswith("+"):
             content = _escape_rich(line[1:])
-            output.append(f"      [green]{new_line:>4} + {content}[/green]")
+            output.append(f"      [#e8e8e8 on #1a3d22]{new_line:>4} + {content}[/#e8e8e8 on #1a3d22]")
             new_line += 1
         elif line.startswith(" "):
             content = _escape_rich(line[1:])
@@ -124,7 +124,7 @@ def _format_diff_plain(diff_text: str) -> str:
         parts.append(f"{removed} line{'s' if removed != 1 else ''} removed")
     summary = ", ".join(parts) if parts else "No changes"
 
-    output = [f"  ⎿  {summary}", ""]
+    output = [f"  └ {summary}", ""]
 
     old_line = 0
     new_line = 0
@@ -210,20 +210,20 @@ class ToolCallPanel(Vertical):
         yield self._header_widget
         self._details_widget = Static("", classes="tool-details")
         yield self._details_widget
-        self._result_widget = Static("  ⎿  [dim]Running…[/dim]", classes="tool-result")
+        self._result_widget = Static("  └ [dim]Running…[/dim]", classes="tool-result")
         yield self._result_widget
 
     def _build_header_text(self) -> str:
         """Build the header text with expand/collapse indicator."""
         display_name = _TOOL_ICONS.get(self._tool_name, self._tool_name)
         if self._expanded:
-            return f"[bold $primary]▾[/bold $primary] {display_name}"
+            return f"· {display_name}"
         else:
             primary_arg = self._primary_arg()
             if primary_arg:
-                return f"[bold $primary]▸[/bold $primary] {display_name}([dim]{primary_arg}[/dim])"
+                return f"· {display_name}([dim]{primary_arg}[/dim])"
             else:
-                return f"[bold $primary]▸[/bold $primary] {display_name}()"
+                return f"· {display_name}()"
 
     def _primary_arg(self) -> str:
         """Extract the most informative argument for compact display."""
@@ -251,15 +251,15 @@ class ToolCallPanel(Vertical):
         file_path = self._arguments.get("file_path", "")
 
         if not self._arguments:
-            return f"⏺ {display_name} — approve this tool call?\n  (no arguments)"
+            return f"· {display_name} — approve this tool call?\n  (no arguments)"
 
         # For write_file/edit_file with diff preview, show formatted diff
         if self._tool_name in ("write_file", "edit_file") and self._diff_preview:
             diff_display = _format_diff_plain(self._diff_preview)
-            return f"⏺ {display_name}({file_path})\n{diff_display}"
+            return f"· {display_name}({file_path})\n{diff_display}"
 
         # Default: show all arguments
-        lines = [f"⏺ {display_name} — approve this tool call?\n"]
+        lines = [f"· {display_name} — approve this tool call?\n"]
         for key, value in self._arguments.items():
             val_str = str(value)
             if "\n" in val_str:
@@ -325,9 +325,9 @@ class ToolCallPanel(Vertical):
             summary = summary[:120]
 
         if self._result_success:
-            self._result_widget.update(f"  ⎿  [green]✓ {_escape_rich(summary)}[/green]")
+            self._result_widget.update(f"  └ [green]{_escape_rich(summary)}[/green]")
         else:
-            self._result_widget.update(f"  ⎿  [red]✗ {_escape_rich(summary)}[/red]")
+            self._result_widget.update(f"  └ [red]{_escape_rich(summary)}[/red]")
 
     def set_result(
         self, summary: str, success: bool = True, result_data: str | None = None
@@ -358,7 +358,7 @@ class ToolCallPanel(Vertical):
         self._needs_approval = True
         if self._result_widget:
             self._result_widget.update(
-                "  ⎿  [bold yellow]Allow? Enter approve · \\[n] deny[/bold yellow]"
+                "  └ [bold yellow]Allow? Enter approve · \\[n] deny[/bold yellow]"
             )
             self._result_widget.remove_class("tool-result", "tool-error")
             self._result_widget.add_class("tool-approval")
@@ -381,10 +381,10 @@ class ToolCallPanel(Vertical):
         self._needs_approval = False
         if self._result_widget:
             if approved:
-                self._result_widget.update("  ⎿  [dim]Running…[/dim]")
+                self._result_widget.update("  └ [dim]Running…[/dim]")
                 self._result_widget.remove_class("tool-approval", "tool-error")
                 self._result_widget.add_class("tool-result")
             else:
-                self._result_widget.update("  ⎿  [red]✗ Denied[/red]")
+                self._result_widget.update("  └ [red]Denied[/red]")
                 self._result_widget.remove_class("tool-approval", "tool-result")
                 self._result_widget.add_class("tool-error")
