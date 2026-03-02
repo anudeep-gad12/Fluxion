@@ -113,3 +113,27 @@ class CLIConfig:
         config_dir = Path.home() / ".config" / "reasoner"
         config_dir.mkdir(parents=True, exist_ok=True)
         (config_dir / "provider").write_text(provider)
+
+    def save_model_preference(self, model: str) -> None:
+        """Save last-used model preference to config dir.
+
+        Args:
+            model: Model alias or ID (e.g. 'qwen3-72b').
+        """
+        config_dir = Path.home() / ".config" / "reasoner"
+        config_dir.mkdir(parents=True, exist_ok=True)
+        (config_dir / "model").write_text(model)
+
+    @staticmethod
+    def load_model_preference() -> Optional[str]:
+        """Load saved model preference from config dir.
+
+        Returns:
+            Saved model string or None.
+        """
+        model_file = Path.home() / ".config" / "reasoner" / "model"
+        if model_file.exists():
+            saved = model_file.read_text().strip()
+            if saved:
+                return saved
+        return None

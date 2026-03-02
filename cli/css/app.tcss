@@ -1,69 +1,83 @@
-/* Reasoner CLI — Clean Terminal UI (Claude Code style) */
+/* ═══════════════════════════════════════════════
+   Reasoner CLI — Claude Code visual style
+
+   Zero chrome. Everything is styled text on a
+   dark background. No visible widget boundaries,
+   borders, or panels.
+   ═══════════════════════════════════════════════ */
 
 Screen {
     background: $background;
     layers: base overlay;
 }
 
-/* ── Header ─────────────────────────────────────────── */
-
-Header {
-    dock: top;
-    height: 1;
-    background: $surface;
-    color: $text;
-}
-
-/* ── Message List (main content area) ───────────────── */
+/* ── Message List ────────────────────────────── */
 
 #message-list {
     height: 1fr;
-    padding: 1 0;
-    scrollbar-size: 1 1;
-    scrollbar-color: $surface-lighten-2;
-    scrollbar-color-hover: $primary;
-    scrollbar-color-active: $primary;
+    padding: 0;
+    scrollbar-size: 0 0;
 }
 
-/* ── Input + Status Area ───────────────────────────── */
+/* ── Input Area ──────────────────────────────── */
 
 #input-container {
     height: auto;
-    max-height: 12;
-    margin: 0 2;
+    max-height: 14;
     padding: 0;
 }
 
-#input-area {
+#prompt-row {
     height: auto;
-    min-height: 3;
+    min-height: 1;
     max-height: 8;
-    border: round $surface-lighten-2;
-    background: $surface;
-    padding: 0 1;
+    padding: 0;
+}
+
+#input-prompt {
+    width: 4;
+    height: 1;
+    padding: 0 0 0 2;
+    color: $text-muted;
+    background: $background;
+}
+
+#input-area {
+    width: 1fr;
+    height: auto;
+    min-height: 1;
+    max-height: 8;
+    border: none;
+    background: $background;
+    padding: 0;
+    margin: 0;
 }
 
 #input-area:focus {
-    border: round $primary-lighten-2;
+    border: none;
 }
 
 #input-area.approval-mode {
     border: round $warning;
     color: $text;
     max-height: 16;
+    margin: 0 1;
+    padding: 0 1;
 }
 
 #input-area.approval-mode:focus {
     border: round $warning;
 }
 
-/* ── Status Bar ─────────────────────────────────────── */
+/* ── Status Bar ──────────────────────────────── */
 
 StatusBar {
-    height: 1;
+    height: auto;
+    min-height: 1;
+    max-height: 3;
     background: $background;
-    padding: 0 1;
-    color: $text-muted;
+    padding: 0 2;
+    color: $text-disabled;
 }
 
 StatusBar .status-item {
@@ -71,17 +85,12 @@ StatusBar .status-item {
     height: 1;
 }
 
-StatusBar .status-mode {
-    color: $primary;
-    text-style: bold;
-}
-
 StatusBar .status-separator {
     color: $text-disabled;
 }
 
 StatusBar .status-provider {
-    color: $text-muted;
+    color: $text-disabled;
 }
 
 StatusBar .status-activity {
@@ -94,65 +103,66 @@ StatusBar .status-spacer {
 }
 
 StatusBar .status-context {
-    color: $text-muted;
+    color: $text-disabled;
 }
 
-StatusBar .status-connection {
-    color: $success;
+StatusBar .status-hints {
+    color: $text-disabled;
 }
 
-StatusBar .status-disconnected {
-    color: $error;
-}
-
-/* ── Welcome Message ────────────────────────────────── */
+/* ── Welcome ─────────────────────────────────── */
 
 #welcome {
-    margin: 2 4;
-    padding: 1 2;
+    margin: 1 0 0 0;
+    padding: 0 2;
     height: auto;
     color: $text-muted;
 }
 
-/* ── Message Bubbles ────────────────────────────────── */
+/* ── Message Bubbles ─────────────────────────── */
 
 MessageBubble {
     height: auto;
-    margin: 0 2 1 2;
-    padding: 0;
+    margin: 0;
+    padding: 0 2;
 }
 
 MessageBubble.user {
     margin-top: 1;
+    padding: 0 0 0 1;
+    background: #1a1a2e;
+    border-left: outer #7c3aed;
 }
 
 MessageBubble.assistant {
-    padding: 0;
+    padding: 0 2;
 }
 
 .user-message {
     color: $text;
+    padding: 0 1;
 }
 
 MessageBubble.system {
-    padding: 0;
-    margin: 0 2 0 2;
+    padding: 0 2;
+    margin: 0;
 }
 
 .system-message {
-    color: $text-muted;
+    color: $text-disabled;
 }
 
-/* ── Tool Call Panels ───────────────────────────────── */
+/* ── Tool Call Panels ────────────────────────── */
 
 ToolCallPanel {
-    margin: 0 2 0 2;
-    padding: 0;
+    margin: 0;
+    padding: 0 2;
     height: auto;
 }
 
 MessageBubble ToolCallPanel {
     margin: 0;
+    padding: 0;
 }
 
 ToolCallPanel .tool-header {
@@ -182,12 +192,13 @@ ToolCallPanel .tool-approval {
     padding: 0;
 }
 
-/* ── Thinking Panel ────────────────────────────────── */
+/* ── Thinking Panel ──────────────────────────── */
 
 ThinkingPanel {
-    color: $text-disabled;
+    color: #a78bfa;
     height: 1;
-    margin: 0 2;
+    margin: 0;
+    padding: 0 2;
 }
 
 ThinkingPanel.expanded {
@@ -196,15 +207,117 @@ ThinkingPanel.expanded {
 
 MessageBubble ThinkingPanel {
     margin: 0;
+    padding: 0;
 }
 
 MessageBubble ThinkingPanel.expanded {
     height: auto;
 }
 
-/* ── Streaming Markdown ─────────────────────────────── */
+/* ── Streaming Markdown ──────────────────────── */
 
 StreamingMarkdown {
-    margin: 0 2 1 2;
+    margin: 0;
     padding: 0;
+}
+
+/* ═══════════════════════════════════════════════
+   Markdown component overrides
+
+   Textual's Markdown widget has heavy defaults:
+   - margin: 0 4 1 4  (4-char horizontal indent!)
+   - H1/H2: colored backgrounds, borders, center-aligned
+   - Code fences: bordered boxes
+
+   We strip ALL of this for a clean terminal look.
+   ═══════════════════════════════════════════════ */
+
+Markdown {
+    margin: 0;
+    padding: 0;
+}
+
+MarkdownH1 {
+    background: transparent;
+    border: none;
+    content-align: left top;
+    text-align: left;
+    text-style: bold;
+    color: $text;
+    padding: 0;
+    margin: 1 0 0 0;
+}
+
+MarkdownH2 {
+    background: transparent;
+    border: none;
+    text-align: left;
+    text-style: bold underline;
+    color: $text;
+    padding: 0;
+    margin: 1 0 0 0;
+}
+
+MarkdownH3 {
+    text-style: bold;
+    color: $text;
+    padding: 0;
+    margin: 1 0 0 0;
+}
+
+MarkdownH4 {
+    text-style: bold;
+    color: $text;
+    padding: 0;
+    margin: 0;
+}
+
+MarkdownH5 {
+    text-style: bold;
+    color: $text;
+    padding: 0;
+    margin: 0;
+}
+
+MarkdownH6 {
+    text-style: bold;
+    color: $text-muted;
+    padding: 0;
+    margin: 0;
+}
+
+MarkdownFence {
+    margin: 0 0 1 0;
+    padding: 0 1;
+    background: $surface;
+    border: none;
+    max-height: 50;
+    overflow: auto;
+}
+
+MarkdownBlockQuote {
+    margin: 0 0 1 0;
+    padding: 0 0 0 2;
+    border-left: outer $primary;
+    color: $text-muted;
+}
+
+MarkdownBulletList {
+    margin: 0;
+    padding: 0 0 0 2;
+}
+
+MarkdownOrderedList {
+    margin: 0;
+    padding: 0 0 0 2;
+}
+
+MarkdownTable {
+    margin: 0 0 1 0;
+    padding: 0;
+}
+
+MarkdownHorizontalRule {
+    margin: 1 0;
+    color: $surface;
 }

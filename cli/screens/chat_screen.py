@@ -3,9 +3,9 @@
 import httpx
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical
+from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
-from textual.widgets import Header, Static
+from textual.widgets import Static
 
 from ..api_client import APIClient
 from ..config import CLIConfig
@@ -24,6 +24,7 @@ from ..events import (
 from ..widgets.input_area import InputArea
 from ..widgets.message_bubble import MessageBubble
 from ..widgets.message_list import MessageList
+from ..widgets.model_picker import ModelPickerModal
 from ..widgets.status_bar import StatusBar
 from ..widgets.streaming_markdown import StreamingMarkdown
 from ..widgets.thinking_panel import ThinkingPanel
@@ -36,6 +37,7 @@ class ChatScreen(Screen):
     BINDINGS = [
         Binding("escape", "cancel_run", "Stop", show=True),
         Binding("ctrl+n", "new_conversation", "New", show=True),
+        Binding("ctrl+m", "model_picker", "Model", show=True),
     ]
 
     def __init__(
@@ -60,10 +62,11 @@ class ChatScreen(Screen):
 
     def compose(self) -> ComposeResult:
         """Compose the chat screen layout."""
-        yield Header(show_clock=False)
         yield MessageList(id="message-list")
         with Vertical(id="input-container"):
-            yield InputArea(id="input-area")
+            with Horizontal(id="prompt-row"):
+                yield Static("> ", id="input-prompt")
+                yield InputArea(id="input-area")
             yield StatusBar(
                 mode=self._config.mode,
                 provider=self._config.provider,
@@ -86,17 +89,17 @@ class ChatScreen(Screen):
             message_list = self.query_one(MessageList)
             welcome = Static(id="welcome")
             welcome.update(
-                "[bold]reasoner[/bold]\n"
-                f"  mode     [bold]{self._config.mode}[/bold]\n"
-                f"  provider [bold]{self._config.provider}[/bold]\n"
-                f"  cwd      [dim]{self._config.working_dir}[/dim]\n\n"
-                "[dim]Type a message to begin.[/dim]"
+                f"[bold]reasoner[/bold] [dim]{self._config.working_dir}[/dim]"
             )
             message_list.mount(welcome)
 
         # Check saved ChatGPT auth in background
         if connected:
             self.run_worker(self._check_chatgpt_auth())
+
+        # Activate persisted model preference on startup
+        if connected and self._config.model:
+            self.run_worker(self._activate_startup_model())
 
         # Focus input
         self.query_one(InputArea).focus()
@@ -553,6 +556,87 @@ class ChatScreen(Screen):
         self._add_system_message("New conversation started.")
         self.query_one(InputArea).focus()
 
+    def action_model_picker(self) -> None:
+        """Open the model picker modal (Ctrl+M or /model)."""
+        if self._is_running:
+            self._add_system_message("Cannot switch model while a run is active.")
+            return
+
+        self.run_worker(self._open_model_picker())
+
+    async def _open_model_picker(self) -> None:
+        """Fetch models and show picker modal (runs in worker)."""
+        try:
+            data = await self._api_client.get_models()
+        except Exception as exc:
+            self._add_system_message(f"Failed to fetch models: {exc}")
+            return
+
+        providers = data.get("providers", {})
+        active_model_id = data.get("active_model_id")
+
+        # Fetch local GGUF files (non-fatal if endpoint missing)
+        local_files: list = []
+        try:
+            local_files = await self._api_client.get_local_models()
+        except Exception:
+            pass
+
+        result = await self.app.push_screen_wait(
+            ModelPickerModal(
+                providers=providers,
+                active_model_id=active_model_id,
+                local_files=local_files,
+            )
+        )
+
+        if result:
+            if result.startswith("local:"):
+                # Local GGUF file — start llama-server
+                model_path = result[len("local:"):]
+                await self._start_local_model(model_path)
+            else:
+                # Registry model — hot-swap provider
+                try:
+                    resp = await self._api_client.select_model(result)
+                    display_name = resp.get("display_name", result)
+                    provider = resp.get("provider", "")
+
+                    self._api_client.set_model(resp.get("model_id", result))
+
+                    status_bar = self.query_one(StatusBar)
+                    status_bar.set_model(display_name)
+                    status_bar.set_provider(provider)
+
+                    self._config.save_model_preference(result)
+
+                    self._add_system_message(
+                        f"Model switched to **{display_name}** ({provider})"
+                    )
+                except Exception as exc:
+                    self._add_system_message(f"Failed to select model: {exc}")
+
+        self.query_one(InputArea).focus()
+
+    async def _start_local_model(self, model_path: str) -> None:
+        """Start a local GGUF model via llama-server."""
+        import os
+
+        model_name = os.path.basename(model_path)
+        self._add_system_message(f"Starting local model **{model_name}**...")
+
+        try:
+            resp = await self._api_client.start_local_model(model_path)
+            name = resp.get("model_name", model_name)
+
+            status_bar = self.query_one(StatusBar)
+            status_bar.set_model(name)
+            status_bar.set_provider("local")
+
+            self._add_system_message(f"Local model **{name}** ready.")
+        except Exception as exc:
+            self._add_system_message(f"Failed to start local model: {exc}")
+
     async def _handle_slash_command(self, command: str) -> None:
         """Handle slash commands (/login, /logout, /status, /switch, /help)."""
         parts = command.strip().split(None, 1)
@@ -567,10 +651,12 @@ class ChatScreen(Screen):
             await self._cmd_status()
         elif cmd == "/switch":
             await self._cmd_switch(args)
+        elif cmd == "/model":
+            self.action_model_picker()
         elif cmd == "/help":
             self._add_system_message(
-                "Commands: `/login` · `/logout` · `/status` · `/switch [provider]` · `/help`\n\n"
-                "Keys: Enter send · Shift+Enter newline · Esc stop · Ctrl+N new · Ctrl+C exit"
+                "Commands: `/login` · `/logout` · `/status` · `/switch [provider]` · `/model` · `/help`\n\n"
+                "Keys: Enter send · Shift+Enter newline · Esc stop · Ctrl+N new · Ctrl+M model · Ctrl+C exit"
             )
         else:
             self._add_system_message(f"Unknown command: `{command}`. Type `/help` for commands.")
@@ -669,6 +755,26 @@ class ChatScreen(Screen):
         # Update status bar
         status_bar = self.query_one(StatusBar)
         status_bar.set_provider(self._config.provider)
+
+    async def _activate_startup_model(self) -> None:
+        """Activate the persisted model preference on startup."""
+        model = self._config.model
+        if not model:
+            return
+
+        try:
+            resp = await self._api_client.select_model(model)
+            display_name = resp.get("display_name", model)
+            provider = resp.get("provider", "")
+
+            self._api_client.set_model(resp.get("model_id", model))
+
+            status_bar = self.query_one(StatusBar)
+            status_bar.set_model(display_name)
+            status_bar.set_provider(provider)
+        except Exception:
+            # Silently fail — user will see default provider in status bar
+            pass
 
     async def _check_chatgpt_auth(self) -> None:
         """Check saved ChatGPT auth on startup.
