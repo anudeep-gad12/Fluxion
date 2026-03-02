@@ -254,9 +254,10 @@ async def _run_agent_task(
             notify.set()
 
     try:
-        # Resolve provider override if ChatGPT is selected
+        # Resolve provider override
         provider_override = None
         if session_id and provider_preference == "chatgpt":
+            # ChatGPT path: use stored OAuth tokens
             try:
                 from orchestrator.providers.factory import create_chatgpt_provider
                 from orchestrator.routes.auth import get_valid_tokens
@@ -269,6 +270,31 @@ async def _run_agent_task(
                     "Failed to create ChatGPT provider for agent",
                     extra={"error": str(e)},
                 )
+        elif model_override:
+            # Model registry path: resolve alias to provider + full model ID
+            try:
+                from orchestrator.providers.factory import create_provider_for_model
+
+                provider_override, resolved = create_provider_for_model(model_override)
+                model_override = resolved.model_id  # Replace alias with full ID
+            except (ValueError, Exception) as e:
+                logger.warning(
+                    "Failed to resolve model via registry, using default",
+                    extra={"model": model_override, "error": str(e)},
+                )
+        elif not model_override and not provider_preference:
+            # Web UI fallback: use the last model selected via picker
+            from orchestrator.routes.models import get_active_model_name
+
+            active_name = get_active_model_name()
+            if active_name:
+                try:
+                    from orchestrator.providers.factory import create_provider_for_model
+
+                    provider_override, resolved = create_provider_for_model(active_name)
+                    model_override = resolved.model_id
+                except Exception:
+                    pass
 
         # Build approval callback for permission system
         async def approval_callback(
@@ -296,6 +322,7 @@ async def _run_agent_task(
 
         # Create engine and run (pass query for classification)
         engine = await create_agent_engine(
+            model_name=model_override,
             max_steps=max_steps,
             query=query,
             provider_override=provider_override,

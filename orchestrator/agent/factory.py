@@ -98,6 +98,7 @@ async def create_agent_engine(
         tool_choice = classification.recommended_tool_choice
 
         from orchestrator.agent.query_classifier import QueryType
+
         if classification.query_type == QueryType.CALCULATION and tool_choice:
             calculation_only = True
 
@@ -126,7 +127,10 @@ async def create_agent_engine(
 
     # Create tool registry from profile
     registry = create_tool_registry_from_profile(
-        config, profile, working_dir, python_provider=python_provider,
+        config,
+        profile,
+        working_dir,
+        python_provider=python_provider,
     )
 
     # Create repositories
@@ -150,6 +154,7 @@ async def create_agent_engine(
         else:
             # For coding/full, gather date context separately
             from datetime import date
+
             today = date.today()
             date_context = (
                 f"Current date: {today.strftime('%B %d, %Y')}\n"
@@ -165,15 +170,39 @@ async def create_agent_engine(
     planning_enabled = planning_config.enabled if planning_config else True
     max_plan_steps = planning_config.max_plan_steps if planning_config else profile.max_plan_steps
 
+    # Per-request model metadata resolution via registry
+    resolved_model = None
+    if model_name:
+        try:
+            from orchestrator.models.registry import ModelRegistry
+
+            resolved_model = ModelRegistry.resolve(model_name)
+        except (ValueError, Exception):
+            pass  # Fall through to config defaults
+
     # Detect provider context capacity
-    if provider_override and hasattr(provider_override, '_default_model'):
+    if resolved_model:
+        max_context = resolved_model.context_window
+    elif provider_override and hasattr(provider_override, "_default_model"):
         model = provider_override._default_model
-        if 'gpt-5' in model or 'codex' in model:
+        if "gpt-5" in model or "codex" in model:
             max_context = 250000  # GPT-5.2 has 400k, reserve 128k for output + 22k buffer
         else:
             max_context = config.context.max_tokens
     else:
         max_context = config.context.max_tokens
+
+    # Resolve model name, temperature, and reasoning per-request
+    if resolved_model:
+        effective_model = resolved_model.model_id
+        effective_temp = temperature or resolved_model.temperature
+        effective_max_tokens = max_tokens or resolved_model.max_output_tokens
+        effective_reasoning = resolved_model.reasoning_effort
+    else:
+        effective_model = model_name or config.model.name
+        effective_temp = temperature or config.model.temperature
+        effective_max_tokens = max_tokens or config.model.max_tokens
+        effective_reasoning = getattr(config.model, "reasoning_effort", None)
 
     # Build engine with overrides
     engine = AgentEngine(
@@ -181,10 +210,10 @@ async def create_agent_engine(
         repo=repo,
         registry=registry,
         trace_repo=trace_repo,
-        model_name=model_name or config.model.name,
+        model_name=effective_model,
         max_steps=max_steps or profile.max_steps,
-        max_tokens=max_tokens or config.model.max_tokens,
-        temperature=temperature or config.model.temperature,
+        max_tokens=effective_max_tokens,
+        temperature=effective_temp,
         system_prompt=system_prompt,
         tool_choice=tool_choice,
         max_context_tokens=max_context,
@@ -193,7 +222,7 @@ async def create_agent_engine(
         max_plan_steps=max_plan_steps,
         approval_callback=approval_callback,
         profile=profile,
-        reasoning_effort=getattr(config.model, "reasoning_effort", None),
+        reasoning_effort=effective_reasoning,
     )
 
     logger.info(
