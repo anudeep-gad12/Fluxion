@@ -176,3 +176,20 @@ textarea:focus {
     min-height: 0;
   }
 }
+
+/* Shimmer loading animation */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    hsl(240 4% 12%) 25%,
+    hsl(240 4% 18%) 50%,
+    hsl(240 4% 12%) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
