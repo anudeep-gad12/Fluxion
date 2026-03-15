@@ -11,6 +11,8 @@ Detailed documentation of every component in the Reasoner system.
    - [Thinking Layer](#thinking-layer)
    - [Reporting Layer](#reporting-layer)
    - [Agent Layer](#agent-layer)
+   - [Model Registry](#model-registry)
+   - [Context Management](#context-management)
    - [Storage Layer](#storage-layer)
    - [Routes Layer](#routes-layer)
    - [Utilities](#utilities)
@@ -1165,6 +1167,70 @@ class BaseTool(Protocol):
 
 ---
 
+## Model Registry
+
+### `orchestrator/models/registry.py`
+
+**Purpose**: Multi-provider model registry for resolving model strings to full provider configurations.
+
+**Key Classes**:
+
+| Class | Description |
+|-------|-------------|
+| `ProviderDef` | Definition of an LLM provider endpoint (name, base_url, api_key_env, endpoint) |
+| `ModelPreset` | Known model with configuration (model_id, display_name, provider, aliases, context_window, etc.) |
+| `ResolvedModel` | Fully resolved configuration ready for provider creation |
+| `ModelRegistry` | Registry with resolve() and list_models() methods |
+
+**Provider Registry** (`PROVIDERS` dict):
+
+| Provider | Base URL | API Key Env |
+|----------|----------|-------------|
+| `openrouter` | `https://openrouter.ai/api/v1` | `OPENROUTER_API_KEY` |
+| `deepinfra` | `https://api.deepinfra.com/v1/openai` | `DEEPINFRA_API_KEY` |
+| `local` | `http://localhost:8080/v1` | (none) |
+
+**Model Resolution** (`ModelRegistry.resolve()`):
+1. Exact alias match (e.g., `"qwen3-72b"` → preset)
+2. Provider prefix (e.g., `"deepinfra:meta-llama/..."`)
+3. Unknown model fallback with auto-provider detection
+
+**Key Methods**:
+- `resolve(model_str)` — Resolve alias/prefix to `ResolvedModel`
+- `list_models()` — List all presets grouped by provider with availability
+
+---
+
+## Context Management
+
+### `orchestrator/context/budget.py`
+
+**Purpose**: Token budget tracking for context window management.
+
+**Key Class**: `ContextBudget`
+- Tracks allocated vs used tokens per component (system prompt, history, user message)
+- `available()` — Remaining tokens
+- `utilization()` — Percentage used
+
+### `orchestrator/context/history_builder.py`
+
+**Purpose**: Budget-aware conversation history construction.
+
+**Key Class**: `HistoryBuilder`
+- Loads conversation turns within token budget
+- Prefers full messages; falls back to turn summaries when over budget
+- Respects `max_messages` config limit
+
+### `orchestrator/context/turn_summary.py`
+
+**Purpose**: Compact turn summaries for efficient context use.
+
+**Key Class**: `TurnSummarizer`
+- Generates 50-150 token summaries per turn (vs 500-3000 raw)
+- Used by HistoryBuilder when full messages exceed budget
+
+---
+
 ## Storage Layer
 
 ### `orchestrator/storage/db.py`
@@ -1255,18 +1321,25 @@ async with self._seq_lock:
 
 ### `orchestrator/routes/models.py`
 
-**Purpose**: Local model management — GGUF scanning, llama-server lifecycle, provider switching.
+**Purpose**: Model registry and local model management — preset listing, hot-swap, GGUF scanning, llama-server lifecycle.
 
 **Endpoints**:
 
 | Method | Path | Description |
 |--------|------|-------------|
+| `GET` | `/api/models` | List all registry presets (grouped by provider) |
+| `POST` | `/api/models/select` | Hot-swap active model via registry |
+| `GET` | `/api/models/status` | Current provider info (local vs cloud) |
 | `GET` | `/api/models/local` | Scan disk for GGUF models |
 | `POST` | `/api/models/local/start` | Start llama-server, switch to local provider |
 | `POST` | `/api/models/local/stop` | Stop llama-server, revert to cloud |
-| `GET` | `/api/models/status` | Current provider info (local vs cloud) |
 
-**Dependencies**: `orchestrator/services/local_models.py` for server management, `orchestrator/providers/factory.py` for provider override.
+**Module State**:
+- `_active_model: Optional[ResolvedModel]` — Currently selected registry model
+- `_active_model_name: Optional[str]` — Alias used for selection
+- `get_active_model()` / `get_active_model_name()` — Accessors for engine integration
+
+**Dependencies**: `orchestrator/models/registry.py` for model resolution, `orchestrator/services/local_models.py` for server management, `orchestrator/providers/factory.py` for provider creation and override.
 
 ---
 
