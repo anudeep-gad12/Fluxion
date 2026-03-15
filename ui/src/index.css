@@ -183,6 +183,16 @@ textarea:focus {
   100% { background-position: 200% 0; }
 }
 
+/* Indeterminate progress bar animation */
+@keyframes indeterminate {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+
+.animate-indeterminate {
+  animation: indeterminate 1.5s ease-in-out infinite;
+}
+
 .shimmer {
   background: linear-gradient(
     90deg,
