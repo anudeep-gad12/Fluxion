@@ -107,8 +107,10 @@ export function AgentStepsPanel({
     setExpandedSteps(newExpanded);
   };
 
-  const { steps, toolCalls, thinkingBuffer, currentStep, isActive, total_tokens, context_usage } =
-    agentState;
+  const {
+    steps, toolCalls, thinkingBuffer, currentStep, isActive,
+    total_tokens, context_usage, context_tokens, context_remaining,
+  } = agentState;
 
   // Derive current state from step data
   const currentState = (() => {
@@ -192,8 +194,17 @@ export function AgentStepsPanel({
                 {total_tokens.toLocaleString()} tok
               </span>
             )}
-            {/* Context usage */}
-            {context_usage && (
+            {/* Live context usage (per-step) */}
+            {context_tokens != null && context_tokens > 0 && (
+              <span className={cn(
+                'text-xs',
+                context_remaining != null && context_remaining < 20000 ? 'text-amber-500' : 'text-zinc-600'
+              )}>
+                {Math.round(context_tokens / 1000)}k ctx
+              </span>
+            )}
+            {/* Fallback: completion-time context usage */}
+            {!context_tokens && context_usage && (
               <span className={cn(
                 'text-xs',
                 context_usage.utilization_pct > 80 ? 'text-amber-500' : 'text-zinc-600'
