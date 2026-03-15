@@ -423,3 +423,40 @@ export async function stopLocalModel(): Promise<{ status: string; provider: stri
 export async function getModelStatus(): Promise<ModelStatus> {
   return fetchJson<ModelStatus>(`${API_BASE}/models/status`);
 }
+
+export interface RegistryModelPreset {
+  model_id: string;
+  display_name: string;
+  aliases: string[];
+  context_window: number;
+  max_output_tokens: number;
+  supports_tools: boolean;
+  supports_reasoning: boolean;
+}
+
+export interface RegistryModelsResponse {
+  providers: Record<string, {
+    models: RegistryModelPreset[];
+    available: boolean;
+    api_key_env: string;
+  }>;
+  active_model: string | null;
+  active_model_id: string | null;
+}
+
+export async function listRegistryModels(): Promise<RegistryModelsResponse> {
+  return fetchJson<RegistryModelsResponse>(`${API_BASE}/models`);
+}
+
+export async function selectModel(model: string): Promise<{
+  status: string;
+  model_id: string;
+  display_name: string;
+  provider: string;
+  context_window: number;
+}> {
+  return fetchJson(`${API_BASE}/models/select`, {
+    method: 'POST',
+    body: JSON.stringify({ model }),
+  });
+}
