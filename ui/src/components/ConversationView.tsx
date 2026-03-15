@@ -8,6 +8,8 @@ import { AnswerMarkdown, extractAnswer } from '@/components/AnswerMarkdown';
 import { ThinkingPanel } from '@/components/ThinkingPanel';
 import { AgentRunMessage } from '@/components/AgentRunMessage';
 import { MessageActions } from '@/components/MessageActions';
+import { ShimmerSkeleton, ThinkingTimer } from '@/components/StreamingIndicator';
+import { ScrollToBottom } from '@/components/ScrollToBottom';
 import {
   createConversation,
   createConversationRun,
@@ -257,9 +259,9 @@ const RunMessage = memo(function RunMessage({
             />
 
             {isRunning && !displayText && !streamingThinking ? (
-              <div className="text-xs text-zinc-500 font-mono">
-                [loading...]
-              </div>
+              <ShimmerSkeleton />
+            ) : isRunning && !displayText && isThinking ? (
+              <ThinkingTimer label="Thinking" />
             ) : run.status === 'failed' ? (
               <div className="text-sm text-zinc-400">
                 [error] {run.error_detail || 'Request failed. Please try again.'}
@@ -897,6 +899,13 @@ export function ConversationView() {
           )}
         </div>
       </div>
+
+      {/* Scroll-to-bottom pill */}
+      <ScrollToBottom
+        scrollRef={scrollRef}
+        isStreaming={!!activeRunId}
+        className="left-1/2 -translate-x-1/2 bottom-28"
+      />
 
       <div className="p-3 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-4 sm:pb-[max(1rem,env(safe-area-inset-bottom))] flex-shrink-0 space-y-2">
         {/* Prompt area */}
