@@ -569,19 +569,22 @@ class ChatEngine:
         """
         token_counter = get_token_counter()
 
-        # Use config values for budget, with safe defaults
+        # Resolve context budget from model registry (falls back to config)
+        from orchestrator.context.budget import context_params_for_model
         try:
-            max_context = int(self.config.context.max_tokens)
+            cfg_max = int(self.config.context.max_tokens)
         except (TypeError, ValueError):
-            max_context = 100000
-        # If max_tokens is small (legacy default 6000), use a reasonable default
-        if max_context < 50000:
-            max_context = 100000
+            cfg_max = 100000
+        try:
+            cfg_reserve = int(self.config.context.reserve_for_response)
+        except (TypeError, ValueError):
+            cfg_reserve = 4096
 
-        try:
-            reserve = int(self.config.context.reserve_for_response)
-        except (TypeError, ValueError):
-            reserve = 4096
+        max_context, reserve = context_params_for_model(
+            model_name=self._model_name_override,
+            config_max_tokens=cfg_max,
+            config_reserve=cfg_reserve,
+        )
 
         builder = HistoryBuilder(
             token_counter=token_counter,
