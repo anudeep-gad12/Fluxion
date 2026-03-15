@@ -47,72 +47,73 @@ export function AgentRunMessage({ run, onShowTrace }: AgentRunMessageProps) {
   };
 
   return (
-    <div className="space-y-3 animate-in fade-in slide-in-from-bottom-2">
+    <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2">
       {/* User message */}
-      <div className="w-full">
-        <div className="w-full py-2">
-          <span className="text-zinc-500 mr-2 select-none font-mono">{'$'}</span>
-          <span className="text-zinc-600 text-xs mr-2">[research]</span>
-          <span className="text-zinc-100 whitespace-pre-wrap text-sm leading-relaxed">
-            {run.user_message || run.prompt}
-          </span>
-          <p className="text-[11px] text-zinc-600 mt-2 text-left">
-            {formatRelativeTime(run.created_at)}
-          </p>
+      <div className="flex gap-3">
+        <div className="flex-shrink-0 w-7 h-7 bg-zinc-700 flex items-center justify-center mt-0.5">
+          <span className="text-xs font-mono text-zinc-300">U</span>
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="bg-zinc-800/50 border border-zinc-800 px-4 py-3">
+            <span className="text-zinc-100 whitespace-pre-wrap text-sm leading-relaxed">
+              {run.user_message || run.prompt}
+            </span>
+          </div>
+          <div className="flex items-center gap-2 mt-1.5 px-1">
+            <p className="text-[11px] text-zinc-600">
+              {formatRelativeTime(run.created_at)}
+            </p>
+            <span className="text-[11px] text-cyan-700 font-mono">research</span>
+          </div>
         </div>
       </div>
 
       {/* Agent response */}
-      <div className="w-full">
-        <div className="w-full py-2 pl-4 border-l border-zinc-800">
-          {/* Agent badge */}
-          <div className="flex items-center gap-2 mb-3">
-            <span className="text-zinc-500 text-xs font-mono">[agent]</span>
+      <div className="flex gap-3">
+        <div className="flex-shrink-0 w-7 h-7 bg-cyan-950 border border-cyan-900/50 flex items-center justify-center mt-0.5">
+          <span className="text-[10px] font-mono text-cyan-400">R</span>
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="py-2">
+            {/* Steps panel */}
             {agentState && (
-              <span className="text-xs text-zinc-600">
-                Step {agentState.currentStep}
-              </span>
+              <AgentStepsPanel
+                agentState={agentState}
+                defaultExpanded={isActive}
+              />
             )}
+
+            {/* Answer */}
+            {finalAnswer ? (
+              <AnswerWithCitations
+                content={finalAnswer}
+                citations={citations}
+                isStreaming={isActive}
+              />
+            ) : isActive ? (
+              <div className="text-xs text-zinc-500 font-mono">
+                [researching...]
+              </div>
+            ) : run.status === 'failed' ? (
+              <div className="text-sm text-zinc-400">
+                [error] {run.error_detail || 'Research failed. Please try again.'}
+              </div>
+            ) : null}
           </div>
 
-          {/* Steps panel */}
-          {agentState && (
-            <AgentStepsPanel
-              agentState={agentState}
-              defaultExpanded={isActive}
-            />
-          )}
-
-          {/* Answer */}
-          {finalAnswer ? (
-            <AnswerWithCitations
-              content={finalAnswer}
-              citations={citations}
-              isStreaming={isActive}
-            />
-          ) : isActive ? (
-            <div className="text-xs text-zinc-500 font-mono">
-              [researching...]
-            </div>
-          ) : run.status === 'failed' ? (
-            <div className="text-sm text-zinc-400">
-              [error] {run.error_detail || 'Research failed. Please try again.'}
-            </div>
-          ) : null}
-
           {/* Actions */}
-          <div className="mt-3 flex flex-wrap items-center gap-3 pt-2 border-t border-zinc-800 font-mono text-xs">
+          <div className="mt-2 flex flex-wrap items-center gap-3 font-mono text-xs">
             {isActive ? (
               <button
                 onClick={handleCancel}
-                className="text-zinc-400 hover:text-zinc-200"
+                className="text-red-500/70 hover:text-red-400 transition-colors"
               >
-                [^C stop]
+                [stop]
               </button>
             ) : (
               <button
                 onClick={onShowTrace}
-                className="text-zinc-500 hover:text-zinc-300"
+                className="text-zinc-600 hover:text-zinc-300 transition-colors"
               >
                 [details]
               </button>
@@ -120,10 +121,10 @@ export function AgentRunMessage({ run, onShowTrace }: AgentRunMessageProps) {
             <span
               className={cn(
                 run.status === 'succeeded'
-                  ? 'text-zinc-500'
+                  ? 'text-emerald-600'
                   : run.status === 'failed'
-                    ? 'text-zinc-500'
-                    : 'text-zinc-600'
+                    ? 'text-red-500/70'
+                    : 'text-cyan-700'
               )}
             >
               [{run.status === 'running' ? 'researching...' : run.status === 'succeeded' ? 'done' : run.status}]
@@ -139,7 +140,7 @@ export function AgentRunMessage({ run, onShowTrace }: AgentRunMessageProps) {
               </span>
             )}
             {!isActive && agentState?.context_usage && (
-              <span className="text-zinc-500 text-xs">
+              <span className="text-zinc-600">
                 ctx {Math.round(agentState.context_usage.utilization_pct)}%
               </span>
             )}
