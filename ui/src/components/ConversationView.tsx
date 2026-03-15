@@ -361,9 +361,14 @@ export function ConversationView() {
   // Model picker state
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [modelStatus, setModelStatus] = useState<ModelStatus | null>(null);
-  // Fetch model status on mount
+  const [modelSelectEnabled, setModelSelectEnabled] = useState(false);
+  // Fetch model status and config on mount
   useEffect(() => {
     getModelStatus().then(setModelStatus).catch(() => {});
+    fetch('/api/config')
+      .then((r) => r.json())
+      .then((data) => setModelSelectEnabled(data.local_models_enabled ?? false))
+      .catch(() => {});
   }, []);
 
   // Stop generation state
@@ -710,16 +715,20 @@ export function ConversationView() {
         {/* Status bar */}
         <div className="border-b border-zinc-800 px-3 sm:px-4 py-2 flex items-center justify-between bg-transparent font-mono text-xs">
           <div className="flex items-center gap-3">
-            <button
-              onClick={() => setModelPickerOpen(true)}
-              className="text-zinc-600 hover:text-zinc-400 transition-colors"
-              title="Switch model"
-            >
-              {modelStatus?.model_name || 'model'}
-              {modelStatus?.provider === 'local' && (
-                <span className="text-zinc-700 ml-1">(local)</span>
-              )}
-            </button>
+            {modelSelectEnabled ? (
+              <button
+                onClick={() => setModelPickerOpen(true)}
+                className="text-zinc-600 hover:text-zinc-400 transition-colors"
+                title="Switch model"
+              >
+                {modelStatus?.model_name || 'model'}
+                {modelStatus?.provider === 'local' && (
+                  <span className="text-zinc-700 ml-1">(local)</span>
+                )}
+              </button>
+            ) : (
+              <span className="text-zinc-600">{modelStatus?.model_name || 'model'}</span>
+            )}
           </div>
           <button
             onClick={() => navigate('/benchmarks')}
@@ -729,12 +738,14 @@ export function ConversationView() {
             [benchmarks]
           </button>
         </div>
-        <ModelPicker
-          open={modelPickerOpen}
-          onOpenChange={setModelPickerOpen}
-          modelStatus={modelStatus}
-          onModelStatusChange={setModelStatus}
-        />
+        {modelSelectEnabled && (
+          <ModelPicker
+            open={modelPickerOpen}
+            onOpenChange={setModelPickerOpen}
+            modelStatus={modelStatus}
+            onModelStatusChange={setModelStatus}
+          />
+        )}
 
         <div className="flex-1 flex flex-col items-center justify-center text-zinc-400 gap-4 sm:gap-6 px-3 sm:px-4 md:px-6 overflow-y-auto min-h-0">
           <div className="font-mono text-center">
@@ -855,17 +866,26 @@ export function ConversationView() {
     <div className="h-full flex flex-col">
       <div className="border-b border-zinc-800 px-3 sm:px-4 md:px-6 py-2 flex items-center justify-between font-mono text-xs">
         <div className="flex items-center gap-3 truncate mr-4">
-          <button
-            onClick={() => setModelPickerOpen(true)}
-            className="text-zinc-600 hover:text-zinc-400 transition-colors flex-shrink-0"
-            title="Switch model"
-          >
-            {modelStatus?.model_name || 'model'}
-            {modelStatus?.provider === 'local' && (
-              <span className="text-zinc-700 ml-1">(local)</span>
-            )}
-          </button>
-          <span className="text-zinc-700">|</span>
+          {modelSelectEnabled ? (
+            <>
+              <button
+                onClick={() => setModelPickerOpen(true)}
+                className="text-zinc-600 hover:text-zinc-400 transition-colors flex-shrink-0"
+                title="Switch model"
+              >
+                {modelStatus?.model_name || 'model'}
+                {modelStatus?.provider === 'local' && (
+                  <span className="text-zinc-700 ml-1">(local)</span>
+                )}
+              </button>
+              <span className="text-zinc-700">|</span>
+            </>
+          ) : (
+            <>
+              <span className="text-zinc-600 flex-shrink-0">{modelStatus?.model_name || 'model'}</span>
+              <span className="text-zinc-700">|</span>
+            </>
+          )}
           <span className="text-zinc-600 truncate">
             {conversation?.title || 'conversation'}
           </span>
@@ -878,12 +898,14 @@ export function ConversationView() {
           [benchmarks]
         </button>
       </div>
-      <ModelPicker
-        open={modelPickerOpen}
-        onOpenChange={setModelPickerOpen}
-        modelStatus={modelStatus}
-        onModelStatusChange={setModelStatus}
-      />
+      {modelSelectEnabled && (
+        <ModelPicker
+          open={modelPickerOpen}
+          onOpenChange={setModelPickerOpen}
+          modelStatus={modelStatus}
+          onModelStatusChange={setModelStatus}
+        />
+      )}
 
       <div className="flex-1 overflow-y-auto px-3 sm:px-4 md:px-6 py-4 sm:py-5 md:py-6" ref={scrollRef}>
         <div className="space-y-8">
