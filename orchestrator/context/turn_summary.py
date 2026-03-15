@@ -15,8 +15,8 @@ class TurnSummary:
 
     run_id: str
     mode: str  # "chat" | "agent"
-    query_brief: str  # first ~80 chars of user query
-    answer_brief: str  # first ~200 chars of final answer
+    query_brief: str  # first ~120 chars of user query
+    answer_brief: str  # first ~200-300 chars of final answer
     tools_used: list[str] = field(default_factory=list)
     files_touched: list[str] = field(default_factory=list)
     key_findings: str = ""
@@ -29,6 +29,8 @@ class TurnSummary:
             parts.append(f"Tools: {', '.join(self.tools_used)}")
         if self.files_touched:
             parts.append(f"Files: {', '.join(self.files_touched[:5])}")
+        if self.key_findings:
+            parts.append(f"Findings: {self.key_findings}")
         parts.append(f"A: {self.answer_brief}")
         return " | ".join(parts)
 
@@ -69,14 +71,27 @@ class TurnSummarizer:
             a.get("file_path", "") for a in artifacts if a.get("file_path")
         ))
 
-        # Use thinking_summary if available, else truncated answer
-        key_findings = thinking_summary[:200] if thinking_summary else final_answer[:200]
+        # Extract key findings from tool results (more useful than raw thinking)
+        key_facts: list[str] = []
+        for tc in tool_calls:
+            tool_name = tc.get("tool_name", "")
+            result_summary = tc.get("result_summary", "")
+            if tool_name in ("web_search", "web_extract") and result_summary:
+                key_facts.append(result_summary[:100])
+            elif tool_name in ("read_file", "grep") and result_summary:
+                key_facts.append(result_summary[:80])
+        if key_facts:
+            key_findings = "; ".join(key_facts[:3])
+        elif thinking_summary:
+            key_findings = thinking_summary[:200]
+        else:
+            key_findings = final_answer[:200] if final_answer else ""
 
         summary = TurnSummary(
             run_id=run.get("run_id", ""),
             mode="agent",
-            query_brief=user_message[:80],
-            answer_brief=final_answer[:200] if final_answer else "",
+            query_brief=user_message[:120],
+            answer_brief=final_answer[:300] if final_answer else "",
             tools_used=tools,
             files_touched=files,
             key_findings=key_findings,
@@ -103,7 +118,7 @@ class TurnSummarizer:
         summary = TurnSummary(
             run_id="",
             mode="chat",
-            query_brief=user_message[:80],
+            query_brief=user_message[:120],
             answer_brief=final_answer[:200] if final_answer else "",
         )
 
