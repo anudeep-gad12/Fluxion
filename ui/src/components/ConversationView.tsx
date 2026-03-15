@@ -21,8 +21,10 @@ import {
   startLocalModel,
   stopLocalModel,
   getModelStatus,
+  listRegistryModels,
+  selectModel,
 } from '@/api/client';
-import type { LocalModel, ModelStatus } from '@/api/client';
+import type { LocalModel, ModelStatus, RegistryModelPreset, RegistryModelsResponse } from '@/api/client';
 import {
   Dialog,
   DialogHeader,
@@ -73,41 +75,46 @@ function ModelPicker({
   modelStatus: ModelStatus | null;
   onModelStatusChange: (status: ModelStatus) => void;
 }) {
+  const [registryData, setRegistryData] = useState<RegistryModelsResponse | null>(null);
   const [localModels, setLocalModels] = useState<LocalModel[]>([]);
   const [loading, setLoading] = useState(false);
-  const [starting, setStarting] = useState<string | null>(null);
+  const [switching, setSwitching] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
     setLoading(true);
     setError(null);
-    listLocalModels()
-      .then(setLocalModels)
-      .catch(() => setError('Failed to scan models'))
-      .finally(() => setLoading(false));
+    Promise.all([
+      listRegistryModels().catch(() => null),
+      listLocalModels().catch(() => []),
+    ]).then(([registry, local]) => {
+      setRegistryData(registry);
+      setLocalModels(local as LocalModel[]);
+    }).finally(() => setLoading(false));
   }, [open]);
 
-  const handleSelectCloud = async () => {
-    if (modelStatus?.provider === 'cloud') {
-      onOpenChange(false);
-      return;
-    }
-    setStarting('cloud');
+  const handleSelectRegistry = async (modelId: string) => {
+    setSwitching(modelId);
+    setError(null);
     try {
-      await stopLocalModel();
+      // Stop local model if running
+      if (modelStatus?.provider === 'local') {
+        await stopLocalModel();
+      }
+      await selectModel(modelId);
       const status = await getModelStatus();
       onModelStatusChange(status);
       onOpenChange(false);
     } catch {
-      setError('Failed to switch to cloud');
+      setError('Failed to switch model');
     } finally {
-      setStarting(null);
+      setSwitching(null);
     }
   };
 
   const handleSelectLocal = async (model: LocalModel) => {
-    setStarting(model.path);
+    setSwitching(model.path);
     setError(null);
     try {
       await startLocalModel(model.path);
@@ -117,9 +124,15 @@ function ModelPicker({
     } catch {
       setError('Failed to start model. Check logs/llama.log');
     } finally {
-      setStarting(null);
+      setSwitching(null);
     }
   };
+
+  // Flatten registry models by provider, only show available providers
+  const registryProviders = registryData
+    ? Object.entries(registryData.providers)
+        .filter(([, info]) => info.available && info.models.length > 0)
+    : [];
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -130,66 +143,80 @@ function ModelPicker({
         {error && (
           <p className="text-xs text-red-400 mb-2 font-mono">{error}</p>
         )}
-        <div className="space-y-1 max-h-64 overflow-y-auto">
-          {/* Cloud option */}
-          <button
-            onClick={handleSelectCloud}
-            disabled={!!starting}
-            className={cn(
-              'w-full text-left px-3 py-2 text-xs font-mono transition-colors',
-              modelStatus?.provider === 'cloud'
-                ? 'text-zinc-200 bg-zinc-800'
-                : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50',
-              starting === 'cloud' && 'opacity-50',
-            )}
-          >
-            <span>Cloud (default)</span>
-            {modelStatus?.provider === 'cloud' && modelStatus.model_name && (
-              <span className="text-zinc-600 ml-2">{modelStatus.model_name}</span>
-            )}
-            {starting === 'cloud' && <span className="text-zinc-500 ml-2">switching...</span>}
-          </button>
-
-          {/* Divider */}
-          {localModels.length > 0 && (
-            <div className="border-t border-zinc-800 my-1" />
-          )}
-
-          {/* Local models */}
+        <div className="space-y-1 max-h-80 overflow-y-auto">
           {loading ? (
-            <p className="text-xs text-zinc-600 font-mono px-3 py-2">Scanning models...</p>
-          ) : localModels.length === 0 ? (
-            <p className="text-xs text-zinc-600 font-mono px-3 py-2">
-              No local GGUF models found
-            </p>
+            <p className="text-xs text-zinc-600 font-mono px-3 py-2">Loading models...</p>
           ) : (
-            localModels.map((model) => {
-              const isActive =
-                modelStatus?.provider === 'local' &&
-                modelStatus.model_name === model.name.replace(/.*\//, '').replace(/\.gguf$/, '');
-              return (
-                <button
-                  key={model.path}
-                  onClick={() => handleSelectLocal(model)}
-                  disabled={!!starting}
-                  className={cn(
-                    'w-full text-left px-3 py-2 text-xs font-mono transition-colors',
-                    isActive
-                      ? 'text-zinc-200 bg-zinc-800'
-                      : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50',
-                    starting === model.path && 'opacity-50',
-                  )}
-                >
-                  <div className="flex justify-between items-center">
-                    <span className="truncate mr-2">{model.name}</span>
-                    <span className="text-zinc-600 flex-shrink-0">{model.size_display}</span>
-                  </div>
-                  {starting === model.path && (
-                    <p className="text-zinc-500 mt-1">Starting llama-server...</p>
-                  )}
-                </button>
-              );
-            })
+            <>
+              {/* Registry models by provider */}
+              {registryProviders.map(([providerName, info]) => (
+                <div key={providerName}>
+                  <p className="text-[10px] text-zinc-600 font-mono px-3 pt-2 pb-1 uppercase">
+                    {providerName}
+                  </p>
+                  {info.models.map((model: RegistryModelPreset) => {
+                    const isActive = registryData?.active_model_id === model.model_id
+                      || modelStatus?.model_name === model.display_name
+                      || modelStatus?.model_name === model.model_id;
+                    return (
+                      <button
+                        key={model.model_id}
+                        onClick={() => handleSelectRegistry(model.aliases[0] || model.model_id)}
+                        disabled={!!switching}
+                        className={cn(
+                          'w-full text-left px-3 py-1.5 text-xs font-mono transition-colors',
+                          isActive
+                            ? 'text-zinc-200 bg-zinc-800'
+                            : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50',
+                          switching === model.model_id && 'opacity-50',
+                        )}
+                      >
+                        <div className="flex justify-between items-center">
+                          <span className="truncate mr-2">{model.display_name}</span>
+                          <span className="text-zinc-600 flex-shrink-0">
+                            {Math.round(model.context_window / 1024)}k
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              ))}
+
+              {/* Local models */}
+              {localModels.length > 0 && (
+                <>
+                  <div className="border-t border-zinc-800 my-1" />
+                  <p className="text-[10px] text-zinc-600 font-mono px-3 pt-2 pb-1 uppercase">
+                    local
+                  </p>
+                  {localModels.map((model) => {
+                    const isActive =
+                      modelStatus?.provider === 'local' &&
+                      modelStatus.model_name === model.name.replace(/.*\//, '').replace(/\.gguf$/, '');
+                    return (
+                      <button
+                        key={model.path}
+                        onClick={() => handleSelectLocal(model)}
+                        disabled={!!switching}
+                        className={cn(
+                          'w-full text-left px-3 py-1.5 text-xs font-mono transition-colors',
+                          isActive
+                            ? 'text-zinc-200 bg-zinc-800'
+                            : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50',
+                          switching === model.path && 'opacity-50',
+                        )}
+                      >
+                        <div className="flex justify-between items-center">
+                          <span className="truncate mr-2">{model.name}</span>
+                          <span className="text-zinc-600 flex-shrink-0">{model.size_display}</span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </>
+              )}
+            </>
           )}
         </div>
       </DialogContent>
@@ -334,15 +361,9 @@ export function ConversationView() {
   // Model picker state
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [modelStatus, setModelStatus] = useState<ModelStatus | null>(null);
-  const [localModelsEnabled, setLocalModelsEnabled] = useState(false);
-
-  // Fetch model status and config on mount
+  // Fetch model status on mount
   useEffect(() => {
     getModelStatus().then(setModelStatus).catch(() => {});
-    fetch('/api/config')
-      .then((r) => r.json())
-      .then((data) => setLocalModelsEnabled(data.local_models_enabled ?? false))
-      .catch(() => {});
   }, []);
 
   // Stop generation state
@@ -689,20 +710,16 @@ export function ConversationView() {
         {/* Status bar */}
         <div className="border-b border-zinc-800 px-3 sm:px-4 py-2 flex items-center justify-between bg-transparent font-mono text-xs">
           <div className="flex items-center gap-3">
-            {localModelsEnabled ? (
-              <button
-                onClick={() => setModelPickerOpen(true)}
-                className="text-zinc-600 hover:text-zinc-400 transition-colors"
-                title="Switch model"
-              >
-                {modelStatus?.model_name || 'model'}
-                {modelStatus?.provider === 'local' && (
-                  <span className="text-zinc-700 ml-1">(local)</span>
-                )}
-              </button>
-            ) : (
-              <span className="text-zinc-600">{modelStatus?.model_name || 'model'}</span>
-            )}
+            <button
+              onClick={() => setModelPickerOpen(true)}
+              className="text-zinc-600 hover:text-zinc-400 transition-colors"
+              title="Switch model"
+            >
+              {modelStatus?.model_name || 'model'}
+              {modelStatus?.provider === 'local' && (
+                <span className="text-zinc-700 ml-1">(local)</span>
+              )}
+            </button>
           </div>
           <button
             onClick={() => navigate('/benchmarks')}
@@ -712,14 +729,12 @@ export function ConversationView() {
             [benchmarks]
           </button>
         </div>
-        {localModelsEnabled && (
-          <ModelPicker
-            open={modelPickerOpen}
-            onOpenChange={setModelPickerOpen}
-            modelStatus={modelStatus}
-            onModelStatusChange={setModelStatus}
-          />
-        )}
+        <ModelPicker
+          open={modelPickerOpen}
+          onOpenChange={setModelPickerOpen}
+          modelStatus={modelStatus}
+          onModelStatusChange={setModelStatus}
+        />
 
         <div className="flex-1 flex flex-col items-center justify-center text-zinc-400 gap-4 sm:gap-6 px-3 sm:px-4 md:px-6 overflow-y-auto min-h-0">
           <div className="font-mono text-center">
@@ -840,21 +855,17 @@ export function ConversationView() {
     <div className="h-full flex flex-col">
       <div className="border-b border-zinc-800 px-3 sm:px-4 md:px-6 py-2 flex items-center justify-between font-mono text-xs">
         <div className="flex items-center gap-3 truncate mr-4">
-          {localModelsEnabled ? (
-            <>
-              <button
-                onClick={() => setModelPickerOpen(true)}
-                className="text-zinc-600 hover:text-zinc-400 transition-colors flex-shrink-0"
-                title="Switch model"
-              >
-                {modelStatus?.model_name || 'model'}
-                {modelStatus?.provider === 'local' && (
-                  <span className="text-zinc-700 ml-1">(local)</span>
-                )}
-              </button>
-              <span className="text-zinc-700">|</span>
-            </>
-          ) : null}
+          <button
+            onClick={() => setModelPickerOpen(true)}
+            className="text-zinc-600 hover:text-zinc-400 transition-colors flex-shrink-0"
+            title="Switch model"
+          >
+            {modelStatus?.model_name || 'model'}
+            {modelStatus?.provider === 'local' && (
+              <span className="text-zinc-700 ml-1">(local)</span>
+            )}
+          </button>
+          <span className="text-zinc-700">|</span>
           <span className="text-zinc-600 truncate">
             {conversation?.title || 'conversation'}
           </span>
@@ -867,14 +878,12 @@ export function ConversationView() {
           [benchmarks]
         </button>
       </div>
-      {localModelsEnabled && (
-        <ModelPicker
-          open={modelPickerOpen}
-          onOpenChange={setModelPickerOpen}
-          modelStatus={modelStatus}
-          onModelStatusChange={setModelStatus}
-        />
-      )}
+      <ModelPicker
+        open={modelPickerOpen}
+        onOpenChange={setModelPickerOpen}
+        modelStatus={modelStatus}
+        onModelStatusChange={setModelStatus}
+      />
 
       <div className="flex-1 overflow-y-auto px-3 sm:px-4 md:px-6 py-4 sm:py-5 md:py-6" ref={scrollRef}>
         <div className="space-y-8">
