@@ -7,6 +7,7 @@ import { cn, formatRelativeTime } from '@/lib/utils';
 import { AgentStepsPanel } from '@/components/AgentStepsPanel';
 import { AnswerWithCitations } from '@/components/AnswerWithCitations';
 import { MessageActions } from '@/components/MessageActions';
+import { ShimmerSkeleton } from '@/components/StreamingIndicator';
 import { useAgentRunDetails } from '@/hooks/useAgentRunDetails';
 import { cancelAgentRun } from '@/api/client';
 import type { Run } from '@/types';
@@ -93,10 +94,10 @@ export function AgentRunMessage({ run, onShowTrace, onRetry, canRetry }: AgentRu
                 citations={citations}
                 isStreaming={isActive}
               />
+            ) : isActive && !agentState?.steps.length ? (
+              <ShimmerSkeleton />
             ) : isActive ? (
-              <div className="text-xs text-zinc-500 font-mono">
-                [researching...]
-              </div>
+              null
             ) : run.status === 'failed' ? (
               <div className="text-sm text-zinc-400">
                 [error] {run.error_detail || 'Research failed. Please try again.'}
