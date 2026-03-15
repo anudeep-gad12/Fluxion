@@ -119,11 +119,12 @@ async def create_agent_engine(
     # Per-request model metadata resolution via registry (moved up so provider
     # can use the resolved model's API key instead of config.provider.api_key)
     resolved_model = None
-    if model_name:
+    resolve_name = model_name or config.model.name  # Fall back to config default model
+    if resolve_name:
         try:
             from orchestrator.models.registry import ModelRegistry
 
-            resolved_model = ModelRegistry.resolve(model_name)
+            resolved_model = ModelRegistry.resolve(resolve_name)
         except (ValueError, Exception):
             pass  # Fall through to config defaults
 
@@ -132,7 +133,7 @@ async def create_agent_engine(
         provider = provider_override
     elif resolved_model:
         from orchestrator.providers.factory import create_provider_for_model
-        provider, _ = create_provider_for_model(model_name)
+        provider, _ = create_provider_for_model(resolve_name)
     else:
         provider = create_provider(
             config.provider,
