@@ -7,6 +7,9 @@ import { toast } from 'sonner';
 import { AnswerMarkdown, extractAnswer } from '@/components/AnswerMarkdown';
 import { ThinkingPanel } from '@/components/ThinkingPanel';
 import { AgentRunMessage } from '@/components/AgentRunMessage';
+import { MessageActions } from '@/components/MessageActions';
+import { ShimmerSkeleton, ThinkingTimer } from '@/components/StreamingIndicator';
+import { ScrollToBottom } from '@/components/ScrollToBottom';
 import {
   createConversation,
   createConversationRun,
@@ -18,8 +21,10 @@ import {
   startLocalModel,
   stopLocalModel,
   getModelStatus,
+  listRegistryModels,
+  selectModel,
 } from '@/api/client';
-import type { LocalModel, ModelStatus } from '@/api/client';
+import type { LocalModel, ModelStatus, RegistryModelPreset, RegistryModelsResponse } from '@/api/client';
 import {
   Dialog,
   DialogHeader,
@@ -70,41 +75,46 @@ function ModelPicker({
   modelStatus: ModelStatus | null;
   onModelStatusChange: (status: ModelStatus) => void;
 }) {
+  const [registryData, setRegistryData] = useState<RegistryModelsResponse | null>(null);
   const [localModels, setLocalModels] = useState<LocalModel[]>([]);
   const [loading, setLoading] = useState(false);
-  const [starting, setStarting] = useState<string | null>(null);
+  const [switching, setSwitching] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
     setLoading(true);
     setError(null);
-    listLocalModels()
-      .then(setLocalModels)
-      .catch(() => setError('Failed to scan models'))
-      .finally(() => setLoading(false));
+    Promise.all([
+      listRegistryModels().catch(() => null),
+      listLocalModels().catch(() => []),
+    ]).then(([registry, local]) => {
+      setRegistryData(registry);
+      setLocalModels(local as LocalModel[]);
+    }).finally(() => setLoading(false));
   }, [open]);
 
-  const handleSelectCloud = async () => {
-    if (modelStatus?.provider === 'cloud') {
-      onOpenChange(false);
-      return;
-    }
-    setStarting('cloud');
+  const handleSelectRegistry = async (modelId: string) => {
+    setSwitching(modelId);
+    setError(null);
     try {
-      await stopLocalModel();
+      // Stop local model if running
+      if (modelStatus?.provider === 'local') {
+        await stopLocalModel();
+      }
+      await selectModel(modelId);
       const status = await getModelStatus();
       onModelStatusChange(status);
       onOpenChange(false);
     } catch {
-      setError('Failed to switch to cloud');
+      setError('Failed to switch model');
     } finally {
-      setStarting(null);
+      setSwitching(null);
     }
   };
 
   const handleSelectLocal = async (model: LocalModel) => {
-    setStarting(model.path);
+    setSwitching(model.path);
     setError(null);
     try {
       await startLocalModel(model.path);
@@ -114,9 +124,15 @@ function ModelPicker({
     } catch {
       setError('Failed to start model. Check logs/llama.log');
     } finally {
-      setStarting(null);
+      setSwitching(null);
     }
   };
+
+  // Flatten registry models by provider, only show available providers
+  const registryProviders = registryData
+    ? Object.entries(registryData.providers)
+        .filter(([, info]) => info.available && info.models.length > 0)
+    : [];
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -127,66 +143,80 @@ function ModelPicker({
         {error && (
           <p className="text-xs text-red-400 mb-2 font-mono">{error}</p>
         )}
-        <div className="space-y-1 max-h-64 overflow-y-auto">
-          {/* Cloud option */}
-          <button
-            onClick={handleSelectCloud}
-            disabled={!!starting}
-            className={cn(
-              'w-full text-left px-3 py-2 text-xs font-mono transition-colors',
-              modelStatus?.provider === 'cloud'
-                ? 'text-zinc-200 bg-zinc-800'
-                : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50',
-              starting === 'cloud' && 'opacity-50',
-            )}
-          >
-            <span>Cloud (default)</span>
-            {modelStatus?.provider === 'cloud' && modelStatus.model_name && (
-              <span className="text-zinc-600 ml-2">{modelStatus.model_name}</span>
-            )}
-            {starting === 'cloud' && <span className="text-zinc-500 ml-2">switching...</span>}
-          </button>
-
-          {/* Divider */}
-          {localModels.length > 0 && (
-            <div className="border-t border-zinc-800 my-1" />
-          )}
-
-          {/* Local models */}
+        <div className="space-y-1 max-h-80 overflow-y-auto">
           {loading ? (
-            <p className="text-xs text-zinc-600 font-mono px-3 py-2">Scanning models...</p>
-          ) : localModels.length === 0 ? (
-            <p className="text-xs text-zinc-600 font-mono px-3 py-2">
-              No local GGUF models found
-            </p>
+            <p className="text-xs text-zinc-600 font-mono px-3 py-2">Loading models...</p>
           ) : (
-            localModels.map((model) => {
-              const isActive =
-                modelStatus?.provider === 'local' &&
-                modelStatus.model_name === model.name.replace(/.*\//, '').replace(/\.gguf$/, '');
-              return (
-                <button
-                  key={model.path}
-                  onClick={() => handleSelectLocal(model)}
-                  disabled={!!starting}
-                  className={cn(
-                    'w-full text-left px-3 py-2 text-xs font-mono transition-colors',
-                    isActive
-                      ? 'text-zinc-200 bg-zinc-800'
-                      : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50',
-                    starting === model.path && 'opacity-50',
-                  )}
-                >
-                  <div className="flex justify-between items-center">
-                    <span className="truncate mr-2">{model.name}</span>
-                    <span className="text-zinc-600 flex-shrink-0">{model.size_display}</span>
-                  </div>
-                  {starting === model.path && (
-                    <p className="text-zinc-500 mt-1">Starting llama-server...</p>
-                  )}
-                </button>
-              );
-            })
+            <>
+              {/* Registry models by provider */}
+              {registryProviders.map(([providerName, info]) => (
+                <div key={providerName}>
+                  <p className="text-[10px] text-zinc-600 font-mono px-3 pt-2 pb-1 uppercase">
+                    {providerName}
+                  </p>
+                  {info.models.map((model: RegistryModelPreset) => {
+                    const isActive = registryData?.active_model_id === model.model_id
+                      || modelStatus?.model_name === model.display_name
+                      || modelStatus?.model_name === model.model_id;
+                    return (
+                      <button
+                        key={model.model_id}
+                        onClick={() => handleSelectRegistry(model.aliases[0] || model.model_id)}
+                        disabled={!!switching}
+                        className={cn(
+                          'w-full text-left px-3 py-1.5 text-xs font-mono transition-colors',
+                          isActive
+                            ? 'text-zinc-200 bg-zinc-800'
+                            : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50',
+                          switching === model.model_id && 'opacity-50',
+                        )}
+                      >
+                        <div className="flex justify-between items-center">
+                          <span className="truncate mr-2">{model.display_name}</span>
+                          <span className="text-zinc-600 flex-shrink-0">
+                            {Math.round(model.context_window / 1024)}k
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              ))}
+
+              {/* Local models */}
+              {localModels.length > 0 && (
+                <>
+                  <div className="border-t border-zinc-800 my-1" />
+                  <p className="text-[10px] text-zinc-600 font-mono px-3 pt-2 pb-1 uppercase">
+                    local
+                  </p>
+                  {localModels.map((model) => {
+                    const isActive =
+                      modelStatus?.provider === 'local' &&
+                      modelStatus.model_name === model.name.replace(/.*\//, '').replace(/\.gguf$/, '');
+                    return (
+                      <button
+                        key={model.path}
+                        onClick={() => handleSelectLocal(model)}
+                        disabled={!!switching}
+                        className={cn(
+                          'w-full text-left px-3 py-1.5 text-xs font-mono transition-colors',
+                          isActive
+                            ? 'text-zinc-200 bg-zinc-800'
+                            : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50',
+                          switching === model.path && 'opacity-50',
+                        )}
+                      >
+                        <div className="flex justify-between items-center">
+                          <span className="truncate mr-2">{model.name}</span>
+                          <span className="text-zinc-600 flex-shrink-0">{model.size_display}</span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </>
+              )}
+            </>
           )}
         </div>
       </DialogContent>
@@ -200,9 +230,13 @@ const EMPTY_STRING = '';
 const RunMessage = memo(function RunMessage({
   run,
   onShowTrace,
+  onRetry,
+  canRetry,
 }: {
   run: Run;
   onShowTrace: () => void;
+  onRetry?: () => void;
+  canRetry?: boolean;
 }) {
   const isRunning = run.status === 'running';
   const finalAnswer = run.final_answer ? extractAnswer(run.final_answer) : '';
@@ -218,64 +252,84 @@ const RunMessage = memo(function RunMessage({
   const isThinking = isRunning && streamingThinking.length > 0;
 
   return (
-    <div className="space-y-3 animate-in fade-in slide-in-from-bottom-2">
-      <div className="w-full">
-        <div className="w-full py-2">
-          <span className="text-zinc-500 mr-2 select-none font-mono">{'>'}</span>
-          <span className="text-zinc-100 whitespace-pre-wrap text-sm leading-relaxed">
-            {run.user_message || run.prompt}
-          </span>
-          <p className="text-[11px] text-zinc-600 mt-2 text-left">
+    <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2">
+      {/* User message */}
+      <div className="flex gap-3">
+        <div className="flex-shrink-0 w-7 h-7 bg-zinc-700 flex items-center justify-center mt-0.5">
+          <span className="text-xs font-mono text-zinc-300">U</span>
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="bg-zinc-800/50 border border-zinc-800 px-4 py-3">
+            <span className="text-zinc-100 whitespace-pre-wrap text-sm leading-relaxed">
+              {run.user_message || run.prompt}
+            </span>
+          </div>
+          <p className="text-[11px] text-zinc-600 mt-1.5 px-1">
             {formatRelativeTime(run.created_at)}
           </p>
         </div>
       </div>
 
-      <div className="w-full">
-        <div className="w-full py-2 pl-4 border-l border-zinc-800">
-          {/* Thinking Panel - shows while thinking or after completion with thinking data */}
-          <ThinkingPanel
-            summary={run.thinking_summary}
-            isStreaming={isThinking}
-            streamingContent={streamingThinking}
-            defaultExpanded={false}
-          />
+      {/* AI response */}
+      <div className="flex gap-3 group/msg">
+        <div className="flex-shrink-0 w-7 h-7 bg-zinc-800 border border-zinc-700 flex items-center justify-center mt-0.5">
+          <span className="text-xs font-mono text-zinc-400">AI</span>
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="py-2">
+            {/* Thinking Panel - shows while thinking or after completion with thinking data */}
+            <ThinkingPanel
+              summary={run.thinking_summary}
+              isStreaming={isThinking}
+              streamingContent={streamingThinking}
+              defaultExpanded={false}
+            />
 
-          {isRunning && !displayText && !streamingThinking ? (
-            <div className="text-xs text-zinc-500 font-mono">
-              [loading...]
-            </div>
-          ) : run.status === 'failed' ? (
-            <div className="text-sm text-zinc-400">
-              [error] {run.error_detail || 'Request failed. Please try again.'}
-            </div>
-          ) : displayText ? (
-            <div>
-              <AnswerMarkdown content={extractAnswer(displayText)} />
-              {isStreaming && (
-                <span className="inline-block w-2 h-4 bg-zinc-400 animate-pulse ml-0.5" />
-              )}
-            </div>
-          ) : !isThinking ? (
-            <div className="text-sm text-zinc-600">No response.</div>
-          ) : null}
+            {isRunning && !displayText && !streamingThinking ? (
+              <ShimmerSkeleton />
+            ) : isRunning && !displayText && isThinking ? (
+              <ThinkingTimer label="Thinking" />
+            ) : run.status === 'failed' ? (
+              <div className="text-sm text-zinc-400">
+                [error] {run.error_detail || 'Request failed. Please try again.'}
+              </div>
+            ) : displayText ? (
+              <div>
+                <AnswerMarkdown content={extractAnswer(displayText)} />
+                {isStreaming && (
+                  <span className="inline-block w-2 h-4 bg-zinc-400 animate-pulse ml-0.5" />
+                )}
+              </div>
+            ) : !isThinking ? (
+              <div className="text-sm text-zinc-600">No response.</div>
+            ) : null}
+          </div>
 
-          <div className="mt-3 flex flex-wrap items-center gap-3 font-mono text-xs">
+          <div className="mt-2 flex flex-wrap items-center gap-3 font-mono text-xs">
             <button
               onClick={onShowTrace}
-              className="text-zinc-500 hover:text-zinc-300"
+              className="text-zinc-600 hover:text-zinc-300 transition-colors"
             >
               [details]
             </button>
             <span className={cn(
               run.status === 'succeeded'
-                ? 'text-zinc-500'
+                ? 'text-emerald-600'
                 : run.status === 'failed'
-                  ? 'text-zinc-500'
+                  ? 'text-red-500/70'
                   : 'text-zinc-600'
             )}>
               [{run.status}]
             </span>
+            <span className="text-zinc-700">{run.mode || 'chat'}</span>
+            {/* Copy / Retry actions - visible on hover */}
+            {!isRunning && (
+              <MessageActions
+                content={finalAnswer || displayText}
+                onRetry={onRetry}
+                canRetry={canRetry}
+              />
+            )}
           </div>
         </div>
       </div>
@@ -307,14 +361,13 @@ export function ConversationView() {
   // Model picker state
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [modelStatus, setModelStatus] = useState<ModelStatus | null>(null);
-  const [localModelsEnabled, setLocalModelsEnabled] = useState(false);
-
+  const [modelSelectEnabled, setModelSelectEnabled] = useState(false);
   // Fetch model status and config on mount
   useEffect(() => {
     getModelStatus().then(setModelStatus).catch(() => {});
     fetch('/api/config')
       .then((r) => r.json())
-      .then((data) => setLocalModelsEnabled(data.local_models_enabled ?? false))
+      .then((data) => setModelSelectEnabled(data.local_models_enabled ?? false))
       .catch(() => {});
   }, []);
 
@@ -420,6 +473,14 @@ export function ConversationView() {
     selectRun(runId);
     setDetailPanelOpen(true);
   }, [selectRun, setDetailPanelOpen]);
+
+  /** Retry a message: pre-fill the input with the original user message */
+  const handleRetry = useCallback((userMessage: string) => {
+    if (hasActiveRun) return;
+    setMessage(userMessage);
+    // Focus the textarea so user can edit before sending
+    requestAnimationFrame(() => textareaRef.current?.focus());
+  }, [hasActiveRun]);
 
   const handleSubmit = async () => {
     if (!message.trim() || isSubmitting || hasActiveRun) return;
@@ -654,7 +715,7 @@ export function ConversationView() {
         {/* Status bar */}
         <div className="border-b border-zinc-800 px-3 sm:px-4 py-2 flex items-center justify-between bg-transparent font-mono text-xs">
           <div className="flex items-center gap-3">
-            {localModelsEnabled ? (
+            {modelSelectEnabled ? (
               <button
                 onClick={() => setModelPickerOpen(true)}
                 className="text-zinc-600 hover:text-zinc-400 transition-colors"
@@ -677,7 +738,7 @@ export function ConversationView() {
             [benchmarks]
           </button>
         </div>
-        {localModelsEnabled && (
+        {modelSelectEnabled && (
           <ModelPicker
             open={modelPickerOpen}
             onOpenChange={setModelPickerOpen}
@@ -805,7 +866,7 @@ export function ConversationView() {
     <div className="h-full flex flex-col">
       <div className="border-b border-zinc-800 px-3 sm:px-4 md:px-6 py-2 flex items-center justify-between font-mono text-xs">
         <div className="flex items-center gap-3 truncate mr-4">
-          {localModelsEnabled ? (
+          {modelSelectEnabled ? (
             <>
               <button
                 onClick={() => setModelPickerOpen(true)}
@@ -819,7 +880,12 @@ export function ConversationView() {
               </button>
               <span className="text-zinc-700">|</span>
             </>
-          ) : null}
+          ) : (
+            <>
+              <span className="text-zinc-600 flex-shrink-0">{modelStatus?.model_name || 'model'}</span>
+              <span className="text-zinc-700">|</span>
+            </>
+          )}
           <span className="text-zinc-600 truncate">
             {conversation?.title || 'conversation'}
           </span>
@@ -832,7 +898,7 @@ export function ConversationView() {
           [benchmarks]
         </button>
       </div>
-      {localModelsEnabled && (
+      {modelSelectEnabled && (
         <ModelPicker
           open={modelPickerOpen}
           onOpenChange={setModelPickerOpen}
@@ -849,17 +915,28 @@ export function ConversationView() {
                 key={run.run_id}
                 run={run}
                 onShowTrace={() => handleShowTrace(run.run_id)}
+                onRetry={() => handleRetry(run.user_message || run.prompt)}
+                canRetry={!hasActiveRun}
               />
             ) : (
               <RunMessage
                 key={run.run_id}
                 run={run}
                 onShowTrace={() => handleShowTrace(run.run_id)}
+                onRetry={() => handleRetry(run.user_message || run.prompt)}
+                canRetry={!hasActiveRun}
               />
             )
           )}
         </div>
       </div>
+
+      {/* Scroll-to-bottom pill */}
+      <ScrollToBottom
+        scrollRef={scrollRef}
+        isStreaming={!!activeRunId}
+        className="left-1/2 -translate-x-1/2 bottom-28"
+      />
 
       <div className="p-3 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-4 sm:pb-[max(1rem,env(safe-area-inset-bottom))] flex-shrink-0 space-y-2">
         {/* Prompt area */}

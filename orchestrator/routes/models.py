@@ -161,8 +161,12 @@ async def select_model(request: SelectModelRequest):
     """Select a model from the registry and hot-swap the provider.
 
     Resolves the model string via ModelRegistry, creates a new provider,
-    and sets it as the global override.
+    and sets it as the global override. Disabled in production/staging.
     """
+    import os
+    if os.environ.get("SERVE_STATIC", "false").lower() == "true":
+        raise HTTPException(status_code=403, detail="Model selection is disabled in production")
+
     global _active_model, _active_model_name
 
     try:

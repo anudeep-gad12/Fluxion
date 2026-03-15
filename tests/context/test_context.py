@@ -153,7 +153,7 @@ class TestTurnSummarizer:
         summarizer = TurnSummarizer(counter)
         long_query = "x" * 200
         summary = summarizer.summarize_chat_run(long_query, "short answer")
-        assert len(summary.query_brief) == 80
+        assert len(summary.query_brief) == 120
 
     def test_truncates_long_answer(self):
         counter = TokenCounter()

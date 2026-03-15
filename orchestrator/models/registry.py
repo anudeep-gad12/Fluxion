@@ -246,6 +246,17 @@ MODEL_PRESETS: list[ModelPreset] = [
     ),
     # --- DeepInfra-specific ---
     ModelPreset(
+        model_id="zai-org/GLM-5",
+        display_name="GLM-5",
+        provider="deepinfra",
+        aliases=["glm-5", "glm5"],
+        context_window=202752,
+        max_output_tokens=16384,
+        supports_reasoning=True,
+        reasoning_effort="medium",
+        provider_hint="deepinfra",
+    ),
+    ModelPreset(
         model_id="openai/gpt-oss-120b",
         display_name="GPT-OSS 120B",
         provider="deepinfra",

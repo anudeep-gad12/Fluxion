@@ -151,6 +151,8 @@ export interface StepStartEvent extends AgentSSEEventBase {
   type: 'step_start';
   step_number: number;
   steps_remaining: number;
+  context_tokens?: number;
+  context_remaining?: number;
 }
 
 /** Thinking content event */
@@ -239,4 +241,6 @@ export interface AgentUIState {
   timing_ms?: number;
   total_tokens?: number;
   context_usage?: ContextUsage;
+  context_tokens?: number;
+  context_remaining?: number;
 }

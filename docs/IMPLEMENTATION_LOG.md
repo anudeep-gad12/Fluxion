@@ -9,6 +9,8 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| feature/arch-context-prompts | Architecture — 5 changes: (1) model-aware context management from registry, (2) live context accounting per agent step with context_remaining SSE, (3) richer turn summaries with key_findings, (4) disable planning LLM call, (5) system prompts rewrite with frontier patterns (autonomy, self-correction, recency, output format) | done | 2026-03-15 |
+| feature/ui-tier1-improvements | UI Tier 1 — 5 features: (1) syntax-highlighted code blocks with Prism + language labels, (2) visual message differentiation with avatars/status colors, (3) message actions (copy/retry) on hover, (4) agent progress bar with elapsed timer/token counter/state labels, (5) streaming UX: shimmer skeleton, thinking timer, scroll-to-bottom pill | done | 2026-03-15 |
 | test | Docs refresh — README rewrite (CLI, model registry, profiles, 14 tools, ChatGPT OAuth, context mgmt), ARCHITECTURE.md (missing dirs/routes), API_REFERENCE.md (model registry endpoints), COMPONENTS.md (model registry + context mgmt sections) | done | 2026-03-11 |
 | test | Model registry + TUI picker — multi-provider model registry (OpenRouter, DeepInfra, local), hot-swap via API, Ctrl+M model picker in TUI, model persistence | done | 2026-03-01 |
 | test | GAIA scorer fixes — multi-phase answer extraction, numeric fallback in scorer, increased timeouts for local inference (CLI 300→1800s, extraction 30→120s) | done | 2026-03-01 |

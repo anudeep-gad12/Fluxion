@@ -103,6 +103,9 @@ export function useAgentSSE(runId: string | null, maxSteps: number = 10) {
               currentStep: stepEvent.step_number,
               // Clear thinking buffer for new step
               thinkingBuffer: '',
+              // Track live context usage from step_start event
+              context_tokens: stepEvent.context_tokens,
+              context_remaining: stepEvent.context_remaining,
             });
             break;
           }
