@@ -8,11 +8,12 @@ Complete documentation of all API endpoints in the Reasoner system.
 2. [Conversations](#conversations)
 3. [Runs](#runs)
 4. [Agent Runs](#agent-runs)
-5. [Local Models](#local-models)
-6. [Benchmarks](#benchmarks)
-7. [System](#system)
-7. [SSE Streaming](#sse-streaming)
-8. [Error Handling](#error-handling)
+5. [ChatGPT Auth](#chatgpt-auth-cli)
+6. [Models](#models)
+7. [Benchmarks](#benchmarks)
+8. [System](#system)
+9. [SSE Streaming](#sse-streaming)
+10. [Error Handling](#error-handling)
 
 ---
 
@@ -989,7 +990,106 @@ Returns `{"success": false, "error": "..."}` if refresh fails.
 
 ---
 
-## Local Models
+## Models
+
+### List Model Presets
+
+Get all available model presets grouped by provider, with API key availability.
+
+**Request**:
+```
+GET /api/models
+```
+
+**Response** (200 OK):
+```json
+{
+  "models": [
+    {
+      "model_id": "qwen/qwen3-72b",
+      "display_name": "Qwen 3 72B",
+      "provider": "openrouter",
+      "context_window": 131072,
+      "supports_tools": true,
+      "supports_reasoning": false,
+      "available": true
+    },
+    ...
+  ],
+  "grouped": {
+    "openrouter": [...],
+    "deepinfra": [...],
+    "local": [...]
+  }
+}
+```
+
+Models are grouped by provider. The `available` field indicates whether the required API key is set.
+
+---
+
+### Select Model
+
+Hot-swap the active model without restart. Resolves the model string through the registry (alias, prefix, or fallback).
+
+**Request**:
+```
+POST /api/models/select
+```
+
+**Body**:
+```json
+{
+  "model": "qwen3-72b"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `model` | string | Yes | Model alias, ID, or `provider:model_id` |
+
+**Response** (200 OK):
+```json
+{
+  "status": "ok",
+  "model_id": "qwen/qwen3-72b",
+  "display_name": "Qwen 3 72B",
+  "provider": "openrouter",
+  "context_window": 131072
+}
+```
+
+**Error** (400 Bad Request):
+```json
+{
+  "detail": "No API key for provider openrouter (set OPENROUTER_API_KEY)"
+}
+```
+
+---
+
+### Get Model Status
+
+Get current provider and model info.
+
+**Request**:
+```
+GET /api/models/status
+```
+
+**Response** (200 OK):
+```json
+{
+  "provider": "local",
+  "model_name": "Qwen3.5-35B-A3B-Q8_0",
+  "base_url": "http://localhost:8080/v1",
+  "local_running": true
+}
+```
+
+Provider is `"local"` when llama-server is active, `"cloud"` otherwise.
+
+---
 
 ### List Local Models
 
@@ -1067,29 +1167,6 @@ POST /api/models/local/stop
   "provider": "cloud"
 }
 ```
-
----
-
-### Get Model Status
-
-Get current provider info.
-
-**Request**:
-```
-GET /api/models/status
-```
-
-**Response** (200 OK):
-```json
-{
-  "provider": "local",
-  "model_name": "Qwen3.5-35B-A3B-Q8_0",
-  "base_url": "http://localhost:8080/v1",
-  "local_running": true
-}
-```
-
-Provider is `"local"` when llama-server is active, `"cloud"` otherwise.
 
 ---
 

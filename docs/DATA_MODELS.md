@@ -301,6 +301,19 @@ Tracks file changes and command executions made by agent tools. Enables auditing
 | `tool_call_id` | TEXT FK | Reference to agent_tool_calls |
 | `created_at` | TEXT | ISO 8601 timestamp |
 
+#### chatgpt_tokens
+
+Stores ChatGPT OAuth tokens per CLI session. Created via migration (not in schema.sql).
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `session_id` | TEXT PK | CLI session identifier |
+| `access_token` | TEXT | OAuth access token |
+| `refresh_token` | TEXT | OAuth refresh token |
+| `account_id` | TEXT | OpenAI account ID |
+| `expires_at` | INTEGER | Token expiry timestamp |
+| `created_at` | TEXT | ISO 8601 timestamp |
+
 ### Evaluation Tables
 
 #### eval_runs
