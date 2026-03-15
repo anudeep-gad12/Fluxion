@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { AnswerMarkdown, extractAnswer } from '@/components/AnswerMarkdown';
 import { ThinkingPanel } from '@/components/ThinkingPanel';
 import { AgentRunMessage } from '@/components/AgentRunMessage';
+import { MessageActions } from '@/components/MessageActions';
 import {
   createConversation,
   createConversationRun,
@@ -200,9 +201,13 @@ const EMPTY_STRING = '';
 const RunMessage = memo(function RunMessage({
   run,
   onShowTrace,
+  onRetry,
+  canRetry,
 }: {
   run: Run;
   onShowTrace: () => void;
+  onRetry?: () => void;
+  canRetry?: boolean;
 }) {
   const isRunning = run.status === 'running';
   const finalAnswer = run.final_answer ? extractAnswer(run.final_answer) : '';
@@ -237,7 +242,7 @@ const RunMessage = memo(function RunMessage({
       </div>
 
       {/* AI response */}
-      <div className="flex gap-3">
+      <div className="flex gap-3 group/msg">
         <div className="flex-shrink-0 w-7 h-7 bg-zinc-800 border border-zinc-700 flex items-center justify-center mt-0.5">
           <span className="text-xs font-mono text-zinc-400">AI</span>
         </div>
@@ -288,6 +293,14 @@ const RunMessage = memo(function RunMessage({
               [{run.status}]
             </span>
             <span className="text-zinc-700">{run.mode || 'chat'}</span>
+            {/* Copy / Retry actions - visible on hover */}
+            {!isRunning && (
+              <MessageActions
+                content={finalAnswer || displayText}
+                onRetry={onRetry}
+                canRetry={canRetry}
+              />
+            )}
           </div>
         </div>
       </div>
@@ -432,6 +445,14 @@ export function ConversationView() {
     selectRun(runId);
     setDetailPanelOpen(true);
   }, [selectRun, setDetailPanelOpen]);
+
+  /** Retry a message: pre-fill the input with the original user message */
+  const handleRetry = useCallback((userMessage: string) => {
+    if (hasActiveRun) return;
+    setMessage(userMessage);
+    // Focus the textarea so user can edit before sending
+    requestAnimationFrame(() => textareaRef.current?.focus());
+  }, [hasActiveRun]);
 
   const handleSubmit = async () => {
     if (!message.trim() || isSubmitting || hasActiveRun) return;
@@ -861,12 +882,16 @@ export function ConversationView() {
                 key={run.run_id}
                 run={run}
                 onShowTrace={() => handleShowTrace(run.run_id)}
+                onRetry={() => handleRetry(run.user_message || run.prompt)}
+                canRetry={!hasActiveRun}
               />
             ) : (
               <RunMessage
                 key={run.run_id}
                 run={run}
                 onShowTrace={() => handleShowTrace(run.run_id)}
+                onRetry={() => handleRetry(run.user_message || run.prompt)}
+                canRetry={!hasActiveRun}
               />
             )
           )}
