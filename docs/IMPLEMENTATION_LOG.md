@@ -9,6 +9,7 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| test | Docs refresh — README rewrite (CLI, model registry, profiles, 14 tools, ChatGPT OAuth, context mgmt), ARCHITECTURE.md (missing dirs/routes), API_REFERENCE.md (model registry endpoints), COMPONENTS.md (model registry + context mgmt sections) | done | 2026-03-11 |
 | test | Model registry + TUI picker — multi-provider model registry (OpenRouter, DeepInfra, local), hot-swap via API, Ctrl+M model picker in TUI, model persistence | done | 2026-03-01 |
 | test | GAIA scorer fixes — multi-phase answer extraction, numeric fallback in scorer, increased timeouts for local inference (CLI 300→1800s, extraction 30→120s) | done | 2026-03-01 |
 | test | UI thinking sanitization — frontend `sanitizeThinking()` utility strips tool_call/function_call/tool_use XML from thinking panel, model-agnostic | done | 2026-03-01 |
