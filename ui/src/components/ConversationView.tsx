@@ -218,64 +218,76 @@ const RunMessage = memo(function RunMessage({
   const isThinking = isRunning && streamingThinking.length > 0;
 
   return (
-    <div className="space-y-3 animate-in fade-in slide-in-from-bottom-2">
-      <div className="w-full">
-        <div className="w-full py-2">
-          <span className="text-zinc-500 mr-2 select-none font-mono">{'>'}</span>
-          <span className="text-zinc-100 whitespace-pre-wrap text-sm leading-relaxed">
-            {run.user_message || run.prompt}
-          </span>
-          <p className="text-[11px] text-zinc-600 mt-2 text-left">
+    <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2">
+      {/* User message */}
+      <div className="flex gap-3">
+        <div className="flex-shrink-0 w-7 h-7 bg-zinc-700 flex items-center justify-center mt-0.5">
+          <span className="text-xs font-mono text-zinc-300">U</span>
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="bg-zinc-800/50 border border-zinc-800 px-4 py-3">
+            <span className="text-zinc-100 whitespace-pre-wrap text-sm leading-relaxed">
+              {run.user_message || run.prompt}
+            </span>
+          </div>
+          <p className="text-[11px] text-zinc-600 mt-1.5 px-1">
             {formatRelativeTime(run.created_at)}
           </p>
         </div>
       </div>
 
-      <div className="w-full">
-        <div className="w-full py-2 pl-4 border-l border-zinc-800">
-          {/* Thinking Panel - shows while thinking or after completion with thinking data */}
-          <ThinkingPanel
-            summary={run.thinking_summary}
-            isStreaming={isThinking}
-            streamingContent={streamingThinking}
-            defaultExpanded={false}
-          />
+      {/* AI response */}
+      <div className="flex gap-3">
+        <div className="flex-shrink-0 w-7 h-7 bg-zinc-800 border border-zinc-700 flex items-center justify-center mt-0.5">
+          <span className="text-xs font-mono text-zinc-400">AI</span>
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="py-2">
+            {/* Thinking Panel - shows while thinking or after completion with thinking data */}
+            <ThinkingPanel
+              summary={run.thinking_summary}
+              isStreaming={isThinking}
+              streamingContent={streamingThinking}
+              defaultExpanded={false}
+            />
 
-          {isRunning && !displayText && !streamingThinking ? (
-            <div className="text-xs text-zinc-500 font-mono">
-              [loading...]
-            </div>
-          ) : run.status === 'failed' ? (
-            <div className="text-sm text-zinc-400">
-              [error] {run.error_detail || 'Request failed. Please try again.'}
-            </div>
-          ) : displayText ? (
-            <div>
-              <AnswerMarkdown content={extractAnswer(displayText)} />
-              {isStreaming && (
-                <span className="inline-block w-2 h-4 bg-zinc-400 animate-pulse ml-0.5" />
-              )}
-            </div>
-          ) : !isThinking ? (
-            <div className="text-sm text-zinc-600">No response.</div>
-          ) : null}
+            {isRunning && !displayText && !streamingThinking ? (
+              <div className="text-xs text-zinc-500 font-mono">
+                [loading...]
+              </div>
+            ) : run.status === 'failed' ? (
+              <div className="text-sm text-zinc-400">
+                [error] {run.error_detail || 'Request failed. Please try again.'}
+              </div>
+            ) : displayText ? (
+              <div>
+                <AnswerMarkdown content={extractAnswer(displayText)} />
+                {isStreaming && (
+                  <span className="inline-block w-2 h-4 bg-zinc-400 animate-pulse ml-0.5" />
+                )}
+              </div>
+            ) : !isThinking ? (
+              <div className="text-sm text-zinc-600">No response.</div>
+            ) : null}
+          </div>
 
-          <div className="mt-3 flex flex-wrap items-center gap-3 font-mono text-xs">
+          <div className="mt-2 flex flex-wrap items-center gap-3 font-mono text-xs">
             <button
               onClick={onShowTrace}
-              className="text-zinc-500 hover:text-zinc-300"
+              className="text-zinc-600 hover:text-zinc-300 transition-colors"
             >
               [details]
             </button>
             <span className={cn(
               run.status === 'succeeded'
-                ? 'text-zinc-500'
+                ? 'text-emerald-600'
                 : run.status === 'failed'
-                  ? 'text-zinc-500'
+                  ? 'text-red-500/70'
                   : 'text-zinc-600'
             )}>
               [{run.status}]
             </span>
+            <span className="text-zinc-700">{run.mode || 'chat'}</span>
           </div>
         </div>
       </div>
