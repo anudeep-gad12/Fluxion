@@ -218,7 +218,7 @@ async def create_agent_engine(
         tool_choice=tool_choice,
         max_context_tokens=max_context,
         slow_response_threshold=config.provider.slow_response_threshold,
-        planning_enabled=planning_enabled,
+        planning_enabled=False,  # Disabled: extra LLM call adds latency/cost with no benefit
         max_plan_steps=max_plan_steps,
         approval_callback=approval_callback,
         profile=profile,
