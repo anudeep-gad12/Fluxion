@@ -6,6 +6,7 @@
 import { cn, formatRelativeTime } from '@/lib/utils';
 import { AgentStepsPanel } from '@/components/AgentStepsPanel';
 import { AnswerWithCitations } from '@/components/AnswerWithCitations';
+import { MessageActions } from '@/components/MessageActions';
 import { useAgentRunDetails } from '@/hooks/useAgentRunDetails';
 import { cancelAgentRun } from '@/api/client';
 import type { Run } from '@/types';
@@ -28,9 +29,11 @@ function formatTokens(tokens: number): string {
 interface AgentRunMessageProps {
   run: Run;
   onShowTrace: () => void;
+  onRetry?: () => void;
+  canRetry?: boolean;
 }
 
-export function AgentRunMessage({ run, onShowTrace }: AgentRunMessageProps) {
+export function AgentRunMessage({ run, onShowTrace, onRetry, canRetry }: AgentRunMessageProps) {
   const isRunning = run.status === 'running';
   const agentState = useAgentRunDetails(run.run_id, isRunning);
 
@@ -69,7 +72,7 @@ export function AgentRunMessage({ run, onShowTrace }: AgentRunMessageProps) {
       </div>
 
       {/* Agent response */}
-      <div className="flex gap-3">
+      <div className="flex gap-3 group/msg">
         <div className="flex-shrink-0 w-7 h-7 bg-cyan-950 border border-cyan-900/50 flex items-center justify-center mt-0.5">
           <span className="text-[10px] font-mono text-cyan-400">R</span>
         </div>
@@ -143,6 +146,14 @@ export function AgentRunMessage({ run, onShowTrace }: AgentRunMessageProps) {
               <span className="text-zinc-600">
                 ctx {Math.round(agentState.context_usage.utilization_pct)}%
               </span>
+            )}
+            {/* Copy / Retry actions - visible on hover */}
+            {!isActive && finalAnswer && (
+              <MessageActions
+                content={finalAnswer}
+                onRetry={onRetry}
+                canRetry={canRetry}
+              />
             )}
           </div>
         </div>
