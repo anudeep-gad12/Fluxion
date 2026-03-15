@@ -7,7 +7,7 @@ class StreamingMarkdown(Markdown):
     """Markdown widget that supports incremental token appending.
 
     Used for rendering the assistant's streaming response.
-    Styling is handled by the app.tcss file.
+    Prepends ● to match Claude Code's assistant text style.
     """
 
     def __init__(self, **kwargs) -> None:
@@ -17,12 +17,12 @@ class StreamingMarkdown(Markdown):
     def append_token(self, token: str) -> None:
         """Append a token to the streaming buffer and re-render."""
         self._buffer += token
-        self.update(self._buffer)
+        self.update("● " + self._buffer)
 
     def set_content(self, content: str) -> None:
         """Set the full content, replacing the buffer."""
         self._buffer = content
-        self.update(self._buffer)
+        self.update("● " + self._buffer if self._buffer else "")
 
     def clear_content(self) -> None:
         """Clear the buffer and display."""

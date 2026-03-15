@@ -36,6 +36,7 @@ from orchestrator.utils.tokens import get_token_counter
 @dataclass
 class ChatResult:
     """Result of a chat call."""
+
     run_id: str
     conversation_id: str
     message: str
@@ -58,6 +59,7 @@ class ChatEngine:
         self,
         config: Optional[ChatConfig] = None,
         provider: Optional[LLMProvider] = None,
+        model_name: Optional[str] = None,
     ):
         """Initialize the chat engine.
 
@@ -65,8 +67,11 @@ class ChatEngine:
             config: Chat configuration. If None, loads from chat_config.yaml.
             provider: Optional pre-configured LLM provider override.
                      If None, creates one from config.
+            model_name: Optional model name override. If set, used in place
+                       of config.model.name for API calls.
         """
         self.config = config or get_chat_config()
+        self._model_name_override = model_name
 
         # Use provided provider or create from config
         if provider is not None:
@@ -115,17 +120,15 @@ class ChatEngine:
         # Get the thinking strategy (validates name, allows future extensibility)
         params = dict(thinking_params or {})
 
-        strategy = self.thinking_orchestrator.get_strategy(
-            thinking_strategy, **params
-        )
+        strategy = self.thinking_orchestrator.get_strategy(thinking_strategy, **params)
         run_id = run_id or str(uuid.uuid4())
         start_time = time.time()
-        
+
         # Get database and repos
         db = await get_db()
         conv_repo = ConversationRepo(db)
         trace_repo = TraceRepo(db)
-        
+
         # Verify conversation exists
         conversation = await conv_repo.get(conversation_id)
         if not conversation:
@@ -137,20 +140,20 @@ class ChatEngine:
                 status="failed",
                 error=f"Conversation not found: {conversation_id}",
             )
-        
+
         # Load conversation history from runs table
         prior_runs = await trace_repo.list_runs_for_conversation(conversation_id)
-        
+
         # Build messages with token-aware history
         messages, context_budget = self._build_messages(prior_runs, message)
-        
+
         # Log if debug
         if self.config.tracing.log_level == "debug":
             logger.debug(
                 "ChatEngine starting",
                 extra={"message_count": len(messages), "endpoint": self.config.endpoint},
             )
-        
+
         # Create trace record (status: running)
         await trace_repo.create_conversation_trace(
             run_id=run_id,
@@ -162,15 +165,17 @@ class ChatEngine:
             system_prompt=self.config.system_prompt,
             session_id=session_id,
         )
-        
+
         # Emit event
         if event_callback:
-            event_callback({
-                "type": "CHAT_STARTED",
-                "run_id": run_id,
-                "conversation_id": conversation_id,
-            })
-        
+            event_callback(
+                {
+                    "type": "CHAT_STARTED",
+                    "run_id": run_id,
+                    "conversation_id": conversation_id,
+                }
+            )
+
         try:
             # Track model call count for step_number in trace events
             model_call_count = 0
@@ -184,7 +189,7 @@ class ChatEngine:
                 if previous_response_id:
                     logger.debug(
                         "Stateful mode enabled",
-                        extra={"previous_response_id": previous_response_id}
+                        extra={"previous_response_id": previous_response_id},
                     )
 
             # Create model_call wrapper that strategies will use
@@ -205,8 +210,12 @@ class ChatEngine:
                 call_start_time = time.time()
 
                 # Override temperature if specified (for self-consistency sampling)
-                temp_override = temperature if temperature is not None else self.config.model.temperature
-                max_tokens_override = max_tokens if max_tokens is not None else self.config.model.max_tokens
+                temp_override = (
+                    temperature if temperature is not None else self.config.model.temperature
+                )
+                max_tokens_override = (
+                    max_tokens if max_tokens is not None else self.config.model.max_tokens
+                )
 
                 # Save original values and restore after
                 original_temp = self.config.model.temperature
@@ -232,7 +241,9 @@ class ChatEngine:
                             step_number=model_call_count,
                         )
                     except Exception as trace_err:
-                        logger.warning("Failed to record llm_request trace", extra={"error": str(trace_err)})
+                        logger.warning(
+                            "Failed to record llm_request trace", extra={"error": str(trace_err)}
+                        )
 
                 try:
                     # Create stream parser to route thinking vs answer tokens
@@ -242,8 +253,14 @@ class ChatEngine:
                     # Log which call is creating the parser
                     if debug_streaming:
                         # Get a snippet of the last user message to identify the call
-                        last_user = [m for m in msgs if m.get("role") == "user"][-1]["content"][:50] if any(m.get("role") == "user" for m in msgs) else "no-user-msg"
-                        sys.stderr.write(f"[ChatEngine] Creating NEW StreamParser for model_call, last_user_msg={repr(last_user)}...\n")
+                        last_user = (
+                            [m for m in msgs if m.get("role") == "user"][-1]["content"][:50]
+                            if any(m.get("role") == "user" for m in msgs)
+                            else "no-user-msg"
+                        )
+                        sys.stderr.write(
+                            f"[ChatEngine] Creating NEW StreamParser for model_call, last_user_msg={repr(last_user)}...\n"
+                        )
                         sys.stderr.flush()
 
                     # Token callback for streaming - routes to THINKING_TOKEN or TOKEN
@@ -252,29 +269,39 @@ class ChatEngine:
                             return
 
                         # Feed token to parser to detect thinking vs answer sections
-                        thinking_token, answer_token = stream_parser.feed(token, debug=debug_streaming)
+                        thinking_token, answer_token = stream_parser.feed(
+                            token, debug=debug_streaming
+                        )
 
                         # Emit thinking token if in thinking section
                         if thinking_token:
                             if debug_streaming:
-                                sys.stderr.write(f"[ChatEngine] Emitting THINKING_TOKEN: {repr(thinking_token[:30])}...\n")
+                                sys.stderr.write(
+                                    f"[ChatEngine] Emitting THINKING_TOKEN: {repr(thinking_token[:30])}...\n"
+                                )
                                 sys.stderr.flush()
-                            event_callback({
-                                "type": "THINKING_TOKEN",
-                                "run_id": run_id,
-                                "content": thinking_token,
-                            })
+                            event_callback(
+                                {
+                                    "type": "THINKING_TOKEN",
+                                    "run_id": run_id,
+                                    "content": thinking_token,
+                                }
+                            )
 
                         # Emit answer token if in answer section
                         if answer_token:
                             if debug_streaming:
-                                sys.stderr.write(f"[ChatEngine] Emitting TOKEN: {repr(answer_token[:30])}...\n")
+                                sys.stderr.write(
+                                    f"[ChatEngine] Emitting TOKEN: {repr(answer_token[:30])}...\n"
+                                )
                                 sys.stderr.flush()
-                            event_callback({
-                                "type": "TOKEN",
-                                "run_id": run_id,
-                                "content": answer_token,
-                            })
+                            event_callback(
+                                {
+                                    "type": "TOKEN",
+                                    "run_id": run_id,
+                                    "content": answer_token,
+                                }
+                            )
 
                     # Separate callback for native reasoning (gpt-oss via LM Studio)
                     # This bypasses StreamParser entirely for native reasoning content
@@ -282,16 +309,28 @@ class ChatEngine:
                         if not event_callback:
                             return
                         if debug_streaming:
-                            sys.stderr.write(f"[ChatEngine] Emitting THINKING_TOKEN (native): {repr(reasoning[:30])}...\n")
+                            sys.stderr.write(
+                                f"[ChatEngine] Emitting THINKING_TOKEN (native): {repr(reasoning[:30])}...\n"
+                            )
                             sys.stderr.flush()
-                        event_callback({
-                            "type": "THINKING_TOKEN",
-                            "run_id": run_id,
-                            "content": reasoning,
-                        })
+                        event_callback(
+                            {
+                                "type": "THINKING_TOKEN",
+                                "run_id": run_id,
+                                "content": reasoning,
+                            }
+                        )
 
-                    response_text, usage, native_reasoning, response_id = await self._call_model_streaming(
-                        msgs, on_token, stop=stop, reasoning_effort=reasoning_effort,
+                    (
+                        response_text,
+                        usage,
+                        native_reasoning,
+                        response_id,
+                    ) = await self._call_model_streaming(
+                        msgs,
+                        on_token,
+                        stop=stop,
+                        reasoning_effort=reasoning_effort,
                         reasoning_callback=on_reasoning,
                         previous_response_id=previous_response_id,
                     )
@@ -305,17 +344,21 @@ class ChatEngine:
                     # This ensures the last ~10 chars (BUFFER_SIZE) are not lost
                     thinking_remaining, answer_remaining = stream_parser.flush()
                     if thinking_remaining and event_callback:
-                        event_callback({
-                            "type": "THINKING_TOKEN",
-                            "run_id": run_id,
-                            "content": thinking_remaining,
-                        })
+                        event_callback(
+                            {
+                                "type": "THINKING_TOKEN",
+                                "run_id": run_id,
+                                "content": thinking_remaining,
+                            }
+                        )
                     if answer_remaining and event_callback:
-                        event_callback({
-                            "type": "TOKEN",
-                            "run_id": run_id,
-                            "content": answer_remaining,
-                        })
+                        event_callback(
+                            {
+                                "type": "TOKEN",
+                                "run_id": run_id,
+                                "content": answer_remaining,
+                            }
+                        )
 
                     # Record llm_response trace event for streaming call
                     if self.config.tracing.log_model_calls and request_event_id:
@@ -343,7 +386,10 @@ class ChatEngine:
                                 duration_ms=call_duration_ms,
                             )
                         except Exception as trace_err:
-                            logger.warning("Failed to record llm_response trace", extra={"error": str(trace_err)})
+                            logger.warning(
+                                "Failed to record llm_response trace",
+                                extra={"error": str(trace_err)},
+                            )
 
                     # Return response with reasoning (third value for native reasoning support)
                     return response_text, usage or {}, native_reasoning
@@ -371,15 +417,19 @@ class ChatEngine:
                                 error_message=str(e),
                             )
                         except Exception as trace_err:
-                            logger.warning("Failed to record error trace", extra={"error": str(trace_err)})
+                            logger.warning(
+                                "Failed to record error trace", extra={"error": str(trace_err)}
+                            )
 
                     # Emit error event so UI knows to stop waiting
                     if event_callback:
-                        event_callback({
-                            "type": "STREAM_ERROR",
-                            "run_id": run_id,
-                            "error": str(e),
-                        })
+                        event_callback(
+                            {
+                                "type": "STREAM_ERROR",
+                                "run_id": run_id,
+                                "error": str(e),
+                            }
+                        )
                     raise
                 finally:
                     self.config.model.temperature = original_temp
@@ -402,7 +452,8 @@ class ChatEngine:
             # Update run with final answer and thinking summary
             usage_stats = {
                 "prompt_tokens": thinking_result.metadata.get("usage", {}).get("prompt_tokens", 0),
-                "completion_tokens": thinking_result.thinking_tokens + thinking_result.answer_tokens,
+                "completion_tokens": thinking_result.thinking_tokens
+                + thinking_result.answer_tokens,
                 "total_tokens": thinking_result.total_tokens,
                 "thinking_tokens": thinking_result.thinking_tokens,
                 "answer_tokens": thinking_result.answer_tokens,
@@ -420,13 +471,10 @@ class ChatEngine:
             # Generate and store turn summary for cross-turn context
             try:
                 from orchestrator.context.turn_summary import TurnSummarizer
+
                 summarizer = TurnSummarizer(get_token_counter())
-                turn_summary = summarizer.summarize_chat_run(
-                    message, thinking_result.final_answer
-                )
-                await trace_repo.update_run(
-                    run_id, turn_summary=turn_summary.to_context_string()
-                )
+                turn_summary = summarizer.summarize_chat_run(message, thinking_result.final_answer)
+                await trace_repo.update_run(run_id, turn_summary=turn_summary.to_context_string())
             except Exception as ts_err:
                 logger.warning(
                     "Failed to store turn summary",
@@ -448,14 +496,16 @@ class ChatEngine:
                 "utilization_pct": round(context_budget.utilization_pct, 1),
             }
             if event_callback:
-                event_callback({
-                    "type": "CHAT_COMPLETED",
-                    "run_id": run_id,
-                    "response": thinking_result.final_answer,
-                    "thinking_summary": thinking_result.thinking_summary,
-                    "strategy": strategy.name,
-                    "context_usage": _chat_ctx,
-                })
+                event_callback(
+                    {
+                        "type": "CHAT_COMPLETED",
+                        "run_id": run_id,
+                        "response": thinking_result.final_answer,
+                        "thinking_summary": thinking_result.thinking_summary,
+                        "strategy": strategy.name,
+                        "context_usage": _chat_ctx,
+                    }
+                )
 
             return ChatResult(
                 run_id=run_id,
@@ -467,11 +517,11 @@ class ChatEngine:
                 token_usage=usage_stats,
                 thinking_summary=thinking_result.thinking_summary,
             )
-            
+
         except Exception as e:
             timing_ms = int((time.time() - start_time) * 1000)
             error_msg = str(e)
-            
+
             # Update trace with error
             await trace_repo.update_conversation_trace(
                 run_id=run_id,
@@ -479,15 +529,17 @@ class ChatEngine:
                 error_message=error_msg,
                 usage_stats={"timing_ms": timing_ms},
             )
-            
+
             # Emit error event
             if event_callback:
-                event_callback({
-                    "type": "CHAT_FAILED",
-                    "run_id": run_id,
-                    "error": error_msg,
-                })
-            
+                event_callback(
+                    {
+                        "type": "CHAT_FAILED",
+                        "run_id": run_id,
+                        "error": error_msg,
+                    }
+                )
+
             return ChatResult(
                 run_id=run_id,
                 conversation_id=conversation_id,
@@ -560,7 +612,9 @@ class ChatEngine:
         token_callback: Optional[Callable[[str], None]] = None,
         stop: Optional[list[str]] = None,
         reasoning_effort: Optional[str] = None,  # Per-request override
-        reasoning_callback: Optional[Callable[[str], None]] = None,  # Separate callback for native reasoning
+        reasoning_callback: Optional[
+            Callable[[str], None]
+        ] = None,  # Separate callback for native reasoning
         previous_response_id: Optional[str] = None,  # For stateful mode
     ) -> tuple[str, Optional[dict], Optional[str], Optional[str]]:
         """Call the model API with streaming, sending tokens via callback.
@@ -593,7 +647,7 @@ class ChatEngine:
 
         response = await self._provider.complete_streaming(
             messages=messages,
-            model=self.config.model.name,
+            model=self._model_name_override or self.config.model.name,
             on_token=token_callback or (lambda _: None),
             on_reasoning=reasoning_callback,
             instructions=self.config.system_prompt,
@@ -639,4 +693,3 @@ class ChatEngine:
         """Close the provider."""
         if self._provider:
             await self._provider.close()
-

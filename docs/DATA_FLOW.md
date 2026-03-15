@@ -12,6 +12,8 @@ Complete documentation of request lifecycles, streaming patterns, and data flow 
 6. [Provider Failover Flow](#provider-failover-flow)
 7. [SSE Streaming Protocol](#sse-streaming-protocol)
 8. [Database Operations](#database-operations)
+9. [Model Selection Flow](#model-selection-flow)
+10. [ChatGPT OAuth Flow](#chatgpt-oauth-flow)
 
 ---
 
@@ -1053,6 +1055,93 @@ Conversation List:
 ├── SELECT conversations WHERE status = ? ORDER BY created_at DESC
 ├── Optional: LIMIT ? OFFSET ?
 └── Return as list
+```
+
+---
+
+## Model Selection Flow
+
+### Hot-Swap via Registry
+
+```
+Client (CLI Ctrl+M or API)
+    │
+    │ POST /api/models/select {"model": "qwen3-72b"}
+    ▼
+routes/models.py
+    │
+    │ ModelRegistry.resolve("qwen3-72b")
+    │   1. Check alias match → ModelPreset
+    │   2. Check provider:model_id prefix
+    │   3. Fallback: auto-detect provider from model string
+    ▼
+ResolvedModel (model_id, provider, base_url, api_key, context_window, ...)
+    │
+    │ Store in module state: _active_model, _active_model_name
+    ▼
+Next agent/chat run reads get_active_model()
+    │
+    │ create_provider_for_model(resolved) in factory.py
+    ▼
+New OpenAICompatProvider with resolved config
+    │
+    │ Used for this request only (per-request resolution)
+    ▼
+LLM call with new provider
+```
+
+### Local Model Start/Stop
+
+```
+POST /api/models/local/start {"model_path": "/path/to/model.gguf"}
+    │
+    ▼
+local_models.start(model_path, ctx_size)
+    │
+    │ subprocess: llama-server --model X --port 8080 --jinja
+    │ Poll health until ready
+    ▼
+set_provider_override(OpenAICompatProvider(base_url=localhost:8080))
+    │
+    │ All subsequent LLM calls route to local server
+    ▼
+POST /api/models/local/stop
+    │
+    │ SIGTERM llama-server, clear provider override
+    ▼
+Reverts to cloud provider (config default or registry selection)
+```
+
+---
+
+## ChatGPT OAuth Flow
+
+```
+CLI: /login command
+    │
+    │ GET /api/auth/chatgpt/login
+    ▼
+Backend generates PKCE pair (code_verifier, code_challenge)
+    │
+    │ Stores in _pending_auth[state]
+    │ Starts callback server on port 1455
+    ▼
+Redirect URL → auth.openai.com/oauth/authorize
+    │
+    │ User authenticates in browser
+    ▼
+OAuth callback → localhost:1455/auth/callback?code=XXX&state=YYY
+    │
+    │ Exchange code for tokens (access_token, refresh_token)
+    │ Store in chatgpt_tokens table
+    │ Backup to ~/.config/reasoner/chatgpt_auth.json
+    ▼
+ChatGPTProvider created with access_token
+    │
+    │ Translates chat completions → Codex Responses API
+    │ chatgpt.com/backend-api/codex/responses
+    ▼
+Token refresh: automatic on 401, or manual via POST /api/auth/chatgpt/refresh
 ```
 
 ---

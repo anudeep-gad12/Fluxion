@@ -35,7 +35,8 @@ import click
 @click.option(
     "--model",
     default=None,
-    help="Model name override (e.g., o4-mini)",
+    envvar="REASONER_MODEL",
+    help="Model name override (e.g., qwen3-72b). Also reads REASONER_MODEL env var.",
 )
 @click.option(
     "--mode",
@@ -73,6 +74,12 @@ def main(
     """Reasoner CLI — terminal coding assistant."""
     from .app import ReasonerApp
     from .config import CLIConfig
+
+    # Load persisted model preference if no --model flag or env var
+    if model is None:
+        saved_model = CLIConfig.load_model_preference()
+        if saved_model:
+            model = saved_model
 
     config = CLIConfig.from_args(
         api_url=api_url,

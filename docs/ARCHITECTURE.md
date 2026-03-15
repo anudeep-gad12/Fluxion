@@ -152,10 +152,23 @@ orchestrator/                     # Backend (FastAPI)
 │       ├── python_daytona.py     # Daytona cloud sandbox
 │       └── python_sandbox.py     # E2B sandbox (deprecated)
 │
+├── models/
+│   └── registry.py              # ProviderDef, ModelPreset, ModelRegistry (~25 presets)
+│
+├── services/
+│   └── local_models.py          # GGUF scanning + llama-server lifecycle
+│
+├── context/
+│   ├── budget.py                # ContextBudget tracking and utilization
+│   ├── history_builder.py       # Budget-aware conversation history builder
+│   └── turn_summary.py          # Compact turn summaries (50-150 tokens)
+│
 ├── routes/
 │   ├── conversations.py          # Conversation CRUD
 │   ├── runs.py                   # Chat runs + SSE streaming
 │   ├── agent_runs.py             # Agent runs + SSE + tool approval endpoints
+│   ├── models.py                 # Model registry + local model management
+│   ├── auth.py                   # ChatGPT OAuth PKCE flow
 │   └── benchmarks.py             # GAIA benchmark traces API
 │
 ├── storage/
@@ -183,7 +196,7 @@ The FastAPI application initializes with:
    - `SecurityHeadersMiddleware`: Security headers (X-Frame-Options, X-Content-Type-Options, Content-Security-Policy, etc.)
    - `RateLimitMiddleware`: IP-based rate limiting for demo mode
    - `CORSMiddleware`: Allows frontend at localhost:3000
-3. **Routers**: `/api/conversations`, `/api/runs`, `/api/agent/runs`, `/api/benchmarks`
+3. **Routers**: `/api/conversations`, `/api/runs`, `/api/agent/runs`, `/api/models`, `/api/auth/chatgpt`, `/api/benchmarks`
 4. **Health/Config Endpoints**: `/api/health`, `/api/config`
 
 ```python
