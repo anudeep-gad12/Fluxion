@@ -107,7 +107,7 @@ export function AgentStepsPanel({
     setExpandedSteps(newExpanded);
   };
 
-  const { steps, toolCalls, thinkingBuffer, currentStep, maxSteps, isActive, total_tokens, context_usage } =
+  const { steps, toolCalls, thinkingBuffer, currentStep, isActive, total_tokens, context_usage } =
     agentState;
 
   // Derive current state from step data
@@ -125,7 +125,6 @@ export function AgentStepsPanel({
   })();
 
   const stateInfo = STATE_LABELS[currentState] || STATE_LABELS.running;
-  const progressPct = maxSteps > 0 ? Math.min((currentStep / maxSteps) * 100, 100) : 0;
 
   // Find earliest step timestamp for timer
   const firstStepTime = steps.length > 0 ? steps[0].created_at : undefined;
@@ -181,10 +180,12 @@ export function AgentStepsPanel({
             {isActive && firstStepTime && (
               <ElapsedTimer startedAt={firstStepTime} />
             )}
-            {/* Step counter */}
-            <span className="text-zinc-500">
-              {currentStep}/{maxSteps}
-            </span>
+            {/* Step counter — no denominator since the model decides when to stop */}
+            {currentStep > 0 && (
+              <span className="text-zinc-500">
+                step {currentStep}
+              </span>
+            )}
             {/* Token counter */}
             {total_tokens && total_tokens > 0 && (
               <span className="text-zinc-600">
@@ -203,19 +204,26 @@ export function AgentStepsPanel({
           </div>
         </div>
 
-        {/* Progress bar */}
-        <div className="h-1 bg-zinc-800 w-full overflow-hidden">
-          <div
-            className={cn(
-              'h-full transition-all duration-500 ease-out',
-              currentState === 'complete' ? 'bg-emerald-600' :
-              currentState === 'error' ? 'bg-red-500' :
-              currentState === 'synthesizing' ? 'bg-emerald-500' :
-              'bg-cyan-600'
-            )}
-            style={{ width: `${progressPct}%` }}
-          />
-        </div>
+        {/* Phase indicator — indeterminate bar that shows activity, not percentage */}
+        {isActive ? (
+          <div className="h-0.5 bg-zinc-800 w-full overflow-hidden">
+            <div
+              className={cn(
+                'h-full w-1/3 animate-indeterminate',
+                currentState === 'synthesizing' ? 'bg-emerald-500' :
+                currentState === 'tool_calling' ? 'bg-amber-500' :
+                'bg-cyan-600'
+              )}
+            />
+          </div>
+        ) : (
+          <div className={cn(
+            'h-0.5 w-full',
+            currentState === 'complete' ? 'bg-emerald-600' :
+            currentState === 'error' ? 'bg-red-500' :
+            'bg-zinc-700'
+          )} />
+        )}
       </button>
 
       {/* Animated collapsible content */}
