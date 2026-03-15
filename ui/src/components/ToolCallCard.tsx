@@ -13,11 +13,11 @@ interface ToolCallCardProps {
 
 const STATUS_MARKERS: Record<AgentToolCallStatus, { marker: string; color: string }> = {
   pending: { marker: '⋯', color: 'text-zinc-600' },
-  running: { marker: '→', color: 'text-zinc-300' },
-  success: { marker: '✓', color: 'text-zinc-400' },
-  error: { marker: '✗', color: 'text-zinc-400' },
-  timeout: { marker: '⏎', color: 'text-zinc-500' },
-  interrupted: { marker: '✗', color: 'text-zinc-600' },
+  running: { marker: '→', color: 'text-amber-500' },
+  success: { marker: '✓', color: 'text-emerald-600' },
+  error: { marker: '✗', color: 'text-red-500/70' },
+  timeout: { marker: '⏎', color: 'text-amber-600' },
+  interrupted: { marker: '✗', color: 'text-zinc-500' },
 };
 
 const TOOL_PREFIXES: Record<string, string> = {
@@ -78,7 +78,10 @@ export function ToolCallCard({ toolCall }: ToolCallCardProps) {
           <span className="text-zinc-600 ml-auto shrink-0">{toolCall.duration_ms}ms</span>
         )}
         {isRunning && (
-          <span className="text-zinc-500 ml-auto shrink-0">[running...]</span>
+          <span className="flex items-center gap-1.5 text-amber-500/70 ml-auto shrink-0">
+            <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+            running
+          </span>
         )}
       </div>
 
