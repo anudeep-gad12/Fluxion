@@ -116,15 +116,19 @@ async def create_agent_engine(
     elif query and not system_prompt:
         logger.debug("Query classification disabled, using default system prompt")
 
-    # Per-request model metadata resolution via registry (moved up so provider
-    # can use the resolved model's API key instead of config.provider.api_key)
+    # Per-request model metadata resolution via registry.
+    # Only use registry when the model is a KNOWN preset (has aliases/model_id match).
+    # Unknown models fall through to config.provider which reads LLM_BASE_URL/LLM_API_KEY.
     resolved_model = None
-    resolve_name = model_name or config.model.name  # Fall back to config default model
+    resolve_name = model_name or config.model.name
     if resolve_name:
         try:
-            from orchestrator.models.registry import ModelRegistry
+            from orchestrator.models.registry import ModelRegistry, _ALIAS_INDEX, _MODEL_ID_INDEX
 
-            resolved_model = ModelRegistry.resolve(resolve_name)
+            # Only resolve if model is actually in the registry (preset match)
+            lower_name = resolve_name.strip().lower()
+            if lower_name in _ALIAS_INDEX or lower_name in _MODEL_ID_INDEX:
+                resolved_model = ModelRegistry.resolve(resolve_name)
         except (ValueError, Exception):
             pass  # Fall through to config defaults
 

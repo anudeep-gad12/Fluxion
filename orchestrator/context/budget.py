@@ -28,7 +28,13 @@ def context_params_for_model(
     """
     if model_name:
         try:
-            from orchestrator.models.registry import ModelRegistry
+            from orchestrator.models.registry import ModelRegistry, _ALIAS_INDEX, _MODEL_ID_INDEX
+
+            # Only resolve known presets — unknown models get config defaults
+            lower_name = model_name.strip().lower()
+            if lower_name not in _ALIAS_INDEX and lower_name not in _MODEL_ID_INDEX:
+                raise KeyError("not a known preset")
+
             resolved = ModelRegistry.resolve(model_name)
             max_ctx = resolved.context_window
             reserve = resolved.max_output_tokens
