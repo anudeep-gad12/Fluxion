@@ -1,6 +1,7 @@
 """Tests for rate limiting middleware."""
 
 import pytest
+import os
 from unittest.mock import MagicMock, patch, AsyncMock
 from fastapi import Request
 from fastapi.testclient import TestClient
@@ -132,8 +133,9 @@ class TestGetClientIP:
         ip = get_client_ip(request)
         assert ip == "192.168.1.1"
 
+    @patch.dict("os.environ", {"SERVE_STATIC": "true"})
     def test_x_forwarded_for_single(self):
-        """Should use X-Forwarded-For when present."""
+        """Should use X-Forwarded-For when behind proxy (production)."""
         request = MagicMock(spec=Request)
         request.headers = {"X-Forwarded-For": "10.0.0.1"}
         request.client = MagicMock()
@@ -142,8 +144,9 @@ class TestGetClientIP:
         ip = get_client_ip(request)
         assert ip == "10.0.0.1"
 
+    @patch.dict("os.environ", {"SERVE_STATIC": "true"})
     def test_x_forwarded_for_chain(self):
-        """Should use first IP in X-Forwarded-For chain."""
+        """Should use first IP in X-Forwarded-For chain when behind proxy."""
         request = MagicMock(spec=Request)
         request.headers = {"X-Forwarded-For": "10.0.0.1, 10.0.0.2, 10.0.0.3"}
         request.client = MagicMock()
@@ -152,8 +155,9 @@ class TestGetClientIP:
         ip = get_client_ip(request)
         assert ip == "10.0.0.1"
 
+    @patch.dict("os.environ", {"SERVE_STATIC": "true"})
     def test_x_real_ip(self):
-        """Should use X-Real-IP when X-Forwarded-For not present."""
+        """Should use X-Real-IP when behind proxy and no X-Forwarded-For."""
         request = MagicMock(spec=Request)
         request.headers = {"X-Real-IP": "10.0.0.1"}
         request.client = MagicMock()
@@ -161,6 +165,16 @@ class TestGetClientIP:
 
         ip = get_client_ip(request)
         assert ip == "10.0.0.1"
+
+    def test_ignores_proxy_headers_in_dev(self):
+        """Should ignore X-Forwarded-For in dev mode (no SERVE_STATIC)."""
+        request = MagicMock(spec=Request)
+        request.headers = {"X-Forwarded-For": "10.0.0.1"}
+        request.client = MagicMock()
+        request.client.host = "192.168.1.1"
+
+        ip = get_client_ip(request)
+        assert ip == "192.168.1.1"  # Uses direct connection, not spoofed header
 
     def test_no_client(self):
         """Should return 'unknown' when no client info available."""

@@ -92,7 +92,12 @@ _rate_limiter = InMemoryRateLimiter()
 
 
 def get_client_ip(request: Request) -> str:
-    """Extract client IP, handling proxies.
+    """Extract client IP, only trusting proxy headers in production.
+
+    Only trusts X-Forwarded-For/X-Real-IP when running behind a known
+    reverse proxy (SERVE_STATIC=true indicates Railway/production where
+    the load balancer sets these headers). In development, uses the
+    direct connection IP to prevent header spoofing.
 
     Args:
         request: FastAPI request object.
@@ -100,18 +105,20 @@ def get_client_ip(request: Request) -> str:
     Returns:
         Client IP address string.
     """
-    # Check X-Forwarded-For header (common for proxies/load balancers)
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        # Take the first IP in the chain (original client)
-        return forwarded.split(",")[0].strip()
+    import os
+    is_behind_proxy = os.environ.get("SERVE_STATIC", "false").lower() == "true"
 
-    # Check X-Real-IP (nginx)
-    real_ip = request.headers.get("X-Real-IP")
-    if real_ip:
-        return real_ip
+    if is_behind_proxy:
+        # Trust proxy headers only in production behind load balancer
+        forwarded = request.headers.get("X-Forwarded-For")
+        if forwarded:
+            return forwarded.split(",")[0].strip()
 
-    # Fall back to direct connection
+        real_ip = request.headers.get("X-Real-IP")
+        if real_ip:
+            return real_ip
+
+    # Direct connection IP (always trustworthy)
     if request.client:
         return request.client.host
     return "unknown"

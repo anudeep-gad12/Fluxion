@@ -116,9 +116,24 @@ async def create_agent_engine(
     elif query and not system_prompt:
         logger.debug("Query classification disabled, using default system prompt")
 
-    # Create provider (use override if provided, otherwise config)
+    # Per-request model metadata resolution via registry (moved up so provider
+    # can use the resolved model's API key instead of config.provider.api_key)
+    resolved_model = None
+    resolve_name = model_name or config.model.name  # Fall back to config default model
+    if resolve_name:
+        try:
+            from orchestrator.models.registry import ModelRegistry
+
+            resolved_model = ModelRegistry.resolve(resolve_name)
+        except (ValueError, Exception):
+            pass  # Fall through to config defaults
+
+    # Create provider (use override if provided, resolved model, or config)
     if provider_override is not None:
         provider = provider_override
+    elif resolved_model:
+        from orchestrator.providers.factory import create_provider_for_model
+        provider, _ = create_provider_for_model(resolve_name)
     else:
         provider = create_provider(
             config.provider,
@@ -170,17 +185,7 @@ async def create_agent_engine(
     planning_enabled = planning_config.enabled if planning_config else True
     max_plan_steps = planning_config.max_plan_steps if planning_config else profile.max_plan_steps
 
-    # Per-request model metadata resolution via registry
-    resolved_model = None
-    if model_name:
-        try:
-            from orchestrator.models.registry import ModelRegistry
-
-            resolved_model = ModelRegistry.resolve(model_name)
-        except (ValueError, Exception):
-            pass  # Fall through to config defaults
-
-    # Detect provider context capacity
+    # Detect provider context capacity (resolved_model set above)
     if resolved_model:
         max_context = resolved_model.context_window
     elif provider_override and hasattr(provider_override, "_default_model"):
@@ -218,7 +223,7 @@ async def create_agent_engine(
         tool_choice=tool_choice,
         max_context_tokens=max_context,
         slow_response_threshold=config.provider.slow_response_threshold,
-        planning_enabled=planning_enabled,
+        planning_enabled=False,  # Disabled: extra LLM call adds latency/cost with no benefit
         max_plan_steps=max_plan_steps,
         approval_callback=approval_callback,
         profile=profile,

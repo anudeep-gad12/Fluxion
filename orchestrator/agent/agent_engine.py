@@ -445,6 +445,16 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 # Estimate context tokens for budget tracking
                 effective_budget = self._max_context_tokens - self._max_tokens
                 estimated_tokens = self._pruner.estimate_tokens(messages)
+                context_remaining = max(0, self._max_context_tokens - estimated_tokens)
+
+                # Update budget with actual per-step context usage
+                if self._context_budget:
+                    fixed_tokens = (
+                        self._context_budget.system_prompt_tokens
+                        + self._context_budget.current_query_tokens
+                        + self._context_budget.plan_tokens
+                    )
+                    self._context_budget.history_tokens = max(0, estimated_tokens - fixed_tokens)
 
                 self._emit(
                     event_callback,
@@ -454,6 +464,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     steps_remaining=state_machine.steps_remaining,
                     context_tokens=estimated_tokens,
                     context_max=self._max_context_tokens,
+                    context_remaining=context_remaining,
                     total_tokens_used=self._total_tokens,
                 )
 
