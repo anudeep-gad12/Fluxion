@@ -4,6 +4,8 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 
 /**
  * Fix common LaTeX issues that cause KaTeX parsing errors.
@@ -154,7 +156,70 @@ export function extractAnswer(rawAnswer: string): string {
   return stripThinkingTags(content);
 }
 
-function CodeBlock({ children }: { children: React.ReactNode }) {
+/** Custom theme overriding oneDark to match zinc palette */
+const codeTheme = {
+  ...oneDark,
+  'pre[class*="language-"]': {
+    ...oneDark['pre[class*="language-"]'],
+    background: '#18181b', // zinc-900
+    margin: 0,
+    padding: '1rem',
+    borderRadius: 0,
+    fontSize: '0.8125rem',
+    lineHeight: '1.6',
+  },
+  'code[class*="language-"]': {
+    ...oneDark['code[class*="language-"]'],
+    background: 'transparent',
+    fontSize: '0.8125rem',
+  },
+};
+
+function SyntaxCodeBlock({
+  language,
+  code,
+}: {
+  language: string;
+  code: string;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback(() => {
+    navigator.clipboard.writeText(code).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }, [code]);
+
+  return (
+    <div className="group relative my-4 border border-zinc-800 overflow-hidden">
+      {/* Language label + copy button */}
+      <div className="flex items-center justify-between bg-zinc-800/80 px-3 py-1.5">
+        <span className="text-[11px] font-mono text-zinc-500">
+          {language || 'text'}
+        </span>
+        <button
+          onClick={handleCopy}
+          className="text-zinc-500 text-[11px] font-mono hover:text-zinc-200 transition-colors"
+          title="Copy code"
+        >
+          {copied ? '✓ copied' : 'copy'}
+        </button>
+      </div>
+      <SyntaxHighlighter
+        style={codeTheme}
+        language={language || 'text'}
+        PreTag="div"
+        wrapLongLines
+      >
+        {code}
+      </SyntaxHighlighter>
+    </div>
+  );
+}
+
+/** Fallback code block for when no language is detected */
+function PlainCodeBlock({ children }: { children: React.ReactNode }) {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = useCallback(() => {
@@ -166,17 +231,20 @@ function CodeBlock({ children }: { children: React.ReactNode }) {
   }, [children]);
 
   return (
-    <div className="group relative my-4">
-      <pre className="overflow-x-auto rounded-none bg-zinc-900 border border-zinc-800 p-4 text-sm text-zinc-100">
+    <div className="group relative my-4 border border-zinc-800 overflow-hidden">
+      <div className="flex items-center justify-between bg-zinc-800/80 px-3 py-1.5">
+        <span className="text-[11px] font-mono text-zinc-500">text</span>
+        <button
+          onClick={handleCopy}
+          className="text-zinc-500 text-[11px] font-mono hover:text-zinc-200 transition-colors"
+          title="Copy code"
+        >
+          {copied ? '✓ copied' : 'copy'}
+        </button>
+      </div>
+      <pre className="overflow-x-auto bg-zinc-900 p-4 text-[13px] leading-relaxed text-zinc-100">
         {children}
       </pre>
-      <button
-        onClick={handleCopy}
-        className="absolute right-2 top-2 px-1.5 py-0.5 rounded-none bg-zinc-800 text-zinc-500 text-xs font-mono opacity-0 group-hover:opacity-100 hover:bg-zinc-700 hover:text-zinc-200"
-        title="Copy code"
-      >
-        {copied ? '✓' : 'cp'}
-      </button>
     </div>
   );
 }
@@ -204,7 +272,10 @@ export function AnswerMarkdown({ content }: { content: string }) {
         rehypePlugins={[rehypeKatex]}
         components={{
           code({ className, children, ...props }) {
+            // Detect language from className (e.g., "language-python")
+            const match = /language-(\w+)/.exec(className || '');
             const isInline = !className;
+
             if (isInline) {
               return (
                 <code className="rounded-none bg-zinc-800 px-1 py-0.5 text-sm text-zinc-300" {...props}>
@@ -212,14 +283,24 @@ export function AnswerMarkdown({ content }: { content: string }) {
                 </code>
               );
             }
+
+            // Block code with syntax highlighting
+            const codeStr = extractTextFromChildren(children).replace(/\n$/, '');
             return (
-              <code className={className} {...props}>
-                {children}
-              </code>
+              <SyntaxCodeBlock
+                language={match ? match[1] : ''}
+                code={codeStr}
+              />
             );
           },
           pre({ children }) {
-            return <CodeBlock>{children}</CodeBlock>;
+            // If child is a SyntaxCodeBlock (from code handler above), render it directly
+            // without wrapping in another <pre>
+            const child = children as React.ReactElement;
+            if (child?.type === SyntaxCodeBlock) {
+              return <>{children}</>;
+            }
+            return <PlainCodeBlock>{children}</PlainCodeBlock>;
           },
         }}
       >
