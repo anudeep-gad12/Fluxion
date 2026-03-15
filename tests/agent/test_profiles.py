@@ -103,6 +103,42 @@ class TestProfileSystemPrompts:
         assert "Do NOT glob or list_directory the entire project" in CODING_SYSTEM_PROMPT
         assert "Do NOT re-read files" in CODING_SYSTEM_PROMPT
 
+    # --- New sections from frontier prompt patterns ---
+
+    def test_research_prompt_has_autonomy(self):
+        """Research prompt includes autonomy directive."""
+        assert "AUTONOMY" in RESEARCH_SYSTEM_PROMPT
+        assert "Assuming" in RESEARCH_SYSTEM_PROMPT
+
+    def test_research_prompt_has_self_correction(self):
+        """Research prompt includes self-correction protocol."""
+        assert "SELF-CORRECTION" in RESEARCH_SYSTEM_PROMPT
+
+    def test_research_prompt_has_recency(self):
+        """Research prompt includes recency awareness."""
+        assert "RECENCY" in RESEARCH_SYSTEM_PROMPT
+        assert "search first" in RESEARCH_SYSTEM_PROMPT
+
+    def test_research_prompt_has_output_format(self):
+        """Research prompt includes output format guidance."""
+        assert "OUTPUT FORMAT" in RESEARCH_SYSTEM_PROMPT
+
+    def test_research_prompt_has_tool_usage_patterns(self):
+        """Research prompt has USE WHEN patterns for each tool."""
+        assert "USE WHEN" in RESEARCH_SYSTEM_PROMPT
+
+    def test_coding_prompt_has_autonomy(self):
+        """Coding prompt includes autonomy directive."""
+        assert "AUTONOMY" in CODING_SYSTEM_PROMPT
+
+    def test_coding_prompt_has_self_correction(self):
+        """Coding prompt includes self-correction protocol."""
+        assert "SELF-CORRECTION" in CODING_SYSTEM_PROMPT
+
+    def test_coding_prompt_has_tool_usage_patterns(self):
+        """Coding prompt has USE WHEN patterns for tools."""
+        assert "USE WHEN" in CODING_SYSTEM_PROMPT
+
 
 class TestProfilePlanStepTypes:
     """Test plan step types per profile."""
