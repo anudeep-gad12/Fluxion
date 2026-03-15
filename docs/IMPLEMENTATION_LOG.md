@@ -9,6 +9,8 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| test | Docs refresh — README rewrite (CLI, model registry, profiles, 14 tools, ChatGPT OAuth, context mgmt), ARCHITECTURE.md (missing dirs/routes), API_REFERENCE.md (model registry endpoints), COMPONENTS.md (model registry + context mgmt sections) | done | 2026-03-11 |
+| test | Model registry + TUI picker — multi-provider model registry (OpenRouter, DeepInfra, local), hot-swap via API, Ctrl+M model picker in TUI, model persistence | done | 2026-03-01 |
 | test | GAIA scorer fixes — multi-phase answer extraction, numeric fallback in scorer, increased timeouts for local inference (CLI 300→1800s, extraction 30→120s) | done | 2026-03-01 |
 | test | UI thinking sanitization — frontend `sanitizeThinking()` utility strips tool_call/function_call/tool_use XML from thinking panel, model-agnostic | done | 2026-03-01 |
 | test | OpenRouter/Qwen support — reasoning/content separation, `reasoning_details` array parsing, `reasoning` param for OpenRouter, XML tool call parsing from reasoning | done | 2026-03-01 |
@@ -45,6 +47,41 @@
 | feature/preset-question-chips | Demo preset questions | done | 2026-01-23 |
 | feature/gaia-benchmark | GAIA Benchmark Evaluation | done | 2026-01-21 |
 | feature/agent-planning | Agent Planning Step | done | 2026-01-20 |
+
+### 2026-03-01: Model Registry + TUI Model Picker
+
+**Branch:** `test`
+**Status:** done
+
+**Description:**
+Multi-provider model registry with ~25 presets (OpenRouter, DeepInfra, local). Hot-swap models without restart via `POST /api/models/select`. TUI model picker modal (Ctrl+M or `/model`). Model preference persistence across sessions.
+
+**Changes:**
+
+1. **Model registry** (new):
+   - `orchestrator/models/__init__.py` — Package init
+   - `orchestrator/models/registry.py` — `ProviderDef`, `ModelPreset`, `ResolvedModel` dataclasses; `PROVIDERS` dict (OpenRouter, DeepInfra, local); ~25 model presets; `ModelRegistry.resolve()` (alias/prefix/fallback); `ModelRegistry.list_models()` (grouped by provider with availability)
+
+2. **Backend wiring**:
+   - `orchestrator/providers/factory.py` — Added `create_provider_for_model()` using registry
+   - `orchestrator/routes/models.py` — `GET /api/models` (list grouped presets), `POST /api/models/select` (hot-swap), `get_active_model()` for engine integration
+   - `orchestrator/schemas.py` — `SelectModelRequest`
+   - `orchestrator/agent/factory.py` — Uses active model metadata for context_window, temperature, reasoning_effort
+   - `orchestrator/routes/agent_runs.py` — Passes `model_name=model_override` to `create_agent_engine()`
+   - `orchestrator/routes/runs.py` — Model registry resolution in `_get_provider_for_session()`
+   - `orchestrator/engine/chat_engine.py` — `model_name` override parameter
+
+3. **TUI model picker**:
+   - `cli/widgets/model_picker.py` — `ModelPickerModal` (ModalScreen with ListView, grouped by provider)
+   - `cli/screens/chat_screen.py` — Ctrl+M binding, `/model` slash command, startup model activation
+   - `cli/widgets/status_bar.py` — `set_model()` method
+   - `cli/api_client.py` — `get_models()`, `select_model()`, `set_model()`
+   - `cli/config.py` — `save_model_preference()`, `load_model_preference()`
+   - `cli/__main__.py` — `REASONER_MODEL` env var, persisted model on startup
+
+4. **Tests** (24 new):
+   - `tests/models/test_registry.py` — 18 unit tests (aliases, provider detection, fallback, list)
+   - `tests/routes/test_models.py` — 6 integration tests (list, select, error handling, state)
 
 ### 2026-03-01: Local Model Support, OpenRouter/Qwen, GAIA Scorer
 

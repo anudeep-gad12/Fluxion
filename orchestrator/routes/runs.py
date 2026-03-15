@@ -57,7 +57,9 @@ def get_session_context(request: Request) -> Tuple[Optional[str], bool]:
     return session_id, is_owner
 
 
-def _append_turn_to_summary(existing_summary: str, user_msg: str, assistant_msg: str, max_chars: int = 2000) -> str:
+def _append_turn_to_summary(
+    existing_summary: str, user_msg: str, assistant_msg: str, max_chars: int = 2000
+) -> str:
     """Append a single turn to existing summary incrementally."""
     new_turn = f"user: {user_msg.strip()}\nassistant: {assistant_msg.strip()}"
     if not existing_summary:
@@ -86,34 +88,61 @@ async def _get_provider_for_session(
     provider_header: Optional[str],
     model: Optional[str] = None,
 ) -> Optional[object]:
-    """Get a provider override based on session's ChatGPT tokens.
+    """Get a provider override based on session's ChatGPT tokens or model registry.
 
     Returns a ChatGPTProvider if the user has valid ChatGPT tokens and
-    has requested the chatgpt provider. Returns None to use the default.
+    has requested the chatgpt provider. If model is specified and provider
+    is not chatgpt, tries model registry resolution. Returns None to use default.
 
     Args:
         session_id: Browser session ID.
         provider_header: Value of X-Provider header (e.g., "chatgpt").
-        model: Optional model name override (e.g., "o4-mini").
+        model: Optional model name override (e.g., "qwen3-72b").
 
     Returns:
         LLMProvider instance or None for default.
     """
-    if not session_id or provider_header != "chatgpt":
+    # ChatGPT path
+    if session_id and provider_header == "chatgpt":
+        try:
+            from orchestrator.routes.auth import get_valid_tokens
+            from orchestrator.providers.factory import create_chatgpt_provider
+
+            tokens = await get_valid_tokens(session_id)
+            if tokens:
+                return create_chatgpt_provider(tokens, model=model)
+        except Exception as e:
+            logger.warning("Failed to create ChatGPT provider", extra={"error": str(e)})
         return None
 
-    try:
-        from orchestrator.routes.auth import get_valid_tokens
-        from orchestrator.providers.factory import create_chatgpt_provider
+    # Model registry path: if model header is set and not chatgpt, try registry
+    if model and provider_header != "chatgpt":
+        try:
+            from orchestrator.providers.factory import create_provider_for_model
 
-        tokens = await get_valid_tokens(session_id)
-        if not tokens:
-            return None
+            provider, _resolved = create_provider_for_model(model)
+            return provider
+        except (ValueError, Exception) as e:
+            logger.warning(
+                "Failed to resolve model via registry",
+                extra={"model": model, "error": str(e)},
+            )
 
-        return create_chatgpt_provider(tokens, model=model)
-    except Exception as e:
-        logger.warning("Failed to create ChatGPT provider", extra={"error": str(e)})
-        return None
+    # Web UI fallback: use the last model selected via picker
+    if not model and provider_header != "chatgpt":
+        from orchestrator.routes.models import get_active_model_name
+
+        active_name = get_active_model_name()
+        if active_name:
+            try:
+                from orchestrator.providers.factory import create_provider_for_model
+
+                provider, _resolved = create_provider_for_model(active_name)
+                return provider
+            except Exception:
+                pass
+
+    return None
 
 
 @router.post("/conversations/{conversation_id}/runs", response_model=CreateRunResponse)
@@ -156,13 +185,14 @@ async def create_conversation_run(
     async def run_chat():
         config = get_chat_config()
 
-        # Check for ChatGPT provider override
+        # Check for ChatGPT provider override or model registry
+        model_header = http_request.headers.get("x-model")
         provider_override = await _get_provider_for_session(
             run_session_id,
             http_request.headers.get("x-provider"),
-            model=http_request.headers.get("x-model"),
+            model=model_header,
         )
-        engine = ChatEngine(config, provider=provider_override)
+        engine = ChatEngine(config, provider=provider_override, model_name=model_header)
 
         def event_callback(event: dict):
             try:
@@ -195,16 +225,18 @@ async def create_conversation_run(
                 await conv_repo.update(conversation_id, summary=new_summary)
 
             # Signal completion
-            event_queue.put_nowait({
-                "type": "_STREAM_END",
-                "result": {
-                    "run_id": result.run_id,
-                    "final_answer": result.response,
-                    "status": result.status,
-                    "error": result.error,
-                    "thinking_summary": result.thinking_summary,
-                },
-            })
+            event_queue.put_nowait(
+                {
+                    "type": "_STREAM_END",
+                    "result": {
+                        "run_id": result.run_id,
+                        "final_answer": result.response,
+                        "status": result.status,
+                        "error": result.error,
+                        "thinking_summary": result.thinking_summary,
+                    },
+                }
+            )
         except Exception:
             logger.exception("Chat run failed", extra={"run_id": run_id})
             event_queue.put_nowait({"type": "_STREAM_ERROR", "error": "Internal server error"})
@@ -262,13 +294,14 @@ async def create_run(request: CreateRunRequest, http_request: Request):
     async def run_chat():
         config = get_chat_config()
 
-        # Check for ChatGPT provider override
+        # Check for ChatGPT provider override or model registry
+        model_header = http_request.headers.get("x-model")
         provider_override = await _get_provider_for_session(
             run_session_id,
             http_request.headers.get("x-provider"),
-            model=http_request.headers.get("x-model"),
+            model=model_header,
         )
-        engine = ChatEngine(config, provider=provider_override)
+        engine = ChatEngine(config, provider=provider_override, model_name=model_header)
 
         def event_callback(event: dict):
             try:
@@ -285,16 +318,18 @@ async def create_run(request: CreateRunRequest, http_request: Request):
                 session_id=run_session_id,
             )
 
-            event_queue.put_nowait({
-                "type": "_STREAM_END",
-                "result": {
-                    "run_id": result.run_id,
-                    "final_answer": result.response,
-                    "status": result.status,
-                    "error": result.error,
-                    "thinking_summary": result.thinking_summary,
-                },
-            })
+            event_queue.put_nowait(
+                {
+                    "type": "_STREAM_END",
+                    "result": {
+                        "run_id": result.run_id,
+                        "final_answer": result.response,
+                        "status": result.status,
+                        "error": result.error,
+                        "thinking_summary": result.thinking_summary,
+                    },
+                }
+            )
         except Exception:
             logger.exception("Chat run failed", extra={"run_id": run_id})
             event_queue.put_nowait({"type": "_STREAM_ERROR", "error": "Internal server error"})
@@ -371,7 +406,7 @@ async def stream_run_events(run_id: str, http_request: Request):
                                     "run_id": run_id,
                                     "chunk_count": chunk_count,
                                     "duration_ms": duration_ms,
-                                }
+                                },
                             )
                             yield {
                                 "event": "complete",
@@ -385,7 +420,7 @@ async def stream_run_events(run_id: str, http_request: Request):
                                     "run_id": run_id,
                                     "error": event.get("error"),
                                     "chunk_count": chunk_count,
-                                }
+                                },
                             )
                             # Don't leak internal error details to client
                             yield {
@@ -399,7 +434,7 @@ async def stream_run_events(run_id: str, http_request: Request):
                                 extra={
                                     "run_id": run_id,
                                     "chunk_count": chunk_count,
-                                }
+                                },
                             )
                             yield {
                                 "event": "aborted",
@@ -423,12 +458,14 @@ async def stream_run_events(run_id: str, http_request: Request):
                     if trace.get("status") in ("succeeded", "failed"):
                         yield {
                             "event": "complete",
-                            "data": json.dumps({
-                                "run_id": run_id,
-                                "status": trace.get("status"),
-                                "final_answer": trace.get("final_answer"),
-                                "thinking_summary": trace.get("thinking_summary"),
-                            }),
+                            "data": json.dumps(
+                                {
+                                    "run_id": run_id,
+                                    "status": trace.get("status"),
+                                    "final_answer": trace.get("final_answer"),
+                                    "thinking_summary": trace.get("thinking_summary"),
+                                }
+                            ),
                         }
         except asyncio.CancelledError:
             duration_ms = int((time.time() - stream_start) * 1000)
@@ -438,7 +475,7 @@ async def stream_run_events(run_id: str, http_request: Request):
                     "run_id": run_id,
                     "chunk_count": chunk_count,
                     "duration_ms": duration_ms,
-                }
+                },
             )
             raise
 
@@ -577,14 +614,16 @@ async def get_run_events(
             "duration_ms": event.get("duration_ms"),
             "token_count": event.get("token_count"),
         }
-        events.append(EventResponse(
-            run_id=run_id,
-            seq=seq,
-            ts=event.get("created_at", ""),
-            type=event.get("event_type", "unknown"),
-            display=content,
-            payload=payload,
-        ))
+        events.append(
+            EventResponse(
+                run_id=run_id,
+                seq=seq,
+                ts=event.get("created_at", ""),
+                type=event.get("event_type", "unknown"),
+                display=content,
+                payload=payload,
+            )
+        )
 
     return {"events": [e.model_dump() for e in events]}
 
@@ -613,11 +652,13 @@ async def get_run_report(run_id: str, http_request: Request):
 
     timeline = []
     for event in trace_events:
-        timeline.append({
-            "seq": event.get("seq"),
-            "type": event.get("event_type"),
-            "duration_ms": event.get("duration_ms"),
-        })
+        timeline.append(
+            {
+                "seq": event.get("seq"),
+                "type": event.get("event_type"),
+                "duration_ms": event.get("duration_ms"),
+            }
+        )
 
     report = builder.build()
 

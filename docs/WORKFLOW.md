@@ -228,4 +228,6 @@ grep '"level":"ERROR"' logs/app.log | tail -20 | jq '{ts: .timestamp, msg: .mess
 | `/login` | Authenticate with ChatGPT (opens browser) |
 | `/logout` | Clear auth, revert to default provider |
 | `/status` | Show provider, model, and auth info |
+| `/model` | Open model picker (same as Ctrl+M) |
+| `/switch [provider]` | Switch provider mid-session (default, chatgpt) |
 | `/help` | List available commands |

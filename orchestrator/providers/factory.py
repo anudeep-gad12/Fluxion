@@ -1,6 +1,6 @@
 """Factory for creating LLM providers from configuration."""
 
-from typing import TYPE_CHECKING, Any, Dict, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple, Union
 
 from .base import LLMProvider
 from .chain import ChainedProvider, ProviderChain
@@ -9,6 +9,7 @@ from .openai_compat import OpenAICompatProvider
 
 if TYPE_CHECKING:
     from orchestrator.config import ChatGPTConfig, ProviderChainConfig, ProviderConfig
+    from orchestrator.models.registry import ResolvedModel
 
 # Runtime provider override — set by /api/models/local/start, cleared by /stop
 _provider_override: Optional[LLMProvider] = None
@@ -44,6 +45,7 @@ def create_chatgpt_provider(
 
     if chatgpt_config is None:
         from orchestrator.config import get_chat_config
+
         config = get_chat_config()
         chatgpt_config = config.chatgpt
 
@@ -52,10 +54,35 @@ def create_chatgpt_provider(
     return ChatGPTProvider(
         access_token=tokens["access_token"],
         account_id=tokens["account_id"],
-        backend_url=chatgpt_config.backend_url if chatgpt_config else "https://chatgpt.com/backend-api",
+        backend_url=chatgpt_config.backend_url
+        if chatgpt_config
+        else "https://chatgpt.com/backend-api",
         default_model=default_model,
         reasoning_effort=chatgpt_config.reasoning_effort if chatgpt_config else "medium",
     )
+
+
+def create_provider_for_model(model_string: str) -> Tuple[LLMProvider, "ResolvedModel"]:
+    """Create an LLM provider from a model registry string.
+
+    Resolves the model string via ModelRegistry, then creates an
+    OpenAICompatProvider with the resolved parameters.
+
+    Args:
+        model_string: Model name, alias, or "provider:model" string.
+
+    Returns:
+        Tuple of (provider, resolved_model).
+    """
+    from orchestrator.models.registry import ModelRegistry
+
+    resolved = ModelRegistry.resolve(model_string)
+    provider = OpenAICompatProvider(
+        base_url=resolved.base_url,
+        api_key=resolved.api_key,
+        endpoint=resolved.endpoint,
+    )
+    return provider, resolved
 
 
 def create_provider(

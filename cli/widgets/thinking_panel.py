@@ -28,13 +28,13 @@ class ThinkingPanel(Static):
 
         if self._expanded:
             # Full text with preserved newlines
-            self.update(f"∴ {self._buffer.strip()}")
+            self.update(f"[#a78bfa]· {self._buffer.strip()}[/#a78bfa]")
         else:
             # Single line, last ~100 chars
             display = self._buffer.replace("\n", " ").strip()
             if len(display) > 100:
                 display = "…" + display[-100:]
-            self.update(f"∴ {display}")
+            self.update(f"[#a78bfa]· {display}[/#a78bfa]")
 
     def on_click(self) -> None:
         """Toggle expanded/collapsed state."""
