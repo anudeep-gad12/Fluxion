@@ -594,11 +594,13 @@ async def create_agent_engine(
 
 **Behavior**:
 1. Loads configuration from `chat_config.yaml`
-2. If `query` provided (and classification enabled), classifies query to select appropriate system prompt
-3. Creates provider (with chain if configured)
-4. Creates tool registry (limited to `python_execute` for calculation queries)
-5. Creates repositories (AgentRepo, TraceRepo)
-6. Returns configured AgentEngine
+2. Resolves profile from `profile_name` (or `filesystem_enabled` flag)
+3. If `query` provided (and classification enabled), classifies query to select appropriate system prompt
+4. Resolves model from registry **only for known presets** (alias or model_id match); unknown models fall through to `config.provider` (reads `LLM_BASE_URL` + `LLM_API_KEY`)
+5. Creates provider: override > registry-resolved model > config defaults (with chain if configured)
+6. Creates tool registry from profile, repositories (AgentRepo, TraceRepo)
+7. Gathers context via profile's context strategy
+8. Returns configured AgentEngine with `planning_enabled=False` (disabled: extra LLM call adds latency/cost with no benefit)
 
 **Query Classification**:
 - Uses `QueryClassifier` to detect query type (calculation, research, general)
@@ -1207,10 +1209,26 @@ class BaseTool(Protocol):
 
 **Purpose**: Token budget tracking for context window management.
 
-**Key Class**: `ContextBudget`
-- Tracks allocated vs used tokens per component (system prompt, history, user message)
-- `available()` — Remaining tokens
-- `utilization()` — Percentage used
+**Key Function**: `context_params_for_model(model_name, config_max_tokens, config_reserve) -> tuple[int, int]`
+- Resolves context parameters from the model registry (context_window, max_output_tokens)
+- Only resolves known presets (alias or model_id match in registry indexes)
+- Falls back to config values if model is not found; applies a 32768 floor on max_tokens
+
+**Key Class**: `ContextBudget` (dataclass)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `max_tokens` | int | Total context budget (e.g. 100000) |
+| `reserve_for_response` | int | Tokens reserved for model output (e.g. 4096) |
+| `system_prompt_tokens` | int | Tokens consumed by system prompt |
+| `plan_tokens` | int | Tokens consumed by planning |
+| `current_query_tokens` | int | Tokens consumed by current user query |
+| `history_tokens` | int | Tokens consumed by conversation history |
+
+**Properties**:
+- `available_for_history` — Tokens remaining for history (max - reserve - system - plan - query)
+- `total_used` — Sum of all component token counts
+- `utilization_pct` — Percentage of max_tokens currently used
 
 ### `orchestrator/context/history_builder.py`
 
@@ -1225,8 +1243,26 @@ class BaseTool(Protocol):
 
 **Purpose**: Compact turn summaries for efficient context use.
 
+**Key Dataclass**: `TurnSummary`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `run_id` | str | Associated run ID |
+| `mode` | str | `"chat"` or `"agent"` |
+| `query_brief` | str | First ~120 chars of user query |
+| `answer_brief` | str | First ~200-300 chars of final answer |
+| `tools_used` | list[str] | Deduplicated tool names |
+| `files_touched` | list[str] | File paths from run artifacts |
+| `key_findings` | str | Extracted findings (see below) |
+| `token_cost` | int | Tokens this summary occupies |
+
+- `to_context_string()` — Compact `Q: ... | Tools: ... | Findings: ... | A: ...` format
+
 **Key Class**: `TurnSummarizer`
-- Generates 50-150 token summaries per turn (vs 500-3000 raw)
+- Generates compact context strings (50-150 tokens) at run completion
+- `summarize_agent_run(run, tool_calls, artifacts)` — Full agent summary
+- `summarize_chat_run(user_message, final_answer)` — Lightweight chat summary
+- `key_findings` extracted from top 3 result summaries of high-value tools (`web_search`, `web_extract`, `read_file`, `grep`); falls back to `thinking_summary`
 - Used by HistoryBuilder when full messages exceed budget
 
 ---
