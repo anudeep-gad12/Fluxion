@@ -828,6 +828,8 @@ agent_planning:
   max_plan_steps: 5       # Maximum steps planner can create
 ```
 
+**Current Status**: Planning is disabled (`planning_enabled=False` in the agent factory). The extra LLM call added latency with no measurable benefit to output quality.
+
 **Plan Injection**: The plan is appended to the system message (not as a separate message) to maintain strict user/assistant message alternation required by some models (e.g., Mistral).
 
 ### Agent State Machine
@@ -873,7 +875,12 @@ Profiles configure the agent's tool set, system prompt, and context strategy:
 | `research` | web_search, web_extract, python_execute | Date + knowledge cutoff | 25 | Web UI research mode |
 | `coding` | All filesystem + web + python (10 tools) | 5-layer project context | 30 | CLI coding assistant |
 
-**System Prompt Architecture**:
+**System Prompt Architecture** (informed by frontier systems like GPT-5 Agent Mode and Codex CLI):
+- **AUTONOMY**: Operate independently, minimize back-and-forth
+- **SELF-CORRECTION**: Verify work, re-read after edits, fix own mistakes
+- **RECENCY**: Prefer fresh tool results over training knowledge
+- **OUTPUT FORMAT**: Structured response guidelines per profile
+- **USE WHEN**: Tool-specific patterns describing when each tool is appropriate
 - **UNDERSTAND INTENT**: Focus on what users want, not literal words
 - **STEP BACK WHEN STUCK**: If 2 attempts fail, reconsider approach
 - **STAY ON TASK**: Track back to original question
@@ -925,8 +932,15 @@ The context system prevents token blowout while maintaining relevant information
 │     ├─ Python output: head/tail pattern (not LLM)         │
 │     ├─ Cache summaries to prevent duplicates              │
 │     └─ Fallback to basic truncation on error              │
+│                                                           │
+│  4. Model-Aware Limits                                    │
+│     └─ context_params_for_model() resolves context_window │
+│        and max_output_tokens from model registry; falls   │
+│        back to config defaults for unknown models         │
 └─────────────────────────────────────────────────────────┘
 ```
+
+**Live Context Accounting**: The `ContextBudget` is updated on each agent step with actual `estimated_tokens`. SSE `step_started` events emit `context_tokens`, `context_max`, and `context_remaining`, giving the UI real-time visibility into token utilization.
 
 ### Crash Recovery
 

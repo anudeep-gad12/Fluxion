@@ -12,8 +12,9 @@ Complete documentation of all API endpoints in the Reasoner system.
 6. [Models](#models)
 7. [Benchmarks](#benchmarks)
 8. [System](#system)
-9. [SSE Streaming](#sse-streaming)
-10. [Error Handling](#error-handling)
+9. [Rate Limiting](#rate-limiting)
+10. [SSE Streaming](#sse-streaming)
+11. [Error Handling](#error-handling)
 
 ---
 
@@ -1016,15 +1017,24 @@ GET /api/models
     },
     ...
   ],
-  "grouped": {
+  "providers": {
     "openrouter": [...],
     "deepinfra": [...],
     "local": [...]
-  }
+  },
+  "active_model": "Qwen 3 72B",
+  "active_model_id": "qwen/qwen3-72b"
 }
 ```
 
-Models are grouped by provider. The `available` field indicates whether the required API key is set.
+| Field | Type | Description |
+|-------|------|-------------|
+| `models` | array | Flat list of all registry models |
+| `providers` | object | Models grouped by provider name |
+| `active_model` | string\|null | Display name of the currently active model, or `null` if none |
+| `active_model_id` | string\|null | ID of the currently active model, or `null` if none |
+
+The `available` field on each model indicates whether the required API key is set.
 
 ---
 
@@ -1065,6 +1075,8 @@ POST /api/models/select
   "detail": "No API key for provider openrouter (set OPENROUTER_API_KEY)"
 }
 ```
+
+> **Note:** Disabled in production/staging (`SERVE_STATIC=true`). Returns 403 Forbidden.
 
 ---
 
@@ -1315,6 +1327,19 @@ GET /api/config
 ```
 
 Note: The response is wrapped in a `config` key and shows values from `chat_config.yaml`. Default provider is DeepInfra cloud - override with `LLM_BASE_URL` environment variable for local providers.
+
+---
+
+## Rate Limiting
+
+### Client IP Resolution
+
+The rate limiter identifies clients by IP address. How the IP is determined depends on the deployment environment:
+
+- **Production/staging** (`SERVE_STATIC=true`, i.e. behind Railway reverse proxy): The `X-Forwarded-For` header is trusted and used to extract the real client IP.
+- **Development** (`SERVE_STATIC` unset or `false`): The `X-Forwarded-For` header is ignored. The direct connection IP from the transport socket is always used, preventing header spoofing by untrusted clients.
+
+This ensures that rate limits cannot be bypassed by forging `X-Forwarded-For` headers in environments where the server is directly exposed.
 
 ---
 
