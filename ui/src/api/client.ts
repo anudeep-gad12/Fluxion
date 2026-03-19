@@ -285,6 +285,32 @@ export async function cancelAgentRun(
   });
 }
 
+export async function pauseAgentRun(
+  runId: string,
+): Promise<{ run_id: string; status: string }> {
+  return fetchJson(`${API_BASE}/agent/runs/${runId}/pause`, {
+    method: 'POST',
+  });
+}
+
+export async function resumeAgentRun(
+  runId: string,
+): Promise<{ run_id: string; status: string }> {
+  return fetchJson(`${API_BASE}/agent/runs/${runId}/resume`, {
+    method: 'POST',
+  });
+}
+
+export async function steerAgentRun(
+  runId: string,
+  message: string,
+): Promise<{ run_id: string; status: string; queue_size: number }> {
+  return fetchJson(`${API_BASE}/agent/runs/${runId}/steer`, {
+    method: 'POST',
+    body: JSON.stringify({ message }),
+  });
+}
+
 /**
  * Subscribe to agent run SSE stream with resumption support.
  *
@@ -329,6 +355,9 @@ export function subscribeToAgentRun(
     'tool_start',
     'tool_result',
     'answer',
+    'paused',
+    'resumed',
+    'steer',
   ];
 
   eventTypes.forEach((eventType) => {
@@ -422,6 +451,16 @@ export async function stopLocalModel(): Promise<{ status: string; provider: stri
 
 export async function getModelStatus(): Promise<ModelStatus> {
   return fetchJson<ModelStatus>(`${API_BASE}/models/status`);
+}
+
+export interface UsageInfo {
+  limit: number;   // -1 = unlimited (owner or no demo mode)
+  used: number;
+  remaining: number; // -1 = unlimited
+}
+
+export async function getUsage(): Promise<UsageInfo> {
+  return fetchJson<UsageInfo>(`${API_BASE}/usage`);
 }
 
 export interface RegistryModelPreset {

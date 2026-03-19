@@ -276,8 +276,8 @@ class TestHistoryBuilder:
             current_query="Follow-up",
         )
 
-        # Should use turn_summary, not raw final_answer
-        assert messages[2]["content"] == summary
+        # Should use turn_summary (with Q: prefix stripped), not raw final_answer
+        assert messages[2]["content"] == "Short answer"
         assert len(messages[2]["content"]) < 100
 
     def test_newest_first_priority(self):

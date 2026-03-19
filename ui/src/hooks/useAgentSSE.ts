@@ -73,6 +73,24 @@ export function useAgentSSE(runId: string | null, maxSteps: number = 10) {
           return state?.currentStep || 0;
         };
 
+        // Handle steer events (not in the typed union)
+        const rawEvent = event as unknown as Record<string, unknown>;
+        if (rawEvent.type === 'steer') {
+          const currentState = useStore.getState().agentRunState[id];
+          if (currentState) {
+            updateAgentState(id, {
+              injectedSteers: [
+                ...currentState.injectedSteers,
+                {
+                  content: (rawEvent.content as string) || '',
+                  step_number: (rawEvent.step_number as number) || getCurrentStep(),
+                },
+              ],
+            });
+          }
+          return;
+        }
+
         switch (event.type) {
           case 'agent_state':
             updateAgentState(id, {
@@ -147,6 +165,21 @@ export function useAgentSSE(runId: string | null, maxSteps: number = 10) {
           case 'answer': {
             const answerEvent = event as AnswerEvent;
             appendAgentAnswer(id, answerEvent.content);
+            break;
+          }
+
+          case 'paused': {
+            updateAgentState(id, {
+              agentState: 'paused',
+              // isActive stays true — run is alive, just waiting
+            });
+            break;
+          }
+
+          case 'resumed': {
+            updateAgentState(id, {
+              agentState: 'running',
+            });
             break;
           }
         }

@@ -93,17 +93,29 @@ class HistoryBuilder:
             turn_summary = run.get("turn_summary")
 
             if turn_summary:
-                # Use compact summary as a single assistant message
+                # Use compact summary as assistant message.
+                # Strip the "Q: ..." prefix if present — the user message
+                # is already in its own role:user message, so repeating it
+                # in the assistant content causes the model to echo it.
+                assistant_text = turn_summary
+                if assistant_text.startswith("Q: "):
+                    # Remove everything up to " | A: " or " | Tools: "
+                    for sep in (" | A: ", " | Tools: ", " | Findings: "):
+                        idx = assistant_text.find(sep)
+                        if idx != -1:
+                            assistant_text = assistant_text[idx + len(sep):]
+                            break
+
                 pair_tokens = (
                     self._counter.count_tokens(user_msg or "") + self.MSG_OVERHEAD
-                    + self._counter.count_tokens(turn_summary) + self.MSG_OVERHEAD
+                    + self._counter.count_tokens(assistant_text) + self.MSG_OVERHEAD
                 )
                 if tokens_used + pair_tokens > available:
                     break
                 tokens_used += pair_tokens
                 history_pairs.append((
                     {"role": "user", "content": user_msg or ""},
-                    {"role": "assistant", "content": turn_summary},
+                    {"role": "assistant", "content": assistant_text},
                 ))
             else:
                 # Legacy fallback: raw user_message + final_answer

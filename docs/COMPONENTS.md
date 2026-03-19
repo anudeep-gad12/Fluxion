@@ -54,6 +54,7 @@ Detailed documentation of every component in the Reasoner system.
 **Endpoints**:
 - `GET /api/health` - Health check
 - `GET /api/config` - Current configuration
+- `GET /api/usage` - Per-session message usage `{limit, used, remaining}`
 
 **Lifespan Events**:
 ```python
@@ -594,11 +595,13 @@ async def create_agent_engine(
 
 **Behavior**:
 1. Loads configuration from `chat_config.yaml`
-2. If `query` provided (and classification enabled), classifies query to select appropriate system prompt
-3. Creates provider (with chain if configured)
-4. Creates tool registry (limited to `python_execute` for calculation queries)
-5. Creates repositories (AgentRepo, TraceRepo)
-6. Returns configured AgentEngine
+2. Resolves profile from `profile_name` (or `filesystem_enabled` flag)
+3. If `query` provided (and classification enabled), classifies query to select appropriate system prompt
+4. Resolves model from registry **only for known presets** (alias or model_id match); unknown models fall through to `config.provider` (reads `LLM_BASE_URL` + `LLM_API_KEY`)
+5. Creates provider: override > registry-resolved model > config defaults (with chain if configured)
+6. Creates tool registry from profile, repositories (AgentRepo, TraceRepo)
+7. Gathers context via profile's context strategy
+8. Returns configured AgentEngine with `planning_enabled=False` (disabled: extra LLM call adds latency/cost with no benefit)
 
 **Query Classification**:
 - Uses `QueryClassifier` to detect query type (calculation, research, general)
@@ -637,6 +640,8 @@ result = await engine.run(run_id, query)
 | `_extract_finding_from_result()` | Extract key findings from tool results |
 | `_create_plan()` | Generate research plan before execution |
 | `_inject_plan_into_messages()` | Append plan to system message |
+| `_check_pause()` | Block if pause_signal is cleared; resume on resume_signal |
+| `_inject_steer_messages()` | Drain steer queue and inject as user-role messages |
 
 **Agent Execution Flow**:
 ```python
@@ -692,6 +697,7 @@ while not (synthesis or step >= max_steps):
 - `PLANNING` - Deciding next action
 - `TOOL_CALLING` - Executing tools
 - `SYNTHESIZING` - Generating answer
+- `PAUSED` - Blocked between steps (via pause_signal)
 - `COMPLETE` - Done
 - `ERROR` - Failed
 
@@ -699,6 +705,8 @@ while not (synthesis or step >= max_steps):
 - `start()` - INIT → PLANNING
 - `call_tools()` - PLANNING → TOOL_CALLING
 - `synthesize()` - * → SYNTHESIZING
+- `pause()` - STEP_LOOP → PAUSED (blocks on pause_signal)
+- `resume()` - PAUSED → STEP_LOOP (unblocks via resume_signal)
 - `complete()` - SYNTHESIZING → COMPLETE
 - `error()` - * → ERROR
 
@@ -1207,10 +1215,26 @@ class BaseTool(Protocol):
 
 **Purpose**: Token budget tracking for context window management.
 
-**Key Class**: `ContextBudget`
-- Tracks allocated vs used tokens per component (system prompt, history, user message)
-- `available()` — Remaining tokens
-- `utilization()` — Percentage used
+**Key Function**: `context_params_for_model(model_name, config_max_tokens, config_reserve) -> tuple[int, int]`
+- Resolves context parameters from the model registry (context_window, max_output_tokens)
+- Only resolves known presets (alias or model_id match in registry indexes)
+- Falls back to config values if model is not found; applies a 32768 floor on max_tokens
+
+**Key Class**: `ContextBudget` (dataclass)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `max_tokens` | int | Total context budget (e.g. 100000) |
+| `reserve_for_response` | int | Tokens reserved for model output (e.g. 4096) |
+| `system_prompt_tokens` | int | Tokens consumed by system prompt |
+| `plan_tokens` | int | Tokens consumed by planning |
+| `current_query_tokens` | int | Tokens consumed by current user query |
+| `history_tokens` | int | Tokens consumed by conversation history |
+
+**Properties**:
+- `available_for_history` — Tokens remaining for history (max - reserve - system - plan - query)
+- `total_used` — Sum of all component token counts
+- `utilization_pct` — Percentage of max_tokens currently used
 
 ### `orchestrator/context/history_builder.py`
 
@@ -1225,8 +1249,26 @@ class BaseTool(Protocol):
 
 **Purpose**: Compact turn summaries for efficient context use.
 
+**Key Dataclass**: `TurnSummary`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `run_id` | str | Associated run ID |
+| `mode` | str | `"chat"` or `"agent"` |
+| `query_brief` | str | First ~120 chars of user query |
+| `answer_brief` | str | First ~200-300 chars of final answer |
+| `tools_used` | list[str] | Deduplicated tool names |
+| `files_touched` | list[str] | File paths from run artifacts |
+| `key_findings` | str | Extracted findings (see below) |
+| `token_cost` | int | Tokens this summary occupies |
+
+- `to_context_string()` — Compact `Q: ... | Tools: ... | Findings: ... | A: ...` format
+
 **Key Class**: `TurnSummarizer`
-- Generates 50-150 token summaries per turn (vs 500-3000 raw)
+- Generates compact context strings (50-150 tokens) at run completion
+- `summarize_agent_run(run, tool_calls, artifacts)` — Full agent summary
+- `summarize_chat_run(user_message, final_answer)` — Lightweight chat summary
+- `key_findings` extracted from top 3 result summaries of high-value tools (`web_search`, `web_extract`, `read_file`, `grep`); falls back to `thinking_summary`
 - Used by HistoryBuilder when full messages exceed budget
 
 ---
@@ -1441,6 +1483,9 @@ async with self._seq_lock:
 | `GET` | `/api/agent/runs/{id}/stream` | SSE stream |
 | `POST` | `/api/agent/runs/{id}/approve/{tool_call_id}` | Approve pending tool |
 | `POST` | `/api/agent/runs/{id}/deny/{tool_call_id}` | Deny pending tool |
+| `POST` | `/api/agent/runs/{id}/pause` | Pause agent between steps |
+| `POST` | `/api/agent/runs/{id}/resume` | Resume a paused agent |
+| `POST` | `/api/agent/runs/{id}/steer` | Inject a steering message into the run |
 | `POST` | `/api/agent/runs/{id}/cancel` | Cancel agent |
 
 **Tool Approval Flow**:
@@ -1448,6 +1493,18 @@ async with self._seq_lock:
 - Agent engine creates a Future when a tool needs approval, emits `tool_approval_required` SSE event
 - `/approve` resolves the Future with `True`, `/deny` resolves with `False`
 - Approval timeout: 5 minutes (tool is denied if no response)
+
+**Pause/Resume Flow**:
+- Agent checks `pause_signal` (asyncio.Event) between steps
+- `/pause` clears the signal, causing the agent loop to block; emits `paused` SSE event
+- `/resume` sets the signal, unblocking the loop; emits `resumed` SSE event
+- State machine transitions to `AgentState.PAUSED` while blocked
+
+**Steer Queue**:
+- In-memory `_steer_queues`: `Dict[run_id, List[str]]`
+- `/steer` appends a message to the queue; emits `steer` (steer_injected) SSE event
+- Before each LLM call, queued messages are injected as user-role messages into the conversation
+- Messages are cleared from the queue after injection
 
 **SSE Stream Token Auth**:
 - Each `POST /api/agent/runs` generates a per-run `secrets.token_urlsafe(16)` stored in `_run_tokens`
@@ -1838,7 +1895,10 @@ Built with the [Textual](https://textual.textualize.io/) framework. Always uses 
 - Stores stream tokens in `localStorage` on agent run creation for page reload recovery
 - `subscribedRunRef` tracks run IDs already subscribed in `handleSubmit()` to prevent `loadConversation()` from opening a duplicate SSE connection
 - Defers `navigate()` until after `subscribeAgent()` so the subscription guard is set before the URL change triggers `loadConversation`
-- `hasActiveRun` disables textarea and send button while any run (chat or agent) is in progress
+- `hasActiveRun` disables textarea for new messages but enables mid-run steering
+- During active agent runs, textarea shows "Steer the agent..." placeholder and send button displays "steer" in amber
+- Queued steer message chips appear above textarea and are cleared after injection
+- Usage counter shows "X left" when message limits are enabled; input disabled at limit with 429 toast handling
 
 ### `ui/src/components/ConversationList.tsx`
 

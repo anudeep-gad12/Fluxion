@@ -12,8 +12,9 @@ Complete documentation of all API endpoints in the Reasoner system.
 6. [Models](#models)
 7. [Benchmarks](#benchmarks)
 8. [System](#system)
-9. [SSE Streaming](#sse-streaming)
-10. [Error Handling](#error-handling)
+9. [Rate Limiting](#rate-limiting)
+10. [SSE Streaming](#sse-streaming)
+11. [Error Handling](#error-handling)
 
 ---
 
@@ -735,6 +736,7 @@ GET /api/agent/runs/{run_id}
 - `planning` - Deciding action
 - `tool_calling` - Executing tools
 - `synthesizing` - Generating answer
+- `paused` - Blocked between steps (via pause endpoint)
 - `complete` - Done
 - `error` - Failed
 
@@ -894,6 +896,103 @@ POST /api/agent/runs/{run_id}/deny/{tool_call_id}
 
 ---
 
+### Pause Agent Run
+
+Pause an active agent run between steps. The agent blocks at the next step boundary.
+
+**Request**:
+```
+POST /api/agent/runs/{run_id}/pause
+```
+
+**Response** (200 OK):
+```json
+{
+  "run_id": "agent_001",
+  "status": "paused"
+}
+```
+
+**Error** (400 Bad Request):
+```json
+{
+  "detail": "Run is not active"
+}
+```
+
+**Notes**:
+- Emits a `paused` SSE event
+- Agent state transitions to `PAUSED`
+- The agent loop blocks between steps until resumed or cancelled
+
+---
+
+### Resume Agent Run
+
+Resume a paused agent run.
+
+**Request**:
+```
+POST /api/agent/runs/{run_id}/resume
+```
+
+**Response** (200 OK):
+```json
+{
+  "run_id": "agent_001",
+  "status": "running"
+}
+```
+
+**Error** (400 Bad Request):
+```json
+{
+  "detail": "Run is not paused"
+}
+```
+
+**Notes**:
+- Emits a `resumed` SSE event
+- Agent state transitions back from `PAUSED` and continues the step loop
+
+---
+
+### Steer Agent Run
+
+Inject a steering message into an active agent run. The message is queued and injected as a user-role message before the next LLM call.
+
+**Request**:
+```
+POST /api/agent/runs/{run_id}/steer
+```
+
+**Body**:
+```json
+{
+  "message": "Focus on the performance comparison, not the architecture."
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `message` | string | Yes | Steering message to inject |
+
+**Response** (200 OK):
+```json
+{
+  "run_id": "agent_001",
+  "status": "queued"
+}
+```
+
+**Notes**:
+- Emits a `steer` (steer_injected) SSE event
+- The message is injected as a user-role message before the next LLM call
+- Multiple messages can be queued; all are injected and cleared on the next step
+- Works on both running and paused runs (injected when the run proceeds)
+
+---
+
 ### Cancel Agent Run
 
 Stop an agent execution.
@@ -1016,15 +1115,24 @@ GET /api/models
     },
     ...
   ],
-  "grouped": {
+  "providers": {
     "openrouter": [...],
     "deepinfra": [...],
     "local": [...]
-  }
+  },
+  "active_model": "Qwen 3 72B",
+  "active_model_id": "qwen/qwen3-72b"
 }
 ```
 
-Models are grouped by provider. The `available` field indicates whether the required API key is set.
+| Field | Type | Description |
+|-------|------|-------------|
+| `models` | array | Flat list of all registry models |
+| `providers` | object | Models grouped by provider name |
+| `active_model` | string\|null | Display name of the currently active model, or `null` if none |
+| `active_model_id` | string\|null | ID of the currently active model, or `null` if none |
+
+The `available` field on each model indicates whether the required API key is set.
 
 ---
 
@@ -1065,6 +1173,8 @@ POST /api/models/select
   "detail": "No API key for provider openrouter (set OPENROUTER_API_KEY)"
 }
 ```
+
+> **Note:** Disabled in production/staging (`SERVE_STATIC=true`). Returns 403 Forbidden.
 
 ---
 
@@ -1274,6 +1384,32 @@ GET /api/health
 
 ---
 
+### Get Usage
+
+Get per-session message usage and limits. Only relevant when `demo.message_limit` is set.
+
+**Request**:
+```
+GET /api/usage
+```
+
+**Response** (200 OK):
+```json
+{
+  "limit": 10,
+  "used": 3,
+  "remaining": 7
+}
+```
+
+**Notes**:
+- Counting is session-based (via `demo_session` cookie), not IP-based
+- Owner bypasses all limits (`remaining` is always large)
+- When `demo.message_limit` is 0 or demo mode is disabled, `limit` is 0 and `remaining` is effectively unlimited
+- Frontend shows "X left" counter; input is disabled at 0 remaining; 429 errors handled via toast
+
+---
+
 ### Get Configuration
 
 Get current runtime configuration.
@@ -1315,6 +1451,19 @@ GET /api/config
 ```
 
 Note: The response is wrapped in a `config` key and shows values from `chat_config.yaml`. Default provider is DeepInfra cloud - override with `LLM_BASE_URL` environment variable for local providers.
+
+---
+
+## Rate Limiting
+
+### Client IP Resolution
+
+The rate limiter identifies clients by IP address. How the IP is determined depends on the deployment environment:
+
+- **Production/staging** (`SERVE_STATIC=true`, i.e. behind Railway reverse proxy): The `X-Forwarded-For` header is trusted and used to extract the real client IP.
+- **Development** (`SERVE_STATIC` unset or `false`): The `X-Forwarded-For` header is ignored. The direct connection IP from the transport socket is always used, preventing header spoofing by untrusted clients.
+
+This ensures that rate limits cannot be bypassed by forging `X-Forwarded-For` headers in environments where the server is directly exposed.
 
 ---
 
@@ -1385,6 +1534,9 @@ data: {"error": "Connection failed", "code": "PROVIDER_ERROR"}
 | `answer` | Answer token | `{content}` |
 | `complete` | Agent done | `{success, final_answer, citations, total_steps, timing_ms, total_tokens}` |
 | `error` | Error | `{error, step}` |
+| `paused` | Agent paused | `{step}` |
+| `resumed` | Agent resumed | `{step}` |
+| `steer` | Steering message injected | `{message}` |
 | `cancelled` | Cancelled | `{message}` |
 | `heartbeat` | Keep-alive | `{}` |
 
@@ -1440,6 +1592,7 @@ The `token` parameter authenticates the stream connection. If provided and inval
 | 404 | Not Found - Resource doesn't exist |
 | 422 | Unprocessable Entity - Validation error |
 | 403 | Forbidden - Invalid stream token |
+| 429 | Too Many Requests - Rate limit or message limit exceeded |
 | 500 | Internal Server Error |
 
 ### Error Response Format

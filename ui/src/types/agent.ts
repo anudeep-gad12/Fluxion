@@ -129,6 +129,9 @@ export type AgentSSEEventType =
   | 'complete' // run finished
   | 'error' // run failed
   | 'cancelled' // run cancelled
+  | 'paused' // run paused between steps
+  | 'resumed' // run resumed after pause
+  | 'steer' // steering message injected
   | 'heartbeat'; // keep-alive
 
 /** Base SSE event structure */
@@ -211,6 +214,18 @@ export interface ErrorEvent extends AgentSSEEventBase {
   error: string;
 }
 
+/** Paused event */
+export interface PausedEvent extends AgentSSEEventBase {
+  type: 'paused';
+  step_number: number;
+}
+
+/** Resumed event */
+export interface ResumedEvent extends AgentSSEEventBase {
+  type: 'resumed';
+  step_number: number;
+}
+
 /** Union type for all agent SSE events */
 export type AgentSSEEvent =
   | AgentStateEvent
@@ -220,7 +235,9 @@ export type AgentSSEEvent =
   | ToolResultEvent
   | AnswerEvent
   | CompleteEvent
-  | ErrorEvent;
+  | ErrorEvent
+  | PausedEvent
+  | ResumedEvent;
 
 // =============================================================================
 // UI State Types
@@ -243,4 +260,5 @@ export interface AgentUIState {
   context_usage?: ContextUsage;
   context_tokens?: number;
   context_remaining?: number;
+  injectedSteers: Array<{ content: string; step_number: number }>;
 }
