@@ -53,6 +53,7 @@ _active_runs: Dict[str, bool] = {}  # run_id -> is_active (no queue; pub/sub via
 _abort_signals: Dict[str, asyncio.Event] = {}
 _pause_signals: Dict[str, asyncio.Event] = {}  # Set when user requests pause
 _resume_signals: Dict[str, asyncio.Event] = {}  # Set when user requests resume
+_steer_queues: Dict[str, List[str]] = {}  # Pending steering messages per run
 _event_history: Dict[str, List[Dict[str, Any]]] = {}  # Append-only event log per run
 _event_notify: Dict[str, asyncio.Event] = {}  # Notifies SSE generators of new events
 _run_tokens: Dict[str, str] = {}  # Per-run stream auth tokens
@@ -96,6 +97,7 @@ _EVENT_TYPE_MAP = {
     "agent_error": "error",
     "agent_paused": "paused",
     "agent_resumed": "resumed",
+    "steer_injected": "steer",
     "slow_response": "slow_response",
 }
 
@@ -171,6 +173,7 @@ async def _cleanup_run(run_id: str, delay_seconds: float = 5.0) -> None:
     _abort_signals.pop(run_id, None)
     _pause_signals.pop(run_id, None)
     _resume_signals.pop(run_id, None)
+    _steer_queues.pop(run_id, None)
     _event_notify.pop(run_id, None)
     _run_sessions.pop(run_id, None)
     _approval_queues.pop(run_id, None)
@@ -345,6 +348,7 @@ async def _run_agent_task(
             conversation_id=conversation_id,
             pause_signal=_pause_signals.get(run_id),
             resume_signal=_resume_signals.get(run_id),
+            steer_queue=_steer_queues.get(run_id),
         )
 
         if abort_signal and not abort_signal.is_set():
@@ -427,6 +431,7 @@ async def create_agent_run(request: CreateAgentRunRequest, http_request: Request
         _abort_signals[run_id] = abort_signal
         _pause_signals[run_id] = asyncio.Event()
         _resume_signals[run_id] = asyncio.Event()
+        _steer_queues[run_id] = []
         _event_history[run_id] = []
         _event_notify[run_id] = asyncio.Event()
         stream_token = secrets.token_urlsafe(16)
@@ -868,6 +873,41 @@ async def resume_agent_run(run_id: str, http_request: Request):
     logger.info("Agent run resume requested", extra={"run_id": run_id})
 
     return {"run_id": run_id, "status": "resuming"}
+
+
+@router.post("/runs/{run_id}/steer")
+async def steer_agent_run(run_id: str, http_request: Request):
+    """Inject a steering message into a running agent.
+
+    The message is queued and injected before the next LLM call.
+    Works whether the agent is running or paused.
+    """
+    session_id, is_owner = get_session_context(http_request)
+
+    if not is_owner and run_id in _run_sessions:
+        run_session = _run_sessions.get(run_id)
+        if run_session and run_session != session_id:
+            raise HTTPException(status_code=404, detail="Run not found")
+
+    if run_id not in _active_runs:
+        raise HTTPException(status_code=404, detail="Run not found or already completed")
+
+    queue = _steer_queues.get(run_id)
+    if queue is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    body = await http_request.json()
+    message = body.get("message", "").strip()
+    if not message:
+        raise HTTPException(status_code=400, detail="Message is required")
+
+    queue.append(message)
+    logger.info(
+        "Steering message queued",
+        extra={"run_id": run_id, "queue_size": len(queue), "message_preview": message[:80]},
+    )
+
+    return {"run_id": run_id, "status": "queued", "queue_size": len(queue)}
 
 
 @router.get("/runs/{run_id}/trace", response_model=AgentRunTraceResponse)
