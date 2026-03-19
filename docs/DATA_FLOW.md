@@ -263,6 +263,36 @@ while not (synthesis_decision or step >= max_steps):
     │
     ▼
 ┌─────────────────────┐
+│ 0. PAUSE CHECK      │
+│ ┌─────────────────┐ │
+│ │ If pause_signal  │ │
+│ │ is cleared:     │ │
+│ │ block until     │ │
+│ │ resume_signal   │ │
+│ │                 │ │
+│ │ Emit SSE:      │ │
+│ │ 'paused' /     │ │
+│ │ 'resumed'      │ │
+│ └─────────────────┘ │
+└──────────┬──────────┘
+           │
+           ▼
+┌─────────────────────┐
+│ 0b. STEER INJECT    │
+│ ┌─────────────────┐ │
+│ │ Drain steer     │ │
+│ │ queue, inject   │ │
+│ │ as user-role    │ │
+│ │ messages before │ │
+│ │ next LLM call   │ │
+│ │                 │ │
+│ │ Emit SSE:      │ │
+│ │ 'steer'        │ │
+│ └─────────────────┘ │
+└──────────┬──────────┘
+           │
+           ▼
+┌─────────────────────┐
 │ 1. PRUNE CONTEXT    │
 │ ┌─────────────────┐ │
 │ │ Calculate token │ │
@@ -889,6 +919,9 @@ Connection opened
 | `answer` | Answer token | `{content: "..."}` |
 | `complete` | Agent done | `{final_answer, citations, total_steps, timing_ms}` |
 | `error` | Error occurred | `{error: "...", step: N}` |
+| `paused` | Agent paused between steps | `{step: N}` |
+| `resumed` | Agent resumed from pause | `{step: N}` |
+| `steer` | Steering message injected | `{message: "..."}` |
 | `cancelled` | User cancelled | `{message: "..."}` |
 | `heartbeat` | Keep-alive | `{}` |
 
