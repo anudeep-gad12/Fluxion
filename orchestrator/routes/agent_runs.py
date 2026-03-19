@@ -390,6 +390,25 @@ async def create_agent_run(request: CreateAgentRunRequest, http_request: Request
     """
     session_id, is_owner = get_session_context(http_request)
 
+    # Check per-session message limit
+    if not is_owner and session_id:
+        from orchestrator.config import get_chat_config as _get_config
+        from orchestrator.storage.db import get_db as _get_db
+        _cfg = _get_config()
+        if _cfg.demo and _cfg.demo.enabled:
+            _limit = int(getattr(_cfg.demo, "message_limit", 10) or 10)
+            if _limit > 0:
+                _db = await _get_db()
+                _cursor = await _db.conn.execute(
+                    "SELECT COUNT(*) FROM runs WHERE session_id = ?", (session_id,)
+                )
+                _row = await _cursor.fetchone()
+                if (_row[0] if _row else 0) >= _limit:
+                    raise HTTPException(
+                        status_code=429,
+                        detail=f"Message limit reached. You can send {_limit} messages per session.",
+                    )
+
     run_id = str(uuid.uuid4())
 
     try:

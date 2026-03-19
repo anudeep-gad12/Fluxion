@@ -424,6 +424,16 @@ export async function getModelStatus(): Promise<ModelStatus> {
   return fetchJson<ModelStatus>(`${API_BASE}/models/status`);
 }
 
+export interface UsageInfo {
+  limit: number;   // -1 = unlimited (owner or no demo mode)
+  used: number;
+  remaining: number; // -1 = unlimited
+}
+
+export async function getUsage(): Promise<UsageInfo> {
+  return fetchJson<UsageInfo>(`${API_BASE}/usage`);
+}
+
 export interface RegistryModelPreset {
   model_id: string;
   display_name: string;
