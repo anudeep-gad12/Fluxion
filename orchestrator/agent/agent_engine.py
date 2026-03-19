@@ -345,6 +345,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
         conversation_id: Optional[str] = None,
         pause_signal: Optional[asyncio.Event] = None,
         resume_signal: Optional[asyncio.Event] = None,
+        steer_queue: Optional[List[str]] = None,
     ) -> AgentResult:
         """Execute agent loop for a query.
 
@@ -355,6 +356,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
             conversation_id: Optional conversation context.
             pause_signal: Event set when user requests pause (between steps).
             resume_signal: Event set when user requests resume after pause.
+            steer_queue: Shared list for mid-run user steering messages.
 
         Returns:
             AgentResult with answer and citations.
@@ -512,6 +514,24 @@ To provide your final answer, respond WITHOUT calling any tools."""
                             "messages_count": len(pruned_messages),
                         },
                     )
+
+                # Drain any pending steering messages before LLM call
+                if steer_queue:
+                    while steer_queue:
+                        steer_msg = steer_queue.pop(0)
+                        messages.append({"role": "user", "content": steer_msg})
+                        pruned_messages.append({"role": "user", "content": steer_msg})
+                        self._emit(
+                            event_callback,
+                            "steer_injected",
+                            run_id=run_id,
+                            content=steer_msg,
+                            step_number=step_number,
+                        )
+                        logger.info(
+                            "Steering message injected",
+                            extra={"run_id": run_id, "step": step_number, "message": steer_msg[:80]},
+                        )
 
                 # Call LLM with tools
                 tool_schemas = self._registry.get_openai_schemas()

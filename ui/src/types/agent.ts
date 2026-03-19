@@ -131,6 +131,7 @@ export type AgentSSEEventType =
   | 'cancelled' // run cancelled
   | 'paused' // run paused between steps
   | 'resumed' // run resumed after pause
+  | 'steer' // steering message injected
   | 'heartbeat'; // keep-alive
 
 /** Base SSE event structure */

@@ -301,6 +301,16 @@ export async function resumeAgentRun(
   });
 }
 
+export async function steerAgentRun(
+  runId: string,
+  message: string,
+): Promise<{ run_id: string; status: string; queue_size: number }> {
+  return fetchJson(`${API_BASE}/agent/runs/${runId}/steer`, {
+    method: 'POST',
+    body: JSON.stringify({ message }),
+  });
+}
+
 /**
  * Subscribe to agent run SSE stream with resumption support.
  *
@@ -347,6 +357,7 @@ export function subscribeToAgentRun(
     'answer',
     'paused',
     'resumed',
+    'steer',
   ];
 
   eventTypes.forEach((eventType) => {
