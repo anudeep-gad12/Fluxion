@@ -329,6 +329,8 @@ export function subscribeToAgentRun(
     'tool_start',
     'tool_result',
     'answer',
+    'paused',
+    'resumed',
   ];
 
   eventTypes.forEach((eventType) => {
