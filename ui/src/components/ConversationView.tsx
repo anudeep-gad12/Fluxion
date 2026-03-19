@@ -23,8 +23,9 @@ import {
   getModelStatus,
   listRegistryModels,
   selectModel,
+  getUsage,
 } from '@/api/client';
-import type { LocalModel, ModelStatus, RegistryModelPreset, RegistryModelsResponse } from '@/api/client';
+import type { LocalModel, ModelStatus, RegistryModelPreset, RegistryModelsResponse, UsageInfo } from '@/api/client';
 import {
   Dialog,
   DialogHeader,
@@ -362,14 +363,25 @@ export function ConversationView() {
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [modelStatus, setModelStatus] = useState<ModelStatus | null>(null);
   const [modelSelectEnabled, setModelSelectEnabled] = useState(false);
-  // Fetch model status and config on mount
+
+  // Usage limits state
+  const [usage, setUsage] = useState<UsageInfo>({ limit: -1, used: 0, remaining: -1 });
+  const hasLimit = usage.limit > 0;
+  const atLimit = hasLimit && usage.remaining <= 0;
+
+  const refreshUsage = useCallback(() => {
+    getUsage().then(setUsage).catch(() => {});
+  }, []);
+
+  // Fetch model status, config, and usage on mount
   useEffect(() => {
     getModelStatus().then(setModelStatus).catch(() => {});
     fetch('/api/config')
       .then((r) => r.json())
       .then((data) => setModelSelectEnabled(data.local_models_enabled ?? false))
       .catch(() => {});
-  }, []);
+    refreshUsage();
+  }, [refreshUsage]);
 
   // Stop generation state
   const [pendingMessage, setPendingMessage] = useState('');
@@ -585,9 +597,15 @@ export function ConversationView() {
           navigate(`/conversations/${conversationId}`);
         }
       }
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Failed to create run:', error);
-      toast.error('Failed to send message. Please try again.');
+      const apiError = error as { status?: number; message?: string };
+      if (apiError.status === 429) {
+        toast.error('Message limit reached. You\'ve used all your free messages.');
+        refreshUsage();
+      } else {
+        toast.error('Failed to send message. Please try again.');
+      }
       // Restore message on error
       setMessage(messageToSend);
       setPendingMessage('');
@@ -596,6 +614,9 @@ export function ConversationView() {
       setIsSubmitting(false);
       return;
     }
+
+    // Refresh usage after successful send
+    refreshUsage();
   };
 
   // Handle stream completion - clear pending state.
@@ -945,13 +966,13 @@ export function ConversationView() {
             <span className="text-zinc-500 font-mono text-sm mt-0.5 select-none">&gt;</span>
             <textarea
               ref={textareaRef}
-              placeholder={mode === 'research' ? 'Ask agent to research...' : 'Ask a follow-up question...'}
+              placeholder={atLimit ? 'Message limit reached' : mode === 'research' ? 'Ask agent to research...' : 'Ask a follow-up question...'}
               value={message}
               onChange={handleMessageChange}
               onKeyDown={handleKeyDown}
               rows={2}
               className="flex-1 bg-transparent border-none outline-none resize-none text-sm font-mono text-zinc-100 placeholder:text-zinc-600"
-              disabled={isSubmitting || hasActiveRun}
+              disabled={isSubmitting || hasActiveRun || atLimit}
               style={{ maxHeight: '200px' }}
             />
           </div>
@@ -997,20 +1018,27 @@ export function ConversationView() {
             ) : (
               <button
                 onClick={handleSubmit}
-                disabled={!message.trim() || isSubmitting || hasActiveRun}
+                disabled={!message.trim() || isSubmitting || hasActiveRun || atLimit}
                 className={cn(
                   'transition-colors',
-                  !message.trim() || isSubmitting || hasActiveRun
+                  !message.trim() || isSubmitting || hasActiveRun || atLimit
                     ? 'text-zinc-700 cursor-not-allowed'
                     : 'text-zinc-400 hover:text-zinc-200'
                 )}
-                title={hasActiveRun ? 'Active run in progress' : undefined}
+                title={atLimit ? 'Message limit reached' : hasActiveRun ? 'Active run in progress' : undefined}
               >
-                {isSubmitting ? 'sending...' : 'send'}
+                {isSubmitting ? 'sending...' : atLimit ? 'limit reached' : 'send'}
               </button>
             )}
           </div>
           <div className="flex items-center gap-3 font-mono text-xs text-zinc-600">
+            {hasLimit && (
+              <span className={cn(
+                atLimit ? 'text-red-500/70' : usage.remaining <= 3 ? 'text-amber-500' : ''
+              )}>
+                {atLimit ? 'no messages left' : `${usage.remaining} left`}
+              </span>
+            )}
             <span className="hidden md:inline">⌘+Enter send</span>
             <span className={message.length > MAX_INPUT_CHARS * 0.9 ? 'text-zinc-400' : ''}>
               {message.length.toLocaleString()}/{MAX_INPUT_CHARS.toLocaleString()}
