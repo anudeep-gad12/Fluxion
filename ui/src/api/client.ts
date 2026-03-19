@@ -285,6 +285,22 @@ export async function cancelAgentRun(
   });
 }
 
+export async function pauseAgentRun(
+  runId: string,
+): Promise<{ run_id: string; status: string }> {
+  return fetchJson(`${API_BASE}/agent/runs/${runId}/pause`, {
+    method: 'POST',
+  });
+}
+
+export async function resumeAgentRun(
+  runId: string,
+): Promise<{ run_id: string; status: string }> {
+  return fetchJson(`${API_BASE}/agent/runs/${runId}/resume`, {
+    method: 'POST',
+  });
+}
+
 /**
  * Subscribe to agent run SSE stream with resumption support.
  *
