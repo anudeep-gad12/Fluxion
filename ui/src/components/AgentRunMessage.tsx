@@ -9,7 +9,7 @@ import { AnswerWithCitations } from '@/components/AnswerWithCitations';
 import { MessageActions } from '@/components/MessageActions';
 import { ShimmerSkeleton } from '@/components/StreamingIndicator';
 import { useAgentRunDetails } from '@/hooks/useAgentRunDetails';
-import { cancelAgentRun } from '@/api/client';
+import { cancelAgentRun, pauseAgentRun, resumeAgentRun } from '@/api/client';
 import type { Run } from '@/types';
 
 /** Format milliseconds to human-readable duration */
@@ -39,6 +39,7 @@ export function AgentRunMessage({ run, onShowTrace, onRetry, canRetry }: AgentRu
   const agentState = useAgentRunDetails(run.run_id, isRunning);
 
   const isActive = isRunning && agentState?.isActive;
+  const isPaused = agentState?.agentState === 'paused';
   const finalAnswer = run.final_answer || agentState?.answerBuffer || '';
   const citations = agentState?.citations || [];
 
@@ -47,6 +48,22 @@ export function AgentRunMessage({ run, onShowTrace, onRetry, canRetry }: AgentRu
       await cancelAgentRun(run.run_id);
     } catch (error) {
       console.error('Failed to cancel agent run:', error);
+    }
+  };
+
+  const handlePause = async () => {
+    try {
+      await pauseAgentRun(run.run_id);
+    } catch (error) {
+      console.error('Failed to pause agent run:', error);
+    }
+  };
+
+  const handleResume = async () => {
+    try {
+      await resumeAgentRun(run.run_id);
+    } catch (error) {
+      console.error('Failed to resume agent run:', error);
     }
   };
 
@@ -107,12 +124,27 @@ export function AgentRunMessage({ run, onShowTrace, onRetry, canRetry }: AgentRu
 
           {/* Actions */}
           <div className="mt-2 flex flex-wrap items-center gap-3 font-mono text-xs">
-            {isActive ? (
+            {isActive && isPaused ? (
+              <>
+                <button
+                  onClick={handleResume}
+                  className="text-emerald-500/80 hover:text-emerald-400 transition-colors"
+                >
+                  [resume]
+                </button>
+                <button
+                  onClick={handleCancel}
+                  className="text-red-500/70 hover:text-red-400 transition-colors"
+                >
+                  [stop]
+                </button>
+              </>
+            ) : isActive ? (
               <button
-                onClick={handleCancel}
-                className="text-red-500/70 hover:text-red-400 transition-colors"
+                onClick={handlePause}
+                className="text-amber-500/70 hover:text-amber-400 transition-colors"
               >
-                [stop]
+                [pause]
               </button>
             ) : (
               <button

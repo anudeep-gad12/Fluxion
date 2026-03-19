@@ -17,6 +17,7 @@ const STATE_LABELS: Record<string, { label: string; color: string }> = {
   planning: { label: 'Planning', color: 'text-cyan-500' },
   tool_calling: { label: 'Using tools', color: 'text-amber-500' },
   synthesizing: { label: 'Writing answer', color: 'text-emerald-500' },
+  paused: { label: 'Paused', color: 'text-amber-400' },
   complete: { label: 'Complete', color: 'text-emerald-500' },
   error: { label: 'Error', color: 'text-red-500' },
   cancelled: { label: 'Cancelled', color: 'text-zinc-500' },
@@ -173,8 +174,11 @@ export function AgentStepsPanel({
             <span className={cn('text-xs font-medium font-mono', stateInfo.color)}>
               {stateInfo.label}
             </span>
-            {isActive && (
+            {isActive && currentState !== 'paused' && (
               <span className="inline-block w-1.5 h-1.5 rounded-full bg-cyan-500 animate-pulse" />
+            )}
+            {currentState === 'paused' && (
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400" />
             )}
           </div>
           <div className="flex items-center gap-3 text-xs font-mono">
@@ -216,7 +220,9 @@ export function AgentStepsPanel({
         </div>
 
         {/* Phase indicator — indeterminate bar that shows activity, not percentage */}
-        {isActive ? (
+        {isActive && currentState === 'paused' ? (
+          <div className="h-0.5 bg-amber-400/50 w-full" />
+        ) : isActive ? (
           <div className="h-0.5 bg-zinc-800 w-full overflow-hidden">
             <div
               className={cn(
