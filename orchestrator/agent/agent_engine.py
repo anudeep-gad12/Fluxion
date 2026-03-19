@@ -779,6 +779,16 @@ To provide your final answer, respond WITHOUT calling any tools."""
                             extra={"answer_length": len(final_answer)},
                         )
 
+                    # Append assistant response to messages for cross-turn context.
+                    # Without this, _store_conversation_messages saves [system, user]
+                    # missing the answer, causing the next turn to see two consecutive
+                    # user messages with no assistant reply between them.
+                    if final_answer:
+                        messages.append({
+                            "role": "assistant",
+                            "content": final_answer,
+                        })
+
                     # Emit answer as answer_token so UI displays it in answer panel
                     # (streaming sent it to thinking, now send cleaned version to answer)
                     if final_answer:
