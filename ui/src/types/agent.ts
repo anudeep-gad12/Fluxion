@@ -260,4 +260,5 @@ export interface AgentUIState {
   context_usage?: ContextUsage;
   context_tokens?: number;
   context_remaining?: number;
+  injectedSteers: Array<{ content: string; step_number: number }>;
 }

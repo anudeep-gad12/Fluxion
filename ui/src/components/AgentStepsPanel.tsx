@@ -111,6 +111,7 @@ export function AgentStepsPanel({
   const {
     steps, toolCalls, thinkingBuffer, currentStep, isActive,
     total_tokens, context_usage, context_tokens, context_remaining,
+    injectedSteers,
   } = agentState;
 
   // Derive current state from step data
@@ -253,9 +254,23 @@ export function AgentStepsPanel({
               const isStepExpanded =
                 expandedSteps.has(step.step_number) || isCurrentStep || !isActive;
 
+              // Show any steering messages injected before this step
+              const stepSteers = injectedSteers.filter(
+                (s) => s.step_number === step.step_number
+              );
+
               return (
+                <div key={step.id}>
+                  {stepSteers.map((steer, si) => (
+                    <div
+                      key={`steer-${step.step_number}-${si}`}
+                      className="flex items-start gap-2 py-1.5 px-2 mb-1 bg-amber-500/5 border border-amber-500/20 text-xs font-mono"
+                    >
+                      <span className="text-amber-500/60 select-none flex-shrink-0">you:</span>
+                      <span className="text-amber-300/80">{steer.content}</span>
+                    </div>
+                  ))}
                 <div
-                  key={step.id}
                   className={cn(
                     'border-l-2 pl-3 transition-colors',
                     isCurrentStep && isActive
@@ -300,6 +315,7 @@ export function AgentStepsPanel({
                       ))}
                     </div>
                   )}
+                </div>
                 </div>
               );
             })}
