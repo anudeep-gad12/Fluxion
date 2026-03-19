@@ -343,6 +343,8 @@ To provide your final answer, respond WITHOUT calling any tools."""
         query: str,
         event_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
         conversation_id: Optional[str] = None,
+        pause_signal: Optional[asyncio.Event] = None,
+        resume_signal: Optional[asyncio.Event] = None,
     ) -> AgentResult:
         """Execute agent loop for a query.
 
@@ -351,6 +353,8 @@ To provide your final answer, respond WITHOUT calling any tools."""
             query: User's research query.
             event_callback: Callback for SSE events.
             conversation_id: Optional conversation context.
+            pause_signal: Event set when user requests pause (between steps).
+            resume_signal: Event set when user requests resume after pause.
 
         Returns:
             AgentResult with answer and citations.
@@ -747,6 +751,28 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         decision="call_tool",
                         thinking_text=thinking_text,
                     )
+
+                    # Check if user requested pause between steps
+                    if pause_signal and pause_signal.is_set():
+                        await state_machine.pause_run()
+                        self._emit(
+                            event_callback,
+                            "agent_paused",
+                            run_id=run_id,
+                            step_number=step_number,
+                        )
+                        # Block until resume signal fires
+                        if resume_signal:
+                            pause_signal.clear()
+                            await resume_signal.wait()
+                            resume_signal.clear()
+                        await state_machine.resume_run()
+                        self._emit(
+                            event_callback,
+                            "agent_resumed",
+                            run_id=run_id,
+                            step_number=step_number,
+                        )
 
                 else:
                     # Synthesis step - no tool calls means final answer
