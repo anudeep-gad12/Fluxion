@@ -687,6 +687,44 @@ class AgentStateMachine:
             },
         )
 
+    async def pause_run(self) -> None:
+        """Pause the run between steps."""
+        self._ensure_initialized()
+
+        self._agent_state = AgentState.PAUSED
+
+        await self._repo.update_run_agent_state(
+            self._run_id,
+            agent_state=self._agent_state.value,
+        )
+
+        logger.info(
+            "Agent run paused",
+            extra={
+                "run_id": self._run_id,
+                "step": self._current_step,
+            },
+        )
+
+    async def resume_run(self) -> None:
+        """Resume a paused run."""
+        self._ensure_initialized()
+
+        self._agent_state = AgentState.RUNNING
+
+        await self._repo.update_run_agent_state(
+            self._run_id,
+            agent_state=self._agent_state.value,
+        )
+
+        logger.info(
+            "Agent run resumed",
+            extra={
+                "run_id": self._run_id,
+                "step": self._current_step,
+            },
+        )
+
     async def cancel_run(self) -> None:
         """Cancel the run."""
         self._ensure_initialized()
