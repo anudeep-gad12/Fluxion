@@ -17,6 +17,7 @@ const STATE_LABELS: Record<string, { label: string; color: string }> = {
   planning: { label: 'Planning', color: 'text-cyan-500' },
   tool_calling: { label: 'Using tools', color: 'text-amber-500' },
   synthesizing: { label: 'Writing answer', color: 'text-emerald-500' },
+  paused: { label: 'Paused', color: 'text-amber-400' },
   complete: { label: 'Complete', color: 'text-emerald-500' },
   error: { label: 'Error', color: 'text-red-500' },
   cancelled: { label: 'Cancelled', color: 'text-zinc-500' },
@@ -110,6 +111,7 @@ export function AgentStepsPanel({
   const {
     steps, toolCalls, thinkingBuffer, currentStep, isActive,
     total_tokens, context_usage, context_tokens, context_remaining,
+    injectedSteers,
   } = agentState;
 
   // Derive current state from step data
@@ -173,8 +175,11 @@ export function AgentStepsPanel({
             <span className={cn('text-xs font-medium font-mono', stateInfo.color)}>
               {stateInfo.label}
             </span>
-            {isActive && (
+            {isActive && currentState !== 'paused' && (
               <span className="inline-block w-1.5 h-1.5 rounded-full bg-cyan-500 animate-pulse" />
+            )}
+            {currentState === 'paused' && (
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400" />
             )}
           </div>
           <div className="flex items-center gap-3 text-xs font-mono">
@@ -216,7 +221,9 @@ export function AgentStepsPanel({
         </div>
 
         {/* Phase indicator — indeterminate bar that shows activity, not percentage */}
-        {isActive ? (
+        {isActive && currentState === 'paused' ? (
+          <div className="h-0.5 bg-amber-400/50 w-full" />
+        ) : isActive ? (
           <div className="h-0.5 bg-zinc-800 w-full overflow-hidden">
             <div
               className={cn(
@@ -247,9 +254,23 @@ export function AgentStepsPanel({
               const isStepExpanded =
                 expandedSteps.has(step.step_number) || isCurrentStep || !isActive;
 
+              // Show any steering messages injected before this step
+              const stepSteers = injectedSteers.filter(
+                (s) => s.step_number === step.step_number
+              );
+
               return (
+                <div key={step.id}>
+                  {stepSteers.map((steer, si) => (
+                    <div
+                      key={`steer-${step.step_number}-${si}`}
+                      className="flex items-start gap-2 py-1.5 px-2 mb-1 bg-amber-500/5 border border-amber-500/20 text-xs font-mono"
+                    >
+                      <span className="text-amber-500/60 select-none flex-shrink-0">you:</span>
+                      <span className="text-amber-300/80">{steer.content}</span>
+                    </div>
+                  ))}
                 <div
-                  key={step.id}
                   className={cn(
                     'border-l-2 pl-3 transition-colors',
                     isCurrentStep && isActive
@@ -294,6 +315,7 @@ export function AgentStepsPanel({
                       ))}
                     </div>
                   )}
+                </div>
                 </div>
               );
             })}

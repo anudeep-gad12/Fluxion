@@ -51,6 +51,9 @@ router = APIRouter(prefix="/api/agent", tags=["agent"])
 # For multi-worker deployment, use Redis pub/sub or durable event bus.
 _active_runs: Dict[str, bool] = {}  # run_id -> is_active (no queue; pub/sub via history + notify)
 _abort_signals: Dict[str, asyncio.Event] = {}
+_pause_signals: Dict[str, asyncio.Event] = {}  # Set when user requests pause
+_resume_signals: Dict[str, asyncio.Event] = {}  # Set when user requests resume
+_steer_queues: Dict[str, List[str]] = {}  # Pending steering messages per run
 _event_history: Dict[str, List[Dict[str, Any]]] = {}  # Append-only event log per run
 _event_notify: Dict[str, asyncio.Event] = {}  # Notifies SSE generators of new events
 _run_tokens: Dict[str, str] = {}  # Per-run stream auth tokens
@@ -92,6 +95,9 @@ _EVENT_TYPE_MAP = {
     "answer_token": "answer",
     "agent_complete": "complete",
     "agent_error": "error",
+    "agent_paused": "paused",
+    "agent_resumed": "resumed",
+    "steer_injected": "steer",
     "slow_response": "slow_response",
 }
 
@@ -165,6 +171,9 @@ async def _cleanup_run(run_id: str, delay_seconds: float = 5.0) -> None:
     await asyncio.sleep(delay_seconds)
     _active_runs.pop(run_id, None)
     _abort_signals.pop(run_id, None)
+    _pause_signals.pop(run_id, None)
+    _resume_signals.pop(run_id, None)
+    _steer_queues.pop(run_id, None)
     _event_notify.pop(run_id, None)
     _run_sessions.pop(run_id, None)
     _approval_queues.pop(run_id, None)
@@ -337,6 +346,9 @@ async def _run_agent_task(
             query=query,
             event_callback=event_callback,
             conversation_id=conversation_id,
+            pause_signal=_pause_signals.get(run_id),
+            resume_signal=_resume_signals.get(run_id),
+            steer_queue=_steer_queues.get(run_id),
         )
 
         if abort_signal and not abort_signal.is_set():
@@ -390,6 +402,25 @@ async def create_agent_run(request: CreateAgentRunRequest, http_request: Request
     """
     session_id, is_owner = get_session_context(http_request)
 
+    # Check per-session message limit
+    if not is_owner and session_id:
+        from orchestrator.config import get_chat_config as _get_config
+        from orchestrator.storage.db import get_db as _get_db
+        _cfg = _get_config()
+        if _cfg.demo and _cfg.demo.enabled:
+            _limit = int(getattr(_cfg.demo, "message_limit", 10) or 10)
+            if _limit > 0:
+                _db = await _get_db()
+                _cursor = await _db.conn.execute(
+                    "SELECT COUNT(*) FROM runs WHERE session_id = ?", (session_id,)
+                )
+                _row = await _cursor.fetchone()
+                if (_row[0] if _row else 0) >= _limit:
+                    raise HTTPException(
+                        status_code=429,
+                        detail=f"Message limit reached. You can send {_limit} messages per session.",
+                    )
+
     run_id = str(uuid.uuid4())
 
     try:
@@ -398,6 +429,9 @@ async def create_agent_run(request: CreateAgentRunRequest, http_request: Request
 
         _active_runs[run_id] = True
         _abort_signals[run_id] = abort_signal
+        _pause_signals[run_id] = asyncio.Event()
+        _resume_signals[run_id] = asyncio.Event()
+        _steer_queues[run_id] = []
         _event_history[run_id] = []
         _event_notify[run_id] = asyncio.Event()
         stream_token = secrets.token_urlsafe(16)
@@ -793,6 +827,87 @@ async def cancel_agent_run(run_id: str, http_request: Request):
     logger.info("Agent run cancelled", extra={"run_id": run_id})
 
     return {"run_id": run_id, "status": "cancelled"}
+
+
+@router.post("/runs/{run_id}/pause")
+async def pause_agent_run(run_id: str, http_request: Request):
+    """Pause an active agent run after the current step completes."""
+    session_id, is_owner = get_session_context(http_request)
+
+    if not is_owner and run_id in _run_sessions:
+        run_session = _run_sessions.get(run_id)
+        if run_session and run_session != session_id:
+            raise HTTPException(status_code=404, detail="Run not found")
+
+    if run_id not in _active_runs:
+        raise HTTPException(status_code=404, detail="Run not found or already completed")
+
+    pause_signal = _pause_signals.get(run_id)
+    if not pause_signal:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    pause_signal.set()
+    logger.info("Agent run pause requested", extra={"run_id": run_id})
+
+    return {"run_id": run_id, "status": "pausing"}
+
+
+@router.post("/runs/{run_id}/resume")
+async def resume_agent_run(run_id: str, http_request: Request):
+    """Resume a paused agent run."""
+    session_id, is_owner = get_session_context(http_request)
+
+    if not is_owner and run_id in _run_sessions:
+        run_session = _run_sessions.get(run_id)
+        if run_session and run_session != session_id:
+            raise HTTPException(status_code=404, detail="Run not found")
+
+    if run_id not in _active_runs:
+        raise HTTPException(status_code=404, detail="Run not found or already completed")
+
+    resume_signal = _resume_signals.get(run_id)
+    if not resume_signal:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    resume_signal.set()
+    logger.info("Agent run resume requested", extra={"run_id": run_id})
+
+    return {"run_id": run_id, "status": "resuming"}
+
+
+@router.post("/runs/{run_id}/steer")
+async def steer_agent_run(run_id: str, http_request: Request):
+    """Inject a steering message into a running agent.
+
+    The message is queued and injected before the next LLM call.
+    Works whether the agent is running or paused.
+    """
+    session_id, is_owner = get_session_context(http_request)
+
+    if not is_owner and run_id in _run_sessions:
+        run_session = _run_sessions.get(run_id)
+        if run_session and run_session != session_id:
+            raise HTTPException(status_code=404, detail="Run not found")
+
+    if run_id not in _active_runs:
+        raise HTTPException(status_code=404, detail="Run not found or already completed")
+
+    queue = _steer_queues.get(run_id)
+    if queue is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    body = await http_request.json()
+    message = body.get("message", "").strip()
+    if not message:
+        raise HTTPException(status_code=400, detail="Message is required")
+
+    queue.append(message)
+    logger.info(
+        "Steering message queued",
+        extra={"run_id": run_id, "queue_size": len(queue), "message_preview": message[:80]},
+    )
+
+    return {"run_id": run_id, "status": "queued", "queue_size": len(queue)}
 
 
 @router.get("/runs/{run_id}/trace", response_model=AgentRunTraceResponse)

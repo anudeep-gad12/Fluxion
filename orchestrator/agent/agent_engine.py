@@ -343,6 +343,9 @@ To provide your final answer, respond WITHOUT calling any tools."""
         query: str,
         event_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
         conversation_id: Optional[str] = None,
+        pause_signal: Optional[asyncio.Event] = None,
+        resume_signal: Optional[asyncio.Event] = None,
+        steer_queue: Optional[List[str]] = None,
     ) -> AgentResult:
         """Execute agent loop for a query.
 
@@ -351,6 +354,9 @@ To provide your final answer, respond WITHOUT calling any tools."""
             query: User's research query.
             event_callback: Callback for SSE events.
             conversation_id: Optional conversation context.
+            pause_signal: Event set when user requests pause (between steps).
+            resume_signal: Event set when user requests resume after pause.
+            steer_queue: Shared list for mid-run user steering messages.
 
         Returns:
             AgentResult with answer and citations.
@@ -508,6 +514,24 @@ To provide your final answer, respond WITHOUT calling any tools."""
                             "messages_count": len(pruned_messages),
                         },
                     )
+
+                # Drain any pending steering messages before LLM call
+                if steer_queue:
+                    while steer_queue:
+                        steer_msg = steer_queue.pop(0)
+                        messages.append({"role": "user", "content": steer_msg})
+                        pruned_messages.append({"role": "user", "content": steer_msg})
+                        self._emit(
+                            event_callback,
+                            "steer_injected",
+                            run_id=run_id,
+                            content=steer_msg,
+                            step_number=step_number,
+                        )
+                        logger.info(
+                            "Steering message injected",
+                            extra={"run_id": run_id, "step": step_number, "steer_content": steer_msg[:80]},
+                        )
 
                 # Call LLM with tools
                 tool_schemas = self._registry.get_openai_schemas()
@@ -748,6 +772,28 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         thinking_text=thinking_text,
                     )
 
+                    # Check if user requested pause between steps
+                    if pause_signal and pause_signal.is_set():
+                        await state_machine.pause_run()
+                        self._emit(
+                            event_callback,
+                            "agent_paused",
+                            run_id=run_id,
+                            step_number=step_number,
+                        )
+                        # Block until resume signal fires
+                        if resume_signal:
+                            pause_signal.clear()
+                            await resume_signal.wait()
+                            resume_signal.clear()
+                        await state_machine.resume_run()
+                        self._emit(
+                            event_callback,
+                            "agent_resumed",
+                            run_id=run_id,
+                            step_number=step_number,
+                        )
+
                 else:
                     # Synthesis step - no tool calls means final answer
                     await state_machine.transition_to(AgentStepState.SYNTHESIZING)
@@ -778,6 +824,16 @@ To provide your final answer, respond WITHOUT calling any tools."""
                             "Used reasoning as answer (provider sent empty content)",
                             extra={"answer_length": len(final_answer)},
                         )
+
+                    # Append assistant response to messages for cross-turn context.
+                    # Without this, _store_conversation_messages saves [system, user]
+                    # missing the answer, causing the next turn to see two consecutive
+                    # user messages with no assistant reply between them.
+                    if final_answer:
+                        messages.append({
+                            "role": "assistant",
+                            "content": final_answer,
+                        })
 
                     # Emit answer as answer_token so UI displays it in answer panel
                     # (streaming sent it to thinking, now send cleaned version to answer)

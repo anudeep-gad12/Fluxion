@@ -23,8 +23,10 @@ import {
   getModelStatus,
   listRegistryModels,
   selectModel,
+  getUsage,
+  steerAgentRun,
 } from '@/api/client';
-import type { LocalModel, ModelStatus, RegistryModelPreset, RegistryModelsResponse } from '@/api/client';
+import type { LocalModel, ModelStatus, RegistryModelPreset, RegistryModelsResponse, UsageInfo } from '@/api/client';
 import {
   Dialog,
   DialogHeader,
@@ -362,14 +364,25 @@ export function ConversationView() {
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [modelStatus, setModelStatus] = useState<ModelStatus | null>(null);
   const [modelSelectEnabled, setModelSelectEnabled] = useState(false);
-  // Fetch model status and config on mount
+
+  // Usage limits state
+  const [usage, setUsage] = useState<UsageInfo>({ limit: -1, used: 0, remaining: -1 });
+  const hasLimit = usage.limit > 0;
+  const atLimit = hasLimit && usage.remaining <= 0;
+
+  const refreshUsage = useCallback(() => {
+    getUsage().then(setUsage).catch(() => {});
+  }, []);
+
+  // Fetch model status, config, and usage on mount
   useEffect(() => {
     getModelStatus().then(setModelStatus).catch(() => {});
     fetch('/api/config')
       .then((r) => r.json())
       .then((data) => setModelSelectEnabled(data.local_models_enabled ?? false))
       .catch(() => {});
-  }, []);
+    refreshUsage();
+  }, [refreshUsage]);
 
   // Stop generation state
   const [pendingMessage, setPendingMessage] = useState('');
@@ -378,6 +391,7 @@ export function ConversationView() {
   const subscribedRunRef = useRef<string | null>(null);
   const [pendingRunId, setPendingRunId] = useState<string | null>(null);
   const [pendingIsAgent, setPendingIsAgent] = useState(false);
+  const [queuedSteers, setQueuedSteers] = useState<string[]>([]);
 
   // Track any active run (chat or agent) for UI purposes (auto-scroll, completion detection)
   const activeRunId = useMemo(() => {
@@ -388,6 +402,17 @@ export function ConversationView() {
     }
     return null;
   }, [runs]);
+
+  // Clear queued steers when agent confirms injection via SSE.
+  // Delay the clear so the chip is visible briefly before disappearing.
+  const activeAgentState = useStore((s) => activeRunId ? s.agentRunState[activeRunId] : undefined);
+  const injectedSteerCount = activeAgentState?.injectedSteers?.length ?? 0;
+  useEffect(() => {
+    if (injectedSteerCount > 0 && queuedSteers.length > 0) {
+      const timer = setTimeout(() => setQueuedSteers([]), 1500);
+      return () => clearTimeout(timer);
+    }
+  }, [injectedSteerCount, queuedSteers.length]);
 
   // Only track chat (non-agent) runs for useSSE auto-subscribe.
   // Agent runs are managed manually via useAgentSSE.
@@ -483,7 +508,23 @@ export function ConversationView() {
   }, [hasActiveRun]);
 
   const handleSubmit = async () => {
-    if (!message.trim() || isSubmitting || hasActiveRun) return;
+    if (!message.trim() || isSubmitting) return;
+
+    // If an agent run is active, steer it instead of creating a new run
+    if (hasActiveRun && activeRunId) {
+      const steerMsg = message.trim();
+      setMessage('');
+      try {
+        await steerAgentRun(activeRunId, steerMsg);
+        setQueuedSteers((prev) => [...prev, steerMsg]);
+      } catch {
+        toast.error('Failed to queue steering message');
+        setMessage(steerMsg);
+      }
+      return;
+    }
+
+    if (hasActiveRun) return; // Non-agent active run, block
 
     const messageToSend = message.trim();
     setIsSubmitting(true);
@@ -585,9 +626,15 @@ export function ConversationView() {
           navigate(`/conversations/${conversationId}`);
         }
       }
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Failed to create run:', error);
-      toast.error('Failed to send message. Please try again.');
+      const apiError = error as { status?: number; message?: string };
+      if (apiError.status === 429) {
+        toast.error('Message limit reached. You\'ve used all your free messages.');
+        refreshUsage();
+      } else {
+        toast.error('Failed to send message. Please try again.');
+      }
       // Restore message on error
       setMessage(messageToSend);
       setPendingMessage('');
@@ -596,6 +643,9 @@ export function ConversationView() {
       setIsSubmitting(false);
       return;
     }
+
+    // Refresh usage after successful send
+    refreshUsage();
   };
 
   // Handle stream completion - clear pending state.
@@ -610,6 +660,7 @@ export function ConversationView() {
       setPendingRunId(null);
       setPendingIsAgent(false);
       setIsSubmitting(false);
+      setQueuedSteers([]);
       subscribedRunRef.current = null;
     }
   }, [selectedConversationId, activeRunId, pendingRunId]);
@@ -939,19 +990,32 @@ export function ConversationView() {
       />
 
       <div className="p-3 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-4 sm:pb-[max(1rem,env(safe-area-inset-bottom))] flex-shrink-0 space-y-2">
+        {/* Queued steering messages */}
+        {queuedSteers.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 px-1">
+            {queuedSteers.map((msg, i) => (
+              <span
+                key={i}
+                className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-mono bg-amber-500/10 text-amber-400/80 border border-amber-500/20"
+              >
+                <span className="text-amber-500/50">queued:</span> {msg.length > 40 ? msg.slice(0, 40) + '...' : msg}
+              </span>
+            ))}
+          </div>
+        )}
         {/* Prompt area */}
         <div className="border border-zinc-700 bg-zinc-900 focus-within:border-zinc-500 transition-colors">
           <div className="flex items-start p-3 gap-2">
             <span className="text-zinc-500 font-mono text-sm mt-0.5 select-none">&gt;</span>
             <textarea
               ref={textareaRef}
-              placeholder={mode === 'research' ? 'Ask agent to research...' : 'Ask a follow-up question...'}
+              placeholder={atLimit ? 'Message limit reached' : hasActiveRun ? 'Steer the agent...' : mode === 'research' ? 'Ask agent to research...' : 'Ask a follow-up question...'}
               value={message}
               onChange={handleMessageChange}
               onKeyDown={handleKeyDown}
               rows={2}
               className="flex-1 bg-transparent border-none outline-none resize-none text-sm font-mono text-zinc-100 placeholder:text-zinc-600"
-              disabled={isSubmitting || hasActiveRun}
+              disabled={isSubmitting || atLimit}
               style={{ maxHeight: '200px' }}
             />
           </div>
@@ -997,20 +1061,29 @@ export function ConversationView() {
             ) : (
               <button
                 onClick={handleSubmit}
-                disabled={!message.trim() || isSubmitting || hasActiveRun}
+                disabled={!message.trim() || isSubmitting || atLimit}
                 className={cn(
                   'transition-colors',
-                  !message.trim() || isSubmitting || hasActiveRun
+                  !message.trim() || isSubmitting || atLimit
                     ? 'text-zinc-700 cursor-not-allowed'
-                    : 'text-zinc-400 hover:text-zinc-200'
+                    : hasActiveRun
+                      ? 'text-amber-400/80 hover:text-amber-300'
+                      : 'text-zinc-400 hover:text-zinc-200'
                 )}
-                title={hasActiveRun ? 'Active run in progress' : undefined}
+                title={atLimit ? 'Message limit reached' : hasActiveRun ? 'Send steering message to agent' : undefined}
               >
-                {isSubmitting ? 'sending...' : 'send'}
+                {isSubmitting ? 'sending...' : atLimit ? 'limit reached' : hasActiveRun ? 'steer' : 'send'}
               </button>
             )}
           </div>
           <div className="flex items-center gap-3 font-mono text-xs text-zinc-600">
+            {hasLimit && (
+              <span className={cn(
+                atLimit ? 'text-red-500/70' : usage.remaining <= 3 ? 'text-amber-500' : ''
+              )}>
+                {atLimit ? 'no messages left' : `${usage.remaining} left`}
+              </span>
+            )}
             <span className="hidden md:inline">⌘+Enter send</span>
             <span className={message.length > MAX_INPUT_CHARS * 0.9 ? 'text-zinc-400' : ''}>
               {message.length.toLocaleString()}/{MAX_INPUT_CHARS.toLocaleString()}

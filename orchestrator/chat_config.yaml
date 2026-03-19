@@ -251,6 +251,7 @@ chatgpt:
 demo:
   enabled: ${DEMO_MODE:-false}
   owner_secret: ${DEMO_OWNER_SECRET:-}  # Long random string for owner access via ?owner=<secret>
+  message_limit: ${DEMO_MESSAGE_LIMIT:-10}  # Total messages per session (owner bypasses)
   rate_limit:
     max_agent_runs_per_hour: 10    # Agent runs are expensive (web search + multiple LLM calls)
     max_chat_runs_per_hour: 30     # Chat runs are cheaper (single LLM call)

@@ -57,6 +57,53 @@ def get_session_context(request: Request) -> Tuple[Optional[str], bool]:
     return session_id, is_owner
 
 
+async def _check_session_usage(session_id: Optional[str], is_owner: bool) -> None:
+    """Check if session has exceeded message limit. Raises 429 if over limit."""
+    if is_owner or not session_id:
+        return
+    config = get_chat_config()
+    if not config.demo or not config.demo.enabled:
+        return
+    limit = int(getattr(config.demo, "message_limit", 10) or 10)
+    if limit <= 0:
+        return
+    db = await get_db()
+    cursor = await db.conn.execute(
+        "SELECT COUNT(*) FROM runs WHERE session_id = ?", (session_id,)
+    )
+    row = await cursor.fetchone()
+    used = row[0] if row else 0
+    if used >= limit:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Message limit reached. You can send {limit} messages per session.",
+        )
+
+
+@router.get("/usage")
+async def get_usage(http_request: Request):
+    """Get session usage stats for rate limit display."""
+    session_id, is_owner = get_session_context(http_request)
+    if is_owner:
+        return {"limit": -1, "used": 0, "remaining": -1}
+
+    config = get_chat_config()
+    if not config.demo or not config.demo.enabled:
+        return {"limit": -1, "used": 0, "remaining": -1}
+
+    limit = int(getattr(config.demo, "message_limit", 10) or 10)
+    if limit <= 0:
+        return {"limit": -1, "used": 0, "remaining": -1}
+
+    db = await get_db()
+    cursor = await db.conn.execute(
+        "SELECT COUNT(*) FROM runs WHERE session_id = ?", (session_id,)
+    )
+    row = await cursor.fetchone()
+    used = row[0] if row else 0
+    return {"limit": limit, "used": used, "remaining": max(0, limit - used)}
+
+
 def _append_turn_to_summary(
     existing_summary: str, user_msg: str, assistant_msg: str, max_chars: int = 2000
 ) -> str:
@@ -153,6 +200,7 @@ async def create_conversation_run(
 ):
     """Send a message to a conversation and get a response."""
     session_id, is_owner = get_session_context(http_request)
+    await _check_session_usage(session_id, is_owner)
 
     db = await get_db()
     conv_repo = ConversationRepo(db)

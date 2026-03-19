@@ -514,6 +514,7 @@ class AgentStepState(str, Enum):
     PLANNING = "planning"
     TOOL_CALLING = "tool_calling"
     SYNTHESIZING = "synthesizing"
+    PAUSED = "paused"
     COMPLETE = "complete"
     ERROR = "error"
 
@@ -778,6 +779,41 @@ class ThinkingStrategy(ABC):
     ) -> ThinkingResult: ...
 ```
 
+### Context Budget (`orchestrator/context/budget.py`)
+
+```python
+@dataclass
+class ContextBudget:
+    """Token budget for a single agent turn."""
+    max_tokens: int                        # Total context window
+    reserve_for_response: int              # Held back for generation
+    system_prompt_tokens: int = 0          # System prompt cost
+    plan_tokens: int = 0                   # Plan / scratchpad cost
+    current_query_tokens: int = 0          # Current user query cost
+    history_tokens: int = 0                # Cross-turn history cost
+
+    # Properties
+    available_for_history: int             # max_tokens - reserve - system - plan - query
+    total_used: int                        # Sum of all non-reserve buckets
+    utilization_pct: float                 # total_used / max_tokens * 100
+```
+
+### Turn Summary (`orchestrator/context/turn_summary.py`)
+
+```python
+@dataclass
+class TurnSummary:
+    """Compact record of a completed turn for cross-turn history."""
+    run_id: str                            # Owning run
+    mode: str                              # "chat" | "agent"
+    query_brief: str                       # ~120 chars, user intent
+    answer_brief: str                      # ~200-300 chars, key outcome
+    tools_used: list[str]                  # Tool names invoked
+    files_touched: list[str]               # Paths read/written
+    key_findings: str                      # Most important result
+    token_cost: int                        # Tokens this summary consumes
+```
+
 ### Agent Models (`orchestrator/agent/agent_engine.py`)
 
 ```python
@@ -894,6 +930,9 @@ type AgentSSEEventType =
   | 'answer'
   | 'complete'
   | 'error'
+  | 'paused'
+  | 'resumed'
+  | 'steer'
   | 'cancelled'
   | 'heartbeat';
 
@@ -971,8 +1010,12 @@ interface AgentUIState {
   toolCalls: AgentToolCall[];
   citations: AgentCitation[];
   lastSeq: number;
-  timing_ms?: number;      // Total execution duration
-  total_tokens?: number;   // Total LLM tokens used
+  timing_ms?: number;           // Total execution duration
+  total_tokens?: number;        // Total LLM tokens used
+  context_tokens?: number;      // Tokens used in current context
+  context_remaining?: number;   // Tokens remaining in budget
+  isPaused?: boolean;           // Whether the run is currently paused
+  injectedSteers?: string[];   // Steering messages injected into the run
 }
 
 // SSE Event Types (discriminated union)
@@ -987,6 +1030,8 @@ interface StepStartEvent {
   type: 'step_start';
   step_number: number;
   steps_remaining: number;
+  context_tokens?: number;
+  context_remaining?: number;
 }
 
 interface ThinkingEvent {
@@ -1025,6 +1070,21 @@ interface CompleteEvent {
   total_tokens?: number;   // Total LLM tokens used across all steps
 }
 
+interface PausedEvent {
+  type: 'paused';
+  step: number;
+}
+
+interface ResumedEvent {
+  type: 'resumed';
+  step: number;
+}
+
+interface SteerEvent {
+  type: 'steer';
+  message: string;
+}
+
 type AgentSSEEvent =
   | AgentStateEvent
   | StepStartEvent
@@ -1032,7 +1092,10 @@ type AgentSSEEvent =
   | ToolStartEvent
   | ToolResultEvent
   | AnswerEvent
-  | CompleteEvent;
+  | CompleteEvent
+  | PausedEvent
+  | ResumedEvent
+  | SteerEvent;
 ```
 
 ### Store State Types
@@ -1109,6 +1172,9 @@ interface AppState {
 | `answer_token` | `answer` | |
 | `agent_complete` | `complete` | |
 | `agent_error` | `error` | |
+| `paused` | `paused` | Agent blocked between steps |
+| `resumed` | `resumed` | Agent unblocked |
+| `steer_injected` | `steer` | Steering message added to context |
 | `agent_cancelled` | `cancelled` | |
 
 ---

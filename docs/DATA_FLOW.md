@@ -197,7 +197,9 @@ Research mode runs an agent loop that plans, calls tools, and synthesizes an ans
      │                │                │                │ ═══════════════════════════════│
      │                │                │                │                │                │
      │                │ SSE: step_start│<──────────────│ Step N started │                │
-     │<───────────────│<───────────────│                │                │                │
+     │                │ (context_tokens│                │ (w/ context    │                │
+     │                │  context_max,  │                │  budget info)  │                │
+     │<───────────────│  total_tokens) │                │                │                │
      │                │                │                │                │                │
      │                │                │                │ Prune context  │                │
      │                │                │                │ (token budget) │                │
@@ -261,6 +263,36 @@ while not (synthesis_decision or step >= max_steps):
     │
     ▼
 ┌─────────────────────┐
+│ 0. PAUSE CHECK      │
+│ ┌─────────────────┐ │
+│ │ If pause_signal  │ │
+│ │ is cleared:     │ │
+│ │ block until     │ │
+│ │ resume_signal   │ │
+│ │                 │ │
+│ │ Emit SSE:      │ │
+│ │ 'paused' /     │ │
+│ │ 'resumed'      │ │
+│ └─────────────────┘ │
+└──────────┬──────────┘
+           │
+           ▼
+┌─────────────────────┐
+│ 0b. STEER INJECT    │
+│ ┌─────────────────┐ │
+│ │ Drain steer     │ │
+│ │ queue, inject   │ │
+│ │ as user-role    │ │
+│ │ messages before │ │
+│ │ next LLM call   │ │
+│ │                 │ │
+│ │ Emit SSE:      │ │
+│ │ 'steer'        │ │
+│ └─────────────────┘ │
+└──────────┬──────────┘
+           │
+           ▼
+┌─────────────────────┐
 │ 1. PRUNE CONTEXT    │
 │ ┌─────────────────┐ │
 │ │ Calculate token │ │
@@ -271,6 +303,13 @@ while not (synthesis_decision or step >= max_steps):
 │ │                 │ │
 │ │ Keep recent     │ │
 │ │ context         │ │
+│ │                 │ │
+│ │ Update budget:  │ │
+│ │ ContextBudget.  │ │
+│ │ history_tokens  │ │
+│ │ set to actual   │ │
+│ │ estimated_tokens│ │
+│ │ from pruner     │ │
 │ └─────────────────┘ │
 └──────────┬──────────┘
            │
@@ -558,6 +597,8 @@ _approval_queues: Dict[run_id, Dict[tool_call_id, asyncio.Future[bool]]]
 Step 0: INITIALIZATION
     │
     ├── Load AgentProfile (research or coding)
+    ├── context_params_for_model() resolves context window from model registry
+    │   for known presets (falls back to config default for unknown models)
     ├── Build context via ContextStrategy:
     │   ├── Research: date + knowledge cutoff
     │   └── Coding: environment + rules + structure + git + working_dir
@@ -583,10 +624,13 @@ Step 2+: MAIN LOOP (while not synthesis and step < max_steps)
     │   │   ├── Python output: head/tail pattern (not LLM)
     │   │   └── Cache summaries to prevent duplicate LLM calls
     │   └── Fallback to basic truncation on error
+    │   └── ContextBudget.history_tokens updated with actual estimated_tokens
     │
     ├── 2. HISTORY BUILDING (HistoryBuilder)
     │   ├── Load prior runs for conversation
     │   ├── Use turn_summary if available (~10x more history)
+    │   │   └── Turn summaries include key_findings from tool results
+    │   │       for richer cross-turn context
     │   ├── Else use raw user_message + final_answer pairs
     │   └── Apply token budget with sliding window
     │
@@ -867,7 +911,7 @@ Connection opened
 | Event Type | When | Payload |
 |-----------|------|---------|
 | `agent_state` | State change | `{state: "...", current_step: N, max_steps: M}` |
-| `step_start` | New step | `{step_number: N, steps_remaining: M}` |
+| `step_start` | New step | `{step_number: N, steps_remaining: M, context_tokens: N, context_max: N, context_remaining: N, total_tokens_used: N}` |
 | `thinking` | Thinking token | `{content: "..."}` |
 | `tool_start` | Tool starting | `{tool_call_id, tool_name, arguments}` |
 | `tool_approval_required` | Approval needed | `{tool_call_id, tool_name, arguments}` |
@@ -875,6 +919,9 @@ Connection opened
 | `answer` | Answer token | `{content: "..."}` |
 | `complete` | Agent done | `{final_answer, citations, total_steps, timing_ms}` |
 | `error` | Error occurred | `{error: "...", step: N}` |
+| `paused` | Agent paused between steps | `{step: N}` |
+| `resumed` | Agent resumed from pause | `{step: N}` |
+| `steer` | Steering message injected | `{message: "..."}` |
 | `cancelled` | User cancelled | `{message: "..."}` |
 | `heartbeat` | Keep-alive | `{}` |
 
@@ -900,11 +947,15 @@ Connection opened
 └──────────┬───────────┘
            │
            ▼
-┌──────────────────────┐
-│ step_start           │
-│ {step_number: 1,     │
-│  steps_remaining: 9} │
-└──────────┬───────────┘
+┌────────────────────────────┐
+│ step_start                 │
+│ {step_number: 1,           │
+│  steps_remaining: 9,       │
+│  context_tokens: 2048,     │
+│  context_max: 131072,      │
+│  context_remaining: 129024,│
+│  total_tokens_used: 2048}  │
+└──────────┬─────────────────┘
            │
            ▼
 ┌──────────────────────┐     (repeated)
