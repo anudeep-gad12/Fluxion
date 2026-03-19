@@ -149,6 +149,21 @@ export function useAgentSSE(runId: string | null, maxSteps: number = 10) {
             appendAgentAnswer(id, answerEvent.content);
             break;
           }
+
+          case 'paused': {
+            updateAgentState(id, {
+              agentState: 'paused',
+              // isActive stays true — run is alive, just waiting
+            });
+            break;
+          }
+
+          case 'resumed': {
+            updateAgentState(id, {
+              agentState: 'running',
+            });
+            break;
+          }
         }
       };
 
