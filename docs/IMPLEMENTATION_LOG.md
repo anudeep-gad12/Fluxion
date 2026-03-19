@@ -9,6 +9,7 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| test | Pause/resume agent runs, mid-run steering messages, per-session message limits, conversation history fix | done | 2026-03-19 |
 | feature/arch-context-prompts | Architecture + fixes: (1) model-aware context from registry, (2) live context accounting per step, (3) richer turn summaries, (4) disable planning LLM call, (5) system prompts rewrite (autonomy, self-correction, recency), (6) provider API key fix — factory uses registry key not LLM_API_KEY, (7) default model fallback via config.model.name, (8) GLM-5 added to registry, (9) model picker shows all registry models always visible, (10) model select disabled in prod/staging, (11) rate limit bypass fix — X-Forwarded-For only trusted behind proxy, (12) only resolve known registry presets — unknown models use config provider | done | 2026-03-15 |
 | feature/ui-tier1-improvements | UI Tier 1 — 5 features: (1) syntax-highlighted code blocks with Prism + language labels, (2) visual message differentiation with avatars/status colors, (3) message actions (copy/retry) on hover, (4) agent progress bar with elapsed timer/token counter/state labels, (5) streaming UX: shimmer skeleton, thinking timer, scroll-to-bottom pill | done | 2026-03-15 |
 | test | Docs refresh — README rewrite (CLI, model registry, profiles, 14 tools, ChatGPT OAuth, context mgmt), ARCHITECTURE.md (missing dirs/routes), API_REFERENCE.md (model registry endpoints), COMPONENTS.md (model registry + context mgmt sections) | done | 2026-03-11 |
@@ -49,6 +50,62 @@
 | feature/preset-question-chips | Demo preset questions | done | 2026-01-23 |
 | feature/gaia-benchmark | GAIA Benchmark Evaluation | done | 2026-01-21 |
 | feature/agent-planning | Agent Planning Step | done | 2026-01-20 |
+
+### 2026-03-19: Pause/Resume Agent Runs
+
+**Branch:** `test`
+**Status:** done
+
+**Description:**
+Agent runs can now be paused and resumed between steps. Backend uses asyncio signals (pause_signal/resume_signal) to block the agent loop. State machine uses AgentState.PAUSED (previously unused).
+
+**Changes:**
+- `orchestrator/routes/agent_runs.py` — New `POST /api/agent/runs/{id}/pause` and `POST /api/agent/runs/{id}/resume` endpoints
+- `orchestrator/agent/agent_engine.py` — Check `pause_signal` between steps; block if cleared, resume when set
+- `orchestrator/agent/state_machine.py` — `AgentState.PAUSED` transitions wired in
+- SSE events: `paused`, `resumed` emitted on state changes
+- Frontend: `[pause]` button (amber) during active run, `[resume]` + `[stop]` when paused; progress panel shows "Paused" state with amber bar
+
+### 2026-03-19: Mid-Run Steering Messages
+
+**Branch:** `test`
+**Status:** done
+
+**Description:**
+Users can inject steering messages into active agent runs. Messages are queued and injected as user-role messages before the next LLM call.
+
+**Changes:**
+- `orchestrator/routes/agent_runs.py` — New `POST /api/agent/runs/{id}/steer` endpoint; in-memory `_steer_queues` dict
+- `orchestrator/agent/agent_engine.py` — `_inject_steer_messages()` drains queue before each LLM call
+- SSE event: `steer` (steer_injected) emitted on injection
+- Frontend: textarea stays enabled during active runs with "Steer the agent..." placeholder; send button shows "steer" in amber; queued message chips above textarea; injected messages shown in step panel as amber "you: <message>" blocks
+
+### 2026-03-19: Per-Session Message Limits
+
+**Branch:** `test`
+**Status:** done
+
+**Description:**
+Configurable per-session message limits for demo deployments. Session-based counting via DB, not IP-based. Owner bypasses all limits.
+
+**Changes:**
+- `orchestrator/routes/agent_runs.py` (or `app.py`) — New `GET /api/usage` endpoint returning `{limit, used, remaining}`
+- `orchestrator/config.py` — `demo.message_limit` config (default 10, `DEMO_MESSAGE_LIMIT` env var)
+- Frontend: "X left" counter near input, disabled input at limit, 429 toast handling
+
+### 2026-03-19: Conversation History Fix
+
+**Branch:** `test`
+**Status:** done
+
+**Description:**
+Fixed assistant response not being appended to messages for cross-turn context. Was missing for 1-step runs (no tool calls), causing two consecutive user messages in history. Also stripped `Q:` prefix from turn summary in history builder.
+
+**Changes:**
+- `orchestrator/agent/agent_engine.py` — Append assistant response to messages after synthesis
+- `orchestrator/context/history_builder.py` — Strip `Q:` prefix from turn summary entries
+
+---
 
 ### 2026-03-01: Model Registry + TUI Model Picker
 

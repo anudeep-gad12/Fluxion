@@ -514,6 +514,7 @@ class AgentStepState(str, Enum):
     PLANNING = "planning"
     TOOL_CALLING = "tool_calling"
     SYNTHESIZING = "synthesizing"
+    PAUSED = "paused"
     COMPLETE = "complete"
     ERROR = "error"
 
@@ -929,6 +930,9 @@ type AgentSSEEventType =
   | 'answer'
   | 'complete'
   | 'error'
+  | 'paused'
+  | 'resumed'
+  | 'steer'
   | 'cancelled'
   | 'heartbeat';
 
@@ -1010,6 +1014,8 @@ interface AgentUIState {
   total_tokens?: number;        // Total LLM tokens used
   context_tokens?: number;      // Tokens used in current context
   context_remaining?: number;   // Tokens remaining in budget
+  isPaused?: boolean;           // Whether the run is currently paused
+  injectedSteers?: string[];   // Steering messages injected into the run
 }
 
 // SSE Event Types (discriminated union)
@@ -1064,6 +1070,21 @@ interface CompleteEvent {
   total_tokens?: number;   // Total LLM tokens used across all steps
 }
 
+interface PausedEvent {
+  type: 'paused';
+  step: number;
+}
+
+interface ResumedEvent {
+  type: 'resumed';
+  step: number;
+}
+
+interface SteerEvent {
+  type: 'steer';
+  message: string;
+}
+
 type AgentSSEEvent =
   | AgentStateEvent
   | StepStartEvent
@@ -1071,7 +1092,10 @@ type AgentSSEEvent =
   | ToolStartEvent
   | ToolResultEvent
   | AnswerEvent
-  | CompleteEvent;
+  | CompleteEvent
+  | PausedEvent
+  | ResumedEvent
+  | SteerEvent;
 ```
 
 ### Store State Types
@@ -1148,6 +1172,9 @@ interface AppState {
 | `answer_token` | `answer` | |
 | `agent_complete` | `complete` | |
 | `agent_error` | `error` | |
+| `paused` | `paused` | Agent blocked between steps |
+| `resumed` | `resumed` | Agent unblocked |
+| `steer_injected` | `steer` | Steering message added to context |
 | `agent_cancelled` | `cancelled` | |
 
 ---
