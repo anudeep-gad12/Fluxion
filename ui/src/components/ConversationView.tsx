@@ -403,12 +403,14 @@ export function ConversationView() {
     return null;
   }, [runs]);
 
-  // Clear queued steers when agent confirms injection via SSE
+  // Clear queued steers when agent confirms injection via SSE.
+  // Delay the clear so the chip is visible briefly before disappearing.
   const activeAgentState = useStore((s) => activeRunId ? s.agentRunState[activeRunId] : undefined);
   const injectedSteerCount = activeAgentState?.injectedSteers?.length ?? 0;
   useEffect(() => {
     if (injectedSteerCount > 0 && queuedSteers.length > 0) {
-      setQueuedSteers([]);
+      const timer = setTimeout(() => setQueuedSteers([]), 1500);
+      return () => clearTimeout(timer);
     }
   }, [injectedSteerCount, queuedSteers.length]);
 
