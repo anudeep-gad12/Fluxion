@@ -24,6 +24,7 @@ import {
   listRegistryModels,
   selectModel,
   getUsage,
+  steerAgentRun,
 } from '@/api/client';
 import type { LocalModel, ModelStatus, RegistryModelPreset, RegistryModelsResponse, UsageInfo } from '@/api/client';
 import {
@@ -495,7 +496,23 @@ export function ConversationView() {
   }, [hasActiveRun]);
 
   const handleSubmit = async () => {
-    if (!message.trim() || isSubmitting || hasActiveRun) return;
+    if (!message.trim() || isSubmitting) return;
+
+    // If an agent run is active, steer it instead of creating a new run
+    if (hasActiveRun && activeRunId) {
+      const steerMsg = message.trim();
+      setMessage('');
+      try {
+        await steerAgentRun(activeRunId, steerMsg);
+        toast.success('Message queued — will be injected at next step');
+      } catch {
+        toast.error('Failed to queue steering message');
+        setMessage(steerMsg);
+      }
+      return;
+    }
+
+    if (hasActiveRun) return; // Non-agent active run, block
 
     const messageToSend = message.trim();
     setIsSubmitting(true);
@@ -966,13 +983,13 @@ export function ConversationView() {
             <span className="text-zinc-500 font-mono text-sm mt-0.5 select-none">&gt;</span>
             <textarea
               ref={textareaRef}
-              placeholder={atLimit ? 'Message limit reached' : mode === 'research' ? 'Ask agent to research...' : 'Ask a follow-up question...'}
+              placeholder={atLimit ? 'Message limit reached' : hasActiveRun ? 'Steer the agent...' : mode === 'research' ? 'Ask agent to research...' : 'Ask a follow-up question...'}
               value={message}
               onChange={handleMessageChange}
               onKeyDown={handleKeyDown}
               rows={2}
               className="flex-1 bg-transparent border-none outline-none resize-none text-sm font-mono text-zinc-100 placeholder:text-zinc-600"
-              disabled={isSubmitting || hasActiveRun || atLimit}
+              disabled={isSubmitting || atLimit}
               style={{ maxHeight: '200px' }}
             />
           </div>
@@ -1018,16 +1035,18 @@ export function ConversationView() {
             ) : (
               <button
                 onClick={handleSubmit}
-                disabled={!message.trim() || isSubmitting || hasActiveRun || atLimit}
+                disabled={!message.trim() || isSubmitting || atLimit}
                 className={cn(
                   'transition-colors',
-                  !message.trim() || isSubmitting || hasActiveRun || atLimit
+                  !message.trim() || isSubmitting || atLimit
                     ? 'text-zinc-700 cursor-not-allowed'
-                    : 'text-zinc-400 hover:text-zinc-200'
+                    : hasActiveRun
+                      ? 'text-amber-400/80 hover:text-amber-300'
+                      : 'text-zinc-400 hover:text-zinc-200'
                 )}
-                title={atLimit ? 'Message limit reached' : hasActiveRun ? 'Active run in progress' : undefined}
+                title={atLimit ? 'Message limit reached' : hasActiveRun ? 'Send steering message to agent' : undefined}
               >
-                {isSubmitting ? 'sending...' : atLimit ? 'limit reached' : 'send'}
+                {isSubmitting ? 'sending...' : atLimit ? 'limit reached' : hasActiveRun ? 'steer' : 'send'}
               </button>
             )}
           </div>
