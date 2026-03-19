@@ -391,6 +391,7 @@ export function ConversationView() {
   const subscribedRunRef = useRef<string | null>(null);
   const [pendingRunId, setPendingRunId] = useState<string | null>(null);
   const [pendingIsAgent, setPendingIsAgent] = useState(false);
+  const [queuedSteers, setQueuedSteers] = useState<string[]>([]);
 
   // Track any active run (chat or agent) for UI purposes (auto-scroll, completion detection)
   const activeRunId = useMemo(() => {
@@ -504,7 +505,7 @@ export function ConversationView() {
       setMessage('');
       try {
         await steerAgentRun(activeRunId, steerMsg);
-        toast.success('Message queued — will be injected at next step');
+        setQueuedSteers((prev) => [...prev, steerMsg]);
       } catch {
         toast.error('Failed to queue steering message');
         setMessage(steerMsg);
@@ -648,6 +649,7 @@ export function ConversationView() {
       setPendingRunId(null);
       setPendingIsAgent(false);
       setIsSubmitting(false);
+      setQueuedSteers([]);
       subscribedRunRef.current = null;
     }
   }, [selectedConversationId, activeRunId, pendingRunId]);
@@ -977,6 +979,19 @@ export function ConversationView() {
       />
 
       <div className="p-3 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-4 sm:pb-[max(1rem,env(safe-area-inset-bottom))] flex-shrink-0 space-y-2">
+        {/* Queued steering messages */}
+        {queuedSteers.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 px-1">
+            {queuedSteers.map((msg, i) => (
+              <span
+                key={i}
+                className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-mono bg-amber-500/10 text-amber-400/80 border border-amber-500/20"
+              >
+                <span className="text-amber-500/50">queued:</span> {msg.length > 40 ? msg.slice(0, 40) + '...' : msg}
+              </span>
+            ))}
+          </div>
+        )}
         {/* Prompt area */}
         <div className="border border-zinc-700 bg-zinc-900 focus-within:border-zinc-500 transition-colors">
           <div className="flex items-start p-3 gap-2">

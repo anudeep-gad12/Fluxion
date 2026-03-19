@@ -530,7 +530,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         )
                         logger.info(
                             "Steering message injected",
-                            extra={"run_id": run_id, "step": step_number, "message": steer_msg[:80]},
+                            extra={"run_id": run_id, "step": step_number, "steer_content": steer_msg[:80]},
                         )
 
                 # Call LLM with tools
