@@ -51,6 +51,8 @@ router = APIRouter(prefix="/api/agent", tags=["agent"])
 # For multi-worker deployment, use Redis pub/sub or durable event bus.
 _active_runs: Dict[str, bool] = {}  # run_id -> is_active (no queue; pub/sub via history + notify)
 _abort_signals: Dict[str, asyncio.Event] = {}
+_pause_signals: Dict[str, asyncio.Event] = {}  # Set when user requests pause
+_resume_signals: Dict[str, asyncio.Event] = {}  # Set when user requests resume
 _event_history: Dict[str, List[Dict[str, Any]]] = {}  # Append-only event log per run
 _event_notify: Dict[str, asyncio.Event] = {}  # Notifies SSE generators of new events
 _run_tokens: Dict[str, str] = {}  # Per-run stream auth tokens
@@ -92,6 +94,8 @@ _EVENT_TYPE_MAP = {
     "answer_token": "answer",
     "agent_complete": "complete",
     "agent_error": "error",
+    "agent_paused": "paused",
+    "agent_resumed": "resumed",
     "slow_response": "slow_response",
 }
 
@@ -165,6 +169,8 @@ async def _cleanup_run(run_id: str, delay_seconds: float = 5.0) -> None:
     await asyncio.sleep(delay_seconds)
     _active_runs.pop(run_id, None)
     _abort_signals.pop(run_id, None)
+    _pause_signals.pop(run_id, None)
+    _resume_signals.pop(run_id, None)
     _event_notify.pop(run_id, None)
     _run_sessions.pop(run_id, None)
     _approval_queues.pop(run_id, None)
@@ -337,6 +343,8 @@ async def _run_agent_task(
             query=query,
             event_callback=event_callback,
             conversation_id=conversation_id,
+            pause_signal=_pause_signals.get(run_id),
+            resume_signal=_resume_signals.get(run_id),
         )
 
         if abort_signal and not abort_signal.is_set():
@@ -417,6 +425,8 @@ async def create_agent_run(request: CreateAgentRunRequest, http_request: Request
 
         _active_runs[run_id] = True
         _abort_signals[run_id] = abort_signal
+        _pause_signals[run_id] = asyncio.Event()
+        _resume_signals[run_id] = asyncio.Event()
         _event_history[run_id] = []
         _event_notify[run_id] = asyncio.Event()
         stream_token = secrets.token_urlsafe(16)
@@ -812,6 +822,52 @@ async def cancel_agent_run(run_id: str, http_request: Request):
     logger.info("Agent run cancelled", extra={"run_id": run_id})
 
     return {"run_id": run_id, "status": "cancelled"}
+
+
+@router.post("/runs/{run_id}/pause")
+async def pause_agent_run(run_id: str, http_request: Request):
+    """Pause an active agent run after the current step completes."""
+    session_id, is_owner = get_session_context(http_request)
+
+    if not is_owner and run_id in _run_sessions:
+        run_session = _run_sessions.get(run_id)
+        if run_session and run_session != session_id:
+            raise HTTPException(status_code=404, detail="Run not found")
+
+    if run_id not in _active_runs:
+        raise HTTPException(status_code=404, detail="Run not found or already completed")
+
+    pause_signal = _pause_signals.get(run_id)
+    if not pause_signal:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    pause_signal.set()
+    logger.info("Agent run pause requested", extra={"run_id": run_id})
+
+    return {"run_id": run_id, "status": "pausing"}
+
+
+@router.post("/runs/{run_id}/resume")
+async def resume_agent_run(run_id: str, http_request: Request):
+    """Resume a paused agent run."""
+    session_id, is_owner = get_session_context(http_request)
+
+    if not is_owner and run_id in _run_sessions:
+        run_session = _run_sessions.get(run_id)
+        if run_session and run_session != session_id:
+            raise HTTPException(status_code=404, detail="Run not found")
+
+    if run_id not in _active_runs:
+        raise HTTPException(status_code=404, detail="Run not found or already completed")
+
+    resume_signal = _resume_signals.get(run_id)
+    if not resume_signal:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    resume_signal.set()
+    logger.info("Agent run resume requested", extra={"run_id": run_id})
+
+    return {"run_id": run_id, "status": "resuming"}
 
 
 @router.get("/runs/{run_id}/trace", response_model=AgentRunTraceResponse)
