@@ -87,6 +87,7 @@ export function useAgentRunDetails(
           steps,
           toolCalls,
           citations,
+          injectedSteers: [],
           lastSeq: 0,
         });
       })

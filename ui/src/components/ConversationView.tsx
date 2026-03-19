@@ -403,6 +403,15 @@ export function ConversationView() {
     return null;
   }, [runs]);
 
+  // Clear queued steers when agent confirms injection via SSE
+  const activeAgentState = useStore((s) => activeRunId ? s.agentRunState[activeRunId] : undefined);
+  const injectedSteerCount = activeAgentState?.injectedSteers?.length ?? 0;
+  useEffect(() => {
+    if (injectedSteerCount > 0 && queuedSteers.length > 0) {
+      setQueuedSteers([]);
+    }
+  }, [injectedSteerCount, queuedSteers.length]);
+
   // Only track chat (non-agent) runs for useSSE auto-subscribe.
   // Agent runs are managed manually via useAgentSSE.
   const activeChatRunId = useMemo(() => {
