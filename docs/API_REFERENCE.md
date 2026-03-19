@@ -736,6 +736,7 @@ GET /api/agent/runs/{run_id}
 - `planning` - Deciding action
 - `tool_calling` - Executing tools
 - `synthesizing` - Generating answer
+- `paused` - Blocked between steps (via pause endpoint)
 - `complete` - Done
 - `error` - Failed
 
@@ -892,6 +893,103 @@ POST /api/agent/runs/{run_id}/deny/{tool_call_id}
 **Notes**:
 - The denied tool is recorded with `approval_decision: "denied"` and `status: "interrupted"`
 - The agent continues execution (may call other tools or synthesize)
+
+---
+
+### Pause Agent Run
+
+Pause an active agent run between steps. The agent blocks at the next step boundary.
+
+**Request**:
+```
+POST /api/agent/runs/{run_id}/pause
+```
+
+**Response** (200 OK):
+```json
+{
+  "run_id": "agent_001",
+  "status": "paused"
+}
+```
+
+**Error** (400 Bad Request):
+```json
+{
+  "detail": "Run is not active"
+}
+```
+
+**Notes**:
+- Emits a `paused` SSE event
+- Agent state transitions to `PAUSED`
+- The agent loop blocks between steps until resumed or cancelled
+
+---
+
+### Resume Agent Run
+
+Resume a paused agent run.
+
+**Request**:
+```
+POST /api/agent/runs/{run_id}/resume
+```
+
+**Response** (200 OK):
+```json
+{
+  "run_id": "agent_001",
+  "status": "running"
+}
+```
+
+**Error** (400 Bad Request):
+```json
+{
+  "detail": "Run is not paused"
+}
+```
+
+**Notes**:
+- Emits a `resumed` SSE event
+- Agent state transitions back from `PAUSED` and continues the step loop
+
+---
+
+### Steer Agent Run
+
+Inject a steering message into an active agent run. The message is queued and injected as a user-role message before the next LLM call.
+
+**Request**:
+```
+POST /api/agent/runs/{run_id}/steer
+```
+
+**Body**:
+```json
+{
+  "message": "Focus on the performance comparison, not the architecture."
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `message` | string | Yes | Steering message to inject |
+
+**Response** (200 OK):
+```json
+{
+  "run_id": "agent_001",
+  "status": "queued"
+}
+```
+
+**Notes**:
+- Emits a `steer` (steer_injected) SSE event
+- The message is injected as a user-role message before the next LLM call
+- Multiple messages can be queued; all are injected and cleared on the next step
+- Works on both running and paused runs (injected when the run proceeds)
 
 ---
 
@@ -1286,6 +1384,32 @@ GET /api/health
 
 ---
 
+### Get Usage
+
+Get per-session message usage and limits. Only relevant when `demo.message_limit` is set.
+
+**Request**:
+```
+GET /api/usage
+```
+
+**Response** (200 OK):
+```json
+{
+  "limit": 10,
+  "used": 3,
+  "remaining": 7
+}
+```
+
+**Notes**:
+- Counting is session-based (via `demo_session` cookie), not IP-based
+- Owner bypasses all limits (`remaining` is always large)
+- When `demo.message_limit` is 0 or demo mode is disabled, `limit` is 0 and `remaining` is effectively unlimited
+- Frontend shows "X left" counter; input is disabled at 0 remaining; 429 errors handled via toast
+
+---
+
 ### Get Configuration
 
 Get current runtime configuration.
@@ -1410,6 +1534,9 @@ data: {"error": "Connection failed", "code": "PROVIDER_ERROR"}
 | `answer` | Answer token | `{content}` |
 | `complete` | Agent done | `{success, final_answer, citations, total_steps, timing_ms, total_tokens}` |
 | `error` | Error | `{error, step}` |
+| `paused` | Agent paused | `{step}` |
+| `resumed` | Agent resumed | `{step}` |
+| `steer` | Steering message injected | `{message}` |
 | `cancelled` | Cancelled | `{message}` |
 | `heartbeat` | Keep-alive | `{}` |
 
@@ -1465,6 +1592,7 @@ The `token` parameter authenticates the stream connection. If provided and inval
 | 404 | Not Found - Resource doesn't exist |
 | 422 | Unprocessable Entity - Validation error |
 | 403 | Forbidden - Invalid stream token |
+| 429 | Too Many Requests - Rate limit or message limit exceeded |
 | 500 | Internal Server Error |
 
 ### Error Response Format

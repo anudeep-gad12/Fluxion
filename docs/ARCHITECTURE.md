@@ -74,6 +74,8 @@ Reasoner is an AI chat application with multi-strategy reasoning capabilities. I
 - **Context Management**: Token-aware history pruning, turn summaries, project context injection
 - **Full Traceability**: Every LLM call, tool execution, approval, and file change is recorded
 - **Provider Failover**: Circuit breaker pattern with automatic provider switching
+- **Pause/Resume/Steer**: Pause agent between steps, resume later, or inject steering messages mid-run
+- **Per-Session Message Limits**: Configurable usage caps with owner bypass for demo deployments
 
 ---
 
@@ -780,7 +782,8 @@ class ThinkingResult:
 │  │ - PLANNING     │  │ - Token budget │  │ - web_search               │ │
 │  │ - TOOL_CALLING │  │ - LLM-based    │  │ - web_extract              │ │
 │  │ - SYNTHESIZING │  │   summarization│  │ - python_execute           │ │
-│  │ - COMPLETE     │  │ - Query-aware  │  │                            │ │
+│  │ - PAUSED       │  │ - Query-aware  │  │                            │ │
+│  │ - COMPLETE     │  │                │  │                            │ │
 │  │ - ERROR        │  │                │  │                            │ │
 │  └────────┬───────┘  └────────────────┘  └────────────────────────────┘ │
 │           │                                                              │
@@ -792,6 +795,8 @@ class ThinkingResult:
 │  ┌────────────────────────────────────────────────────────────────────┐ │
 │  │                        Agent Loop                                   │ │
 │  │  while not (synthesis or max_steps):                                │ │
+│  │    0. Check pause_signal; block if paused (resume_signal unblocks)  │ │
+│  │    0b. Inject any queued steer messages as user role                │ │
 │  │    1. Prune context with LLM summarization (query-aware)            │ │
 │  │    2. Call LLM with tool schemas                                    │ │
 │  │    3. Parse response for tool calls or synthesis decision           │ │
@@ -858,12 +863,15 @@ agent_planning:
 │SYNTHESIZING │◄───────────────────│ STEP_LOOP   │
 └──────┬──────┘                    └─────────────┘
        │
-       ▼
-┌─────────────┐
-│  COMPLETE   │
-└─────────────┘
+       ▼                           ┌─────────────┐
+┌─────────────┐  pause_signal ───►│   PAUSED    │
+│  COMPLETE   │                    │ (blocked)   │
+└─────────────┘  resume_signal ◄──│             │
+                                   └─────────────┘
 
-Any state can transition to ERROR on failure
+Any state in STEP_LOOP can transition to PAUSED via pause_signal.
+resume_signal unblocks back to STEP_LOOP.
+Any state can transition to ERROR on failure.
 ```
 
 ### Agent Profiles
@@ -1137,6 +1145,7 @@ demo:
     max_agent_runs_per_hour: 10    # Agent runs are expensive
     max_chat_runs_per_hour: 30     # Chat runs are cheaper
     window_seconds: 3600           # 1 hour window
+  message_limit: ${DEMO_MESSAGE_LIMIT:-10}  # Per-session message cap (0 = unlimited)
   whitelist_ips:                   # IPs that bypass rate limiting
     - "127.0.0.1"
     - "::1"
@@ -1163,7 +1172,7 @@ Variables are resolved before Pydantic validation.
 | `ParallelConfig` | Web search/extract with nested `ParallelSearchConfig`, `ParallelExtractConfig` |
 | `PythonConfig` | Local Python execution settings |
 | `SandboxConfig` | Python sandbox with `E2BConfig` (not currently used) |
-| `DemoConfig` | Demo mode with `RateLimitConfig` for rate limiting and sidebar lock |
+| `DemoConfig` | Demo mode with `RateLimitConfig` for rate limiting, sidebar lock, and per-session message limits |
 
 ---
 

@@ -54,6 +54,7 @@ Detailed documentation of every component in the Reasoner system.
 **Endpoints**:
 - `GET /api/health` - Health check
 - `GET /api/config` - Current configuration
+- `GET /api/usage` - Per-session message usage `{limit, used, remaining}`
 
 **Lifespan Events**:
 ```python
@@ -639,6 +640,8 @@ result = await engine.run(run_id, query)
 | `_extract_finding_from_result()` | Extract key findings from tool results |
 | `_create_plan()` | Generate research plan before execution |
 | `_inject_plan_into_messages()` | Append plan to system message |
+| `_check_pause()` | Block if pause_signal is cleared; resume on resume_signal |
+| `_inject_steer_messages()` | Drain steer queue and inject as user-role messages |
 
 **Agent Execution Flow**:
 ```python
@@ -694,6 +697,7 @@ while not (synthesis or step >= max_steps):
 - `PLANNING` - Deciding next action
 - `TOOL_CALLING` - Executing tools
 - `SYNTHESIZING` - Generating answer
+- `PAUSED` - Blocked between steps (via pause_signal)
 - `COMPLETE` - Done
 - `ERROR` - Failed
 
@@ -701,6 +705,8 @@ while not (synthesis or step >= max_steps):
 - `start()` - INIT → PLANNING
 - `call_tools()` - PLANNING → TOOL_CALLING
 - `synthesize()` - * → SYNTHESIZING
+- `pause()` - STEP_LOOP → PAUSED (blocks on pause_signal)
+- `resume()` - PAUSED → STEP_LOOP (unblocks via resume_signal)
 - `complete()` - SYNTHESIZING → COMPLETE
 - `error()` - * → ERROR
 
@@ -1477,6 +1483,9 @@ async with self._seq_lock:
 | `GET` | `/api/agent/runs/{id}/stream` | SSE stream |
 | `POST` | `/api/agent/runs/{id}/approve/{tool_call_id}` | Approve pending tool |
 | `POST` | `/api/agent/runs/{id}/deny/{tool_call_id}` | Deny pending tool |
+| `POST` | `/api/agent/runs/{id}/pause` | Pause agent between steps |
+| `POST` | `/api/agent/runs/{id}/resume` | Resume a paused agent |
+| `POST` | `/api/agent/runs/{id}/steer` | Inject a steering message into the run |
 | `POST` | `/api/agent/runs/{id}/cancel` | Cancel agent |
 
 **Tool Approval Flow**:
@@ -1484,6 +1493,18 @@ async with self._seq_lock:
 - Agent engine creates a Future when a tool needs approval, emits `tool_approval_required` SSE event
 - `/approve` resolves the Future with `True`, `/deny` resolves with `False`
 - Approval timeout: 5 minutes (tool is denied if no response)
+
+**Pause/Resume Flow**:
+- Agent checks `pause_signal` (asyncio.Event) between steps
+- `/pause` clears the signal, causing the agent loop to block; emits `paused` SSE event
+- `/resume` sets the signal, unblocking the loop; emits `resumed` SSE event
+- State machine transitions to `AgentState.PAUSED` while blocked
+
+**Steer Queue**:
+- In-memory `_steer_queues`: `Dict[run_id, List[str]]`
+- `/steer` appends a message to the queue; emits `steer` (steer_injected) SSE event
+- Before each LLM call, queued messages are injected as user-role messages into the conversation
+- Messages are cleared from the queue after injection
 
 **SSE Stream Token Auth**:
 - Each `POST /api/agent/runs` generates a per-run `secrets.token_urlsafe(16)` stored in `_run_tokens`
@@ -1874,7 +1895,10 @@ Built with the [Textual](https://textual.textualize.io/) framework. Always uses 
 - Stores stream tokens in `localStorage` on agent run creation for page reload recovery
 - `subscribedRunRef` tracks run IDs already subscribed in `handleSubmit()` to prevent `loadConversation()` from opening a duplicate SSE connection
 - Defers `navigate()` until after `subscribeAgent()` so the subscription guard is set before the URL change triggers `loadConversation`
-- `hasActiveRun` disables textarea and send button while any run (chat or agent) is in progress
+- `hasActiveRun` disables textarea for new messages but enables mid-run steering
+- During active agent runs, textarea shows "Steer the agent..." placeholder and send button displays "steer" in amber
+- Queued steer message chips appear above textarea and are cleared after injection
+- Usage counter shows "X left" when message limits are enabled; input disabled at limit with 429 toast handling
 
 ### `ui/src/components/ConversationList.tsx`
 
