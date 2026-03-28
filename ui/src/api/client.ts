@@ -423,6 +423,7 @@ export interface LocalModel {
   name: string;
   size_bytes: number;
   size_display: string;
+  model_type: 'gguf' | 'mlx';
 }
 
 export interface ModelStatus {

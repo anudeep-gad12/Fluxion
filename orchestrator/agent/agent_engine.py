@@ -299,7 +299,8 @@ To provide your final answer, respond WITHOUT calling any tools."""
         self._repo = repo
         self._registry = registry
         self._trace_repo = trace_repo
-        self._model_name = model_name
+        # Use provider's default model if set (e.g. local MLX server)
+        self._model_name = getattr(provider, "_default_model", None) or model_name
         self._max_steps = max_steps
         self._max_tokens = max_tokens
         self._temperature = temperature

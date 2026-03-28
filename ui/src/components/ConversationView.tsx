@@ -124,7 +124,7 @@ function ModelPicker({
       onModelStatusChange(status);
       onOpenChange(false);
     } catch {
-      setError('Failed to start model. Check logs/llama.log');
+      setError(`Failed to start model. Check logs/${model.model_type === 'mlx' ? 'mlx' : 'llama'}.log`);
     } finally {
       setSwitching(null);
     }
@@ -185,17 +185,51 @@ function ModelPicker({
                 </div>
               ))}
 
-              {/* Local models */}
-              {localModels.length > 0 && (
+              {/* Local GGUF models */}
+              {localModels.filter(m => m.model_type === 'gguf').length > 0 && (
                 <>
                   <div className="border-t border-zinc-800 my-1" />
                   <p className="text-[10px] text-zinc-600 font-mono px-3 pt-2 pb-1 uppercase">
                     local
                   </p>
-                  {localModels.map((model) => {
+                  {localModels.filter(m => m.model_type === 'gguf').map((model) => {
                     const isActive =
                       modelStatus?.provider === 'local' &&
                       modelStatus.model_name === model.name.replace(/.*\//, '').replace(/\.gguf$/, '');
+                    return (
+                      <button
+                        key={model.path}
+                        onClick={() => handleSelectLocal(model)}
+                        disabled={!!switching}
+                        className={cn(
+                          'w-full text-left px-3 py-1.5 text-xs font-mono transition-colors',
+                          isActive
+                            ? 'text-zinc-200 bg-zinc-800'
+                            : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50',
+                          switching === model.path && 'opacity-50',
+                        )}
+                      >
+                        <div className="flex justify-between items-center">
+                          <span className="truncate mr-2">{model.name}</span>
+                          <span className="text-zinc-600 flex-shrink-0">{model.size_display}</span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </>
+              )}
+
+              {/* MLX models */}
+              {localModels.filter(m => m.model_type === 'mlx').length > 0 && (
+                <>
+                  <div className="border-t border-zinc-800 my-1" />
+                  <p className="text-[10px] text-zinc-600 font-mono px-3 pt-2 pb-1 uppercase">
+                    mlx
+                  </p>
+                  {localModels.filter(m => m.model_type === 'mlx').map((model) => {
+                    const isActive =
+                      modelStatus?.provider === 'local' &&
+                      modelStatus.model_name === model.name.replace(/.*\//, '');
                     return (
                       <button
                         key={model.path}

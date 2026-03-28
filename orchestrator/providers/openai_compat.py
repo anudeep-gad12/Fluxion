@@ -71,6 +71,7 @@ class OpenAICompatProvider:
         endpoint: str = "responses",
         fallback_on_404: bool = True,
         fail_on_tool_fallback: bool = True,
+        default_model: Optional[str] = None,
         timeout: float = 120.0,
         max_retries: int = 3,
         base_delay: float = 1.0,
@@ -100,6 +101,8 @@ class OpenAICompatProvider:
         self._endpoint = endpoint
         self._fallback_on_404 = fallback_on_404
         self._fail_on_tool_fallback = fail_on_tool_fallback
+        self._default_model = default_model
+        self._shared = False  # If True, close() is a no-op (shared provider override)
         self._timeout = timeout
         self._max_retries = max_retries
         self._base_delay = base_delay
@@ -140,6 +143,8 @@ class OpenAICompatProvider:
 
     async def close(self) -> None:
         """Clean up provider resources."""
+        if self._shared:
+            return  # Shared providers are managed externally
         await self._client.aclose()
 
     async def health_check(self) -> bool:
@@ -273,6 +278,10 @@ class OpenAICompatProvider:
         Raises:
             RetryExhaustedError: If streaming fails after all retry attempts.
         """
+        # Override model name if provider has a default (e.g. local MLX server)
+        if self._default_model:
+            model = self._default_model
+
         endpoint_type = await self._resolve_endpoint()
 
         # Note: responses API doesn't support tool_choice parameter

@@ -337,11 +337,12 @@ class AgentRunTraceResponse(BaseModel):
 
 
 class LocalModelSchema(BaseModel):
-    """A GGUF model available on disk."""
+    """A local model available on disk (GGUF or MLX)."""
 
     path: str
     name: str
     size_bytes: int
+    model_type: str = "gguf"
     size_display: str
 
 
