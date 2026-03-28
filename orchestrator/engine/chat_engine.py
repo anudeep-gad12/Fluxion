@@ -71,7 +71,11 @@ class ChatEngine:
                        of config.model.name for API calls.
         """
         self.config = config or get_chat_config()
-        self._model_name_override = model_name
+        # Use provider's default model if set (e.g. local MLX server)
+        self._model_name_override = (
+            getattr(provider, "_default_model", None) or model_name
+            if provider is not None else model_name
+        )
 
         # Use provided provider or create from config
         if provider is not None:

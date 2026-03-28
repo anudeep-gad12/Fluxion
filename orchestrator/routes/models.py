@@ -55,6 +55,7 @@ async def list_local_models():
             name=m.name,
             size_bytes=m.size_bytes,
             size_display=m.size_display,
+            model_type=m.model_type.value,
         )
         for m in models
     ]
@@ -77,16 +78,21 @@ async def start_local_model(request: StartModelRequest):
         raise HTTPException(status_code=404, detail=str(e))
 
     if not ok:
+        model_type = local_models.status().get("model_type", "gguf")
+        log_file = "mlx.log" if model_type == "mlx" else "llama.log"
         raise HTTPException(
-            status_code=500, detail="llama-server failed to start. Check logs/llama.log"
+            status_code=500, detail=f"Server failed to start. Check logs/{log_file}"
         )
 
-    # Swap the provider to point at local llama-server
+    # Swap the provider to point at local server
+    local_status = local_models.status()
     local_provider = OpenAICompatProvider(
         base_url=f"http://localhost:{local_models.LLAMA_PORT}/v1",
         api_key="not-needed",
         endpoint="chat_completions",
+        default_model=local_status["model_path"] if local_status.get("model_type") == "mlx" else None,
     )
+    local_provider._shared = True  # Prevent engine.close() from killing the shared client
     set_provider_override(local_provider)
 
     model_name = local_models.status()["model_name"]

@@ -263,9 +263,12 @@ async def _run_agent_task(
             notify.set()
 
     try:
-        # Resolve provider override
-        provider_override = None
-        if session_id and provider_preference == "chatgpt":
+        # Resolve provider override — check local model first
+        from orchestrator.providers.factory import get_provider_override
+        provider_override = get_provider_override()
+        if provider_override is not None:
+            pass  # Local model is active, use it
+        elif session_id and provider_preference == "chatgpt":
             # ChatGPT path: use stored OAuth tokens
             try:
                 from orchestrator.providers.factory import create_chatgpt_provider
