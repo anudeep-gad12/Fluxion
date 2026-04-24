@@ -2,6 +2,7 @@
 
 # Load .env FIRST, before any other imports that might read config
 from dotenv import load_dotenv
+
 load_dotenv()
 
 import os
@@ -24,7 +25,15 @@ from orchestrator.logging_config import (
     set_component,
 )
 from orchestrator.storage.db import get_db
-from orchestrator.routes import conversations, runs, agent_runs, benchmarks, auth, models
+from orchestrator.routes import (
+    agent_runs,
+    auth,
+    benchmarks,
+    conversations,
+    models,
+    runs,
+    workspaces,
+)
 from orchestrator.middleware.rate_limit import RateLimitMiddleware
 from orchestrator.middleware.session import SessionMiddleware
 
@@ -75,6 +84,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         raw_query = str(request.query_params) if request.query_params else None
         if raw_query and "owner=" in raw_query:
             from urllib.parse import parse_qs, urlencode
+
             params = parse_qs(raw_query, keep_blank_values=True)
             if "owner" in params:
                 params["owner"] = ["[REDACTED]"]
@@ -85,7 +95,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
                 "method": request.method,
                 "path": str(request.url.path),
                 "query": raw_query,
-            }
+            },
         )
 
         try:
@@ -98,7 +108,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
                 extra={
                     "status_code": response.status_code,
                     "duration_ms": duration_ms,
-                }
+                },
             )
 
             # Add request ID to response headers
@@ -110,7 +120,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
             logger.error(
                 f"{request.method} {request.url.path} -> ERROR: {e}",
                 exc_info=True,
-                extra={"duration_ms": duration_ms}
+                extra={"duration_ms": duration_ms},
             )
             raise
 
@@ -140,7 +150,7 @@ async def lifespan(app: FastAPI):
                 "base_url": base_url[:30] + "..." if len(base_url) > 30 else base_url,
                 "max_tokens": config.model.max_tokens,
                 "thinking_modes": list(config.thinking.mode_mapping.keys()),
-            }
+            },
         )
     except Exception as e:
         logger.warning(f"Could not load config for logging: {e}")
@@ -153,9 +163,7 @@ async def lifespan(app: FastAPI):
     # This runs unconditionally to catch any orphaned tool_calls/steps even if runs were already cleaned
 
     # Count orphaned runs
-    cursor = await db.conn.execute(
-        "SELECT COUNT(*) FROM runs WHERE status = 'running'"
-    )
+    cursor = await db.conn.execute("SELECT COUNT(*) FROM runs WHERE status = 'running'")
     row = await cursor.fetchone()
     orphaned_runs = row[0] if row else 0
 
@@ -214,7 +222,7 @@ async def lifespan(app: FastAPI):
                 "orphaned_runs": orphaned_runs,
                 "orphaned_tool_calls": orphaned_tool_calls,
                 "orphaned_steps": orphaned_steps,
-            }
+            },
         )
 
     # Start OAuth callback server on port 1455 (for ChatGPT login)
@@ -270,6 +278,7 @@ app.include_router(agent_runs.router)
 app.include_router(benchmarks.router)
 app.include_router(auth.router)
 app.include_router(models.router)
+app.include_router(workspaces.router)
 
 
 @app.get("/api/health")

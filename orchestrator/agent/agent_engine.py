@@ -299,8 +299,14 @@ To provide your final answer, respond WITHOUT calling any tools."""
         self._repo = repo
         self._registry = registry
         self._trace_repo = trace_repo
-        # Use provider's default model if set (e.g. local MLX server)
-        self._model_name = getattr(provider, "_default_model", None) or model_name
+        # Use provider's default model if set (e.g. local MLX server).
+        # MagicMock creates attributes on demand, so only accept real strings.
+        provider_default_model = getattr(provider, "_default_model", None)
+        self._model_name = (
+            provider_default_model
+            if isinstance(provider_default_model, str) and provider_default_model
+            else model_name
+        )
         self._max_steps = max_steps
         self._max_tokens = max_tokens
         self._temperature = temperature
@@ -1965,11 +1971,18 @@ When you complete each step, proceed to the next."""
 
         # Permission gate
         permission_level = getattr(tool.schema, "permission_level", "auto")
-        needs_approval = (
-            self._permission_policy != "yolo"
-            and permission_level != "auto"
-            and self._approval_callback is not None
-        )
+        always_auto_tools = {"web_search", "web_extract"}
+        if self._permission_policy == "strict":
+            needs_approval = (
+                tool_call.name not in always_auto_tools
+                and self._approval_callback is not None
+            )
+        else:
+            needs_approval = (
+                self._permission_policy != "yolo"
+                and permission_level != "auto"
+                and self._approval_callback is not None
+            )
 
         if needs_approval:
             # Compute diff preview before showing approval
@@ -2076,7 +2089,7 @@ When you complete each step, proceed to the next."""
         """
         # Capture full result_detail for write tools
         result_detail = None
-        if tool_call.name in ("write_file", "edit_file", "bash_tool") and result.result_data:
+        if tool_call.name in ("write_file", "edit_file", "bash") and result.result_data:
             result_detail = json.dumps(result.result_data, ensure_ascii=False)[:10000]
 
         # Record completion
@@ -2090,11 +2103,11 @@ When you complete each step, proceed to the next."""
         )
 
         # Record file change artifact for write tools
-        if result.success and tool_call.name in ("write_file", "edit_file", "bash_tool"):
+        if result.success and tool_call.name in ("write_file", "edit_file", "bash"):
             artifact_type = {
                 "write_file": "file_write",
                 "edit_file": "file_edit",
-                "bash_tool": "command_run",
+                "bash": "command_run",
             }.get(tool_call.name, tool_call.name)
             file_path = tool_call.arguments.get(
                 "file_path", tool_call.arguments.get("command", "")
@@ -2198,18 +2211,25 @@ When you complete each step, proceed to the next."""
                     path = tool._working_dir / path
                 path = path.resolve()
 
-            if not path.exists():
-                return None  # New file, no diff to show
-
-            old_content = path.read_text(encoding="utf-8")
+            old_content = ""
+            if path.exists():
+                old_content = path.read_text(encoding="utf-8")
             if old_content == new_content:
                 return None  # No changes
+
+            display_name = path.name
+            try:
+                tool = self._registry.get("write_file")
+                if tool and hasattr(tool, "_working_dir"):
+                    display_name = str(path.relative_to(tool._working_dir))
+            except Exception:
+                display_name = path.name
 
             diff_lines = difflib.unified_diff(
                 old_content.splitlines(keepends=True),
                 new_content.splitlines(keepends=True),
-                fromfile=f"a/{path.name}",
-                tofile=f"b/{path.name}",
+                fromfile=f"a/{display_name}",
+                tofile=f"b/{display_name}",
                 n=3,
             )
             diff_text = "".join(diff_lines)

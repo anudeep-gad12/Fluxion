@@ -21,8 +21,8 @@ from .agent_engine import AgentEngine, get_system_prompt_for_query_type
 from .context import get_context_strategy
 from .profile import get_profile
 from .query_classifier import QueryClassifier
-from .tools import create_tool_registry
-from .tools.registry import create_tool_registry_from_profile
+from .tools import create_tool_registry  # noqa: F401 - compatibility for existing tests
+from .tools.registry import create_browser_agent_tool_registry, create_tool_registry_from_profile
 
 if TYPE_CHECKING:
     pass
@@ -43,6 +43,7 @@ async def create_agent_engine(
     approval_callback: Optional[object] = None,
     profile_name: Optional[str] = None,
     python_provider: Optional[str] = None,
+    agent_capabilities: Optional[dict] = None,
 ) -> AgentEngine:
     """Create a fully configured AgentEngine.
 
@@ -67,7 +68,8 @@ async def create_agent_engine(
         filesystem_enabled: Legacy flag — True maps to profile="coding".
         working_dir: Working directory for filesystem/coding tools.
         approval_callback: Callback for tool approval permission system.
-        profile_name: Agent profile ("research", "coding").
+        profile_name: Internal agent profile ("research", "coding").
+        agent_capabilities: Browser-owned tool capability flags.
 
     Returns:
         Configured AgentEngine ready for execution.
@@ -123,7 +125,11 @@ async def create_agent_engine(
     resolve_name = model_name or config.model.name
     if resolve_name:
         try:
-            from orchestrator.models.registry import ModelRegistry, _ALIAS_INDEX, _MODEL_ID_INDEX
+            from orchestrator.models.registry import (
+                _ALIAS_INDEX,
+                _MODEL_ID_INDEX,
+                ModelRegistry,
+            )
 
             # Only resolve if model is actually in the registry (preset match)
             lower_name = resolve_name.strip().lower()
@@ -137,6 +143,7 @@ async def create_agent_engine(
         provider = provider_override
     elif resolved_model:
         from orchestrator.providers.factory import create_provider_for_model
+
         provider, _ = create_provider_for_model(resolve_name)
     else:
         provider = create_provider(
@@ -144,13 +151,22 @@ async def create_agent_engine(
             chain_config=config.provider_chain,
         )
 
-    # Create tool registry from profile
-    registry = create_tool_registry_from_profile(
-        config,
-        profile,
-        working_dir,
-        python_provider=python_provider,
-    )
+    # Create tool registry. Browser agent runs are capability-based and are
+    # intentionally not modeled as CLI/TUI profiles.
+    if agent_capabilities is not None:
+        registry = create_browser_agent_tool_registry(
+            config,
+            agent_capabilities,
+            working_dir,
+            python_provider=python_provider,
+        )
+    else:
+        registry = create_tool_registry_from_profile(
+            config,
+            profile,
+            working_dir,
+            python_provider=python_provider,
+        )
 
     # Create repositories
     db = await get_db()
@@ -177,7 +193,8 @@ async def create_agent_engine(
             today = date.today()
             date_context = (
                 f"Current date: {today.strftime('%B %d, %Y')}\n"
-                f"Your knowledge cutoff: June 2024. For information after this date, use web_search."
+                "Your knowledge cutoff: June 2024. For information after this date, "
+                "use web_search."
             )
             system_prompt = profile.system_prompt_template.format(
                 date_context=date_context,
@@ -186,7 +203,6 @@ async def create_agent_engine(
 
     # Get planning config
     planning_config = getattr(config, "agent_planning", None)
-    planning_enabled = planning_config.enabled if planning_config else True
     max_plan_steps = planning_config.max_plan_steps if planning_config else profile.max_plan_steps
 
     # Detect provider context capacity (resolved_model set above)
@@ -213,6 +229,8 @@ async def create_agent_engine(
         effective_max_tokens = max_tokens or config.model.max_tokens
         effective_reasoning = getattr(config.model, "reasoning_effort", None)
 
+    effective_max_steps = max_steps if max_steps is not None else 10
+
     # Build engine with overrides
     engine = AgentEngine(
         provider=provider,
@@ -220,7 +238,7 @@ async def create_agent_engine(
         registry=registry,
         trace_repo=trace_repo,
         model_name=effective_model,
-        max_steps=max_steps or profile.max_steps,
+        max_steps=effective_max_steps,
         max_tokens=effective_max_tokens,
         temperature=effective_temp,
         system_prompt=system_prompt,

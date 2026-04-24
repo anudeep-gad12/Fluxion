@@ -14,6 +14,7 @@ import type {
   StepStartEvent,
   ThinkingEvent,
   ToolStartEvent,
+  ToolApprovalRequiredEvent,
   ToolResultEvent,
   AnswerEvent,
 } from '@/types/agent';
@@ -151,13 +152,50 @@ export function useAgentSSE(runId: string | null, maxSteps: number = 10) {
             break;
           }
 
+          case 'tool_approval_required': {
+            const approvalEvent = event as ToolApprovalRequiredEvent;
+            const currentStep = getCurrentStep();
+            const existing = useStore
+              .getState()
+              .agentRunState[id]
+              ?.toolCalls.some((tc) => tc.id === approvalEvent.tool_call_id);
+
+            if (!existing) {
+              addAgentToolCall(id, {
+                id: approvalEvent.tool_call_id,
+                run_id: id,
+                step_id: `step-${currentStep}`,
+                tool_name: approvalEvent.tool_name,
+                arguments: approvalEvent.arguments,
+                status: 'pending',
+                created_at: approvalEvent.timestamp,
+                started_at: approvalEvent.timestamp,
+                idempotency_key: '',
+                execution_attempt: 1,
+                approval_required: true,
+                permission_level: approvalEvent.permission_level,
+                diff_preview: approvalEvent.diff_preview,
+              });
+            } else {
+              updateAgentToolCall(id, approvalEvent.tool_call_id, {
+                status: 'pending',
+                approval_required: true,
+                permission_level: approvalEvent.permission_level,
+                diff_preview: approvalEvent.diff_preview,
+              });
+            }
+            break;
+          }
+
           case 'tool_result': {
             const toolResultEvent = event as ToolResultEvent;
             updateAgentToolCall(id, toolResultEvent.tool_call_id, {
               status: toolResultEvent.success ? 'success' : 'error',
               result_summary: toolResultEvent.result_summary,
+              result_data: toolResultEvent.result_data,
               duration_ms: toolResultEvent.duration_ms,
               completed_at: toolResultEvent.timestamp,
+              approval_required: false,
             });
             break;
           }

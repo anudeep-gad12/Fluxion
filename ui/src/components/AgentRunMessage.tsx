@@ -84,7 +84,7 @@ export function AgentRunMessage({ run, onShowTrace, onRetry, canRetry }: AgentRu
             <p className="text-[11px] text-zinc-600">
               {formatRelativeTime(run.created_at)}
             </p>
-            <span className="text-[11px] text-cyan-700 font-mono">research</span>
+            <span className="text-[11px] text-cyan-700 font-mono">agent</span>
           </div>
         </div>
       </div>
@@ -117,7 +117,7 @@ export function AgentRunMessage({ run, onShowTrace, onRetry, canRetry }: AgentRu
               null
             ) : run.status === 'failed' ? (
               <div className="text-sm text-zinc-400">
-                [error] {run.error_detail || 'Research failed. Please try again.'}
+                [error] {run.error_detail || 'Agent failed. Please try again.'}
               </div>
             ) : null}
           </div>
@@ -163,7 +163,7 @@ export function AgentRunMessage({ run, onShowTrace, onRetry, canRetry }: AgentRu
                     : 'text-cyan-700'
               )}
             >
-              [{run.status === 'running' ? 'researching...' : run.status === 'succeeded' ? 'done' : run.status}]
+              [{run.status === 'running' ? 'agenting...' : run.status === 'succeeded' ? 'done' : run.status}]
             </span>
             {!isActive && agentState?.timing_ms && (
               <span className="text-zinc-600">

@@ -217,6 +217,15 @@ class AgentToolCallStatus(str, Enum):
     INTERRUPTED = "interrupted"
 
 
+class AgentCapabilities(BaseModel):
+    """Tool capabilities enabled for a browser agent run."""
+
+    web: bool = True
+    filesystem: bool = False
+    bash: bool = False
+    python: bool = False
+
+
 class AgentStepResponse(BaseModel):
     """Agent step details."""
 
@@ -273,6 +282,8 @@ class CreateAgentRunRequest(BaseModel):
     query: str
     conversation_id: Optional[str] = None
     max_steps: int = 1000
+    workspace_path: Optional[str] = None
+    capabilities: AgentCapabilities = Field(default_factory=AgentCapabilities)
     filesystem_enabled: bool = False
     working_dir: Optional[str] = None
     permission_policy: str = "strict"
