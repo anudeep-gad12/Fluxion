@@ -1,5 +1,5 @@
 /**
- * Agent Types - TypeScript definitions for web research agent.
+ * Agent Types - TypeScript definitions for browser coding agent.
  * Mirrors orchestrator/schemas.py agent types.
  */
 
@@ -57,6 +57,11 @@ export interface AgentToolCall {
   completed_at?: string;
   idempotency_key: string;
   execution_attempt: number;
+  result_data?: string;
+  approval_required?: boolean;
+  approval_decision?: 'approved' | 'denied' | 'auto' | 'timeout';
+  permission_level?: string;
+  diff_preview?: string | null;
 }
 
 /** Agent citation response - from AgentCitationResponse schema */
@@ -80,6 +85,16 @@ export interface CreateAgentRunRequest {
   query: string;
   conversation_id?: string;
   max_steps?: number;
+  workspace_path?: string;
+  filesystem_enabled?: boolean;
+  permission_policy?: 'strict' | 'relaxed' | 'yolo';
+  profile?: string;
+  capabilities?: {
+    web: boolean;
+    filesystem: boolean;
+    bash: boolean;
+    python: boolean;
+  };
 }
 
 /** Response from creating agent run */
@@ -88,6 +103,7 @@ export interface CreateAgentRunResponse {
   status: string;
   stream_url: string;
   stream_token: string;
+  conversation_id?: string;
 }
 
 /** Agent run status response */
@@ -124,6 +140,7 @@ export type AgentSSEEventType =
   | 'step_start' // step_started
   | 'thinking' // thinking text tokens
   | 'tool_start' // tool beginning execution
+  | 'tool_approval_required' // tool waiting for browser approval
   | 'tool_result' // tool finished
   | 'answer' // streaming answer tokens
   | 'complete' // run finished
@@ -172,6 +189,16 @@ export interface ToolStartEvent extends AgentSSEEventBase {
   arguments: Record<string, unknown>;
 }
 
+/** Tool approval required event */
+export interface ToolApprovalRequiredEvent extends AgentSSEEventBase {
+  type: 'tool_approval_required';
+  tool_call_id: string;
+  tool_name: string;
+  arguments: Record<string, unknown>;
+  permission_level: string;
+  diff_preview?: string | null;
+}
+
 /** Tool result event */
 export interface ToolResultEvent extends AgentSSEEventBase {
   type: 'tool_result';
@@ -179,6 +206,7 @@ export interface ToolResultEvent extends AgentSSEEventBase {
   tool_name: string;
   success: boolean;
   result_summary: string;
+  result_data?: string;
   duration_ms?: number;
 }
 
@@ -232,6 +260,7 @@ export type AgentSSEEvent =
   | StepStartEvent
   | ThinkingEvent
   | ToolStartEvent
+  | ToolApprovalRequiredEvent
   | ToolResultEvent
   | AnswerEvent
   | CompleteEvent

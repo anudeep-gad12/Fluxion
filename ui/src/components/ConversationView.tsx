@@ -25,8 +25,16 @@ import {
   selectModel,
   getUsage,
   steerAgentRun,
+  browseWorkspaceDirectories,
 } from '@/api/client';
-import type { LocalModel, ModelStatus, RegistryModelPreset, RegistryModelsResponse, UsageInfo } from '@/api/client';
+import type {
+  LocalModel,
+  ModelStatus,
+  RegistryModelPreset,
+  RegistryModelsResponse,
+  UsageInfo,
+  WorkspaceBrowseResponse,
+} from '@/api/client';
 import {
   Dialog,
   DialogHeader,
@@ -42,7 +50,7 @@ import type { Run, Conversation, ReasoningEffort } from '@/types';
 /** Maximum characters allowed in the input textarea (~2000 tokens) */
 const MAX_INPUT_CHARS = 8000;
 
-/** Preset questions showcasing multi-step agentic research capabilities */
+/** Preset questions showcasing multi-step agent capabilities */
 const PRESET_QUESTIONS = [
   {
     label: "What's the total mass of all humans versus all ants?",
@@ -62,8 +70,8 @@ const PRESET_QUESTIONS = [
   },
 ];
 
-/** Mode: 'chat' for regular conversation, 'research' for agent */
-type ChatMode = 'chat' | 'research';
+/** Mode: 'chat' for regular conversation, 'agent' for agent */
+type ChatMode = 'chat' | 'agent';
 
 /** Model picker component shown in the status bar */
 function ModelPicker({
@@ -260,6 +268,117 @@ function ModelPicker({
   );
 }
 
+function WorkspacePicker({
+  open,
+  onOpenChange,
+  value,
+  onSelect,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  value: string;
+  onSelect: (path: string) => void;
+}) {
+  const [data, setData] = useState<WorkspaceBrowseResponse | null>(null);
+  const [pathInput, setPathInput] = useState(value);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadPath = useCallback((path?: string) => {
+    setLoading(true);
+    setError(null);
+    browseWorkspaceDirectories(path || undefined)
+      .then((next) => {
+        setData(next);
+        setPathInput(next.path);
+      })
+      .catch((err: { message?: string }) => setError(err.message || 'Failed to browse path'))
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    loadPath(value || undefined);
+  }, [open, value, loadPath]);
+
+  const chooseCurrent = () => {
+    if (!data?.path) return;
+    onSelect(data.path);
+    onOpenChange(false);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogHeader>
+        <DialogTitle className="font-mono text-sm">Choose workspace</DialogTitle>
+      </DialogHeader>
+      <DialogContent>
+        <div className="space-y-3 font-mono text-xs">
+          <div className="flex gap-2">
+            <input
+              value={pathInput}
+              onChange={(e) => setPathInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') loadPath(pathInput);
+              }}
+              className="flex-1 bg-zinc-950 border border-zinc-800 px-2 py-1.5 text-zinc-300 outline-none"
+              placeholder="/path/to/repo"
+            />
+            <button
+              onClick={() => loadPath(pathInput)}
+              className="px-2 py-1.5 text-zinc-400 hover:text-zinc-200 border border-zinc-800"
+            >
+              open
+            </button>
+          </div>
+
+          {error && <p className="text-red-400">{error}</p>}
+
+          <div className="border border-zinc-800 max-h-72 overflow-y-auto">
+            {loading ? (
+              <p className="px-3 py-2 text-zinc-600">Loading...</p>
+            ) : (
+              <>
+                {data?.parent && (
+                  <button
+                    onClick={() => loadPath(data.parent!)}
+                    className="block w-full text-left px-3 py-1.5 text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800/50"
+                  >
+                    ../
+                  </button>
+                )}
+                {data?.entries.map((entry) => (
+                  <button
+                    key={entry.path}
+                    onClick={() => loadPath(entry.path)}
+                    className={cn(
+                      'block w-full text-left px-3 py-1.5 hover:text-zinc-200 hover:bg-zinc-800/50',
+                      entry.hidden ? 'text-zinc-700' : 'text-zinc-400'
+                    )}
+                  >
+                    {entry.name}/
+                  </button>
+                ))}
+              </>
+            )}
+          </div>
+
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-zinc-600 truncate">{data?.path || pathInput}</span>
+            <button
+              onClick={chooseCurrent}
+              disabled={!data?.path}
+              className="text-emerald-500/80 hover:text-emerald-400 disabled:text-zinc-700"
+            >
+              [use this folder]
+            </button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // Empty string constant to avoid creating new references
 const EMPTY_STRING = '';
 
@@ -390,7 +509,14 @@ export function ConversationView() {
   const [message, setMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>('medium');
-  const [mode, setMode] = useState<ChatMode>('research');
+  const [mode, setMode] = useState<ChatMode>('agent');
+  const [workspacePath, setWorkspacePath] = useState(
+    () => localStorage.getItem('reasoner_workspace_path') || ''
+  );
+  const [workspacePickerOpen, setWorkspacePickerOpen] = useState(false);
+  const [permissionPolicy, setPermissionPolicy] = useState<'strict' | 'relaxed' | 'yolo'>(
+    () => (localStorage.getItem('reasoner_permission_policy') as 'strict' | 'relaxed' | 'yolo') || 'strict'
+  );
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -407,6 +533,14 @@ export function ConversationView() {
   const refreshUsage = useCallback(() => {
     getUsage().then(setUsage).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    localStorage.setItem('reasoner_workspace_path', workspacePath);
+  }, [workspacePath]);
+
+  useEffect(() => {
+    localStorage.setItem('reasoner_permission_policy', permissionPolicy);
+  }, [permissionPolicy]);
 
   // Fetch model status, config, and usage on mount
   useEffect(() => {
@@ -462,7 +596,7 @@ export function ConversationView() {
   // Get subscribe/unsubscribe functions from useSSE (chat mode)
   const { subscribe, unsubscribe } = useSSE(activeChatRunId);
 
-  // Get subscribe/unsubscribe functions from useAgentSSE (research mode)
+  // Get subscribe/unsubscribe functions from useAgentSSE (agent mode)
   const {
     subscribe: subscribeAgent,
     unsubscribe: unsubscribeAgent,
@@ -564,7 +698,7 @@ export function ConversationView() {
     setIsSubmitting(true);
     setPendingMessage(messageToSend);
     setMessage('');
-    setPendingIsAgent(mode === 'research');
+    setPendingIsAgent(mode === 'agent');
     let conversationId = selectedConversationId;
 
     // Track whether we need to navigate after setup (deferred to prevent
@@ -589,12 +723,21 @@ export function ConversationView() {
         needsNavigate = true;
       }
 
-      if (mode === 'research') {
-        // Research mode: use agent API
+      if (mode === 'agent') {
+        // Agent mode: use agent API
         const response = await createAgentRun({
           query: messageToSend,
           conversation_id: conversationId!,
           max_steps: 25,
+          workspace_path: workspacePath.trim() || undefined,
+          filesystem_enabled: !!workspacePath.trim(),
+          permission_policy: permissionPolicy,
+          capabilities: {
+            web: true,
+            filesystem: !!workspacePath.trim(),
+            bash: !!workspacePath.trim(),
+            python: false,
+          },
         });
 
         setPendingRunId(response.run_id);
@@ -749,7 +892,7 @@ export function ConversationView() {
     // Cmd/Ctrl + 1 for Agent mode
     if (e.key === '1' && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
-      setMode('research');
+      setMode('agent');
       return;
     }
     // Cmd/Ctrl + 2 for Chat mode
@@ -790,7 +933,7 @@ export function ConversationView() {
 
   const handlePresetClick = (query: string) => {
     setMessage(query);
-    setMode('research'); // Preset questions are designed for research mode
+    setMode('agent'); // Preset questions are designed for agent mode
     requestAnimationFrame(resizeTextarea);
   };
 
@@ -831,21 +974,27 @@ export function ConversationView() {
             onModelStatusChange={setModelStatus}
           />
         )}
+        <WorkspacePicker
+          open={workspacePickerOpen}
+          onOpenChange={setWorkspacePickerOpen}
+          value={workspacePath}
+          onSelect={setWorkspacePath}
+        />
 
         <div className="flex-1 flex flex-col items-center justify-center text-zinc-400 gap-4 sm:gap-6 px-3 sm:px-4 md:px-6 overflow-y-auto min-h-0">
           <div className="font-mono text-center">
             <p className="text-sm text-zinc-500">
-              <span className="text-zinc-700">───</span> {mode === 'research' ? 'agent' : 'chat'} <span className="text-zinc-700">───</span>
+              <span className="text-zinc-700">───</span> {mode === 'agent' ? 'agent' : 'chat'} <span className="text-zinc-700">───</span>
             </p>
             <p className="text-xs text-zinc-600 mt-1">
-              {mode === 'research'
-                ? 'web search · content extraction · code execution'
+              {mode === 'agent'
+                ? 'workspace tools · bash · web search'
                 : 'reasoning-capable conversation'}
             </p>
           </div>
 
           {/* Preset Questions - only show in agent mode */}
-          {mode === 'research' && (
+          {mode === 'agent' && (
             <div className="w-full max-w-xl font-mono">
               <p className="text-xs text-zinc-700 mb-2">~ examples</p>
               <div className="space-y-0.5 border-l border-zinc-800 ml-1">
@@ -870,7 +1019,7 @@ export function ConversationView() {
               <span className="text-zinc-500 font-mono text-sm mt-0.5 select-none">&gt;</span>
               <textarea
                 ref={textareaRef}
-                placeholder={mode === 'research' ? 'Ask agent to research...' : 'Ask a question...'}
+                placeholder={mode === 'agent' ? 'Ask the coding agent...' : 'Ask a question...'}
                 value={message}
                 onChange={handleMessageChange}
                 onKeyDown={handleKeyDown}
@@ -885,10 +1034,10 @@ export function ConversationView() {
           <div className="flex items-center justify-between px-1">
             <div className="flex items-center gap-3 font-mono text-xs">
               <button
-                onClick={() => setMode('research')}
+                onClick={() => setMode('agent')}
                 className={cn(
                   'transition-colors',
-                  mode === 'research' ? 'text-zinc-200' : 'text-zinc-600 hover:text-zinc-400'
+                  mode === 'agent' ? 'text-zinc-200' : 'text-zinc-600 hover:text-zinc-400'
                 )}
               >
                 agent
@@ -902,6 +1051,34 @@ export function ConversationView() {
               >
                 chat
               </button>
+              {mode === 'agent' && (
+                <>
+                  <input
+                    value={workspacePath}
+                    onChange={(e) => setWorkspacePath(e.target.value)}
+                    placeholder="/path/to/repo"
+                    className="w-40 sm:w-56 bg-transparent border-none outline-none text-xs font-mono text-zinc-400 placeholder:text-zinc-700"
+                    title="Workspace path for filesystem and bash tools"
+                  />
+                  <button
+                    onClick={() => setWorkspacePickerOpen(true)}
+                    className="text-zinc-600 hover:text-zinc-300 transition-colors"
+                    title="Browse local folders"
+                  >
+                    browse
+                  </button>
+                  <select
+                    value={permissionPolicy}
+                    onChange={(e) => setPermissionPolicy(e.target.value as 'strict' | 'relaxed' | 'yolo')}
+                    className="bg-transparent border-none outline-none text-xs font-mono text-zinc-500 cursor-pointer"
+                    title="Tool permission policy"
+                  >
+                    <option value="strict">strict</option>
+                    <option value="relaxed">relaxed</option>
+                    <option value="yolo">yolo</option>
+                  </select>
+                </>
+              )}
               {mode === 'chat' && (
                 <select
                   value={reasoningEffort}
@@ -991,6 +1168,12 @@ export function ConversationView() {
           onModelStatusChange={setModelStatus}
         />
       )}
+      <WorkspacePicker
+        open={workspacePickerOpen}
+        onOpenChange={setWorkspacePickerOpen}
+        value={workspacePath}
+        onSelect={setWorkspacePath}
+      />
 
       <div className="flex-1 overflow-y-auto px-3 sm:px-4 md:px-6 py-4 sm:py-5 md:py-6" ref={scrollRef}>
         <div className="space-y-8">
@@ -1043,7 +1226,7 @@ export function ConversationView() {
             <span className="text-zinc-500 font-mono text-sm mt-0.5 select-none">&gt;</span>
             <textarea
               ref={textareaRef}
-              placeholder={atLimit ? 'Message limit reached' : hasActiveRun ? 'Steer the agent...' : mode === 'research' ? 'Ask agent to research...' : 'Ask a follow-up question...'}
+              placeholder={atLimit ? 'Message limit reached' : hasActiveRun ? 'Steer the agent...' : mode === 'agent' ? 'Ask the coding agent...' : 'Ask a follow-up question...'}
               value={message}
               onChange={handleMessageChange}
               onKeyDown={handleKeyDown}
@@ -1058,10 +1241,10 @@ export function ConversationView() {
         <div className="flex items-center justify-between px-1">
           <div className="flex items-center gap-3 font-mono text-xs">
             <button
-              onClick={() => setMode('research')}
+              onClick={() => setMode('agent')}
               className={cn(
                 'transition-colors',
-                mode === 'research' ? 'text-zinc-200' : 'text-zinc-600 hover:text-zinc-400'
+                mode === 'agent' ? 'text-zinc-200' : 'text-zinc-600 hover:text-zinc-400'
               )}
             >
               agent
@@ -1075,6 +1258,34 @@ export function ConversationView() {
             >
               chat
             </button>
+            {mode === 'agent' && (
+              <>
+                <input
+                  value={workspacePath}
+                  onChange={(e) => setWorkspacePath(e.target.value)}
+                  placeholder="/path/to/repo"
+                  className="w-40 sm:w-56 bg-transparent border-none outline-none text-xs font-mono text-zinc-400 placeholder:text-zinc-700"
+                  title="Workspace path for filesystem and bash tools"
+                />
+                <button
+                  onClick={() => setWorkspacePickerOpen(true)}
+                  className="text-zinc-600 hover:text-zinc-300 transition-colors"
+                  title="Browse local folders"
+                >
+                  browse
+                </button>
+                <select
+                  value={permissionPolicy}
+                  onChange={(e) => setPermissionPolicy(e.target.value as 'strict' | 'relaxed' | 'yolo')}
+                  className="bg-transparent border-none outline-none text-xs font-mono text-zinc-500 cursor-pointer"
+                  title="Tool permission policy"
+                >
+                  <option value="strict">strict</option>
+                  <option value="relaxed">relaxed</option>
+                  <option value="yolo">yolo</option>
+                </select>
+              </>
+            )}
             {mode === 'chat' && (
               <select
                 value={reasoningEffort}

@@ -1,10 +1,15 @@
 """Tests for ToolRegistry."""
 
-import pytest
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+
 from orchestrator.agent.tools.base import ToolResult, ToolSchema
-from orchestrator.agent.tools.registry import ToolRegistry
+from orchestrator.agent.tools.registry import (
+    ToolRegistry,
+    create_browser_agent_tool_registry,
+)
 
 
 def create_mock_tool(name: str, is_idempotent: bool = True) -> MagicMock:
@@ -221,3 +226,50 @@ class TestToolRegistry:
         """Close on empty registry succeeds."""
         registry = ToolRegistry()
         await registry.close_all()  # Should not raise
+
+
+class TestBrowserAgentToolRegistry:
+    """Tests for browser capability-based tool registration."""
+
+    def test_filesystem_and_bash_capabilities_register_workspace_tools(self, tmp_path):
+        """Browser agent capabilities control filesystem and bash tools."""
+        config = SimpleNamespace(parallel=None, python=SimpleNamespace(timeout_seconds=30))
+
+        registry = create_browser_agent_tool_registry(
+            config,
+            {
+                "web": False,
+                "filesystem": True,
+                "bash": True,
+                "python": False,
+            },
+            working_dir=str(tmp_path),
+        )
+
+        assert set(registry.tool_names) == {
+            "read_file",
+            "list_directory",
+            "glob",
+            "grep",
+            "write_file",
+            "edit_file",
+            "bash",
+        }
+
+    def test_python_is_disabled_by_default_for_browser_agent(self, tmp_path):
+        """Browser coding agent does not register python unless requested."""
+        config = SimpleNamespace(parallel=None, python=SimpleNamespace(timeout_seconds=30))
+
+        registry = create_browser_agent_tool_registry(
+            config,
+            {
+                "web": False,
+                "filesystem": True,
+                "bash": False,
+                "python": False,
+            },
+            working_dir=str(tmp_path),
+        )
+
+        assert "python_execute" not in registry.tool_names
+        assert "bash" not in registry.tool_names

@@ -246,10 +246,11 @@ import type {
   AgentRunTrace,
   AgentSSEEvent,
   AgentCitation,
+  ContextUsage,
 } from '@/types/agent';
 
 /**
- * Create a new agent research run.
+ * Create a new agent run.
  */
 export async function createAgentRun(
   request: CreateAgentRunRequest,
@@ -311,6 +312,24 @@ export async function steerAgentRun(
   });
 }
 
+export async function approveAgentToolCall(
+  runId: string,
+  toolCallId: string,
+): Promise<{ status: string; run_id: string; tool_call_id: string }> {
+  return fetchJson(`${API_BASE}/agent/runs/${runId}/approve/${toolCallId}`, {
+    method: 'POST',
+  });
+}
+
+export async function denyAgentToolCall(
+  runId: string,
+  toolCallId: string,
+): Promise<{ status: string; run_id: string; tool_call_id: string }> {
+  return fetchJson(`${API_BASE}/agent/runs/${runId}/deny/${toolCallId}`, {
+    method: 'POST',
+  });
+}
+
 /**
  * Subscribe to agent run SSE stream with resumption support.
  *
@@ -333,6 +352,8 @@ export function subscribeToAgentRun(
     citations?: AgentCitation[];
     total_steps: number;
     timing_ms: number;
+    total_tokens?: number;
+    context_usage?: ContextUsage;
   }) => void,
   onError: (error: string) => void,
   onCancelled?: () => void,
@@ -353,6 +374,7 @@ export function subscribeToAgentRun(
     'step_start',
     'thinking',
     'tool_start',
+    'tool_approval_required',
     'tool_result',
     'answer',
     'paused',
@@ -452,6 +474,27 @@ export async function stopLocalModel(): Promise<{ status: string; provider: stri
 
 export async function getModelStatus(): Promise<ModelStatus> {
   return fetchJson<ModelStatus>(`${API_BASE}/models/status`);
+}
+
+export interface WorkspaceDirectoryEntry {
+  name: string;
+  path: string;
+  hidden: boolean;
+}
+
+export interface WorkspaceBrowseResponse {
+  path: string;
+  parent: string | null;
+  entries: WorkspaceDirectoryEntry[];
+}
+
+export async function browseWorkspaceDirectories(
+  path?: string,
+): Promise<WorkspaceBrowseResponse> {
+  const params = new URLSearchParams();
+  if (path) params.set('path', path);
+  const query = params.toString() ? `?${params}` : '';
+  return fetchJson<WorkspaceBrowseResponse>(`${API_BASE}/workspaces/browse${query}`);
 }
 
 export interface UsageInfo {

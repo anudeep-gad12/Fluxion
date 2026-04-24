@@ -71,10 +71,7 @@ def get_session_context(request: Request) -> Tuple[Optional[str], bool]:
     Returns:
         Tuple of (session_id, is_owner).
     """
-    session_id = (
-        request.headers.get("x-cli-session")
-        or getattr(request.state, "session_id", None)
-    )
+    session_id = request.headers.get("x-cli-session") or getattr(request.state, "session_id", None)
     is_owner = getattr(request.state, "is_owner", True)
     return session_id, is_owner
 
@@ -149,9 +146,7 @@ async def _persist_run_event(run_id: str, seq: int, event: Dict[str, Any]) -> No
     try:
         db = await get_db()
         repo = AgentRepo(db)
-        await repo.create_run_event(
-            run_id, seq, event.get("type", "unknown"), event
-        )
+        await repo.create_run_event(run_id, seq, event.get("type", "unknown"), event)
     except Exception as e:
         logger.warning(
             "Failed to persist run event",
@@ -214,6 +209,7 @@ async def _run_agent_task(
     permission_policy: str = "strict",
     profile_name: Optional[str] = None,
     python_provider: Optional[str] = None,
+    agent_capabilities: Optional[dict] = None,
 ) -> None:
     """Background task that runs the agent.
 
@@ -230,6 +226,7 @@ async def _run_agent_task(
         permission_policy: Permission policy ("strict", "relaxed", "yolo").
         profile_name: Agent profile name ("research", "coding").
         python_provider: Python execution provider ("local" or "daytona").
+        agent_capabilities: Browser-owned tool capabilities for this run.
     """
     # Import here to avoid circular imports
     from orchestrator.agent.factory import create_agent_engine
@@ -265,6 +262,7 @@ async def _run_agent_task(
     try:
         # Resolve provider override — check local model first
         from orchestrator.providers.factory import get_provider_override
+
         provider_override = get_provider_override()
         if provider_override is not None:
             pass  # Local model is active, use it
@@ -343,6 +341,7 @@ async def _run_agent_task(
             approval_callback=approval_callback if permission_policy != "yolo" else None,
             profile_name=profile_name,
             python_provider=python_provider,
+            agent_capabilities=agent_capabilities,
         )
         result = await engine.run(
             run_id=run_id,
@@ -409,6 +408,7 @@ async def create_agent_run(request: CreateAgentRunRequest, http_request: Request
     if not is_owner and session_id:
         from orchestrator.config import get_chat_config as _get_config
         from orchestrator.storage.db import get_db as _get_db
+
         _cfg = _get_config()
         if _cfg.demo and _cfg.demo.enabled:
             _limit = int(getattr(_cfg.demo, "message_limit", 10) or 10)
@@ -421,7 +421,9 @@ async def create_agent_run(request: CreateAgentRunRequest, http_request: Request
                 if (_row[0] if _row else 0) >= _limit:
                     raise HTTPException(
                         status_code=429,
-                        detail=f"Message limit reached. You can send {_limit} messages per session.",
+                        detail=(
+                            f"Message limit reached. You can send {_limit} messages per session."
+                        ),
                     )
 
     run_id = str(uuid.uuid4())
@@ -474,10 +476,18 @@ async def create_agent_run(request: CreateAgentRunRequest, http_request: Request
             if not conversation:
                 raise HTTPException(status_code=404, detail="Conversation not found")
 
+        workspace_path = request.workspace_path or request.working_dir
+        capabilities = request.capabilities.model_dump()
+        if workspace_path and request.filesystem_enabled:
+            capabilities["filesystem"] = True
+
         # Create model config snapshot for agent
         model_config = {
             "mode": "agent",
             "max_steps": request.max_steps,
+            "workspace_path": workspace_path,
+            "capabilities": capabilities,
+            "permission_policy": request.permission_policy,
         }
 
         await trace_repo.create_run(
@@ -511,11 +521,12 @@ async def create_agent_run(request: CreateAgentRunRequest, http_request: Request
                 session_id=session_id,
                 provider_preference=provider_preference,
                 model_override=model_override,
-                filesystem_enabled=request.filesystem_enabled,
-                working_dir=request.working_dir,
+                filesystem_enabled=capabilities.get("filesystem", False),
+                working_dir=workspace_path,
                 permission_policy=request.permission_policy,
                 profile_name=request.profile,
                 python_provider=request.python_provider,
+                agent_capabilities=capabilities,
             )
         )
 
@@ -792,9 +803,7 @@ async def cancel_agent_run(run_id: str, http_request: Request):
             raise HTTPException(status_code=404, detail="Run not found")
 
     if run_id not in _active_runs:
-        raise HTTPException(
-            status_code=404, detail="Run not found or already completed"
-        )
+        raise HTTPException(status_code=404, detail="Run not found or already completed")
 
     # Signal abort
     if run_id in _abort_signals:
@@ -1036,6 +1045,12 @@ async def approve_tool_call(run_id: str, tool_call_id: str, http_request: Reques
 
     Resolves the approval Future with True, allowing tool execution to proceed.
     """
+    session_id, is_owner = get_session_context(http_request)
+    if not is_owner and run_id in _run_sessions:
+        run_session = _run_sessions.get(run_id)
+        if run_session and run_session != session_id:
+            raise HTTPException(status_code=404, detail="Run not found")
+
     queues = _approval_queues.get(run_id, {})
     future = queues.get(tool_call_id)
 
@@ -1058,6 +1073,12 @@ async def deny_tool_call(run_id: str, tool_call_id: str, http_request: Request):
 
     Resolves the approval Future with False, blocking tool execution.
     """
+    session_id, is_owner = get_session_context(http_request)
+    if not is_owner and run_id in _run_sessions:
+        run_session = _run_sessions.get(run_id)
+        if run_session and run_session != session_id:
+            raise HTTPException(status_code=404, detail="Run not found")
+
     queues = _approval_queues.get(run_id, {})
     future = queues.get(tool_call_id)
 
