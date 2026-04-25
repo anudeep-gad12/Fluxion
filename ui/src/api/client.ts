@@ -247,6 +247,8 @@ import type {
   AgentSSEEvent,
   AgentCitation,
   ContextUsage,
+  TokenUsage,
+  CostUsage,
 } from '@/types/agent';
 
 /**
@@ -353,11 +355,14 @@ export function subscribeToAgentRun(
     total_steps: number;
     timing_ms: number;
     total_tokens?: number;
+    usage?: TokenUsage;
+    cost?: CostUsage | null;
     context_usage?: ContextUsage;
   }) => void,
   onError: (error: string) => void,
   onCancelled?: () => void,
   streamToken?: string,
+  onDisconnect?: () => void,
 ): () => void {
   const params = new URLSearchParams();
   if (sinceSeq > 0) params.set('since_seq', String(sinceSeq));
@@ -429,8 +434,11 @@ export function subscribeToAgentRun(
   });
 
   eventSource.onerror = () => {
-    // Connection closed or error
+    // Browser EventSource otherwise gets stuck closed after a transient
+    // disconnect. The hook reconnects with the latest seen seq so replay
+    // resumes without duplicating the full run.
     eventSource.close();
+    onDisconnect?.();
   };
 
   return () => eventSource.close();

@@ -25,6 +25,10 @@ export function useAgentSSE(runId: string | null, maxSteps: number = 10) {
   const unsubscribeRef = useRef<(() => void) | null>(null);
   const lastSeqRef = useRef<number>(0);
   const streamTokenRef = useRef<string | undefined>();
+  const thinkingBufferRef = useRef<Record<string, string>>({});
+  const answerBufferRef = useRef<Record<string, string>>({});
+  const flushTimerRef = useRef<Record<string, number>>({});
+  const reconnectTimerRef = useRef<number | null>(null);
   // Guard against stale events from previous EventSource connections.
   // When subscribe() is called, connectionIdRef increments. The handleEvent
   // closure captures the current value; late events from a closed EventSource
@@ -53,6 +57,10 @@ export function useAgentSSE(runId: string | null, maxSteps: number = 10) {
       if (unsubscribeRef.current) {
         unsubscribeRef.current();
       }
+      if (reconnectTimerRef.current) {
+        window.clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
 
       // New connection — stale events from previous EventSource are ignored
       const myConnectionId = ++connectionIdRef.current;
@@ -61,14 +69,40 @@ export function useAgentSSE(runId: string | null, maxSteps: number = 10) {
       initAgentRun(id, maxSteps);
       lastSeqRef.current = sinceSeq;
 
+      const flushBufferedTokens = () => {
+        const thinking = thinkingBufferRef.current[id];
+        if (thinking) {
+          appendAgentThinking(id, thinking);
+          thinkingBufferRef.current[id] = '';
+        }
+
+        const answer = answerBufferRef.current[id];
+        if (answer) {
+          appendAgentAnswer(id, answer);
+          answerBufferRef.current[id] = '';
+        }
+
+        if (flushTimerRef.current[id]) {
+          window.clearTimeout(flushTimerRef.current[id]);
+          delete flushTimerRef.current[id];
+        }
+      };
+
+      const scheduleTokenFlush = () => {
+        if (flushTimerRef.current[id]) return;
+        flushTimerRef.current[id] = window.setTimeout(flushBufferedTokens, 100);
+      };
+
       const handleEvent = (event: AgentSSEEvent) => {
         // Drop events from a previous (stale) EventSource connection
         if (myConnectionId !== connectionIdRef.current) return;
 
+        // Drop replayed/duplicated events after reconnect. Reconnects resume
+        // from lastSeq, but defensive de-duping prevents repeated streamed text.
+        if (event.seq <= lastSeqRef.current) return;
+
         // Track sequence for resumption
-        if (event.seq > lastSeqRef.current) {
-          lastSeqRef.current = event.seq;
-        }
+        lastSeqRef.current = event.seq;
 
         // Get current step from store
         const getCurrentStep = () => {
@@ -103,6 +137,7 @@ export function useAgentSSE(runId: string | null, maxSteps: number = 10) {
 
           case 'step_start': {
             const stepEvent = event as StepStartEvent;
+            flushBufferedTokens();
             const currentState = useStore.getState().agentRunState[id];
 
             // Save current thinking to previous step before starting new step
@@ -133,7 +168,8 @@ export function useAgentSSE(runId: string | null, maxSteps: number = 10) {
 
           case 'thinking': {
             const thinkEvent = event as ThinkingEvent;
-            appendAgentThinking(id, thinkEvent.content);
+            thinkingBufferRef.current[id] = (thinkingBufferRef.current[id] || '') + thinkEvent.content;
+            scheduleTokenFlush();
             break;
           }
 
@@ -205,7 +241,8 @@ export function useAgentSSE(runId: string | null, maxSteps: number = 10) {
 
           case 'answer': {
             const answerEvent = event as AnswerEvent;
-            appendAgentAnswer(id, answerEvent.content);
+            answerBufferRef.current[id] = (answerBufferRef.current[id] || '') + answerEvent.content;
+            scheduleTokenFlush();
             break;
           }
 
@@ -252,6 +289,7 @@ export function useAgentSSE(runId: string | null, maxSteps: number = 10) {
         context_usage?: ContextUsage;
       }) => {
         if (myConnectionId !== connectionIdRef.current) return;
+        flushBufferedTokens();
         // Save final step's thinking before marking complete
         const currentState = useStore.getState().agentRunState[id];
         if (currentState && currentState.currentStep > 0 && currentState.thinkingBuffer) {
@@ -287,6 +325,7 @@ export function useAgentSSE(runId: string | null, maxSteps: number = 10) {
 
       const handleError = (error: string) => {
         if (myConnectionId !== connectionIdRef.current) return;
+        flushBufferedTokens();
         updateAgentState(id, {
           isActive: false,
           agentState: 'error',
@@ -302,6 +341,7 @@ export function useAgentSSE(runId: string | null, maxSteps: number = 10) {
 
       const handleCancelled = () => {
         if (myConnectionId !== connectionIdRef.current) return;
+        flushBufferedTokens();
         updateAgentState(id, {
           isActive: false,
           agentState: 'cancelled',
@@ -312,6 +352,21 @@ export function useAgentSSE(runId: string | null, maxSteps: number = 10) {
         });
       };
 
+      const handleDisconnect = () => {
+        if (myConnectionId !== connectionIdRef.current) return;
+        const currentState = useStore.getState().agentRunState[id];
+        if (!currentState?.isActive) return;
+        if (reconnectTimerRef.current) return;
+
+        reconnectTimerRef.current = window.setTimeout(() => {
+          reconnectTimerRef.current = null;
+          if (myConnectionId !== connectionIdRef.current) return;
+          const latestState = useStore.getState().agentRunState[id];
+          if (!latestState?.isActive) return;
+          subscribe(id, lastSeqRef.current, streamTokenRef.current);
+        }, 750);
+      };
+
       unsubscribeRef.current = subscribeToAgentRun(
         id,
         sinceSeq,
@@ -319,7 +374,8 @@ export function useAgentSSE(runId: string | null, maxSteps: number = 10) {
         handleComplete,
         handleError,
         handleCancelled,
-        streamTokenRef.current
+        streamTokenRef.current,
+        handleDisconnect
       );
     },
     [
@@ -342,6 +398,13 @@ export function useAgentSSE(runId: string | null, maxSteps: number = 10) {
       unsubscribeRef.current();
       unsubscribeRef.current = null;
     }
+    connectionIdRef.current += 1;
+    if (reconnectTimerRef.current) {
+      window.clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
+    Object.values(flushTimerRef.current).forEach((timer) => window.clearTimeout(timer));
+    flushTimerRef.current = {};
   }, []);
 
   const reconnect = useCallback(() => {
