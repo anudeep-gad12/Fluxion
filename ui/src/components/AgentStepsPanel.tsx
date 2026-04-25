@@ -3,7 +3,8 @@
  * Shows thinking/tool activity inline without boxed step labels.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import { cn, sanitizeThinking } from '@/lib/utils';
 import { ToolCallCard } from '@/components/ToolCallCard';
 import { AnswerMarkdown } from '@/components/AnswerMarkdown';
@@ -12,14 +13,22 @@ import type { AgentToolCall, AgentUIState } from '@/types/agent';
 /** Map agent state to human-readable label */
 const STATE_LABELS: Record<string, { label: string; color: string }> = {
   initializing: { label: 'warming up', color: 'text-zinc-500' },
-  running: { label: 'working', color: 'text-cyan-400' },
-  planning: { label: 'thinking', color: 'text-cyan-400' },
-  tool_calling: { label: 'using tools', color: 'text-amber-400' },
-  synthesizing: { label: 'writing answer', color: 'text-emerald-400' },
+  running: { label: 'agenting', color: 'text-cyan-400' },
+  planning: { label: 'llming', color: 'text-cyan-400' },
+  tool_calling: { label: 'tooling', color: 'text-amber-400' },
+  synthesizing: { label: 'landing', color: 'text-emerald-400' },
   paused: { label: 'paused', color: 'text-amber-400' },
   complete: { label: 'done', color: 'text-emerald-500' },
   error: { label: 'error', color: 'text-red-500' },
   cancelled: { label: 'cancelled', color: 'text-zinc-500' },
+};
+
+const ACTIVE_WORDS: Record<string, string[]> = {
+  initializing: ['warming up', 'booting'],
+  running: ['agenting', 'working', 'routing'],
+  planning: ['thinking...', 'llming', 'mapping'],
+  tool_calling: ['tooling', 'patching', 'probing'],
+  synthesizing: ['writing', 'landing', 'wrapping'],
 };
 
 /** Elapsed time counter for active runs */
@@ -66,6 +75,93 @@ function AgentLoader({ state }: { state: string }) {
   );
 }
 
+function useAnimatedStateLabel(state: string, isActive: boolean): string {
+  const words = ACTIVE_WORDS[state];
+  const [index, setIndex] = useState(0);
+
+  useEffect(() => {
+    setIndex(0);
+  }, [state]);
+
+  useEffect(() => {
+    if (!isActive || !words || words.length <= 1) {
+      return;
+    }
+    const interval = setInterval(() => {
+      setIndex((current) => (current + 1) % words.length);
+    }, 1300);
+    return () => clearInterval(interval);
+  }, [isActive, words]);
+
+  return words?.[index] || STATE_LABELS[state]?.label || state;
+}
+
+function TimelineItem({
+  dotClassName,
+  lineClassName,
+  children,
+  isLast = false,
+}: {
+  dotClassName: string;
+  lineClassName?: string;
+  children: ReactNode;
+  isLast?: boolean;
+}) {
+  return (
+    <div className="relative pl-6">
+      {!isLast && (
+        <span
+          className={cn(
+            'absolute left-[3px] top-3 bottom-[-0.75rem] w-px bg-zinc-800',
+            lineClassName
+          )}
+        />
+      )}
+      <span className={cn('absolute left-0 top-2 h-2 w-2 rounded-full', dotClassName)} />
+      {children}
+    </div>
+  );
+}
+
+function ThinkingBlock({
+  stepNumber,
+  content,
+  isLive,
+  expanded,
+  onToggle,
+}: {
+  stepNumber: number;
+  content: string;
+  isLive: boolean;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <div className="space-y-2">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex items-center gap-2 text-left text-zinc-500 hover:text-zinc-300 transition-colors"
+      >
+        <span className="text-zinc-700 select-none">{expanded ? '▼' : '▶'}</span>
+        <span>{isLive ? 'thinking...' : 'thinking'}</span>
+        {isLive && <span className="text-cyan-400/70">live</span>}
+      </button>
+      {expanded && (
+        <div className="rounded-sm border border-zinc-900 bg-zinc-950/50 px-3 py-2 text-zinc-500">
+          <AnswerMarkdown content={content} />
+          {isLive && (
+            <span className="ml-1 inline-block h-3 w-1.5 translate-y-0.5 bg-cyan-400/70 agent-caret" />
+          )}
+        </div>
+      )}
+      {!expanded && isLive && (
+        <div className="text-[11px] text-zinc-700">step {stepNumber}</div>
+      )}
+    </div>
+  );
+}
+
 interface AgentStepsPanelProps {
   agentState: AgentUIState;
   defaultExpanded?: boolean;
@@ -86,6 +182,7 @@ export function AgentStepsPanel({ agentState }: AgentStepsPanelProps) {
     context_remaining,
     injectedSteers,
   } = agentState;
+  const [expandedThinking, setExpandedThinking] = useState<Record<number, boolean>>({});
 
   const currentState = (() => {
     if (!isActive && agentState.agentState === 'complete') return 'complete';
@@ -101,6 +198,7 @@ export function AgentStepsPanel({ agentState }: AgentStepsPanelProps) {
   })();
 
   const stateInfo = STATE_LABELS[currentState] || STATE_LABELS.running;
+  const animatedLabel = useAnimatedStateLabel(currentState, isActive);
   const firstStepTime = steps.length > 0 ? steps[0].created_at : undefined;
 
   const stepIdToNumber: Record<string, number> = {};
@@ -118,6 +216,21 @@ export function AgentStepsPanel({ agentState }: AgentStepsPanelProps) {
     },
     {} as Record<number, AgentToolCall[]>
   );
+
+  const thinkingContentByStep = useMemo(() => {
+    const map: Record<number, { content: string; isLive: boolean }> = {};
+    for (const step of steps) {
+      const historicalThinking = sanitizeThinking(step.thinking_text || '').trim();
+      if (historicalThinking) {
+        map[step.step_number] = { content: historicalThinking, isLive: false };
+      }
+    }
+    const liveThinking = sanitizeThinking(thinkingBuffer).trim();
+    if (isActive && currentStep > 0 && liveThinking) {
+      map[currentStep] = { content: liveThinking, isLive: true };
+    }
+    return map;
+  }, [steps, thinkingBuffer, isActive, currentStep]);
 
   if (steps.length === 0 && !isActive) {
     return null;
@@ -143,7 +256,7 @@ export function AgentStepsPanel({ agentState }: AgentStepsPanelProps) {
               )}
             />
           )}
-          <span className={cn('truncate', stateInfo.color)}>{stateInfo.label}</span>
+          <span className={cn('truncate', stateInfo.color)}>{isActive ? animatedLabel : stateInfo.label}</span>
         </div>
 
         <div className="flex shrink-0 items-center gap-3 text-zinc-600">
@@ -188,48 +301,93 @@ export function AgentStepsPanel({ agentState }: AgentStepsPanelProps) {
         </div>
       )}
 
-      <div className="space-y-2 border-l border-zinc-800 pl-3">
+      <div className="space-y-3">
         {steps.map((step) => {
           const isCurrentStep = step.step_number === currentStep;
           const stepToolCalls = toolCallsByStep[step.step_number] || [];
-          const historicalThinking = sanitizeThinking(step.thinking_text || '').trim();
-          const liveThinking = sanitizeThinking(thinkingBuffer).trim();
+          const thinkingEntry = thinkingContentByStep[step.step_number];
           const stepSteers = injectedSteers.filter((s) => s.step_number === step.step_number);
+          const itemsCount =
+            stepSteers.length +
+            (thinkingEntry ? 1 : 0) +
+            stepToolCalls.length;
+          let itemIndex = 0;
+
+          const nextIsLast = () => {
+            itemIndex += 1;
+            return itemIndex === itemsCount;
+          };
 
           return (
             <div key={step.id} className="space-y-2">
               {stepSteers.map((steer, index) => (
-                <div key={`steer-${step.step_number}-${index}`} className="text-amber-300/80">
-                  <span className="text-amber-500/50">you: </span>
-                  {steer.content}
-                </div>
+                <TimelineItem
+                  key={`steer-${step.step_number}-${index}`}
+                  dotClassName="bg-amber-400"
+                  lineClassName="bg-amber-500/20"
+                  isLast={nextIsLast()}
+                >
+                  <div className="text-amber-300/80">
+                    <span className="text-amber-500/50">you: </span>
+                    {steer.content}
+                  </div>
+                </TimelineItem>
               ))}
 
-              {historicalThinking && !(isCurrentStep && isActive) && (
-                <div className="thinking-markdown text-zinc-500">
-                  <AnswerMarkdown content={historicalThinking} />
-                </div>
-              )}
-
-              {isCurrentStep && isActive && liveThinking && (
-                <div className="text-zinc-500">
-                  <AnswerMarkdown content={liveThinking} />
-                  <span className="ml-1 inline-block h-3 w-1.5 translate-y-0.5 bg-cyan-400/70 agent-caret" />
-                </div>
+              {thinkingEntry && (
+                <TimelineItem
+                  dotClassName={thinkingEntry.isLive ? 'bg-cyan-400' : 'bg-zinc-500'}
+                  isLast={nextIsLast()}
+                >
+                  <ThinkingBlock
+                    stepNumber={step.step_number}
+                    content={thinkingEntry.content}
+                    isLive={thinkingEntry.isLive}
+                    expanded={!!expandedThinking[step.step_number]}
+                    onToggle={() =>
+                      setExpandedThinking((current) => ({
+                        ...current,
+                        [step.step_number]: !current[step.step_number],
+                      }))
+                    }
+                  />
+                </TimelineItem>
               )}
 
               {stepToolCalls.map((toolCall) => (
-                <ToolCallCard key={toolCall.id} toolCall={toolCall} />
+                <TimelineItem
+                  key={toolCall.id}
+                  dotClassName={
+                    toolCall.status === 'success'
+                      ? 'bg-emerald-500'
+                      : toolCall.status === 'error' || toolCall.status === 'interrupted'
+                        ? 'bg-red-500'
+                        : toolCall.status === 'pending'
+                          ? 'bg-zinc-500'
+                          : 'bg-amber-400'
+                  }
+                  isLast={nextIsLast()}
+                >
+                  <ToolCallCard toolCall={toolCall} />
+                </TimelineItem>
               ))}
+
+              {itemsCount === 0 && isCurrentStep && isActive && (
+                <TimelineItem dotClassName="bg-cyan-400" isLast>
+                  <div className="text-zinc-600">step {step.step_number}</div>
+                </TimelineItem>
+              )}
             </div>
           );
         })}
 
         {steps.length === 0 && isActive && (
-          <div className="flex items-center gap-2 text-zinc-500">
-            <AgentLoader state={currentState} />
-            <span>starting agent</span>
-          </div>
+          <TimelineItem dotClassName="bg-cyan-400" isLast>
+            <div className="flex items-center gap-2 text-zinc-500">
+              <AgentLoader state={currentState} />
+              <span>starting agent</span>
+            </div>
+          </TimelineItem>
         )}
       </div>
     </div>

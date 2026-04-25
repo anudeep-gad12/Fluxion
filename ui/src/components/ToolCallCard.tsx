@@ -215,7 +215,6 @@ function BashOutputBlock({
 }
 
 export function ToolCallCard({ toolCall }: ToolCallCardProps) {
-  const [expanded, setExpanded] = useState(false);
   const [deciding, setDeciding] = useState<'approve' | 'deny' | null>(null);
 
   const status = STATUS_MARKERS[toolCall.status];
@@ -229,8 +228,6 @@ export function ToolCallCard({ toolCall }: ToolCallCardProps) {
     typeof toolCall.result_data === 'string' &&
     toolCall.result_data.startsWith('--- ') &&
     toolCall.result_data.includes('\n+++ ');
-  const showExpandButton =
-    hasResult && !isPython && toolCall.result_summary!.length > 150;
 
   const pythonOutput = isPython && hasResult ? toolCall.result_summary : undefined;
   const argStr = formatArguments(toolCall.tool_name, toolCall.arguments);
@@ -309,22 +306,9 @@ export function ToolCallCard({ toolCall }: ToolCallCardProps) {
       {/* Result (non-python) */}
       {hasResult && !isPython && (
         <div className="ml-4">
-          <div
-            className={cn(
-              'text-zinc-400 whitespace-pre-wrap',
-              !expanded && 'line-clamp-3'
-            )}
-          >
+          <div className="text-zinc-400 whitespace-pre-wrap">
             {toolCall.result_summary}
           </div>
-          {showExpandButton && (
-            <button
-              className="text-zinc-600 hover:text-zinc-400 mt-0.5"
-              onClick={() => setExpanded(!expanded)}
-            >
-              {expanded ? '[-less]' : '[+more]'}
-            </button>
-          )}
         </div>
       )}
 

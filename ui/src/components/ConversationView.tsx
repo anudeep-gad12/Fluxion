@@ -780,6 +780,19 @@ export function ConversationView() {
     const thinking = s.streamingThinking[activeRunId] ?? '';
     return text.length + thinking.length;
   });
+  const activeAgentScrollSignal = useStore((s) => {
+    if (!activeRunId) return '';
+    const agentState = s.agentRunState[activeRunId];
+    if (!agentState) return '';
+    return [
+      agentState.currentStep,
+      agentState.steps.length,
+      agentState.toolCalls.length,
+      agentState.thinkingBuffer.length,
+      agentState.answerBuffer.length,
+      agentState.agentState,
+    ].join(':');
+  });
 
   useEffect(() => {
     if (!scrollRef.current || !activeRunId) return;
@@ -787,9 +800,11 @@ export function ConversationView() {
     // Only auto-scroll if user is near the bottom (within 150px)
     const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 150;
     if (isNearBottom) {
-      el.scrollTop = el.scrollHeight;
+      requestAnimationFrame(() => {
+        el.scrollTop = el.scrollHeight;
+      });
     }
-  }, [lastStreamLen, activeRunId]);
+  }, [lastStreamLen, activeAgentScrollSignal, activeRunId]);
 
   const handleShowTrace = useCallback((runId: string) => {
     selectRun(runId);
