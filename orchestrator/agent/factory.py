@@ -41,6 +41,7 @@ async def create_agent_engine(
     filesystem_enabled: bool = False,
     working_dir: Optional[str] = None,
     approval_callback: Optional[object] = None,
+    permission_policy: str = "strict",
     profile_name: Optional[str] = None,
     python_provider: Optional[str] = None,
     agent_capabilities: Optional[dict] = None,
@@ -68,6 +69,7 @@ async def create_agent_engine(
         filesystem_enabled: Legacy flag — True maps to profile="coding".
         working_dir: Working directory for filesystem/coding tools.
         approval_callback: Callback for tool approval permission system.
+        permission_policy: Tool permission policy ("strict", "relaxed", "yolo").
         profile_name: Internal agent profile ("research", "coding").
         agent_capabilities: Browser-owned tool capability flags.
 
@@ -274,6 +276,7 @@ async def create_agent_engine(
         planning_enabled=False,  # Disabled: extra LLM call adds latency/cost with no benefit
         max_plan_steps=max_plan_steps,
         approval_callback=approval_callback,
+        permission_policy=permission_policy,
         profile=profile,
         reasoning_effort=effective_reasoning,
         reasoning_request_param=effective_reasoning_request_param,

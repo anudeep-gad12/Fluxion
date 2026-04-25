@@ -1436,6 +1436,56 @@ class TestPermissionPolicies:
         assert approval_events[0]["permission_level"] == "dangerous"
 
 
+class TestAgentFactoryPermissionPolicy:
+    """Tests that the factory forwards permission policy into the engine."""
+
+    @pytest.mark.asyncio
+    async def test_factory_passes_permission_policy(self, tmp_path):
+        from orchestrator.agent.factory import create_agent_engine
+
+        with patch("orchestrator.agent.factory.get_chat_config") as mock_config, patch(
+            "orchestrator.agent.factory.get_profile"
+        ) as mock_profile, patch(
+            "orchestrator.agent.factory.get_context_strategy"
+        ) as mock_strategy, patch(
+            "orchestrator.agent.factory.get_db", AsyncMock(return_value=MagicMock())
+        ), patch(
+            "orchestrator.agent.factory.AgentRepo"
+        ), patch(
+            "orchestrator.agent.factory.TraceRepo"
+        ), patch(
+            "orchestrator.agent.factory.create_provider", return_value=MagicMock()
+        ):
+            mock_config.return_value = MagicMock(
+                model=MagicMock(
+                    name="accounts/fireworks/models/kimi-k2p6",
+                    temperature=0.7,
+                    max_tokens=32768,
+                    reasoning_effort=None,
+                ),
+                context=MagicMock(max_tokens=100000),
+                provider=MagicMock(slow_response_threshold=15.0),
+                provider_chain=None,
+                agent_planning=None,
+                query_classification=MagicMock(enabled=False),
+            )
+            mock_profile.return_value = MagicMock(
+                name="coding",
+                context_strategy="coding",
+                system_prompt_template="{date_context}\n{project_context}",
+                max_plan_steps=5,
+            )
+            mock_strategy.return_value = MagicMock(gather=AsyncMock(return_value="project context"))
+
+            engine = await create_agent_engine(
+                filesystem_enabled=True,
+                working_dir=str(tmp_path),
+                permission_policy="relaxed",
+            )
+
+        assert engine._permission_policy == "relaxed"
+
+
 # =============================================================================
 # Force Prune Filesystem Tools Tests
 # =============================================================================
