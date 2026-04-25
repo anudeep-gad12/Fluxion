@@ -270,6 +270,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
         permission_policy: str = "strict",
         profile: Optional["AgentProfile"] = None,
         reasoning_effort: Optional[str] = None,
+        reasoning_request_param: Optional[str] = None,
         input_cost_per_million: Optional[float] = None,
         cached_input_cost_per_million: Optional[float] = None,
         output_cost_per_million: Optional[float] = None,
@@ -353,6 +354,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
 
         # Reasoning config for providers like OpenRouter
         self._reasoning_effort = reasoning_effort
+        self._reasoning_request_param = reasoning_request_param
 
         # Context budget tracking
         self._context_budget: Optional[ContextBudget] = None
@@ -1553,7 +1555,7 @@ When you complete each step, proceed to the next."""
             # Build extra kwargs for providers that support reasoning config
             # (e.g., OpenRouter uses {"effort": "medium"} to separate thinking/content)
             extra_kwargs: Dict[str, Any] = {}
-            if self._reasoning_effort:
+            if self._reasoning_effort and self._reasoning_request_param == "reasoning":
                 extra_kwargs["reasoning"] = {"effort": self._reasoning_effort}
 
             response = await self._provider.complete_streaming(
@@ -3213,7 +3215,7 @@ When you complete each step, proceed to the next."""
 
         # Build extra kwargs for reasoning config
         extra_kwargs: Dict[str, Any] = {}
-        if self._reasoning_effort:
+        if self._reasoning_effort and self._reasoning_request_param == "reasoning":
             extra_kwargs["reasoning"] = {"effort": self._reasoning_effort}
 
         response = await self._provider.complete_streaming(

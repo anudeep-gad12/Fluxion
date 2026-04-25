@@ -131,12 +131,21 @@ async def create_agent_engine(
                 ModelRegistry,
             )
 
-            # Only resolve if model is actually in the registry (preset match)
+            # Only resolve if model is actually in the registry (preset match).
+            # If a known preset is selected but its key is missing, surface that
+            # configuration error instead of falling through to an unauthenticated
+            # raw HTTP request that fails later as a cryptic provider 401.
             lower_name = resolve_name.strip().lower()
             if lower_name in _ALIAS_INDEX or lower_name in _MODEL_ID_INDEX:
                 resolved_model = ModelRegistry.resolve(resolve_name)
-        except (ValueError, Exception):
-            pass  # Fall through to config defaults
+        except ValueError:
+            raise
+        except Exception:
+            logger.warning(
+                "Failed to resolve known model metadata; using config provider",
+                extra={"model": resolve_name},
+                exc_info=True,
+            )
 
     # Create provider (use override if provided, resolved model, or config)
     if provider_override is not None:
@@ -225,6 +234,7 @@ async def create_agent_engine(
         effective_temp = temperature or resolved_model.temperature
         effective_max_tokens = max_tokens or resolved_model.max_output_tokens
         effective_reasoning = resolved_model.reasoning_effort
+        effective_reasoning_request_param = resolved_model.reasoning_request_param
         input_cost_per_million = resolved_model.input_cost_per_million
         cached_input_cost_per_million = resolved_model.cached_input_cost_per_million
         output_cost_per_million = resolved_model.output_cost_per_million
@@ -234,6 +244,11 @@ async def create_agent_engine(
         provider_max_output = getattr(provider_override, "_max_output_tokens", None)
         effective_max_tokens = max_tokens or provider_max_output or config.model.max_tokens
         effective_reasoning = getattr(config.model, "reasoning_effort", None)
+        effective_reasoning_request_param = getattr(
+            provider_override,
+            "_reasoning_request_param",
+            None,
+        )
         input_cost_per_million = getattr(provider_override, "_input_cost_per_million", None)
         cached_input_cost_per_million = getattr(
             provider_override, "_cached_input_cost_per_million", None
@@ -261,6 +276,7 @@ async def create_agent_engine(
         approval_callback=approval_callback,
         profile=profile,
         reasoning_effort=effective_reasoning,
+        reasoning_request_param=effective_reasoning_request_param,
         input_cost_per_million=input_cost_per_million,
         cached_input_cost_per_million=cached_input_cost_per_million,
         output_cost_per_million=output_cost_per_million,

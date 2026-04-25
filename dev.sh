@@ -249,6 +249,7 @@ EOF
             cat > "$PROJECT_DIR/.env.provider" << 'EOF'
 # Provider: Fireworks (cloud Kimi K2.6)
 LLM_BASE_URL=https://api.fireworks.ai/inference/v1
+LLM_API_KEY=${FIREWORKS_API_KEY:-}
 LLM_ENDPOINT=chat_completions
 LLM_MODEL=accounts/fireworks/models/kimi-k2p6
 EOF

@@ -136,6 +136,13 @@ class TestProviderHint:
         assert resolved.input_cost_per_million == 0.95
         assert resolved.cached_input_cost_per_million == 0.16
         assert resolved.output_cost_per_million == 4.00
+        assert resolved.reasoning_request_param is None
+
+    @patch.dict(os.environ, {"DEEPINFRA_API_KEY": "di-key"})
+    def test_non_fireworks_reasoning_models_send_reasoning_param(self):
+        """Existing non-Fireworks reasoning models keep their reasoning request field."""
+        resolved = ModelRegistry.resolve("gpt-oss-120b")
+        assert resolved.reasoning_request_param == "reasoning"
 
 
 class TestUnknownModelFallback:

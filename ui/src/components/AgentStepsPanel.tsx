@@ -149,7 +149,9 @@ export function AgentStepsPanel({ agentState }: AgentStepsPanelProps) {
         <div className="flex shrink-0 items-center gap-3 text-zinc-600">
           {isActive && firstStepTime && <ElapsedTimer startedAt={firstStepTime} />}
           {total_tokens && total_tokens > 0 && <span>{total_tokens.toLocaleString()} tok</span>}
-          {cost && <span>est ${cost.total_cost < 0.01 ? cost.total_cost.toFixed(4) : cost.total_cost.toFixed(2)}</span>}
+          {cost && usage?.total_tokens ? (
+            <span>est ${cost.total_cost < 0.01 ? cost.total_cost.toFixed(4) : cost.total_cost.toFixed(2)}</span>
+          ) : null}
           {context_tokens != null && context_tokens > 0 && (
             <span className={context_remaining != null && context_remaining < 20000 ? 'text-amber-500' : ''}>
               {Math.round(context_tokens / 1000)}k ctx est
@@ -179,7 +181,7 @@ export function AgentStepsPanel({ agentState }: AgentStepsPanelProps) {
           </div>
           <div className="bg-zinc-950/60 border border-zinc-900 px-2 py-1">
             <span className="text-zinc-700">cost </span>
-            {cost
+            {cost && usage?.total_tokens
               ? `$${cost.total_cost < 0.01 ? cost.total_cost.toFixed(4) : cost.total_cost.toFixed(2)}`
               : 'n/a'}
           </div>
