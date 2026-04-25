@@ -61,3 +61,18 @@ def test_estimate_cost_uses_per_million_prices():
     assert cost is not None
     assert cost["estimated"] is True
     assert cost["total_cost"] == 2.0
+
+
+def test_estimate_cost_uses_cached_input_price():
+    cost = estimate_cost(
+        {"input_tokens": 1_000_000, "cached_tokens": 250_000, "output_tokens": 500_000},
+        input_cost_per_million=1.0,
+        output_cost_per_million=2.0,
+        cached_input_cost_per_million=0.2,
+    )
+
+    assert cost is not None
+    assert cost["input_cost"] == 0.75
+    assert cost["cached_input_cost"] == 0.05
+    assert cost["output_cost"] == 1.0
+    assert cost["total_cost"] == 1.8

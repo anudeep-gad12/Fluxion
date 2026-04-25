@@ -179,6 +179,7 @@ class TestBuildChatCompletionsRequest:
         assert payload["model"] == "gpt-4"
         assert payload["messages"] == messages
         assert payload["stream"] is True
+        assert payload["stream_options"] == {"include_usage": True}
         assert "tools" not in payload
         assert "max_tokens" not in payload
 
@@ -259,3 +260,4 @@ class TestBuildChatCompletionsRequest:
         )
 
         assert payload["stream"] is False
+        assert "stream_options" not in payload

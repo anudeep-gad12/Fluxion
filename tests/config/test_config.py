@@ -109,9 +109,9 @@ class TestChatModelConfig:
     def test_default_values(self):
         """ChatModelConfig has sensible defaults."""
         config = ChatModelConfig()
-        assert config.name == "openai/gpt-oss-120b"
+        assert config.name == "accounts/fireworks/models/kimi-k2p6"
         assert config.temperature == 0.7
-        assert config.max_tokens == 16384
+        assert config.max_tokens == 32768
         assert config.reasoning_effort is None
 
     def test_reasoning_effort_values(self):

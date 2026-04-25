@@ -11,18 +11,18 @@
 # Provider Configuration
 # =============================================================================
 # All providers are OpenAI-compatible - same code works with:
-# vLLM, Ollama, OpenAI, Azure OpenAI, DeepInfra, etc.
+# vLLM, Ollama, OpenAI, Azure OpenAI, DeepInfra, Fireworks, etc.
 
 provider:
   # Base URL - supports env vars for deployment flexibility
+  # Fireworks (cloud): https://api.fireworks.ai/inference/v1
   # DeepInfra (cloud): https://api.deepinfra.com/v1/openai
   # llama-server (local): http://localhost:8080/v1
-  # Note: For DeepInfra, code appends /chat/completions.
-  base_url: ${LLM_BASE_URL:-https://api.deepinfra.com/v1/openai}
+  base_url: ${LLM_BASE_URL:-https://api.fireworks.ai/inference/v1}
 
   # API key - use env var for secrets (empty = no auth for local servers)
-  # Set LLM_API_KEY to your provider's key (OpenAI, DeepInfra, etc.)
-  api_key: ${LLM_API_KEY:-}
+  # Set FIREWORKS_API_KEY for default Fireworks, or override LLM_BASE_URL/LLM_API_KEY.
+  api_key: ${FIREWORKS_API_KEY:-}
 
   # Endpoint selection: responses | chat_completions | auto
   # - chat_completions: Standard OpenAI format (recommended for llama-server, DeepInfra)
@@ -102,18 +102,17 @@ provider_chain:
 
 model:
   # Model name - override via LLM_MODEL env var for different providers
-  # DeepInfra: openai/gpt-oss-120b (supports reasoning_effort)
+  # Fireworks: accounts/fireworks/models/kimi-k2p6
   # llama-server local: gpt-oss-20b (or whatever you're serving)
-  name: ${LLM_MODEL:-openai/gpt-oss-120b}
-  temperature: 1.0            # Required: 1.0 for reasoning models (gpt-oss, gpt-5-mini, o1, o3)
-  max_tokens: 16384
+  name: ${LLM_MODEL:-accounts/fireworks/models/kimi-k2p6}
+  temperature: 0.7
+  max_tokens: 32768
   seed: null                  # Set to integer for reproducible outputs
   top_p: null
   frequency_penalty: null
   presence_penalty: null
-  # Native reasoning effort for gpt-oss models (low, medium, high)
+  # Native reasoning effort where supported (low, medium, high)
   # Higher = deeper reasoning, more tokens, better for complex tasks
-  # Note: Only works with gpt-oss models on DeepInfra
   reasoning_effort: "medium"
 
 # =============================================================================

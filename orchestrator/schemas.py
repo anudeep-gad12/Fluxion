@@ -395,6 +395,9 @@ class CustomProviderRequest(BaseModel):
     max_output_tokens: int = 8192
     supports_tools: bool = True
     supports_reasoning: bool = False
+    input_cost_per_million: Optional[float] = None
+    cached_input_cost_per_million: Optional[float] = None
+    output_cost_per_million: Optional[float] = None
 
 
 # ==================== Helpers ====================

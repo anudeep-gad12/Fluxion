@@ -99,6 +99,9 @@ async def start_local_model(request: StartModelRequest):
         ),
     )
     local_provider._shared = True  # Prevent engine.close() from killing the shared client
+    local_provider._input_cost_per_million = 0.0
+    local_provider._cached_input_cost_per_million = 0.0
+    local_provider._output_cost_per_million = 0.0
     set_provider_override(local_provider)
 
     model_name = local_models.status()["model_name"]
@@ -246,6 +249,9 @@ async def select_custom_provider(request: CustomProviderRequest):
     provider._max_output_tokens = request.max_output_tokens
     provider._supports_tools = request.supports_tools
     provider._supports_reasoning = request.supports_reasoning
+    provider._input_cost_per_million = request.input_cost_per_million
+    provider._cached_input_cost_per_million = request.cached_input_cost_per_million
+    provider._output_cost_per_million = request.output_cost_per_million
     set_provider_override(provider)
 
     _active_model = None

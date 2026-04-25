@@ -37,6 +37,7 @@ async def test_list_models_returns_grouped_presets():
     assert "providers" in data
     assert "openrouter" in data["providers"]
     assert "deepinfra" in data["providers"]
+    assert "fireworks" in data["providers"]
     assert "local" in data["providers"]
     assert "active_model" in data
     assert "active_model_id" in data

@@ -516,6 +516,7 @@ export interface RegistryModelPreset {
   supports_tools: boolean;
   supports_reasoning: boolean;
   input_cost_per_million?: number | null;
+  cached_input_cost_per_million?: number | null;
   output_cost_per_million?: number | null;
 }
 
@@ -555,6 +556,9 @@ export interface CustomProviderRequest {
   max_output_tokens: number;
   supports_tools: boolean;
   supports_reasoning: boolean;
+  input_cost_per_million?: number | null;
+  cached_input_cost_per_million?: number | null;
+  output_cost_per_million?: number | null;
 }
 
 export async function selectCustomProvider(

@@ -9,6 +9,7 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| feature/browser-coding-agent | Usage/cost visibility + Fireworks default — added visible provider token/cost cards in the browser agent UI, clarified estimated context usage, added Fireworks provider/model presets with Kimi K2.6 as default, wired Fireworks pricing including cached-input rates, requested streaming usage where supported, and fixed custom cloud providers so cost is n/a unless pricing is configured instead of incorrectly showing $0 | done | 2026-04-25 |
 | feature/browser-coding-agent | Single-agent hardening batch 1 — fixed test rate-limit leakage, added durable SSE event replay from DB, normalized token usage/cost plumbing, split bash stdout/stderr output, added edit failure candidate hints, and added custom OpenAI-compatible provider selection in browser model picker | done | 2026-04-25 |
 | feature/browser-coding-agent | Browser coding tool polish — write_file now refuses accidental overwrites unless allow_overwrite=true, coding prompt strongly routes existing-file changes through edit_file, and browser diffs render side-by-side before/after columns | done | 2026-04-24 |
 | feature/browser-coding-agent | Agent activity UI flattening — replaced boxed Step 1/2/3 panel with continuous inline activity stream and animated loader for active thinking/tool phases | done | 2026-04-24 |
