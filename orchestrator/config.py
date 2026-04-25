@@ -13,7 +13,7 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 
 # =============================================================================
 # Base Paths
@@ -133,6 +133,22 @@ class ProviderConfig(BaseModel):
         if v == "" or v is None:
             return None
         return v
+
+    @model_validator(mode="after")
+    def fill_provider_api_key_from_env(self) -> "ProviderConfig":
+        """Fill API key from provider-specific env vars when omitted."""
+        if self.api_key:
+            return self
+
+        base_url = self.base_url.lower()
+        if "fireworks.ai" in base_url:
+            self.api_key = os.environ.get("FIREWORKS_API_KEY") or None
+        elif "deepinfra.com" in base_url:
+            self.api_key = os.environ.get("DEEPINFRA_API_KEY") or None
+        else:
+            self.api_key = os.environ.get("LLM_API_KEY") or None
+
+        return self
 
 
 # =============================================================================

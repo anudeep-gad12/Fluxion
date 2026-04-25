@@ -91,6 +91,24 @@ class TestProviderConfig:
         config = ProviderConfig(api_key="")
         assert config.api_key is None
 
+    @patch.dict(os.environ, {"FIREWORKS_API_KEY": "fw-key"}, clear=True)
+    def test_fireworks_api_key_falls_back_to_provider_env(self):
+        """Fireworks config uses FIREWORKS_API_KEY when api_key is omitted."""
+        config = ProviderConfig(
+            base_url="https://api.fireworks.ai/inference/v1",
+            api_key="",
+        )
+        assert config.api_key == "fw-key"
+
+    @patch.dict(os.environ, {"DEEPINFRA_API_KEY": "di-key"}, clear=True)
+    def test_deepinfra_api_key_falls_back_to_provider_env(self):
+        """DeepInfra config uses DEEPINFRA_API_KEY when api_key is omitted."""
+        config = ProviderConfig(
+            base_url="https://api.deepinfra.com/v1/openai",
+            api_key="",
+        )
+        assert config.api_key == "di-key"
+
     def test_valid_endpoint_values(self):
         """Valid endpoint values are accepted."""
         for endpoint in ["responses", "chat_completions", "auto"]:

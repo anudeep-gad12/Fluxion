@@ -35,6 +35,7 @@ class ModelPreset:
     default_temperature: float = 0.7
     supports_tools: bool = True
     supports_reasoning: bool = False
+    reasoning_request_param: Optional[str] = None
     reasoning_effort: Optional[str] = None
     provider_hint: Optional[str] = None  # Force specific provider
     input_cost_per_million: Optional[float] = None
@@ -57,6 +58,7 @@ class ResolvedModel:
     temperature: float
     reasoning_effort: Optional[str]
     supports_tools: bool
+    reasoning_request_param: Optional[str] = None
     input_cost_per_million: Optional[float] = None
     cached_input_cost_per_million: Optional[float] = None
     output_cost_per_million: Optional[float] = None
@@ -108,6 +110,7 @@ MODEL_PRESETS: list[ModelPreset] = [
         context_window=131072,
         max_output_tokens=16384,
         supports_reasoning=True,
+        reasoning_request_param=None,
         reasoning_effort="medium",
     ),
     ModelPreset(
@@ -118,6 +121,7 @@ MODEL_PRESETS: list[ModelPreset] = [
         context_window=131072,
         max_output_tokens=16384,
         supports_reasoning=True,
+        reasoning_request_param=None,
         reasoning_effort="medium",
     ),
     ModelPreset(
@@ -128,6 +132,7 @@ MODEL_PRESETS: list[ModelPreset] = [
         context_window=131072,
         max_output_tokens=16384,
         supports_reasoning=True,
+        reasoning_request_param="reasoning",
         reasoning_effort="medium",
     ),
     ModelPreset(
@@ -138,6 +143,7 @@ MODEL_PRESETS: list[ModelPreset] = [
         context_window=131072,
         max_output_tokens=16384,
         supports_reasoning=True,
+        reasoning_request_param="reasoning",
         reasoning_effort="medium",
     ),
     ModelPreset(
@@ -244,6 +250,7 @@ MODEL_PRESETS: list[ModelPreset] = [
         context_window=1048576,
         max_output_tokens=65536,
         supports_reasoning=True,
+        reasoning_request_param=None,
         reasoning_effort="medium",
     ),
     ModelPreset(
@@ -265,6 +272,7 @@ MODEL_PRESETS: list[ModelPreset] = [
         context_window=202752,
         max_output_tokens=16384,
         supports_reasoning=True,
+        reasoning_request_param=None,
         reasoning_effort="medium",
         provider_hint="deepinfra",
     ),
@@ -434,6 +442,12 @@ _ALIAS_INDEX: dict[str, ModelPreset] = {}
 _MODEL_ID_INDEX: dict[str, ModelPreset] = {}
 
 for _preset in MODEL_PRESETS:
+    if (
+        _preset.supports_reasoning
+        and _preset.provider != "fireworks"
+        and _preset.reasoning_request_param is None
+    ):
+        _preset.reasoning_request_param = "reasoning"
     _MODEL_ID_INDEX[_preset.model_id.lower()] = _preset
     for _alias in _preset.aliases:
         _ALIAS_INDEX[_alias.lower()] = _preset
@@ -512,6 +526,7 @@ class ModelRegistry:
                 max_output_tokens=preset.max_output_tokens,
                 temperature=preset.default_temperature,
                 reasoning_effort=preset.reasoning_effort,
+                reasoning_request_param=preset.reasoning_request_param,
                 supports_tools=preset.supports_tools,
                 input_cost_per_million=preset.input_cost_per_million,
                 cached_input_cost_per_million=preset.cached_input_cost_per_million,
@@ -543,6 +558,7 @@ class ModelRegistry:
             max_output_tokens=8192,
             temperature=0.7,
             reasoning_effort=None,
+            reasoning_request_param=None,
             supports_tools=True,
             input_cost_per_million=0.0 if provider_name == "local" else None,
             output_cost_per_million=0.0 if provider_name == "local" else None,
@@ -571,6 +587,7 @@ class ModelRegistry:
                     "max_output_tokens": p.max_output_tokens,
                     "supports_tools": p.supports_tools,
                     "supports_reasoning": p.supports_reasoning,
+                    "reasoning_request_param": p.reasoning_request_param,
                     "input_cost_per_million": p.input_cost_per_million,
                     "cached_input_cost_per_million": p.cached_input_cost_per_million,
                     "output_cost_per_million": p.output_cost_per_million,

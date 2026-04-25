@@ -186,7 +186,7 @@ export function AgentRunMessage({ run, onShowTrace, onRetry, canRetry }: AgentRu
                 in {formatTokens(agentState.usage.input_tokens)} / out {formatTokens(agentState.usage.output_tokens)}
               </span>
             )}
-            {!isActive && agentState?.cost ? (
+            {!isActive && agentState?.cost && agentState?.usage?.total_tokens ? (
               <span className="text-zinc-600">
                 est {formatCost(agentState.cost.total_cost)}
               </span>
