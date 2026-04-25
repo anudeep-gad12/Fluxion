@@ -378,6 +378,7 @@ async def _run_agent_task(
             filesystem_enabled=filesystem_enabled,
             working_dir=working_dir,
             approval_callback=approval_callback if permission_policy != "yolo" else None,
+            permission_policy=permission_policy,
             profile_name=profile_name,
             python_provider=python_provider,
             agent_capabilities=agent_capabilities,

@@ -9,6 +9,7 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| feature/browser-coding-agent | Relaxed permission policy wiring fix — traced approvals still firing in relaxed mode to the factory route path dropping `permission_policy`, then passed it through route → factory → engine so the new per-tool relaxed policy actually takes effect at runtime | done | 2026-04-25 |
 | feature/browser-coding-agent | Relaxed permission policy hardening — made relaxed mode tool-wise instead of blanket, auto-allowing read-only filesystem/web tools, requiring approval for write/edit mutations, and classifying bash commands so read-only commands auto-run while mutating, destructive, and outside-workspace commands require approval | done | 2026-04-25 |
 | feature/browser-coding-agent | Agent activity timeline polish — made per-step thinking blocks collapsible, kept tool call output always visible, restyled the activity stream into a dot-line-dot timeline, added animated agenting/llming/tooling status words, and extended auto-scroll so live step/tool updates keep following the latest activity | done | 2026-04-25 |
 | feature/browser-coding-agent | Browser agent SSE stuck fix — fixed UI getting stuck when EventSource disconnected mid-run by reconnecting with the latest SSE sequence, de-duping replayed events to avoid duplicate streamed text, and keeping token buffering to reduce render pressure during long agent outputs | done | 2026-04-25 |
