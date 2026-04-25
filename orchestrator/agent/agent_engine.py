@@ -14,9 +14,11 @@ import re
 import time
 from dataclasses import dataclass, field
 from datetime import date
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
 from orchestrator.agent.context_pruner import ContextPruner
+from orchestrator.agent.permissions import classify_tool_call
 from orchestrator.context.budget import ContextBudget
 from orchestrator.context.history_builder import HistoryBuilder
 from orchestrator.agent.recovery import (
@@ -2057,18 +2059,19 @@ When you complete each step, proceed to the next."""
 
         # Permission gate
         permission_level = getattr(tool.schema, "permission_level", "auto")
-        always_auto_tools = {"web_search", "web_extract"}
-        if self._permission_policy == "strict":
-            needs_approval = (
-                tool_call.name not in always_auto_tools
-                and self._approval_callback is not None
-            )
-        else:
-            needs_approval = (
-                self._permission_policy != "yolo"
-                and permission_level != "auto"
-                and self._approval_callback is not None
-            )
+        workspace_path = self._get_workspace_path()
+        permission_decision = classify_tool_call(
+            policy=self._permission_policy,
+            tool_name=tool_call.name,
+            arguments=tool_call.arguments,
+            base_permission_level=permission_level,
+            workspace_path=workspace_path,
+        )
+        permission_level = permission_decision.permission_level
+        needs_approval = (
+            permission_decision.needs_approval
+            and self._approval_callback is not None
+        )
 
         if needs_approval:
             # Compute diff preview before showing approval
@@ -2147,6 +2150,15 @@ When you complete each step, proceed to the next."""
 
         prep["tool"] = tool
         return prep
+
+    def _get_workspace_path(self) -> Optional[str]:
+        """Return the browser agent workspace path, if available."""
+        for tool_name in ("bash", "read_file", "write_file", "edit_file"):
+            tool = self._registry.get(tool_name)
+            working_dir = getattr(tool, "_working_dir", None)
+            if isinstance(working_dir, Path):
+                return str(working_dir)
+        return None
 
     async def _finalize_tool_call(
         self,
