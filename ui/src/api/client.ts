@@ -449,7 +449,7 @@ export interface LocalModel {
 }
 
 export interface ModelStatus {
-  provider: 'local' | 'cloud';
+  provider: string;
   model_name: string | null;
   base_url: string | null;
   local_running: boolean;
@@ -515,6 +515,8 @@ export interface RegistryModelPreset {
   max_output_tokens: number;
   supports_tools: boolean;
   supports_reasoning: boolean;
+  input_cost_per_million?: number | null;
+  output_cost_per_million?: number | null;
 }
 
 export interface RegistryModelsResponse {
@@ -541,5 +543,25 @@ export async function selectModel(model: string): Promise<{
   return fetchJson(`${API_BASE}/models/select`, {
     method: 'POST',
     body: JSON.stringify({ model }),
+  });
+}
+
+export interface CustomProviderRequest {
+  name: string;
+  base_url: string;
+  api_key?: string;
+  model: string;
+  context_window: number;
+  max_output_tokens: number;
+  supports_tools: boolean;
+  supports_reasoning: boolean;
+}
+
+export async function selectCustomProvider(
+  request: CustomProviderRequest
+): Promise<{ status: string; name: string; model: string; base_url: string }> {
+  return fetchJson(`${API_BASE}/models/custom/select`, {
+    method: 'POST',
+    body: JSON.stringify(request),
   });
 }

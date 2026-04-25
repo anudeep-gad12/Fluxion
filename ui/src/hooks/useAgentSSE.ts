@@ -17,6 +17,8 @@ import type {
   ToolApprovalRequiredEvent,
   ToolResultEvent,
   AnswerEvent,
+  TokenUsage,
+  CostUsage,
 } from '@/types/agent';
 
 export function useAgentSSE(runId: string | null, maxSteps: number = 10) {
@@ -193,6 +195,7 @@ export function useAgentSSE(runId: string | null, maxSteps: number = 10) {
               status: toolResultEvent.success ? 'success' : 'error',
               result_summary: toolResultEvent.result_summary,
               result_data: toolResultEvent.result_data,
+              bash_output: toolResultEvent.bash_output,
               duration_ms: toolResultEvent.duration_ms,
               completed_at: toolResultEvent.timestamp,
               approval_required: false,
@@ -203,6 +206,19 @@ export function useAgentSSE(runId: string | null, maxSteps: number = 10) {
           case 'answer': {
             const answerEvent = event as AnswerEvent;
             appendAgentAnswer(id, answerEvent.content);
+            break;
+          }
+
+          case 'usage_update': {
+            const usageEvent = event as unknown as {
+              usage?: TokenUsage;
+              cost?: CostUsage | null;
+            };
+            updateAgentState(id, {
+              usage: usageEvent.usage,
+              total_tokens: usageEvent.usage?.total_tokens,
+              cost: usageEvent.cost,
+            });
             break;
           }
 
@@ -231,6 +247,8 @@ export function useAgentSSE(runId: string | null, maxSteps: number = 10) {
         total_steps: number;
         timing_ms: number;
         total_tokens?: number;
+        usage?: TokenUsage;
+        cost?: CostUsage | null;
         context_usage?: ContextUsage;
       }) => {
         if (myConnectionId !== connectionIdRef.current) return;
@@ -248,6 +266,8 @@ export function useAgentSSE(runId: string | null, maxSteps: number = 10) {
           agentState: result.success ? 'complete' : 'error',
           timing_ms: result.timing_ms,
           total_tokens: result.total_tokens,
+          usage: result.usage,
+          cost: result.cost,
           context_usage: result.context_usage,
         });
 

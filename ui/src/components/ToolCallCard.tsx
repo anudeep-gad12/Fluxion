@@ -180,6 +180,40 @@ function DiffBlock({ diff }: { diff: string }) {
   );
 }
 
+function BashOutputBlock({
+  output,
+}: {
+  output: NonNullable<AgentToolCall['bash_output']>;
+}) {
+  const hasStdout = output.stdout.trim().length > 0;
+  const hasStderr = output.stderr.trim().length > 0;
+
+  return (
+    <div className="ml-4 space-y-1">
+      <div className="flex gap-3 text-zinc-600">
+        {typeof output.exit_code === 'number' && <span>exit {output.exit_code}</span>}
+        {output.truncated && <span className="text-amber-500/80">truncated</span>}
+      </div>
+      {hasStdout && (
+        <div>
+          <div className="mb-0.5 text-[10px] uppercase tracking-wide text-zinc-600">stdout</div>
+          <pre className="max-h-80 overflow-auto whitespace-pre-wrap bg-zinc-950 border border-zinc-800 p-2 text-zinc-300">
+            {output.stdout}
+          </pre>
+        </div>
+      )}
+      {hasStderr && (
+        <div>
+          <div className="mb-0.5 text-[10px] uppercase tracking-wide text-red-500/60">stderr</div>
+          <pre className="max-h-80 overflow-auto whitespace-pre-wrap bg-red-950/20 border border-red-950/50 p-2 text-red-300">
+            {output.stderr}
+          </pre>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ToolCallCard({ toolCall }: ToolCallCardProps) {
   const [expanded, setExpanded] = useState(false);
   const [deciding, setDeciding] = useState<'approve' | 'deny' | null>(null);
@@ -188,6 +222,7 @@ export function ToolCallCard({ toolCall }: ToolCallCardProps) {
   const prefix = TOOL_PREFIXES[toolCall.tool_name] || toolCall.tool_name;
   const isRunning = toolCall.status === 'running';
   const isPython = toolCall.tool_name === 'python_execute';
+  const isBash = toolCall.tool_name === 'bash';
   const hasResult =
     toolCall.result_summary && toolCall.result_summary.length > 0;
   const hasDiff =
@@ -292,6 +327,8 @@ export function ToolCallCard({ toolCall }: ToolCallCardProps) {
           )}
         </div>
       )}
+
+      {isBash && toolCall.bash_output && <BashOutputBlock output={toolCall.bash_output} />}
 
       {/* Full write/edit diff after execution */}
       {hasDiff && (

@@ -14,7 +14,8 @@ def tool(tmp_path):
 async def test_simple_command(tool):
     result = await tool.execute(command="echo hello")
     assert result.success is True
-    assert "hello" in result.result_data
+    assert result.result_data["stdout"].strip() == "hello"
+    assert result.result_data["exit_code"] == 0
 
 
 @pytest.mark.asyncio
@@ -27,7 +28,7 @@ async def test_exit_code_failure(tool):
 @pytest.mark.asyncio
 async def test_stderr_captured(tool):
     result = await tool.execute(command="echo error >&2")
-    assert "error" in result.result_data
+    assert "error" in result.result_data["stderr"]
 
 
 @pytest.mark.asyncio
@@ -41,7 +42,7 @@ async def test_timeout(tool):
 async def test_working_directory(tool, tmp_path):
     result = await tool.execute(command="pwd")
     assert result.success is True
-    assert str(tmp_path) in result.result_data
+    assert str(tmp_path) in result.result_data["stdout"]
 
 
 @pytest.mark.asyncio

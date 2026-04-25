@@ -58,6 +58,12 @@ export interface AgentToolCall {
   idempotency_key: string;
   execution_attempt: number;
   result_data?: string;
+  bash_output?: {
+    stdout: string;
+    stderr: string;
+    exit_code?: number;
+    truncated?: boolean;
+  };
   approval_required?: boolean;
   approval_decision?: 'approved' | 'denied' | 'auto' | 'timeout';
   permission_level?: string;
@@ -149,6 +155,7 @@ export type AgentSSEEventType =
   | 'paused' // run paused between steps
   | 'resumed' // run resumed after pause
   | 'steer' // steering message injected
+  | 'usage_update' // token/cost usage update
   | 'heartbeat'; // keep-alive
 
 /** Base SSE event structure */
@@ -207,6 +214,12 @@ export interface ToolResultEvent extends AgentSSEEventBase {
   success: boolean;
   result_summary: string;
   result_data?: string;
+  bash_output?: {
+    stdout: string;
+    stderr: string;
+    exit_code?: number;
+    truncated?: boolean;
+  };
   duration_ms?: number;
 }
 
@@ -224,6 +237,34 @@ export interface ContextUsage {
   utilization_pct: number;
 }
 
+/** Normalized token usage. */
+export interface TokenUsage {
+  input_tokens: number;
+  output_tokens: number;
+  reasoning_tokens: number;
+  cached_tokens: number;
+  total_tokens: number;
+}
+
+/** Estimated run cost. */
+export interface CostUsage {
+  estimated: boolean;
+  currency: string;
+  input_cost: number;
+  output_cost: number;
+  total_cost: number;
+  input_cost_per_million: number;
+  output_cost_per_million: number;
+}
+
+/** Token/cost usage update event */
+export interface UsageUpdateEvent extends AgentSSEEventBase {
+  type: 'usage_update';
+  usage: TokenUsage;
+  latest_usage?: TokenUsage;
+  cost?: CostUsage | null;
+}
+
 /** Complete event */
 export interface CompleteEvent extends AgentSSEEventBase {
   type: 'complete';
@@ -233,6 +274,8 @@ export interface CompleteEvent extends AgentSSEEventBase {
   total_steps: number;
   timing_ms: number;
   total_tokens?: number;
+  usage?: TokenUsage;
+  cost?: CostUsage | null;
   context_usage?: ContextUsage;
 }
 
@@ -266,7 +309,8 @@ export type AgentSSEEvent =
   | CompleteEvent
   | ErrorEvent
   | PausedEvent
-  | ResumedEvent;
+  | ResumedEvent
+  | UsageUpdateEvent;
 
 // =============================================================================
 // UI State Types
@@ -287,6 +331,8 @@ export interface AgentUIState {
   timing_ms?: number;
   total_tokens?: number;
   context_usage?: ContextUsage;
+  usage?: TokenUsage;
+  cost?: CostUsage | null;
   context_tokens?: number;
   context_remaining?: number;
   injectedSteers: Array<{ content: string; step_number: number }>;

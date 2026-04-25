@@ -27,6 +27,12 @@ function formatTokens(tokens: number): string {
   return tokens.toLocaleString();
 }
 
+function formatCost(cost: number): string {
+  if (cost === 0) return '$0';
+  if (cost < 0.01) return `$${cost.toFixed(4)}`;
+  return `$${cost.toFixed(2)}`;
+}
+
 interface AgentRunMessageProps {
   run: Run;
   onShowTrace: () => void;
@@ -173,6 +179,11 @@ export function AgentRunMessage({ run, onShowTrace, onRetry, canRetry }: AgentRu
             {!isActive && agentState?.total_tokens && (
               <span className="text-zinc-600">
                 {formatTokens(agentState.total_tokens)} tok
+              </span>
+            )}
+            {!isActive && agentState?.cost && (
+              <span className="text-zinc-600">
+                est {formatCost(agentState.cost.total_cost)}
               </span>
             )}
             {!isActive && agentState?.context_usage && (
