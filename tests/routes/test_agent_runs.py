@@ -10,18 +10,18 @@ Tests cover all 5 endpoints:
 
 import asyncio
 import json
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime, timezone
 
 from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncClient
 
+import orchestrator.routes.agent_runs as agent_runs_module
+import orchestrator.storage.db as db_module
 from orchestrator.app import app
 from orchestrator.agent import AgentResult
 from orchestrator.storage.db import Database
-import orchestrator.storage.db as db_module
-import orchestrator.routes.agent_runs as agent_runs_module
 
 
 # =============================================================================
@@ -366,6 +366,38 @@ class TestModuleState:
 
         assert run_id not in agent_runs_module._active_runs
         assert run_id not in agent_runs_module._abort_signals
+
+    @pytest.mark.asyncio
+    async def test_restore_event_history_from_db(self, test_db):
+        """Persisted run events can be restored after memory cleanup."""
+        from orchestrator.storage.repositories.agent_repo import AgentRepo
+        from orchestrator.storage.repositories.conversation_repo import ConversationRepo
+        from orchestrator.storage.repositories.trace_repo import TraceRepo
+
+        run_id = "restore-events-run"
+        await ConversationRepo(test_db).create("restore-events-conv", title="restore")
+        await TraceRepo(test_db).create_run(
+            run_id=run_id,
+            conversation_id="restore-events-conv",
+            profile_name="agent",
+            mode="agent",
+            model_config={},
+            user_message="restore",
+        )
+        repo = AgentRepo(test_db)
+        await repo.create_run_event(
+            run_id=run_id,
+            seq=1,
+            event_type="thinking",
+            event_data={"type": "thinking", "content": "hello"},
+        )
+
+        agent_runs_module._event_history.pop(run_id, None)
+        restored = await agent_runs_module._restore_event_history_from_db(run_id)
+
+        assert restored == 1
+        assert agent_runs_module._event_history[run_id][0]["seq"] == 1
+        assert agent_runs_module._event_history[run_id][0]["content"] == "hello"
 
 
 # =============================================================================

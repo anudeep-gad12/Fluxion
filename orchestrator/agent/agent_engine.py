@@ -29,6 +29,7 @@ from orchestrator.agent.state_machine import (
     RecoveryContext,
 )
 from orchestrator.logging_config import get_logger
+from orchestrator.providers.usage import add_usage, estimate_cost, normalize_usage
 from orchestrator.schemas import AgentStepState
 from orchestrator.utils.sanitize import sanitize_harmony_tokens
 
@@ -94,6 +95,8 @@ class AgentResult:
     timing_ms: int = 0
     total_tokens: int = 0
     context_usage: Optional[Dict[str, Any]] = None
+    usage: Optional[Dict[str, int]] = None
+    cost: Optional[Dict[str, Any]] = None
 
 
 @dataclass
@@ -267,6 +270,8 @@ To provide your final answer, respond WITHOUT calling any tools."""
         permission_policy: str = "strict",
         profile: Optional["AgentProfile"] = None,
         reasoning_effort: Optional[str] = None,
+        input_cost_per_million: Optional[float] = None,
+        output_cost_per_million: Optional[float] = None,
     ) -> None:
         """Initialize agent engine.
 
@@ -325,6 +330,15 @@ To provide your final answer, respond WITHOUT calling any tools."""
 
         # Token accumulator for run stats
         self._total_tokens: int = 0
+        self._usage_totals: Dict[str, int] = {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "reasoning_tokens": 0,
+            "cached_tokens": 0,
+            "total_tokens": 0,
+        }
+        self._input_cost_per_million = input_cost_per_million
+        self._output_cost_per_million = output_cost_per_million
 
         # Planning configuration
         self._planning_enabled = planning_enabled
@@ -374,6 +388,13 @@ To provide your final answer, respond WITHOUT calling any tools."""
         self._findings = []
         self._current_query = query
         self._total_tokens = 0
+        self._usage_totals = {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "reasoning_tokens": 0,
+            "cached_tokens": 0,
+            "total_tokens": 0,
+        }
         self._tool_call_log = []
 
         # Emit start event
@@ -521,6 +542,28 @@ To provide your final answer, respond WITHOUT calling any tools."""
                             "messages_count": len(pruned_messages),
                         },
                     )
+                    self._emit(
+                        event_callback,
+                        "context_pruned",
+                        run_id=run_id,
+                        step_number=step_number,
+                        prune_iterations=prune_iterations,
+                        context_tokens=estimated_tokens,
+                        context_max=self._max_context_tokens,
+                    )
+                    await self._add_trace_event(
+                        run_id=run_id,
+                        event_type="context_pruned",
+                        content={
+                            "step_number": step_number,
+                            "prune_iterations": prune_iterations,
+                            "context_tokens": estimated_tokens,
+                            "context_max": self._max_context_tokens,
+                            "messages_count": len(pruned_messages),
+                        },
+                        actor="system",
+                        step_number=step_number,
+                    )
 
                 # Drain any pending steering messages before LLM call
                 if steer_queue:
@@ -586,6 +629,8 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         total_steps=step_number,
                         timing_ms=int((time.perf_counter() - start_time) * 1000),
                         total_tokens=self._total_tokens,
+                        usage=self._usage_totals.copy(),
+                        cost=self._current_cost(),
                     )
 
                 # Extract thinking: Harmony format <think> tags OR native reasoning
@@ -646,9 +691,16 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     token_count=llm_response.usage.get("total_tokens"),
                 )
 
-                # Accumulate tokens for run stats
-                if llm_response.usage.get("total_tokens"):
-                    self._total_tokens += llm_response.usage["total_tokens"]
+                # Accumulate normalized token usage for run stats/cost display.
+                normalized_usage = self._record_usage(llm_response.usage)
+                self._emit(
+                    event_callback,
+                    "usage_update",
+                    run_id=run_id,
+                    usage=self._usage_totals,
+                    latest_usage=normalized_usage,
+                    cost=self._current_cost(),
+                )
 
                 # Model was truncated (hit max_tokens) — partial content
                 # is not a final answer, the model may have been mid-tool-call
@@ -887,6 +939,9 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         total_steps=step_number,
                         timing_ms=total_timing_ms,
                         context_usage=_ctx if _ctx else None,
+                        total_tokens=self._total_tokens,
+                        usage=self._usage_totals,
+                        cost=self._current_cost(),
                     )
                     await self._add_trace_event(
                         run_id=run_id,
@@ -914,6 +969,8 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         timing_ms=total_timing_ms,
                         total_tokens=self._total_tokens,
                         context_usage=_ctx if _ctx else None,
+                        usage=self._usage_totals.copy(),
+                        cost=self._current_cost(),
                     )
 
             # Max steps reached - force synthesis
@@ -953,6 +1010,9 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 total_steps=state_machine.current_step,
                 timing_ms=total_timing_ms,
                 context_usage=_ctx2 if _ctx2 else None,
+                total_tokens=self._total_tokens,
+                usage=self._usage_totals,
+                cost=self._current_cost(),
             )
             await self._add_trace_event(
                 run_id=run_id,
@@ -981,6 +1041,8 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 timing_ms=total_timing_ms,
                 total_tokens=self._total_tokens,
                 context_usage=_ctx2 if _ctx2 else None,
+                usage=self._usage_totals.copy(),
+                cost=self._current_cost(),
             )
 
         except MaxStepsExceededError:
@@ -993,6 +1055,8 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 total_steps=state_machine.current_step,
                 timing_ms=int((time.perf_counter() - start_time) * 1000),
                 total_tokens=self._total_tokens,
+                usage=self._usage_totals.copy(),
+                cost=self._current_cost(),
             )
         except Exception as e:
             logger.error(
@@ -1032,6 +1096,8 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 total_steps=state_machine.current_step,
                 timing_ms=total_timing_ms,
                 total_tokens=self._total_tokens,
+                usage=self._usage_totals.copy(),
+                cost=self._current_cost(),
             )
 
     # =========================================================================
@@ -1053,6 +1119,21 @@ To provide your final answer, respond WITHOUT calling any tools."""
         """
         if callback:
             callback({"type": event_type, **kwargs})
+
+    def _record_usage(self, raw_usage: dict[str, Any] | None) -> dict[str, int]:
+        """Normalize and accumulate LLM token usage."""
+        usage = normalize_usage(raw_usage)
+        add_usage(self._usage_totals, usage)
+        self._total_tokens = self._usage_totals.get("total_tokens", 0)
+        return usage
+
+    def _current_cost(self) -> Optional[dict[str, Any]]:
+        """Return estimated cost for accumulated usage, if pricing is known."""
+        return estimate_cost(
+            self._usage_totals,
+            self._input_cost_per_million,
+            self._output_cost_per_million,
+        )
 
     async def _add_trace_event(
         self,
@@ -2151,7 +2232,7 @@ When you complete each step, proceed to the next."""
                     extra={"step": step_number, "tool": tool_call.name},
                 )
 
-        # Emit tool result event (include diff data for write/edit tools)
+        # Emit tool result event (include diff data and command output details)
         emit_kwargs: Dict[str, Any] = {
             "run_id": run_id,
             "tool_call_id": tool_call.id,
@@ -2162,6 +2243,13 @@ When you complete each step, proceed to the next."""
         }
         if tool_call.name in ("write_file", "edit_file") and result.result_data:
             emit_kwargs["result_data"] = str(result.result_data)[:10000]
+        if tool_call.name == "bash" and isinstance(result.result_data, dict):
+            emit_kwargs["bash_output"] = {
+                "stdout": str(result.result_data.get("stdout", ""))[:10000],
+                "stderr": str(result.result_data.get("stderr", ""))[:10000],
+                "exit_code": result.result_data.get("exit_code"),
+                "truncated": bool(result.result_data.get("truncated")),
+            }
         self._emit(event_callback, "tool_result", **emit_kwargs)
 
         # Trace: tool_result
@@ -2762,6 +2850,15 @@ When you complete each step, proceed to the next."""
             metrics = self._compute_run_metrics()
             metrics["timing_ms"] = timing_ms
             metrics["total_tokens"] = self._total_tokens
+            metrics["usage"] = self._usage_totals.copy()
+            metrics["cost"] = self._current_cost()
+            if self._context_budget:
+                metrics["context_usage"] = {
+                    "total_tokens_used": self._context_budget.total_used,
+                    "history_tokens": self._context_budget.history_tokens,
+                    "max_tokens": self._max_context_tokens,
+                    "utilization_pct": round(self._context_budget.utilization_pct, 1),
+                }
 
             # Store via trace_repo usage_stats (accepts dict, serializes to JSON)
             if self._trace_repo:
@@ -3151,9 +3248,16 @@ When you complete each step, proceed to the next."""
             token_count=response.usage.get("total_tokens"),
         )
 
-        # Accumulate tokens from forced synthesis
-        if response.usage.get("total_tokens"):
-            self._total_tokens += response.usage["total_tokens"]
+        # Accumulate normalized token usage from forced synthesis.
+        normalized_usage = self._record_usage(response.usage)
+        self._emit(
+            event_callback,
+            "usage_update",
+            run_id=run_id,
+            usage=self._usage_totals,
+            latest_usage=normalized_usage,
+            cost=self._current_cost(),
+        )
 
         # If text is empty but we got reasoning, use reasoning as the answer
         # This can happen with reasoning models where the "thinking" IS the answer

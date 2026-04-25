@@ -23,6 +23,7 @@ import {
   getModelStatus,
   listRegistryModels,
   selectModel,
+  selectCustomProvider,
   getUsage,
   steerAgentRun,
   browseWorkspaceDirectories,
@@ -32,6 +33,7 @@ import type {
   ModelStatus,
   RegistryModelPreset,
   RegistryModelsResponse,
+  CustomProviderRequest,
   UsageInfo,
   WorkspaceBrowseResponse,
 } from '@/api/client';
@@ -90,6 +92,16 @@ function ModelPicker({
   const [loading, setLoading] = useState(false);
   const [switching, setSwitching] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [customProvider, setCustomProvider] = useState<CustomProviderRequest>({
+    name: 'custom',
+    base_url: 'http://localhost:1234/v1',
+    api_key: '',
+    model: '',
+    context_window: 32768,
+    max_output_tokens: 8192,
+    supports_tools: true,
+    supports_reasoning: false,
+  });
 
   useEffect(() => {
     if (!open) return;
@@ -133,6 +145,30 @@ function ModelPicker({
       onOpenChange(false);
     } catch {
       setError(`Failed to start model. Check logs/${model.model_type === 'mlx' ? 'mlx' : 'llama'}.log`);
+    } finally {
+      setSwitching(null);
+    }
+  };
+
+  const handleSelectCustom = async () => {
+    if (!customProvider.base_url.trim() || !customProvider.model.trim()) {
+      setError('Custom provider needs base URL and model slug');
+      return;
+    }
+    setSwitching('custom');
+    setError(null);
+    try {
+      await selectCustomProvider({
+        ...customProvider,
+        base_url: customProvider.base_url.trim(),
+        api_key: customProvider.api_key?.trim() || undefined,
+        model: customProvider.model.trim(),
+      });
+      const status = await getModelStatus();
+      onModelStatusChange(status);
+      onOpenChange(false);
+    } catch {
+      setError('Failed to switch custom provider');
     } finally {
       setSwitching(null);
     }
@@ -260,6 +296,55 @@ function ModelPicker({
                   })}
                 </>
               )}
+
+              <div className="border-t border-zinc-800 my-2" />
+              <div className="px-3 py-2 space-y-2">
+                <p className="text-[10px] text-zinc-600 font-mono uppercase">
+                  custom openai-compatible
+                </p>
+                <input
+                  value={customProvider.base_url}
+                  onChange={(e) => setCustomProvider((p) => ({ ...p, base_url: e.target.value }))}
+                  placeholder="http://localhost:1234/v1"
+                  className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-xs font-mono text-zinc-300"
+                />
+                <input
+                  value={customProvider.model}
+                  onChange={(e) => setCustomProvider((p) => ({ ...p, model: e.target.value }))}
+                  placeholder="model slug"
+                  className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-xs font-mono text-zinc-300"
+                />
+                <input
+                  value={customProvider.api_key || ''}
+                  onChange={(e) => setCustomProvider((p) => ({ ...p, api_key: e.target.value }))}
+                  placeholder="api key (optional for local)"
+                  type="password"
+                  className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-xs font-mono text-zinc-300"
+                />
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    value={customProvider.context_window}
+                    onChange={(e) => setCustomProvider((p) => ({ ...p, context_window: Number(e.target.value) || 32768 }))}
+                    type="number"
+                    min={4096}
+                    className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-xs font-mono text-zinc-300"
+                  />
+                  <input
+                    value={customProvider.max_output_tokens}
+                    onChange={(e) => setCustomProvider((p) => ({ ...p, max_output_tokens: Number(e.target.value) || 8192 }))}
+                    type="number"
+                    min={1024}
+                    className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-xs font-mono text-zinc-300"
+                  />
+                </div>
+                <button
+                  onClick={handleSelectCustom}
+                  disabled={!!switching}
+                  className="text-xs font-mono text-cyan-400 hover:text-cyan-300 disabled:text-zinc-600"
+                >
+                  {switching === 'custom' ? '[connecting...]' : '[use custom provider]'}
+                </button>
+              </div>
             </>
           )}
         </div>

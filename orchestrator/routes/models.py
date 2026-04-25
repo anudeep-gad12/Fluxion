@@ -19,6 +19,7 @@ from orchestrator.providers.factory import (
 # Note: set_provider_override is still imported for local model start/stop only
 from orchestrator.providers.openai_compat import OpenAICompatProvider
 from orchestrator.schemas import (
+    CustomProviderRequest,
     LocalModelSchema,
     ModelStatusResponse,
     SelectModelRequest,
@@ -33,6 +34,7 @@ router = APIRouter(prefix="/api/models", tags=["models"])
 # Active model state (set via POST /api/models/select)
 _active_model: Optional[ResolvedModel] = None
 _active_model_name: Optional[str] = None
+_active_custom_model: Optional[dict] = None
 
 
 def get_active_model() -> Optional[ResolvedModel]:
@@ -90,7 +92,11 @@ async def start_local_model(request: StartModelRequest):
         base_url=f"http://localhost:{local_models.LLAMA_PORT}/v1",
         api_key="not-needed",
         endpoint="chat_completions",
-        default_model=local_status["model_path"] if local_status.get("model_type") == "mlx" else None,
+        default_model=(
+            local_status["model_path"]
+            if local_status.get("model_type") == "mlx"
+            else None
+        ),
     )
     local_provider._shared = True  # Prevent engine.close() from killing the shared client
     set_provider_override(local_provider)
@@ -104,8 +110,10 @@ async def start_local_model(request: StartModelRequest):
 @router.post("/local/stop")
 async def stop_local_model():
     """Stop llama-server and revert to cloud provider."""
+    global _active_custom_model
     await local_models.stop()
     set_provider_override(None)
+    _active_custom_model = None
     logger.info("Provider reverted to cloud")
     return {"status": "ok", "provider": "cloud"}
 
@@ -123,6 +131,14 @@ async def get_model_status():
             model_name=local_info.get("model_name"),
             base_url=f"http://localhost:{local_models.LLAMA_PORT}/v1",
             local_running=True,
+        )
+
+    if override is not None and _active_custom_model:
+        return ModelStatusResponse(
+            provider=_active_custom_model.get("name", "custom"),
+            model_name=_active_custom_model.get("model"),
+            base_url=_active_custom_model.get("base_url"),
+            local_running=False,
         )
 
     # Check if a registry model is active
@@ -173,17 +189,18 @@ async def select_model(request: SelectModelRequest):
     if os.environ.get("SERVE_STATIC", "false").lower() == "true":
         raise HTTPException(status_code=403, detail="Model selection is disabled in production")
 
-    global _active_model, _active_model_name
+    global _active_model, _active_model_name, _active_custom_model
 
     try:
-        provider, resolved = create_provider_for_model(request.model)
+        _provider, resolved = create_provider_for_model(request.model)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    # Store resolved model for status display and web UI fallback
-    # NOTE: We intentionally do NOT call set_provider_override() here.
-    # That function is reserved for local llama-server start/stop only.
-    # Provider resolution for registry models happens per-request.
+    # Store resolved model for status display and web UI fallback.
+    # Clear any custom/local runtime override so registry resolution applies
+    # to subsequent runs.
+    set_provider_override(None)
+    _active_custom_model = None
     _active_model = resolved
     _active_model_name = request.model
 
@@ -206,4 +223,53 @@ async def select_model(request: SelectModelRequest):
         "max_output_tokens": resolved.max_output_tokens,
         "supports_tools": resolved.supports_tools,
         "supports_reasoning": resolved.reasoning_effort is not None,
+    }
+
+
+@router.post("/custom/select")
+async def select_custom_provider(request: CustomProviderRequest):
+    """Select a custom OpenAI-compatible provider for new runs."""
+    import os
+    if os.environ.get("SERVE_STATIC", "false").lower() == "true":
+        raise HTTPException(status_code=403, detail="Model selection is disabled in production")
+
+    global _active_model, _active_model_name, _active_custom_model
+
+    provider = OpenAICompatProvider(
+        base_url=request.base_url.rstrip("/"),
+        api_key=request.api_key or "not-needed",
+        endpoint="chat_completions",
+        default_model=request.model,
+    )
+    provider._shared = True
+    provider._context_window = request.context_window
+    provider._max_output_tokens = request.max_output_tokens
+    provider._supports_tools = request.supports_tools
+    provider._supports_reasoning = request.supports_reasoning
+    set_provider_override(provider)
+
+    _active_model = None
+    _active_model_name = request.model
+    _active_custom_model = {
+        "name": request.name or "custom",
+        "base_url": request.base_url.rstrip("/"),
+        "model": request.model,
+        "context_window": request.context_window,
+        "max_output_tokens": request.max_output_tokens,
+        "supports_tools": request.supports_tools,
+        "supports_reasoning": request.supports_reasoning,
+    }
+
+    logger.info(
+        "Custom OpenAI-compatible provider selected",
+        extra={
+            "name": _active_custom_model["name"],
+            "base_url": _active_custom_model["base_url"],
+            "model": request.model,
+        },
+    )
+
+    return {
+        "status": "ok",
+        **_active_custom_model,
     }

@@ -37,6 +37,8 @@ class ModelPreset:
     supports_reasoning: bool = False
     reasoning_effort: Optional[str] = None
     provider_hint: Optional[str] = None  # Force specific provider
+    input_cost_per_million: Optional[float] = None
+    output_cost_per_million: Optional[float] = None
 
 
 @dataclass
@@ -54,6 +56,8 @@ class ResolvedModel:
     temperature: float
     reasoning_effort: Optional[str]
     supports_tools: bool
+    input_cost_per_million: Optional[float] = None
+    output_cost_per_million: Optional[float] = None
 
 
 # =============================================================================
@@ -315,6 +319,8 @@ MODEL_PRESETS: list[ModelPreset] = [
         max_output_tokens=4096,
         default_temperature=0.7,
         supports_tools=True,
+        input_cost_per_million=0.0,
+        output_cost_per_million=0.0,
     ),
 ]
 
@@ -397,6 +403,8 @@ class ModelRegistry:
                 temperature=preset.default_temperature,
                 reasoning_effort=preset.reasoning_effort,
                 supports_tools=preset.supports_tools,
+                input_cost_per_million=preset.input_cost_per_million,
+                output_cost_per_million=preset.output_cost_per_million,
             )
 
         # Unknown model — use as raw model ID with conservative defaults
@@ -425,6 +433,8 @@ class ModelRegistry:
             temperature=0.7,
             reasoning_effort=None,
             supports_tools=True,
+            input_cost_per_million=0.0 if provider_name == "local" else None,
+            output_cost_per_million=0.0 if provider_name == "local" else None,
         )
 
     @staticmethod
@@ -450,6 +460,8 @@ class ModelRegistry:
                     "max_output_tokens": p.max_output_tokens,
                     "supports_tools": p.supports_tools,
                     "supports_reasoning": p.supports_reasoning,
+                    "input_cost_per_million": p.input_cost_per_million,
+                    "output_cost_per_million": p.output_cost_per_million,
                 }
                 for p in MODEL_PRESETS
                 if p.provider == provider_name

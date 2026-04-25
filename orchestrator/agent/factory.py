@@ -208,6 +208,8 @@ async def create_agent_engine(
     # Detect provider context capacity (resolved_model set above)
     if resolved_model:
         max_context = resolved_model.context_window
+    elif provider_override and hasattr(provider_override, "_context_window"):
+        max_context = int(getattr(provider_override, "_context_window"))
     elif provider_override and hasattr(provider_override, "_default_model"):
         model = provider_override._default_model
         if "gpt-5" in model or "codex" in model:
@@ -223,11 +225,16 @@ async def create_agent_engine(
         effective_temp = temperature or resolved_model.temperature
         effective_max_tokens = max_tokens or resolved_model.max_output_tokens
         effective_reasoning = resolved_model.reasoning_effort
+        input_cost_per_million = resolved_model.input_cost_per_million
+        output_cost_per_million = resolved_model.output_cost_per_million
     else:
         effective_model = model_name or config.model.name
         effective_temp = temperature or config.model.temperature
-        effective_max_tokens = max_tokens or config.model.max_tokens
+        provider_max_output = getattr(provider_override, "_max_output_tokens", None)
+        effective_max_tokens = max_tokens or provider_max_output or config.model.max_tokens
         effective_reasoning = getattr(config.model, "reasoning_effort", None)
+        input_cost_per_million = 0.0 if provider_override is not None else None
+        output_cost_per_million = 0.0 if provider_override is not None else None
 
     effective_max_steps = max_steps if max_steps is not None else 10
 
@@ -250,6 +257,8 @@ async def create_agent_engine(
         approval_callback=approval_callback,
         profile=profile,
         reasoning_effort=effective_reasoning,
+        input_cost_per_million=input_cost_per_million,
+        output_cost_per_million=output_cost_per_million,
     )
 
     logger.info(

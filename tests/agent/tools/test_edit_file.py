@@ -45,6 +45,18 @@ async def test_edit_string_not_found(tool):
 
 
 @pytest.mark.asyncio
+async def test_edit_string_not_found_returns_candidate_hint(tool):
+    result = await tool.execute(
+        file_path="example.py",
+        old_string="def hello():\n    print('helo')",
+        new_string="def hello():\n    print('hi')",
+    )
+    assert result.success is False
+    assert "Closest candidate snippets" in result.error_message
+    assert result.metadata["candidate_snippets"]
+
+
+@pytest.mark.asyncio
 async def test_edit_multiple_occurrences(tool, working_dir):
     # Both functions have "print(" — should fail
     result = await tool.execute(

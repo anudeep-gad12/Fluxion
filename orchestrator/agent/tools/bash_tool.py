@@ -118,18 +118,26 @@ class BashTool:
             exit_code = proc.returncode
 
             # Build output
-            output_parts = []
-            if stdout_text:
-                output_parts.append(stdout_text)
-            if stderr_text:
-                output_parts.append(f"STDERR:\n{stderr_text}")
+            output = "\n".join(
+                part
+                for part in (
+                    stdout_text,
+                    f"STDERR:\n{stderr_text}" if stderr_text else "",
+                )
+                if part
+            )
 
-            output = "\n".join(output_parts)
-
-            # Truncate if needed
+            # Truncate combined output for model context, preserving full split
+            # streams only up to the same hard cap.
             truncated = False
             if len(output) > _MAX_OUTPUT:
-                output = output[:_MAX_OUTPUT] + f"\n\n... (output truncated at {_MAX_OUTPUT} chars)"
+                head = output[: _MAX_OUTPUT // 2]
+                tail = output[-(_MAX_OUTPUT // 2):]
+                output = (
+                    f"{head}\n\n... (output truncated at {_MAX_OUTPUT} chars; "
+                    "showing head and tail) ...\n\n"
+                    f"{tail}"
+                )
                 truncated = True
 
             duration_ms = int((time.perf_counter() - start_time) * 1000)
@@ -144,7 +152,14 @@ class BashTool:
             return ToolResult(
                 success=success,
                 result_summary=summary,
-                result_data=output if output else "(no output)",
+                result_data={
+                    "command": command,
+                    "exit_code": exit_code,
+                    "stdout": stdout_text[:_MAX_OUTPUT],
+                    "stderr": stderr_text[:_MAX_OUTPUT],
+                    "output": output if output else "(no output)",
+                    "truncated": truncated,
+                },
                 error_message=stderr_text[:500] if not success and stderr_text else None,
                 duration_ms=duration_ms,
                 metadata={

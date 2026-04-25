@@ -87,6 +87,25 @@ class EditFileTool:
 
         return path
 
+    def _closest_snippets(self, content: str, old_string: str, limit: int = 3) -> list[str]:
+        """Find nearby snippets to help the model recover from failed edits."""
+        if not old_string.strip():
+            return []
+
+        old_lines = old_string.splitlines() or [old_string]
+        window = max(1, min(len(old_lines), 8))
+        lines = content.splitlines()
+        candidates: list[tuple[float, str]] = []
+
+        for idx in range(max(1, len(lines) - window + 1)):
+            snippet = "\n".join(lines[idx: idx + window])
+            score = difflib.SequenceMatcher(None, old_string, snippet).ratio()
+            if score > 0.45:
+                candidates.append((score, snippet))
+
+        candidates.sort(key=lambda item: item[0], reverse=True)
+        return [snippet for _, snippet in candidates[:limit]]
+
     async def execute(
         self,
         file_path: str,
@@ -136,6 +155,10 @@ class EditFileTool:
                 display_path = str(path)
 
             if count == 0:
+                candidates = self._closest_snippets(content, old_string)
+                hint = ""
+                if candidates:
+                    hint = "\n\nClosest candidate snippets:\n" + "\n---\n".join(candidates)
                 return ToolResult(
                     success=False,
                     result_summary=f"String not found in {display_path}",
@@ -143,8 +166,10 @@ class EditFileTool:
                         f"The old_string was not found in {display_path}. "
                         "Make sure the string matches exactly, "
                         "including whitespace and indentation."
+                        f"{hint}"
                     ),
                     duration_ms=int((time.perf_counter() - start_time) * 1000),
+                    metadata={"candidate_snippets": candidates},
                 )
 
             if count > 1:

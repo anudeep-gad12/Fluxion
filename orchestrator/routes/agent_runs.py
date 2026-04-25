@@ -96,6 +96,8 @@ _EVENT_TYPE_MAP = {
     "agent_resumed": "resumed",
     "steer_injected": "steer",
     "slow_response": "slow_response",
+    "usage_update": "usage_update",
+    "context_pruned": "context_pruned",
 }
 
 
@@ -152,6 +154,43 @@ async def _persist_run_event(run_id: str, seq: int, event: Dict[str, Any]) -> No
             "Failed to persist run event",
             extra={"run_id": run_id, "seq": seq, "error": str(e)},
         )
+
+
+async def _restore_event_history_from_db(run_id: str) -> int:
+    """Restore persisted SSE events into memory for durable replay.
+
+    This lets browser reconnects recover a run timeline even after the
+    in-memory history has been cleaned up.
+    """
+    if _event_history.get(run_id):
+        return len(_event_history[run_id])
+
+    try:
+        db = await get_db()
+        repo = AgentRepo(db)
+        rows = await repo.get_run_events(run_id)
+    except Exception as e:
+        logger.warning(
+            "Failed to restore run events",
+            extra={"run_id": run_id, "error": str(e)},
+        )
+        return 0
+
+    restored: List[Dict[str, Any]] = []
+    for row in rows:
+        event_data = row.get("event_data") or {}
+        if isinstance(event_data, dict):
+            event = event_data.copy()
+            event.setdefault("seq", row.get("seq", 0))
+            restored.append(event)
+
+    if restored:
+        _event_history[run_id] = restored
+        logger.info(
+            "Restored run event history",
+            extra={"run_id": run_id, "events": len(restored)},
+        )
+    return len(restored)
 
 
 async def _cleanup_run(run_id: str, delay_seconds: float = 5.0) -> None:
@@ -364,6 +403,8 @@ async def _run_agent_task(
                     "total_steps": result.total_steps,
                     "timing_ms": result.timing_ms,
                     "total_tokens": result.total_tokens,
+                    "usage": result.usage,
+                    "cost": result.cost,
                     "context_usage": result.context_usage,
                 },
             }
@@ -596,6 +637,7 @@ async def get_agent_run_status(run_id: str, http_request: Request):
     # total_steps is the final step count when run completes
     current_step = run.get("current_step", 0)
     total_steps = current_step if status in ("succeeded", "failed") else None
+    usage_stats = run.get("usage") or {}
 
     return AgentRunStatusResponse(
         run_id=run_id,
@@ -606,6 +648,9 @@ async def get_agent_run_status(run_id: str, http_request: Request):
         max_steps=run.get("max_steps", 1000),
         final_answer=run.get("final_answer"),
         error_message=run.get("error_message"),
+        usage=usage_stats.get("usage"),
+        cost=usage_stats.get("cost"),
+        context_usage=usage_stats.get("context_usage"),
         created_at=run.get("created_at", ""),
         updated_at=run.get("updated_at"),
     )
@@ -650,6 +695,8 @@ async def stream_agent_events(
         )
         if not run:
             raise HTTPException(status_code=404, detail="Run not found")
+
+    await _restore_event_history_from_db(run_id)
 
     # Capture parent request ID for SSE context
     parent_request_id = get_request_id()
@@ -741,14 +788,19 @@ async def stream_agent_events(
                     run = await trace_repo.get_run(run_id)
                     if run:
                         status = run.get("status", "unknown")
-                        if status in ("succeeded", "failed"):
+                        if status in ("succeeded", "failed", "cancelled"):
+                            usage = run.get("usage") or {}
                             yield {
                                 "event": "complete",
                                 "data": json.dumps(
                                     {
                                         "run_id": run_id,
+                                        "success": status == "succeeded",
                                         "status": status,
                                         "final_answer": run.get("final_answer"),
+                                        "total_tokens": usage.get("total_tokens"),
+                                        "context_usage": usage.get("context_usage"),
+                                        "cost": usage.get("cost"),
                                     }
                                 ),
                             }
@@ -1031,6 +1083,8 @@ async def get_agent_run_trace(run_id: str, http_request: Request):
         citations=citations,
         artifacts=artifacts,
         final_answer=run.get("final_answer"),
+        usage=(run.get("usage") or {}).get("usage"),
+        cost=(run.get("usage") or {}).get("cost"),
     )
 
 

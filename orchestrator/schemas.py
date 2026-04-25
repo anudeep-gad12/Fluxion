@@ -314,6 +314,9 @@ class AgentRunStatusResponse(BaseModel):
     max_steps: int = 1000
     final_answer: Optional[str] = None
     error_message: Optional[str] = None
+    usage: Optional[dict[str, Any]] = None
+    cost: Optional[dict[str, Any]] = None
+    context_usage: Optional[dict[str, Any]] = None
     created_at: str
     updated_at: Optional[str] = None
 
@@ -342,6 +345,8 @@ class AgentRunTraceResponse(BaseModel):
     citations: list[AgentCitationResponse]
     artifacts: list[RunArtifactResponse] = []
     final_answer: Optional[str] = None
+    usage: Optional[dict[str, Any]] = None
+    cost: Optional[dict[str, Any]] = None
 
 
 # ==================== Local Model Schemas ====================
@@ -377,6 +382,19 @@ class SelectModelRequest(BaseModel):
     """Request to select a model from the registry."""
 
     model: str  # Model alias, full ID, or "provider:model" string
+
+
+class CustomProviderRequest(BaseModel):
+    """Request to select a custom OpenAI-compatible provider."""
+
+    name: str = "custom"
+    base_url: str
+    api_key: Optional[str] = None
+    model: str
+    context_window: int = 32768
+    max_output_tokens: int = 8192
+    supports_tools: bool = True
+    supports_reasoning: bool = False
 
 
 # ==================== Helpers ====================
