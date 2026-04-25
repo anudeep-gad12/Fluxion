@@ -176,9 +176,9 @@ class TestAgentEngineInit:
             registry=create_mock_registry(),
         )
 
-        assert engine._model_name == "openai/gpt-oss-120b"
+        assert engine._model_name == "accounts/fireworks/models/kimi-k2p6"
         assert engine._max_steps == 1000
-        assert engine._max_tokens == 16384
+        assert engine._max_tokens == 32768
         assert engine._temperature == 0.7
 
     def test_init_with_custom_settings(self):

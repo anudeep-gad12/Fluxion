@@ -101,6 +101,9 @@ function ModelPicker({
     max_output_tokens: 8192,
     supports_tools: true,
     supports_reasoning: false,
+    input_cost_per_million: null,
+    cached_input_cost_per_million: null,
+    output_cost_per_million: null,
   });
 
   useEffect(() => {
@@ -220,6 +223,9 @@ function ModelPicker({
                         <div className="flex justify-between items-center">
                           <span className="truncate mr-2">{model.display_name}</span>
                           <span className="text-zinc-600 flex-shrink-0">
+                            {model.input_cost_per_million != null && model.output_cost_per_million != null
+                              ? `$${model.input_cost_per_million}/$${model.output_cost_per_million}M · `
+                              : ''}
                             {Math.round(model.context_window / 1024)}k
                           </span>
                         </div>
@@ -334,6 +340,44 @@ function ModelPicker({
                     onChange={(e) => setCustomProvider((p) => ({ ...p, max_output_tokens: Number(e.target.value) || 8192 }))}
                     type="number"
                     min={1024}
+                    className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-xs font-mono text-zinc-300"
+                  />
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <input
+                    value={customProvider.input_cost_per_million ?? ''}
+                    onChange={(e) => setCustomProvider((p) => ({
+                      ...p,
+                      input_cost_per_million: e.target.value === '' ? null : Number(e.target.value),
+                    }))}
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    placeholder="$ input/M"
+                    className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-xs font-mono text-zinc-300"
+                  />
+                  <input
+                    value={customProvider.cached_input_cost_per_million ?? ''}
+                    onChange={(e) => setCustomProvider((p) => ({
+                      ...p,
+                      cached_input_cost_per_million: e.target.value === '' ? null : Number(e.target.value),
+                    }))}
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    placeholder="$ cache/M"
+                    className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-xs font-mono text-zinc-300"
+                  />
+                  <input
+                    value={customProvider.output_cost_per_million ?? ''}
+                    onChange={(e) => setCustomProvider((p) => ({
+                      ...p,
+                      output_cost_per_million: e.target.value === '' ? null : Number(e.target.value),
+                    }))}
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    placeholder="$ output/M"
                     className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-xs font-mono text-zinc-300"
                   />
                 </div>

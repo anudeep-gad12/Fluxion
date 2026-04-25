@@ -255,9 +255,9 @@ To provide your final answer, respond WITHOUT calling any tools."""
         repo: "AgentRepo",
         registry: "ToolRegistry",
         trace_repo: Optional["TraceRepo"] = None,
-        model_name: str = "openai/gpt-oss-120b",
+        model_name: str = "accounts/fireworks/models/kimi-k2p6",
         max_steps: int = 1000,
-        max_tokens: int = 16384,
+        max_tokens: int = 32768,
         temperature: float = 0.7,
         system_prompt: Optional[str] = None,
         keep_full_steps: int = 10,
@@ -271,6 +271,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
         profile: Optional["AgentProfile"] = None,
         reasoning_effort: Optional[str] = None,
         input_cost_per_million: Optional[float] = None,
+        cached_input_cost_per_million: Optional[float] = None,
         output_cost_per_million: Optional[float] = None,
     ) -> None:
         """Initialize agent engine.
@@ -338,6 +339,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
             "total_tokens": 0,
         }
         self._input_cost_per_million = input_cost_per_million
+        self._cached_input_cost_per_million = cached_input_cost_per_million
         self._output_cost_per_million = output_cost_per_million
 
         # Planning configuration
@@ -1133,6 +1135,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
             self._usage_totals,
             self._input_cost_per_million,
             self._output_cost_per_million,
+            self._cached_input_cost_per_million,
         )
 
     async def _add_trace_event(

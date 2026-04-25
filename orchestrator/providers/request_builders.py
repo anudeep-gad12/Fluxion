@@ -189,6 +189,9 @@ def build_chat_completions_request(
         "stream": stream,
     }
 
+    if stream:
+        payload["stream_options"] = {"include_usage": True}
+
     if tools:
         payload["tools"] = tools
         # Handle tool_choice

@@ -181,14 +181,21 @@ export function AgentRunMessage({ run, onShowTrace, onRetry, canRetry }: AgentRu
                 {formatTokens(agentState.total_tokens)} tok
               </span>
             )}
-            {!isActive && agentState?.cost && (
+            {!isActive && agentState?.usage && (
+              <span className="text-zinc-600">
+                in {formatTokens(agentState.usage.input_tokens)} / out {formatTokens(agentState.usage.output_tokens)}
+              </span>
+            )}
+            {!isActive && agentState?.cost ? (
               <span className="text-zinc-600">
                 est {formatCost(agentState.cost.total_cost)}
               </span>
-            )}
+            ) : !isActive && agentState?.usage ? (
+              <span className="text-zinc-600">cost n/a</span>
+            ) : null}
             {!isActive && agentState?.context_usage && (
               <span className="text-zinc-600">
-                ctx {Math.round(agentState.context_usage.utilization_pct)}%
+                ctx est {Math.round(agentState.context_usage.utilization_pct)}%
               </span>
             )}
             {/* Copy / Retry actions - visible on hover */}

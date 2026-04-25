@@ -89,6 +89,10 @@ export function useAgentRunDetails(
           citations,
           injectedSteers: [],
           lastSeq: 0,
+          total_tokens: trace.usage?.total_tokens,
+          usage: trace.usage,
+          cost: trace.cost,
+          context_usage: trace.context_usage,
         });
       })
       .catch((error) => {

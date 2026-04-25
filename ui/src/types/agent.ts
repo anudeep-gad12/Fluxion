@@ -121,6 +121,9 @@ export interface AgentRunStatus {
   max_steps: number;
   final_answer?: string;
   error_message?: string;
+  usage?: TokenUsage;
+  cost?: CostUsage | null;
+  context_usage?: ContextUsage;
   created_at: string;
   updated_at?: string;
 }
@@ -134,6 +137,9 @@ export interface AgentRunTrace {
   tool_calls: AgentToolCall[];
   citations: AgentCitation[];
   final_answer?: string;
+  usage?: TokenUsage;
+  cost?: CostUsage | null;
+  context_usage?: ContextUsage;
 }
 
 // =============================================================================
@@ -251,9 +257,11 @@ export interface CostUsage {
   estimated: boolean;
   currency: string;
   input_cost: number;
+  cached_input_cost?: number;
   output_cost: number;
   total_cost: number;
   input_cost_per_million: number;
+  cached_input_cost_per_million?: number;
   output_cost_per_million: number;
 }
 

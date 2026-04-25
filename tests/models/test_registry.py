@@ -69,7 +69,7 @@ class TestExplicitProviderPrefix:
         """Explicit provider without API key raises ValueError."""
         # Clear all provider keys
         env = {k: v for k, v in os.environ.items()
-               if k not in ("OPENROUTER_API_KEY", "DEEPINFRA_API_KEY")}
+               if k not in ("OPENROUTER_API_KEY", "DEEPINFRA_API_KEY", "FIREWORKS_API_KEY")}
         with patch.dict(os.environ, env, clear=True):
             with pytest.raises(ValueError, match="No API key"):
                 ModelRegistry.resolve("deepinfra:some-model")
@@ -81,7 +81,7 @@ class TestProviderDetection:
     def test_detect_provider_openrouter_key_only(self):
         """When only OPENROUTER_API_KEY set, auto-selects OpenRouter."""
         env = {k: v for k, v in os.environ.items()
-               if k not in ("OPENROUTER_API_KEY", "DEEPINFRA_API_KEY")}
+               if k not in ("OPENROUTER_API_KEY", "DEEPINFRA_API_KEY", "FIREWORKS_API_KEY")}
         env["OPENROUTER_API_KEY"] = "or-key"
         with patch.dict(os.environ, env, clear=True):
             resolved = ModelRegistry.resolve("some-unknown-model")
@@ -90,7 +90,7 @@ class TestProviderDetection:
     def test_detect_provider_deepinfra_key_only(self):
         """When only DEEPINFRA_API_KEY set, auto-selects DeepInfra."""
         env = {k: v for k, v in os.environ.items()
-               if k not in ("OPENROUTER_API_KEY", "DEEPINFRA_API_KEY")}
+               if k not in ("OPENROUTER_API_KEY", "DEEPINFRA_API_KEY", "FIREWORKS_API_KEY")}
         env["DEEPINFRA_API_KEY"] = "di-key"
         with patch.dict(os.environ, env, clear=True):
             resolved = ModelRegistry.resolve("some-unknown-model")
@@ -99,12 +99,21 @@ class TestProviderDetection:
     def test_detect_provider_both_keys_prefers_openrouter(self):
         """Both keys set -> defaults to OpenRouter (larger catalog)."""
         env = {k: v for k, v in os.environ.items()
-               if k not in ("OPENROUTER_API_KEY", "DEEPINFRA_API_KEY")}
+               if k not in ("OPENROUTER_API_KEY", "DEEPINFRA_API_KEY", "FIREWORKS_API_KEY")}
         env["OPENROUTER_API_KEY"] = "or-key"
         env["DEEPINFRA_API_KEY"] = "di-key"
         with patch.dict(os.environ, env, clear=True):
             resolved = ModelRegistry.resolve("some-unknown-model")
             assert resolved.provider_name == "openrouter"
+
+    def test_detect_provider_fireworks_key_only(self):
+        """When only FIREWORKS_API_KEY is set, auto-selects Fireworks."""
+        env = {k: v for k, v in os.environ.items()
+               if k not in ("OPENROUTER_API_KEY", "DEEPINFRA_API_KEY", "FIREWORKS_API_KEY")}
+        env["FIREWORKS_API_KEY"] = "fw-key"
+        with patch.dict(os.environ, env, clear=True):
+            resolved = ModelRegistry.resolve("some-unknown-model")
+            assert resolved.provider_name == "fireworks"
 
 
 class TestProviderHint:
@@ -116,6 +125,17 @@ class TestProviderHint:
         resolved = ModelRegistry.resolve("gpt-oss-120b")
         assert resolved.provider_name == "deepinfra"
         assert "gpt-oss" in resolved.model_id
+
+    @patch.dict(os.environ, {"FIREWORKS_API_KEY": "fw-key"})
+    def test_kimi_routes_to_fireworks_with_pricing(self):
+        """Kimi K2.6 resolves to Fireworks with pricing metadata."""
+        resolved = ModelRegistry.resolve("kimi-2.6")
+        assert resolved.provider_name == "fireworks"
+        assert resolved.model_id == "accounts/fireworks/models/kimi-k2p6"
+        assert resolved.base_url == "https://api.fireworks.ai/inference/v1"
+        assert resolved.input_cost_per_million == 0.95
+        assert resolved.cached_input_cost_per_million == 0.16
+        assert resolved.output_cost_per_million == 4.00
 
 
 class TestUnknownModelFallback:
@@ -133,7 +153,7 @@ class TestUnknownModelFallback:
     def test_missing_api_key_falls_back_to_local(self):
         """No cloud keys set falls back to local provider."""
         env = {k: v for k, v in os.environ.items()
-               if k not in ("OPENROUTER_API_KEY", "DEEPINFRA_API_KEY")}
+               if k not in ("OPENROUTER_API_KEY", "DEEPINFRA_API_KEY", "FIREWORKS_API_KEY")}
         with patch.dict(os.environ, env, clear=True):
             resolved = ModelRegistry.resolve("some-model")
             assert resolved.provider_name == "local"
@@ -158,6 +178,7 @@ class TestListModels:
         result = ModelRegistry.list_models()
         assert "openrouter" in result
         assert "deepinfra" in result
+        assert "fireworks" in result
         assert "local" in result
         assert "models" in result["openrouter"]
         assert "available" in result["openrouter"]
@@ -181,6 +202,18 @@ class TestListModels:
         assert len(openrouter_models) > 0
         assert "model_id" in openrouter_models[0]
         assert "display_name" in openrouter_models[0]
+
+    @patch.dict(os.environ, {"FIREWORKS_API_KEY": "fw-key"})
+    def test_list_models_has_fireworks_pricing(self):
+        """Fireworks presets include pricing metadata for cost display."""
+        result = ModelRegistry.list_models()
+        kimi = next(
+            model
+            for model in result["fireworks"]["models"]
+            if model["model_id"] == "accounts/fireworks/models/kimi-k2p6"
+        )
+        assert kimi["input_cost_per_million"] == 0.95
+        assert kimi["output_cost_per_million"] == 4.00
 
 
 class TestResolvedModelShape:

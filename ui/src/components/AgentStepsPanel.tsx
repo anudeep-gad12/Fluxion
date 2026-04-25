@@ -79,6 +79,7 @@ export function AgentStepsPanel({ agentState }: AgentStepsPanelProps) {
     currentStep,
     isActive,
     total_tokens,
+    usage,
     cost,
     context_usage,
     context_tokens,
@@ -151,12 +152,39 @@ export function AgentStepsPanel({ agentState }: AgentStepsPanelProps) {
           {cost && <span>est ${cost.total_cost < 0.01 ? cost.total_cost.toFixed(4) : cost.total_cost.toFixed(2)}</span>}
           {context_tokens != null && context_tokens > 0 && (
             <span className={context_remaining != null && context_remaining < 20000 ? 'text-amber-500' : ''}>
-              {Math.round(context_tokens / 1000)}k ctx
+              {Math.round(context_tokens / 1000)}k ctx est
             </span>
           )}
-          {!context_tokens && context_usage && <span>ctx {Math.round(context_usage.utilization_pct)}%</span>}
+          {!context_tokens && context_usage && <span>ctx est {Math.round(context_usage.utilization_pct)}%</span>}
         </div>
       </div>
+
+      {(usage || context_usage || context_tokens != null) && (
+        <div className="mb-2 grid grid-cols-2 gap-2 text-[11px] text-zinc-500 sm:grid-cols-4">
+          <div className="bg-zinc-950/60 border border-zinc-900 px-2 py-1">
+            <span className="text-zinc-700">input </span>
+            {usage?.input_tokens?.toLocaleString() ?? '—'}
+          </div>
+          <div className="bg-zinc-950/60 border border-zinc-900 px-2 py-1">
+            <span className="text-zinc-700">output </span>
+            {usage?.output_tokens?.toLocaleString() ?? '—'}
+          </div>
+          <div className="bg-zinc-950/60 border border-zinc-900 px-2 py-1">
+            <span className="text-zinc-700">ctx est </span>
+            {context_tokens != null
+              ? `${Math.round(context_tokens / 1000)}k`
+              : context_usage
+                ? `${Math.round(context_usage.utilization_pct)}%`
+                : '—'}
+          </div>
+          <div className="bg-zinc-950/60 border border-zinc-900 px-2 py-1">
+            <span className="text-zinc-700">cost </span>
+            {cost
+              ? `$${cost.total_cost < 0.01 ? cost.total_cost.toFixed(4) : cost.total_cost.toFixed(2)}`
+              : 'n/a'}
+          </div>
+        </div>
+      )}
 
       <div className="space-y-2 border-l border-zinc-800 pl-3">
         {steps.map((step) => {

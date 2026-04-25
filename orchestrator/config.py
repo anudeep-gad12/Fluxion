@@ -297,9 +297,9 @@ class ChatGPTConfig(BaseModel):
 class ChatModelConfig(BaseModel):
     """Model generation parameters."""
 
-    name: str = "openai/gpt-oss-120b"
+    name: str = "accounts/fireworks/models/kimi-k2p6"
     temperature: float = 0.7
-    max_tokens: int = 16384
+    max_tokens: int = 32768
     seed: Optional[int] = None
     top_p: Optional[float] = None
     frequency_penalty: Optional[float] = None
