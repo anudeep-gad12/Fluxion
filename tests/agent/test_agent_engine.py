@@ -9,6 +9,7 @@ from orchestrator.agent.agent_engine import (
     AgentResult,
     ParsedToolCall,
 )
+from orchestrator.agent.tools.bash_tool import BashTool
 from orchestrator.agent.tools.base import ToolResult
 from orchestrator.agent.state_machine import RecoveryContext
 from orchestrator.providers.base import LLMResponse
@@ -1355,6 +1356,84 @@ class TestParallelToolExecution:
         assert "edit_file" not in AgentEngine.PARALLEL_TOOLS
         assert "bash_tool" not in AgentEngine.PARALLEL_TOOLS
         assert "python_execute" not in AgentEngine.PARALLEL_TOOLS
+
+
+class TestPermissionPolicies:
+    """Tests for tool approval policy handling."""
+
+    @pytest.mark.asyncio
+    async def test_relaxed_bash_read_only_command_auto_approves(self, tmp_path):
+        registry = create_mock_registry()
+        registry.get.side_effect = lambda name: BashTool(str(tmp_path)) if name == "bash" else None
+
+        approval_callback = AsyncMock(return_value=True)
+        state_machine = create_mock_state_machine()
+        state_machine.record_tool_call = AsyncMock(return_value={"id": "tc-1"})
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=create_mock_repo(),
+            registry=registry,
+            approval_callback=approval_callback,
+            permission_policy="relaxed",
+        )
+
+        events = []
+        prep = await engine._prepare_tool_call(
+            ParsedToolCall(
+                id="tc-1",
+                name="bash",
+                arguments={"command": "git status && rg permission_policy orchestrator"},
+                raw_arguments='{"command":"git status && rg permission_policy orchestrator"}',
+            ),
+            state_machine=state_machine,
+            step_number=1,
+            event_callback=lambda event: events.append(event),
+            run_id="run-1",
+        )
+
+        assert prep["tool"] is not None
+        approval_callback.assert_not_called()
+        assert not any(event["type"] == "tool_approval_required" for event in events)
+        state_machine.record_approval.assert_awaited_with(
+            tool_call_id="tc-1",
+            decision="auto",
+            policy="relaxed",
+        )
+
+    @pytest.mark.asyncio
+    async def test_relaxed_bash_mutating_command_requires_approval(self, tmp_path):
+        registry = create_mock_registry()
+        registry.get.side_effect = lambda name: BashTool(str(tmp_path)) if name == "bash" else None
+
+        approval_callback = AsyncMock(return_value=True)
+        state_machine = create_mock_state_machine()
+        state_machine.record_tool_call = AsyncMock(return_value={"id": "tc-2"})
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=create_mock_repo(),
+            registry=registry,
+            approval_callback=approval_callback,
+            permission_policy="relaxed",
+        )
+
+        events = []
+        await engine._prepare_tool_call(
+            ParsedToolCall(
+                id="tc-2",
+                name="bash",
+                arguments={"command": "mkdir -p src && touch src/new.py"},
+                raw_arguments='{"command":"mkdir -p src && touch src/new.py"}',
+            ),
+            state_machine=state_machine,
+            step_number=1,
+            event_callback=lambda event: events.append(event),
+            run_id="run-1",
+        )
+
+        approval_callback.assert_awaited_once()
+        approval_events = [event for event in events if event["type"] == "tool_approval_required"]
+        assert len(approval_events) == 1
+        assert approval_events[0]["permission_level"] == "dangerous"
 
 
 # =============================================================================
