@@ -36,6 +36,25 @@ async def test_timeout(tool):
     result = await tool.execute(command="sleep 10", timeout=1)
     assert result.success is False
     assert "timed out" in result.result_summary.lower()
+    assert result.result_data["timed_out"] is True
+
+
+@pytest.mark.asyncio
+async def test_timeout_captures_partial_output(tool):
+    result = await tool.execute(
+        command=(
+            "python3 -c \"import sys,time; "
+            "print('server starting', flush=True); "
+            "print('warming stderr', file=sys.stderr, flush=True); "
+            "time.sleep(10)\""
+        ),
+        timeout=1,
+    )
+    assert result.success is False
+    assert result.result_data["timed_out"] is True
+    assert "server starting" in result.result_data["stdout"]
+    assert "warming stderr" in result.result_data["stderr"]
+    assert "partial output captured" in result.result_summary
 
 
 @pytest.mark.asyncio
@@ -51,6 +70,7 @@ async def test_schema_properties(tool):
     assert schema.name == "bash"
     assert schema.is_idempotent is False
     assert schema.permission_level == "dangerous"
+    assert schema.parameters["properties"]["timeout"]["default"] == 300
 
 
 @pytest.mark.asyncio

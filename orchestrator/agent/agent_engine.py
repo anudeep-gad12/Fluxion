@@ -2591,6 +2591,7 @@ When you complete each step, proceed to the next."""
                 {
                     "command": data.get("command", ""),
                     "exit_code": data.get("exit_code"),
+                    "timed_out": data.get("timed_out", False),
                     "stdout": self._truncate_text_to_tokens(str(data.get("stdout", "")), 1500, preserve_tail=True),
                     "stderr": self._truncate_text_to_tokens(str(data.get("stderr", "")), 1500, preserve_tail=True),
                     "truncated": data.get("truncated", False),
