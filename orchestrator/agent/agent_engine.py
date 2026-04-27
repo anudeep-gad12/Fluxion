@@ -123,6 +123,61 @@ class ParsedToolCall:
     raw_arguments: str
 
 
+@dataclass
+class WorkingMemory:
+    """Compact agent working memory used for prompt reconstruction."""
+
+    objective: str
+    files_inspected: Dict[str, str] = field(default_factory=dict)
+    files_changed: Dict[str, str] = field(default_factory=dict)
+    latest_diagnostics: List[str] = field(default_factory=list)
+    current_hypothesis: Optional[str] = None
+    recent_validation: Optional[str] = None
+    discoveries: List[str] = field(default_factory=list)
+
+    def render(self) -> str:
+        """Render compact working memory for model context."""
+        sections = [f"Objective: {self.objective}"]
+
+        if self.files_inspected:
+            inspected = "\n".join(
+                f"- {path}: {summary}"
+                for path, summary in list(self.files_inspected.items())[-8:]
+            )
+            sections.append(f"Files inspected:\n{inspected}")
+
+        if self.files_changed:
+            changed = "\n".join(
+                f"- {path}: {summary}"
+                for path, summary in list(self.files_changed.items())[-8:]
+            )
+            sections.append(f"Files changed:\n{changed}")
+
+        if self.discoveries:
+            sections.append(
+                "Recent discoveries:\n"
+                + "\n".join(f"- {item}" for item in self.discoveries[-8:])
+            )
+
+        if self.latest_diagnostics:
+            sections.append(
+                "Latest diagnostics:\n"
+                + "\n".join(f"- {item}" for item in self.latest_diagnostics[-6:])
+            )
+
+        if self.current_hypothesis:
+            sections.append(f"Current hypothesis: {self.current_hypothesis}")
+
+        if self.recent_validation:
+            sections.append(f"Recent validation: {self.recent_validation}")
+
+        sections.append(
+            "Use this working memory as the durable state. Raw tool outputs that follow "
+            "are only from the most recent tool step."
+        )
+        return "\n\n".join(sections)
+
+
 # =============================================================================
 # SSE Event Types
 # =============================================================================
@@ -406,6 +461,188 @@ To provide your final answer, respond WITHOUT calling any tools."""
         max_tokens = int(kwargs.pop("max_tokens", self._max_tokens))
         return max_tokens, kwargs
 
+    def _build_prompt_messages(
+        self,
+        scaffold_messages: List[Dict[str, Any]],
+        working_memory: WorkingMemory,
+    ) -> List[Dict[str, Any]]:
+        """Assemble the actual prompt from run transcript and working memory."""
+        prompt_messages: List[Dict[str, Any]] = []
+        if scaffold_messages:
+            prompt_messages.append(scaffold_messages[0])
+            prompt_messages.append(
+                {
+                    "role": "system",
+                    "content": "WORKING MEMORY\n" + working_memory.render(),
+                    "_working_memory": True,
+                }
+            )
+            prompt_messages.extend(scaffold_messages[1:])
+        else:
+            prompt_messages.append(
+                {
+                    "role": "system",
+                    "content": "WORKING MEMORY\n" + working_memory.render(),
+                    "_working_memory": True,
+                }
+            )
+
+        return prompt_messages
+
+    def _summarize_assistant_content(self, content: Optional[str]) -> Optional[str]:
+        """Keep concise assistant decision text in long-lived scaffold."""
+        if not content:
+            return None
+        stripped = re.sub(r"<tool_call>.*?</tool_call>", "", content, flags=re.DOTALL).strip()
+        if not stripped:
+            return None
+        if len(stripped) > 400:
+            stripped = stripped[:397].rstrip() + "..."
+        return stripped
+
+    def _trim_scaffold_messages(
+        self,
+        scaffold_messages: List[Dict[str, Any]],
+        max_assistant_messages: int = 8,
+    ) -> List[Dict[str, Any]]:
+        """Keep system + user turns and only the most recent short assistant decisions."""
+        assistant_indices = [
+            idx
+            for idx, msg in enumerate(scaffold_messages)
+            if idx > 0 and msg.get("role") == "assistant"
+        ]
+        if len(assistant_indices) <= max_assistant_messages:
+            return scaffold_messages
+
+        keep_assistant = set(assistant_indices[-max_assistant_messages:])
+        trimmed: List[Dict[str, Any]] = []
+        for idx, msg in enumerate(scaffold_messages):
+            if idx == 0 or msg.get("role") != "assistant" or idx in keep_assistant:
+                trimmed.append(msg)
+        return trimmed
+
+    def _update_working_memory_from_tools(
+        self,
+        memory: WorkingMemory,
+        tool_results: List[tuple[ParsedToolCall, "ToolResult"]],
+    ) -> None:
+        """Fold tool results into compact structured memory."""
+        for tool_call, result in tool_results:
+            summary = result.result_summary.strip()
+            if tool_call.name == "read_file":
+                file_path = str(tool_call.arguments.get("file_path", "unknown"))
+                excerpt = self._extract_read_file_excerpt(result.result_data)
+                memory.files_inspected[file_path] = (
+                    f"{summary}. Key excerpt: {excerpt}" if excerpt else summary
+                )[:500]
+                memory.current_hypothesis = f"Latest inspected file: {file_path}"
+            elif tool_call.name in ("edit_file", "write_file"):
+                file_path = str(tool_call.arguments.get("file_path", "unknown"))
+                diff_summary = self._summarize_diff(result.result_data) or summary
+                memory.files_changed[file_path] = diff_summary[:500]
+                memory.current_hypothesis = f"Changed {file_path}"
+            elif tool_call.name == "bash":
+                memory.recent_validation = summary
+                diagnostics = self._extract_bash_diagnostics(result.result_data, summary)
+                memory.latest_diagnostics = diagnostics
+            elif tool_call.name in ("grep", "glob", "list_directory"):
+                discovery = self._summarize_discovery(tool_call, result)
+                if discovery:
+                    memory.discoveries.append(discovery)
+                    memory.discoveries = memory.discoveries[-12:]
+            else:
+                memory.discoveries.append(f"{tool_call.name}: {summary}")
+                memory.discoveries = memory.discoveries[-12:]
+
+    def _extract_read_file_excerpt(self, result_data: Any) -> Optional[str]:
+        """Extract a tiny code/text excerpt from read_file output."""
+        if not isinstance(result_data, str):
+            return None
+        cleaned_lines = []
+        for line in result_data.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            if "\t" in line:
+                line = line.split("\t", 1)[1].strip()
+            cleaned_lines.append(line)
+            if len(cleaned_lines) >= 3:
+                break
+        if not cleaned_lines:
+            return None
+        excerpt = " | ".join(cleaned_lines)
+        return excerpt[:240]
+
+    def _summarize_diff(self, result_data: Any) -> Optional[str]:
+        """Compress a diff into a short description."""
+        if not isinstance(result_data, str):
+            return None
+        additions = 0
+        removals = 0
+        preview: List[str] = []
+        for line in result_data.splitlines():
+            if line.startswith("+++ ") or line.startswith("--- ") or line.startswith("@@"):
+                continue
+            if line.startswith("+"):
+                additions += 1
+                if len(preview) < 3:
+                    preview.append(line[1:].strip())
+            elif line.startswith("-"):
+                removals += 1
+        summary = f"{additions} additions, {removals} removals"
+        if preview:
+            summary += "; examples: " + " | ".join(item[:120] for item in preview)
+        return summary
+
+    def _extract_bash_diagnostics(self, result_data: Any, fallback: str) -> List[str]:
+        """Keep only actionable bash diagnostics."""
+        if not isinstance(result_data, dict):
+            return [fallback]
+        diagnostics: List[str] = []
+        exit_code = result_data.get("exit_code")
+        if exit_code is not None:
+            diagnostics.append(f"exit_code={exit_code}")
+        if result_data.get("timed_out"):
+            diagnostics.append("command timed out")
+        combined = "\n".join(
+            part for part in [result_data.get("stderr"), result_data.get("stdout")] if part
+        )
+        for line in combined.splitlines():
+            stripped = line.strip()
+            if not stripped:
+                continue
+            lowered = stripped.lower()
+            if (
+                "error" in lowered
+                or "warning" in lowered
+                or "failed" in lowered
+                or re.search(r":[0-9]+(?::[0-9]+)?", stripped)
+            ):
+                diagnostics.append(stripped[:240])
+            if len(diagnostics) >= 6:
+                break
+        if not diagnostics:
+            diagnostics.append(fallback)
+        return diagnostics[:6]
+
+    def _summarize_discovery(
+        self,
+        tool_call: ParsedToolCall,
+        result: "ToolResult",
+    ) -> Optional[str]:
+        """Summarize grep/glob/listing results into a compact fact."""
+        if tool_call.name == "grep":
+            pattern = tool_call.arguments.get("pattern", "")
+            path = tool_call.arguments.get("path", "")
+            return f"grep '{pattern}' in {path or '.'}: {result.result_summary}"[:400]
+        if tool_call.name == "glob":
+            pattern = tool_call.arguments.get("pattern", "")
+            return f"glob '{pattern}': {result.result_summary}"[:400]
+        if tool_call.name == "list_directory":
+            path = tool_call.arguments.get("path", "")
+            return f"listed {path or '.'}: {result.result_summary}"[:400]
+        return None
+
     async def run(
         self,
         run_id: str,
@@ -467,8 +704,9 @@ To provide your final answer, respond WITHOUT calling any tools."""
         try:
             recovery_context = await state_machine.initialize()
 
-            # Build initial messages (includes conversation history if available)
+            # Build initial scaffold from system prompt + turn summaries.
             messages, self._context_budget = await self._build_initial_messages(query, conversation_id)
+            working_memory = WorkingMemory(objective=query)
 
             # Handle recovery if needed
             if recovery_context.needs_recovery:
@@ -525,8 +763,30 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 step = await state_machine.start_step()
                 step_number = step["step_number"]
 
+                # Drain any pending steering messages before prompt assembly.
+                if steer_queue:
+                    while steer_queue:
+                        steer_msg = steer_queue.pop(0)
+                        messages.append({"role": "user", "content": steer_msg})
+                        self._emit(
+                            event_callback,
+                            "steer_injected",
+                            run_id=run_id,
+                            content=steer_msg,
+                            step_number=step_number,
+                        )
+                        logger.info(
+                            "Steering message injected",
+                            extra={"run_id": run_id, "step": step_number, "steer_content": steer_msg[:80]},
+                        )
+
+                prompt_messages = self._build_prompt_messages(
+                    scaffold_messages=messages,
+                    working_memory=working_memory,
+                )
+
                 pruned_messages, context_usage_payload, compacted_now = self._enforce_prompt_budget(
-                    messages,
+                    prompt_messages,
                     step_number,
                 )
                 estimated_tokens = context_usage_payload["prompt_tokens_current_call"]
@@ -571,7 +831,6 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 )
 
                 if compacted_now:
-                    messages = pruned_messages
                     context_usage_payload = self._current_context_usage_payload(
                         self._pruner.estimate_tokens(pruned_messages)
                     )
@@ -598,24 +857,6 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         actor="system",
                         step_number=step_number,
                     )
-
-                # Drain any pending steering messages before LLM call
-                if steer_queue:
-                    while steer_queue:
-                        steer_msg = steer_queue.pop(0)
-                        messages.append({"role": "user", "content": steer_msg})
-                        pruned_messages.append({"role": "user", "content": steer_msg})
-                        self._emit(
-                            event_callback,
-                            "steer_injected",
-                            run_id=run_id,
-                            content=steer_msg,
-                            step_number=step_number,
-                        )
-                        logger.info(
-                            "Steering message injected",
-                            extra={"run_id": run_id, "step": step_number, "steer_content": steer_msg[:80]},
-                        )
 
                 # Call LLM with tools
                 tool_schemas = self._registry.get_openai_schemas()
@@ -759,12 +1000,13 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     if llm_response.text:
                         messages.append({
                             "role": "assistant",
-                            "content": llm_response.text,
+                            "content": self._summarize_assistant_content(llm_response.text),
                         })
                     messages.append({
                         "role": "user",
                         "content": "Continue. Provide your final answer or call a tool.",
                     })
+                    messages = self._trim_scaffold_messages(messages)
                     await state_machine.complete_step(
                         decision="truncated",
                         thinking_text=thinking_text,
@@ -805,7 +1047,10 @@ To provide your final answer, respond WITHOUT calling any tools."""
                                     },
                                 )
                                 final_answer = await self._force_synthesis(
-                                    messages=messages,
+                                    messages=self._build_prompt_messages(
+                                        scaffold_messages=messages,
+                                        working_memory=working_memory,
+                                    ),
                                     event_callback=event_callback,
                                     run_id=run_id,
                                 )
@@ -821,16 +1066,16 @@ To provide your final answer, respond WITHOUT calling any tools."""
                                     forced_synthesis=True,
                                 )
 
-                            messages.append(
-                                {
-                                    "role": "user",
-                                    "content": (
-                                        "Do not repeat filtered or duplicate tool calls. "
-                                        "Either provide the final answer now or choose a genuinely different tool call."
-                                    ),
-                                }
-                            )
-                            continue
+                        messages.append(
+                            {
+                                "role": "user",
+                                "content": (
+                                    "Do not repeat filtered or duplicate tool calls. "
+                                    "Either provide the final answer now or choose a genuinely different tool call."
+                                ),
+                            }
+                        )
+                        continue
 
                     # Tool calling step
                     await state_machine.transition_to(AgentStepState.TOOL_CALLING)
@@ -847,21 +1092,24 @@ To provide your final answer, respond WITHOUT calling any tools."""
 
                     # Add assistant message with tool calls. Historical reasoning stays
                     # in DB/UI only and is never re-injected into future prompts.
-                    assistant_content = llm_response.text
-                    if assistant_content and "<tool_call>" in assistant_content:
-                        import re as _re
-                        assistant_content = _re.sub(
-                            r"<tool_call>.*?</tool_call>", "", assistant_content, flags=_re.DOTALL
-                        ).strip() or None
-                    messages.append(
-                        {
-                            "role": "assistant",
-                            "content": assistant_content or None,
-                            "tool_calls": tool_calls,
-                        }
-                    )
-
-                    # Add tool results as tool messages
+                    assistant_content = self._summarize_assistant_content(llm_response.text)
+                    if assistant_content:
+                        messages.append(
+                            {
+                                "role": "assistant",
+                                "content": assistant_content,
+                                "tool_calls": tool_calls,
+                            }
+                        )
+                    else:
+                        messages.append(
+                            {
+                                "role": "assistant",
+                                "content": None,
+                                "tool_calls": tool_calls,
+                            }
+                        )
+                    self._update_working_memory_from_tools(working_memory, tool_results)
                     for tool_call, result in tool_results:
                         messages.append(
                             {
@@ -957,14 +1205,13 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         )
 
                     # Append assistant response to messages for cross-turn context.
-                    # Without this, _store_conversation_messages saves [system, user]
-                    # missing the answer, causing the next turn to see two consecutive
-                    # user messages with no assistant reply between them.
+                    # Keep only final answer text in long-lived scaffold.
                     if final_answer:
                         messages.append({
                             "role": "assistant",
                             "content": final_answer,
                         })
+                    messages = self._trim_scaffold_messages(messages)
 
                     # Emit answer as answer_token so UI displays it in answer panel
                     # (streaming sent it to thinking, now send cleaned version to answer)
@@ -993,7 +1240,10 @@ To provide your final answer, respond WITHOUT calling any tools."""
 
             # Max steps reached - force synthesis
             final_answer = await self._force_synthesis(
-                messages=messages,
+                messages=self._build_prompt_messages(
+                    scaffold_messages=messages,
+                    working_memory=working_memory,
+                ),
                 event_callback=event_callback,
                 run_id=run_id,
             )
@@ -1518,12 +1768,8 @@ When you complete each step, proceed to the next."""
     ) -> tuple[List[Dict[str, Any]], ContextBudget]:
         """Build initial message list with system prompt, history, and query.
 
-        First checks for stored full message context from a prior run in the
-        same conversation. If found, appends the new query to preserve tool
-        call results and file contents across turns.
-
-        Falls back to HistoryBuilder (turn summaries) for first messages or
-        when no prior context is available.
+        Uses HistoryBuilder turn summaries for cross-turn continuity. Agent
+        prompt replay no longer resumes from prior serialized tool transcripts.
 
         Args:
             query: User's research query.
@@ -1533,41 +1779,6 @@ When you complete each step, proceed to the next."""
             Tuple of (message list, ContextBudget accounting).
         """
         from orchestrator.utils.tokens import get_token_counter
-
-        # Try loading full message context from prior run
-        if conversation_id and self._trace_repo:
-            prior_messages = await self._load_prior_messages(conversation_id)
-            if prior_messages:
-                # Append the new user query to the existing context
-                prior_messages.append({"role": "user", "content": query})
-
-                # Build a budget estimate from loaded messages
-                token_counter = get_token_counter()
-                total_msg_tokens = sum(
-                    token_counter.count_tokens(msg.get("content") or "")
-                    for msg in prior_messages
-                )
-                budget = ContextBudget(
-                    max_tokens=self._max_context_tokens,
-                    reserve_for_response=self._max_tokens,
-                    system_prompt_tokens=token_counter.count_tokens(
-                        prior_messages[0].get("content", "")
-                    )
-                    if prior_messages
-                    else 0,
-                    history_tokens=total_msg_tokens,
-                )
-
-                logger.info(
-                    "Loaded prior conversation context",
-                    extra={
-                        "messages_count": len(prior_messages),
-                        "estimated_tokens": total_msg_tokens,
-                        "utilization_pct": round(budget.utilization_pct, 1),
-                    },
-                )
-
-                return prior_messages, budget
 
         # Fallback: build from scratch (first message or no prior context)
 
@@ -2981,11 +3192,12 @@ When you complete each step, proceed to the next."""
                 continue
 
             # Exact duplicate check against history
-            for prev in self._tool_call_log:
-                if prev["tool_name"] == tc.name and prev["arguments"] == tc.arguments:
-                    redundant.append((tc, f"Duplicate: already called {tc.name} with same arguments"))
-                    is_dup = True
-                    break
+            if tc.name != "read_file":
+                for prev in self._tool_call_log:
+                    if prev["tool_name"] == tc.name and prev["arguments"] == tc.arguments:
+                        redundant.append((tc, f"Duplicate: already called {tc.name} with same arguments"))
+                        is_dup = True
+                        break
             if is_dup:
                 continue
 
@@ -3261,25 +3473,28 @@ When you complete each step, proceed to the next."""
     async def _store_conversation_messages(
         self, run_id: str, messages: list
     ) -> None:
-        """Store pruned message list for cross-turn context.
-
-        Saves the current message history so the next run in the same
-        conversation can resume with full context instead of just turn summaries.
+        """Store a compact scaffold snapshot for debugging only.
 
         Args:
             run_id: Run ID.
-            messages: Current message list from the agent loop.
+            messages: Current scaffold message list from the agent loop.
         """
         if not self._trace_repo:
             return
         try:
-            # Strip internal metadata keys before serializing
-            clean = []
+            clean_messages = []
             for msg in messages:
-                m = {k: v for k, v in msg.items() if not k.startswith("_")}
-                clean.append(m)
-            serialized = json.dumps(clean, ensure_ascii=False)
-            # Cap at 500KB to prevent DB bloat
+                clean_messages.append(
+                    {k: v for k, v in msg.items() if not k.startswith("_")}
+                )
+            serialized = json.dumps(
+                {
+                    "mode": "scaffold_only",
+                    "messages": clean_messages,
+                    "message_count": len(clean_messages),
+                },
+                ensure_ascii=False,
+            )
             if len(serialized) > 500_000:
                 return
             await self._trace_repo.update_run(run_id, agent_state=serialized)
@@ -3292,41 +3507,15 @@ When you complete each step, proceed to the next."""
     async def _load_prior_messages(
         self, conversation_id: str
     ) -> list | None:
-        """Load message list from the most recent completed run in this conversation.
+        """Deprecated: normal cross-turn continuation no longer reloads agent_state.
 
         Args:
             conversation_id: Conversation ID to look up.
 
         Returns:
-            List of messages if found, None otherwise.
+            Always None.
         """
-        try:
-            prior_runs = await self._trace_repo.list_runs_for_conversation(
-                conversation_id
-            )
-            # Find most recent succeeded run with stored messages
-            for run in sorted(
-                prior_runs,
-                key=lambda r: r.get("created_at", ""),
-                reverse=True,
-            ):
-                if run.get("status") != "succeeded":
-                    continue
-                agent_state = run.get("agent_state")
-                if agent_state and agent_state.startswith("["):
-                    try:
-                        messages = json.loads(agent_state)
-                        if isinstance(messages, list) and len(messages) > 1:
-                            return messages
-                    except json.JSONDecodeError:
-                        continue
-            return None
-        except Exception as e:
-            logger.warning(
-                "Failed to load prior messages",
-                extra={"error": str(e)},
-            )
-            return None
+        return None
 
     async def _store_citations_from_tool(
         self,
