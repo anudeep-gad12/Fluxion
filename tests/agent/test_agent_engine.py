@@ -8,6 +8,7 @@ from orchestrator.agent.agent_engine import (
     AgentEngine,
     AgentResult,
     ParsedToolCall,
+    WorkingMemory,
 )
 from orchestrator.agent.tools.bash_tool import BashTool
 from orchestrator.agent.tools.base import ToolResult
@@ -50,6 +51,14 @@ def create_mock_registry():
     registry.get.return_value = None
     registry.is_idempotent.return_value = True
     return registry
+
+
+def create_mock_trace_repo(prior_runs=None):
+    """Create a mock TraceRepo."""
+    repo = MagicMock()
+    repo.list_runs_for_conversation = AsyncMock(return_value=prior_runs or [])
+    repo.update_run = AsyncMock()
+    return repo
 
 
 def create_mock_state_machine(
@@ -248,6 +257,76 @@ class TestAgentEngineHelpers:
         assert messages[1]["content"] == "What is 2+2?"
         assert budget.max_tokens == 100000
         assert budget.history_tokens == 0
+
+    async def test_build_initial_messages_uses_turn_summary_not_prior_agent_state(self):
+        """Cross-turn context should come from summaries, not prior serialized transcript."""
+        trace_repo = create_mock_trace_repo(
+            prior_runs=[
+                {
+                    "created_at": "2026-04-27T10:00:00Z",
+                    "status": "succeeded",
+                    "user_message": "Inspect the chart issue",
+                    "final_answer": "Fixed it",
+                    "turn_summary": "Q: Inspect the chart issue | A: Investigated chart ordering and fixed descending sort.",
+                    "agent_state": json.dumps(
+                        [
+                            {"role": "system", "content": "old system"},
+                            {"role": "tool", "name": "read_file", "content": "huge raw file dump"},
+                        ]
+                    ),
+                }
+            ]
+        )
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=create_mock_repo(),
+            registry=create_mock_registry(),
+            trace_repo=trace_repo,
+            system_prompt="You are helpful.",
+        )
+
+        messages, _ = await engine._build_initial_messages(
+            "What should I change next?",
+            conversation_id="conv-1",
+        )
+
+        assert [message["role"] for message in messages] == [
+            "system",
+            "user",
+            "assistant",
+            "user",
+        ]
+        assert messages[2]["content"] == "Investigated chart ordering and fixed descending sort."
+        assert all(message["role"] != "tool" for message in messages)
+
+    def test_build_prompt_messages_includes_working_memory_and_run_transcript(self):
+        """Prompt assembly injects working memory without dropping run transcript."""
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=create_mock_repo(),
+            registry=create_mock_registry(),
+        )
+        scaffold = [
+            {"role": "system", "content": "You are helpful."},
+            {"role": "user", "content": "Fix the chart ordering."},
+            {"role": "assistant", "content": "Inspecting chart code."},
+        ]
+        memory = WorkingMemory(
+            objective="Fix the chart ordering.",
+            files_inspected={"src/chart.ts": "Sorts dates descending."},
+        )
+        run_messages = [
+            {"role": "assistant", "content": None, "tool_calls": [{"id": "tc-1"}]},
+            {"role": "tool", "name": "read_file", "content": "raw file excerpt"},
+        ]
+
+        prompt = engine._build_prompt_messages(scaffold + run_messages, memory)
+
+        assert prompt[0]["role"] == "system"
+        assert prompt[1]["role"] == "system"
+        assert "WORKING MEMORY" in prompt[1]["content"]
+        assert prompt[-1]["role"] == "tool"
+        assert prompt[-1]["content"] == "raw file excerpt"
 
     def test_extract_thinking_with_tags(self):
         """Extract thinking from Harmony format."""
@@ -497,6 +576,86 @@ class TestAgentEngineFormatResult:
         assert parsed["summary"] == "Failed"
 
 
+class TestAgentWorkingMemory:
+    """Tests for structured agent working memory."""
+
+    def test_update_working_memory_from_tools(self):
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=create_mock_repo(),
+            registry=create_mock_registry(),
+        )
+        memory = WorkingMemory(objective="Fix issue")
+
+        tool_results = [
+            (
+                ParsedToolCall(
+                    id="tc-read",
+                    name="read_file",
+                    arguments={"file_path": "src/chart.ts"},
+                    raw_arguments='{"file_path":"src/chart.ts"}',
+                ),
+                ToolResult(
+                    success=True,
+                    result_summary="Read 20 lines from src/chart.ts",
+                    result_data="1\tconst data = sortDesc(items)\n2\treturn data\n",
+                ),
+            ),
+            (
+                ParsedToolCall(
+                    id="tc-edit",
+                    name="edit_file",
+                    arguments={"file_path": "src/chart.ts"},
+                    raw_arguments='{"file_path":"src/chart.ts"}',
+                ),
+                ToolResult(
+                    success=True,
+                    result_summary="Edited src/chart.ts",
+                    result_data="--- a/src/chart.ts\n+++ b/src/chart.ts\n-sortDesc(items)\n+sortAsc(items)\n",
+                ),
+            ),
+            (
+                ParsedToolCall(
+                    id="tc-bash",
+                    name="bash",
+                    arguments={"command": "npm run build"},
+                    raw_arguments='{"command":"npm run build"}',
+                ),
+                ToolResult(
+                    success=False,
+                    result_summary="Command failed (exit 2): npm run build",
+                    result_data={
+                        "exit_code": 2,
+                        "stdout": "",
+                        "stderr": "src/chart.ts:44 error TS2322: bad type",
+                        "timed_out": False,
+                    },
+                ),
+            ),
+            (
+                ParsedToolCall(
+                    id="tc-grep",
+                    name="grep",
+                    arguments={"pattern": "sort", "path": "src"},
+                    raw_arguments='{"pattern":"sort","path":"src"}',
+                ),
+                ToolResult(
+                    success=True,
+                    result_summary="Found 3 matches in src",
+                    result_data="src/chart.ts:12: sortDesc(items)",
+                ),
+            ),
+        ]
+
+        engine._update_working_memory_from_tools(memory, tool_results)
+
+        assert "src/chart.ts" in memory.files_inspected
+        assert "src/chart.ts" in memory.files_changed
+        assert memory.recent_validation == "Command failed (exit 2): npm run build"
+        assert any("TS2322" in item for item in memory.latest_diagnostics)
+        assert any("grep 'sort'" in item for item in memory.discoveries)
+
+
 # =============================================================================
 # AgentEngine Run Tests
 # =============================================================================
@@ -537,6 +696,128 @@ class TestAgentEngineRun:
         assert "14 million" in result.final_answer
         assert any(e["type"] == "agent_started" for e in events)
         assert any(e["type"] == "agent_complete" for e in events)
+
+    @pytest.mark.asyncio
+    async def test_raw_tool_results_persist_for_full_run(self):
+        """Exact tool results stay available across later steps in the same run."""
+        provider = MagicMock()
+        provider.complete_streaming = AsyncMock(
+            side_effect=[
+                LLMResponse(
+                    text="I'll inspect the file.",
+                    tool_calls=[
+                        {
+                            "id": "tc-read",
+                            "type": "function",
+                            "function": {
+                                "name": "read_file",
+                                "arguments": '{"file_path": "src/chart.ts"}',
+                            },
+                        }
+                    ],
+                ),
+                LLMResponse(
+                    text="Now validate with a build.",
+                    tool_calls=[
+                        {
+                            "id": "tc-bash",
+                            "type": "function",
+                            "function": {
+                                "name": "bash",
+                                "arguments": '{"command": "npm run build"}',
+                            },
+                        }
+                    ],
+                ),
+                LLMResponse(text="Done."),
+            ]
+        )
+        repo = create_mock_repo()
+        registry = create_mock_registry()
+        mock_sm = create_mock_state_machine(
+            can_continue_sequence=[True, True, True, False],
+            step_sequence=[
+                {"step_number": 1, "id": "step-1"},
+                {"step_number": 2, "id": "step-2"},
+                {"step_number": 3, "id": "step-3"},
+            ],
+        )
+
+        with patch(
+            "orchestrator.agent.agent_engine.AgentStateMachine",
+            return_value=mock_sm,
+        ):
+            engine = AgentEngine(
+                provider=provider,
+                repo=repo,
+                registry=registry,
+            )
+            with patch.object(
+                engine,
+                "_execute_tool_calls",
+                AsyncMock(
+                    side_effect=[
+                        [
+                            (
+                                ParsedToolCall(
+                                    id="tc-read",
+                                    name="read_file",
+                                    arguments={"file_path": "src/chart.ts"},
+                                    raw_arguments='{"file_path": "src/chart.ts"}',
+                                ),
+                                ToolResult(
+                                    success=True,
+                                    result_summary="Read 20 lines from src/chart.ts",
+                                    result_data="1\tconst points = data.sort(desc)\n2\texport default points\n",
+                                ),
+                            )
+                        ],
+                        [
+                            (
+                                ParsedToolCall(
+                                    id="tc-bash",
+                                    name="bash",
+                                    arguments={"command": "npm run build"},
+                                    raw_arguments='{"command": "npm run build"}',
+                                ),
+                                ToolResult(
+                                    success=True,
+                                    result_summary="Command succeeded (exit 0): npm run build",
+                                    result_data={
+                                        "exit_code": 0,
+                                        "stdout": "build ok",
+                                        "stderr": "",
+                                        "timed_out": False,
+                                    },
+                                ),
+                            )
+                        ],
+                    ],
+                ),
+            ):
+                result = await engine.run(
+                    run_id="test-run",
+                    query="Fix the chart ordering",
+                )
+
+        assert result.success is True
+        first_call_messages = provider.complete_streaming.call_args_list[0].kwargs["messages"]
+        second_call_messages = provider.complete_streaming.call_args_list[1].kwargs["messages"]
+        third_call_messages = provider.complete_streaming.call_args_list[2].kwargs["messages"]
+
+        assert not any(msg.get("role") == "tool" for msg in first_call_messages)
+        assert any(
+            msg.get("role") == "tool" and msg.get("name") == "read_file"
+            for msg in second_call_messages
+        )
+        assert any(
+            msg.get("role") == "tool" and msg.get("name") == "read_file"
+            for msg in third_call_messages
+        )
+        assert any(
+            msg.get("role") == "tool" and msg.get("name") == "bash"
+            for msg in third_call_messages
+        )
 
     @pytest.mark.asyncio
     async def test_emits_step_started_event(self):
@@ -1353,6 +1634,18 @@ class TestRedundancyDetection:
         ]
 
         calls = [ParsedToolCall(id="tc-2", name="web_search", arguments={"query": "Paris population"}, raw_arguments='{"query": "Paris population"}')]
+        redundant = engine._detect_redundant_calls(calls)
+
+        assert len(redundant) == 0
+
+    def test_allows_read_file_rereads(self):
+        """Same-run read_file calls are allowed so exact context can be reacquired."""
+        engine = self._make_engine()
+        engine._tool_call_log = [
+            {"tool_name": "read_file", "arguments": {"file_path": "src/chart.ts"}, "success": True, "step_number": 1},
+        ]
+
+        calls = [ParsedToolCall(id="tc-2", name="read_file", arguments={"file_path": "src/chart.ts"}, raw_arguments='{"file_path": "src/chart.ts"}')]
         redundant = engine._detect_redundant_calls(calls)
 
         assert len(redundant) == 0

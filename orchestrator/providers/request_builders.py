@@ -179,10 +179,10 @@ def build_chat_completions_request(
     Note:
         reasoning_effort is NOT supported by chat/completions and is ignored.
     """
-    # Strip internal metadata fields that strict APIs (e.g. Mistral) reject
-    _internal_keys = {"_plan", "_step", "_pruned", "_llm_summary"}
+    # Strip internal metadata fields that strict APIs reject. Keep only
+    # user/provider-visible message keys.
     clean_messages = [
-        {k: v for k, v in msg.items() if k not in _internal_keys}
+        {k: v for k, v in msg.items() if not str(k).startswith("_")}
         for msg in messages
     ]
 
