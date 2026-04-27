@@ -14,6 +14,10 @@ from orchestrator.config import get_chat_config
 from orchestrator.context.context_profile import resolve_model_context_profile
 from orchestrator.logging_config import get_logger
 from orchestrator.providers.factory import create_provider
+from orchestrator.reasoning_controls import (
+    ReasoningSettings,
+    infer_provider_family,
+)
 from orchestrator.storage.db import get_db
 from orchestrator.storage.repositories.agent_repo import AgentRepo
 from orchestrator.storage.repositories.trace_repo import TraceRepo
@@ -46,6 +50,7 @@ async def create_agent_engine(
     profile_name: Optional[str] = None,
     python_provider: Optional[str] = None,
     agent_capabilities: Optional[dict] = None,
+    reasoning_settings: Optional[ReasoningSettings] = None,
 ) -> AgentEngine:
     """Create a fully configured AgentEngine.
 
@@ -229,7 +234,11 @@ async def create_agent_engine(
     if resolved_model:
         effective_model = resolved_model.model_id
         effective_temp = temperature or resolved_model.temperature
-        effective_max_tokens = max_tokens or resolved_model.max_output_tokens
+        effective_max_tokens = (
+            max_tokens
+            or (reasoning_settings.max_output_tokens if reasoning_settings else None)
+            or resolved_model.max_output_tokens
+        )
         effective_reasoning = resolved_model.reasoning_effort
         effective_reasoning_request_param = resolved_model.reasoning_request_param
         input_cost_per_million = resolved_model.input_cost_per_million
@@ -239,7 +248,12 @@ async def create_agent_engine(
         effective_model = model_name or config.model.name
         effective_temp = temperature or config.model.temperature
         provider_max_output = getattr(provider_override, "_max_output_tokens", None)
-        effective_max_tokens = max_tokens or provider_max_output or config.model.max_tokens
+        effective_max_tokens = (
+            max_tokens
+            or (reasoning_settings.max_output_tokens if reasoning_settings else None)
+            or provider_max_output
+            or config.model.max_tokens
+        )
         effective_reasoning = getattr(config.model, "reasoning_effort", None)
         effective_reasoning_request_param = getattr(
             provider_override,
@@ -276,6 +290,12 @@ async def create_agent_engine(
         profile=profile,
         reasoning_effort=effective_reasoning,
         reasoning_request_param=effective_reasoning_request_param,
+        reasoning_provider_family=infer_provider_family(
+            provider_name=getattr(resolved_model, "provider_name", None) if resolved_model else None,
+            base_url=getattr(resolved_model, "base_url", None) if resolved_model else getattr(config.provider, "base_url", None),
+            provider_obj=provider_override,
+        ),
+        reasoning_settings=reasoning_settings,
         input_cost_per_million=input_cost_per_million,
         cached_input_cost_per_million=cached_input_cost_per_million,
         output_cost_per_million=output_cost_per_million,

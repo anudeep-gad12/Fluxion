@@ -19,9 +19,11 @@ def reset_active_model():
     """Reset active model state between tests."""
     models_module._active_model = None
     models_module._active_model_name = None
+    models_module._active_custom_model = None
     yield
     models_module._active_model = None
     models_module._active_model_name = None
+    models_module._active_custom_model = None
 
 
 @pytest.mark.asyncio
@@ -212,4 +214,51 @@ async def test_model_status_includes_context_profile_fields():
     assert data["context_window"] > 0
     assert data["max_output_tokens"] > 0
     assert data["effective_input_budget"] == data["context_window"] - data["max_output_tokens"]
+    assert "provider_family" in data
+    assert "reasoning_capabilities" in data
     assert "source" in data
+
+
+@pytest.mark.asyncio
+async def test_get_reasoning_settings_returns_capabilities():
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.get("/api/models/reasoning-settings")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert "settings" in data
+    assert "capabilities" in data
+    assert "provider_family" in data
+    assert "max_output_tokens" in data["settings"]
+    assert "reasoning_effort" in data["capabilities"]
+
+
+@pytest.mark.asyncio
+async def test_put_reasoning_settings_persists_round_trip():
+    payload = {
+        "settings": {
+            "max_output_tokens": 2048,
+            "reasoning_effort": "low",
+            "reasoning_summary": None,
+            "reasoning_enabled": True,
+            "reasoning_max_tokens": 512,
+            "reasoning_exclude": False,
+            "fireworks_reasoning_mode": "effort",
+            "fireworks_thinking_type": "enabled",
+            "fireworks_thinking_budget_tokens": None,
+            "fireworks_reasoning_history": None,
+        }
+    }
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.put("/api/models/reasoning-settings", json=payload)
+        assert response.status_code == 200
+        second = await client.get("/api/models/reasoning-settings")
+
+    data = second.json()
+    assert data["settings"]["max_output_tokens"] == 2048
+    assert data["settings"]["reasoning_effort"] == "low"

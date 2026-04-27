@@ -33,6 +33,7 @@ from orchestrator.agent.state_machine import (
 )
 from orchestrator.logging_config import get_logger
 from orchestrator.providers.usage import add_usage, estimate_cost, normalize_usage
+from orchestrator.reasoning_controls import ReasoningSettings, apply_reasoning_settings
 from orchestrator.schemas import AgentStepState
 from orchestrator.utils.sanitize import sanitize_harmony_tokens
 
@@ -279,6 +280,8 @@ To provide your final answer, respond WITHOUT calling any tools."""
         profile: Optional["AgentProfile"] = None,
         reasoning_effort: Optional[str] = None,
         reasoning_request_param: Optional[str] = None,
+        reasoning_provider_family: str = "generic",
+        reasoning_settings: Optional[ReasoningSettings] = None,
         input_cost_per_million: Optional[float] = None,
         cached_input_cost_per_million: Optional[float] = None,
         output_cost_per_million: Optional[float] = None,
@@ -381,12 +384,27 @@ To provide your final answer, respond WITHOUT calling any tools."""
         # Reasoning config for providers like OpenRouter
         self._reasoning_effort = reasoning_effort
         self._reasoning_request_param = reasoning_request_param
+        self._reasoning_provider_family = reasoning_provider_family
+        self._reasoning_settings = reasoning_settings or ReasoningSettings(
+            max_output_tokens=max_tokens,
+            reasoning_effort=reasoning_effort,
+        )
 
         # Context budget tracking
         self._context_budget: Optional[ContextBudget] = None
 
         # Run metrics accumulator
         self._tool_call_log: List[Dict[str, Any]] = []
+
+    def _reasoning_provider_kwargs(self) -> tuple[int, Dict[str, Any]]:
+        """Resolve provider-specific reasoning kwargs for the active model."""
+        kwargs = apply_reasoning_settings(
+            self._reasoning_settings,
+            provider_family=self._reasoning_provider_family,
+            supports_reasoning=bool(self._context_profile.supports_reasoning),
+        )
+        max_tokens = int(kwargs.pop("max_tokens", self._max_tokens))
+        return max_tokens, kwargs
 
     async def run(
         self,
@@ -1680,11 +1698,7 @@ When you complete each step, proceed to the next."""
         monitor_task = asyncio.create_task(slow_response_monitor())
 
         try:
-            # Build extra kwargs for providers that support reasoning config
-            # (e.g., OpenRouter uses {"effort": "medium"} to separate thinking/content)
-            extra_kwargs: Dict[str, Any] = {}
-            if self._reasoning_effort and self._reasoning_request_param == "reasoning":
-                extra_kwargs["reasoning"] = {"effort": self._reasoning_effort}
+            effective_max_tokens, extra_kwargs = self._reasoning_provider_kwargs()
 
             response = await self._provider.complete_streaming(
                 messages=messages,
@@ -1693,7 +1707,7 @@ When you complete each step, proceed to the next."""
                 on_reasoning=on_reasoning,
                 tools=tool_schemas if tool_schemas else None,
                 tool_choice=tool_choice,
-                max_tokens=self._max_tokens,
+                max_tokens=effective_max_tokens,
                 temperature=self._temperature,
                 **extra_kwargs,
             )
@@ -3504,7 +3518,6 @@ When you complete each step, proceed to the next."""
 
         # Call LLM without tools to force text response
         # Use higher token limit for reasoning models that need extra tokens for chain-of-thought
-        synthesis_max_tokens = max(self._max_tokens, 8192)
         answer_tokens: List[str] = []
         reasoning_tokens: List[str] = []
 
@@ -3523,10 +3536,8 @@ When you complete each step, proceed to the next."""
         def on_reasoning(token: str) -> None:
             reasoning_tokens.append(token)
 
-        # Build extra kwargs for reasoning config
-        extra_kwargs: Dict[str, Any] = {}
-        if self._reasoning_effort and self._reasoning_request_param == "reasoning":
-            extra_kwargs["reasoning"] = {"effort": self._reasoning_effort}
+        synthesis_max_tokens, extra_kwargs = self._reasoning_provider_kwargs()
+        synthesis_max_tokens = max(synthesis_max_tokens, 8192)
 
         response = await self._provider.complete_streaming(
             messages=messages,

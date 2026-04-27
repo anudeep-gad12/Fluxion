@@ -67,6 +67,7 @@ def build_responses_request(
     tools: Optional[List[Dict[str, Any]]] = None,
     tool_choice: Optional[str] = None,
     reasoning_effort: Optional[str] = None,
+    reasoning: Optional[Dict[str, Any]] = None,
     max_output_tokens: Optional[int] = None,
     stream: bool = True,
     previous_response_id: Optional[str] = None,
@@ -135,7 +136,9 @@ def build_responses_request(
                     "name": tool_choice,
                 }
 
-    if reasoning_effort:
+    if reasoning is not None:
+        payload["reasoning"] = reasoning
+    elif reasoning_effort:
         payload["reasoning"] = {"effort": reasoning_effort}
 
     # Stateful mode: chain to previous response

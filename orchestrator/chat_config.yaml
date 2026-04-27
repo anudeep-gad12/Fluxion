@@ -116,6 +116,21 @@ model:
   reasoning_effort: "medium"
 
 # =============================================================================
+# Unified Reasoning Controls
+# =============================================================================
+
+reasoning_controls:
+  max_output_tokens: 32768
+  reasoning_effort: "medium"
+  reasoning_summary: null
+  reasoning_enabled: null
+  reasoning_max_tokens: null
+  reasoning_exclude: null
+  fireworks_reasoning_mode: "effort"
+  fireworks_thinking_budget_tokens: null
+  fireworks_reasoning_history: null
+
+# =============================================================================
 # Context Management
 # =============================================================================
 
