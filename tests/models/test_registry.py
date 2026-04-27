@@ -138,6 +138,19 @@ class TestProviderHint:
         assert resolved.output_cost_per_million == 4.00
         assert resolved.reasoning_request_param is None
 
+    @patch.dict(os.environ, {"FIREWORKS_API_KEY": "fw-key"})
+    def test_glm5_fireworks_routes_with_pricing(self):
+        """Fireworks GLM-5 resolves with the official Fireworks model id and pricing."""
+        resolved = ModelRegistry.resolve("fireworks-glm-5")
+        assert resolved.provider_name == "fireworks"
+        assert resolved.model_id == "accounts/fireworks/models/glm-5"
+        assert resolved.base_url == "https://api.fireworks.ai/inference/v1"
+        assert resolved.context_window == 202752
+        assert resolved.input_cost_per_million == 1.00
+        assert resolved.cached_input_cost_per_million == 0.20
+        assert resolved.output_cost_per_million == 3.20
+        assert resolved.reasoning_request_param is None
+
     @patch.dict(os.environ, {"DEEPINFRA_API_KEY": "di-key"})
     def test_non_fireworks_reasoning_models_send_reasoning_param(self):
         """Existing non-Fireworks reasoning models keep their reasoning request field."""
@@ -221,6 +234,15 @@ class TestListModels:
         )
         assert kimi["input_cost_per_million"] == 0.95
         assert kimi["output_cost_per_million"] == 4.00
+
+        glm5 = next(
+            model
+            for model in result["fireworks"]["models"]
+            if model["model_id"] == "accounts/fireworks/models/glm-5"
+        )
+        assert glm5["input_cost_per_million"] == 1.00
+        assert glm5["cached_input_cost_per_million"] == 0.20
+        assert glm5["output_cost_per_million"] == 3.20
 
 
 class TestResolvedModelShape:
