@@ -422,6 +422,24 @@ MODEL_PRESETS: list[ModelPreset] = [
         cached_input_cost_per_million=0.10,
         output_cost_per_million=0.20,
     ),
+    ModelPreset(
+        model_id="accounts/fireworks/models/glm-5",
+        display_name="GLM-5 (Fireworks)",
+        provider="fireworks",
+        aliases=[
+            "fireworks-glm-5",
+            "fw-glm-5",
+            "glm-5-fireworks",
+        ],
+        context_window=202752,
+        max_output_tokens=16384,
+        supports_reasoning=True,
+        reasoning_effort="medium",
+        provider_hint="fireworks",
+        input_cost_per_million=1.00,
+        cached_input_cost_per_million=0.20,
+        output_cost_per_million=3.20,
+    ),
     # --- Local models (common GGUF patterns) ---
     ModelPreset(
         model_id="local-model",
