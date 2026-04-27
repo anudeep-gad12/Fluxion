@@ -249,6 +249,7 @@ import type {
   ContextUsage,
   TokenUsage,
   CostUsage,
+  ModelContextProfile,
 } from '@/types/agent';
 
 /**
@@ -358,6 +359,9 @@ export function subscribeToAgentRun(
     usage?: TokenUsage;
     cost?: CostUsage | null;
     context_usage?: ContextUsage;
+    context_profile?: ModelContextProfile;
+    compaction_count?: number;
+    last_compacted_at_step?: number;
   }) => void,
   onError: (error: string) => void,
   onCancelled?: () => void,
@@ -385,6 +389,8 @@ export function subscribeToAgentRun(
     'paused',
     'resumed',
     'steer',
+    'usage_update',
+    'conversation_compacted',
   ];
 
   eventTypes.forEach((eventType) => {
@@ -461,6 +467,12 @@ export interface ModelStatus {
   model_name: string | null;
   base_url: string | null;
   local_running: boolean;
+  context_window: number;
+  max_output_tokens: number;
+  effective_input_budget: number;
+  supports_tools: boolean;
+  supports_reasoning: boolean;
+  source: string;
 }
 
 export async function listLocalModels(): Promise<LocalModel[]> {
@@ -548,6 +560,9 @@ export async function selectModel(model: string): Promise<{
   display_name: string;
   provider: string;
   context_window: number;
+  max_output_tokens: number;
+  effective_input_budget: number;
+  source: string;
 }> {
   return fetchJson(`${API_BASE}/models/select`, {
     method: 'POST',
@@ -571,7 +586,7 @@ export interface CustomProviderRequest {
 
 export async function selectCustomProvider(
   request: CustomProviderRequest
-): Promise<{ status: string; name: string; model: string; base_url: string }> {
+ ): Promise<{ status: string; name: string; model: string; base_url: string; effective_input_budget: number; source: string }> {
   return fetchJson(`${API_BASE}/models/custom/select`, {
     method: 'POST',
     body: JSON.stringify(request),

@@ -178,9 +178,10 @@ export function AgentStepsPanel({ agentState }: AgentStepsPanelProps) {
     usage,
     cost,
     context_usage,
-    context_tokens,
-    context_remaining,
     injectedSteers,
+    systemEvents = [],
+    context_profile,
+    compaction_count,
   } = agentState;
   const [expandedThinking, setExpandedThinking] = useState<Record<number, boolean>>({});
 
@@ -265,17 +266,19 @@ export function AgentStepsPanel({ agentState }: AgentStepsPanelProps) {
           {cost && usage?.total_tokens ? (
             <span>est ${cost.total_cost < 0.01 ? cost.total_cost.toFixed(4) : cost.total_cost.toFixed(2)}</span>
           ) : null}
-          {context_tokens != null && context_tokens > 0 && (
-            <span className={context_remaining != null && context_remaining < 20000 ? 'text-amber-500' : ''}>
-              {Math.round(context_tokens / 1000)}k ctx est
+          {context_profile && (
+            <span>ctx {Math.round(context_profile.context_window / 1000)}k</span>
+          )}
+          {context_usage && (
+            <span className={context_usage.remaining_tokens < 20000 ? 'text-amber-500' : ''}>
+              used {Math.round(context_usage.utilization_pct_effective)}%
             </span>
           )}
-          {!context_tokens && context_usage && <span>ctx est {Math.round(context_usage.utilization_pct)}%</span>}
         </div>
       </div>
 
-      {(usage || context_usage || context_tokens != null) && (
-        <div className="mb-2 grid grid-cols-2 gap-2 text-[11px] text-zinc-500 sm:grid-cols-4">
+      {(usage || context_usage || context_profile) && (
+        <div className="mb-2 grid grid-cols-2 gap-2 text-[11px] text-zinc-500 sm:grid-cols-6">
           <div className="bg-zinc-950/60 border border-zinc-900 px-2 py-1">
             <span className="text-zinc-700">input </span>
             {usage?.input_tokens?.toLocaleString() ?? '—'}
@@ -285,12 +288,24 @@ export function AgentStepsPanel({ agentState }: AgentStepsPanelProps) {
             {usage?.output_tokens?.toLocaleString() ?? '—'}
           </div>
           <div className="bg-zinc-950/60 border border-zinc-900 px-2 py-1">
-            <span className="text-zinc-700">ctx est </span>
-            {context_tokens != null
-              ? `${Math.round(context_tokens / 1000)}k`
-              : context_usage
-                ? `${Math.round(context_usage.utilization_pct)}%`
-                : '—'}
+            <span className="text-zinc-700">window </span>
+            {context_profile ? `${Math.round(context_profile.context_window / 1000)}k` : '—'}
+          </div>
+          <div className="bg-zinc-950/60 border border-zinc-900 px-2 py-1">
+            <span className="text-zinc-700">reserve </span>
+            {context_profile ? `${Math.round(context_profile.max_output_tokens / 1000)}k` : '—'}
+          </div>
+          <div className="bg-zinc-950/60 border border-zinc-900 px-2 py-1">
+            <span className="text-zinc-700">used </span>
+            {context_usage ? `${Math.round(context_usage.prompt_tokens_current_call / 1000)}k` : '—'}
+          </div>
+          <div className="bg-zinc-950/60 border border-zinc-900 px-2 py-1">
+            <span className="text-zinc-700">remain </span>
+            {context_usage ? `${Math.round(context_usage.remaining_tokens / 1000)}k` : '—'}
+          </div>
+          <div className="bg-zinc-950/60 border border-zinc-900 px-2 py-1">
+            <span className="text-zinc-700">compact </span>
+            {(compaction_count ?? context_usage?.compactions_so_far) ?? 0}
           </div>
           <div className="bg-zinc-950/60 border border-zinc-900 px-2 py-1">
             <span className="text-zinc-700">cost </span>
@@ -302,6 +317,19 @@ export function AgentStepsPanel({ agentState }: AgentStepsPanelProps) {
       )}
 
       <div className="space-y-3">
+        {systemEvents.map((event, index) => (
+          <TimelineItem
+            key={`system-${event.seq ?? index}`}
+            dotClassName="bg-violet-400"
+            lineClassName="bg-violet-500/20"
+            isLast={steps.length === 0 && index === systemEvents.length - 1}
+          >
+            <div className="text-violet-200/80">
+              <span className="text-violet-400/70">system: </span>
+              {event.message}
+            </div>
+          </TimelineItem>
+        ))}
         {steps.map((step) => {
           const isCurrentStep = step.step_number === currentStep;
           const stepToolCalls = toolCallsByStep[step.step_number] || [];

@@ -1094,12 +1094,15 @@ export function ConversationView() {
                 title="Switch model"
               >
                 {modelStatus?.model_name || 'model'}
+                {modelStatus?.context_window ? (
+                  <span className="text-zinc-700 ml-1">({Math.round(modelStatus.context_window / 1024)}k)</span>
+                ) : null}
                 {modelStatus?.provider === 'local' && (
                   <span className="text-zinc-700 ml-1">(local)</span>
                 )}
               </button>
             ) : (
-              <span className="text-zinc-600">{modelStatus?.model_name || 'model'}</span>
+              <span className="text-zinc-600">{modelStatus?.model_name || 'model'}{modelStatus?.context_window ? ` (${Math.round(modelStatus.context_window / 1024)}k)` : ''}</span>
             )}
           </div>
           <button
@@ -1280,6 +1283,9 @@ export function ConversationView() {
                 title="Switch model"
               >
                 {modelStatus?.model_name || 'model'}
+                {modelStatus?.context_window ? (
+                  <span className="text-zinc-700 ml-1">({Math.round(modelStatus.context_window / 1024)}k)</span>
+                ) : null}
                 {modelStatus?.provider === 'local' && (
                   <span className="text-zinc-700 ml-1">(local)</span>
                 )}
@@ -1288,7 +1294,7 @@ export function ConversationView() {
             </>
           ) : (
             <>
-              <span className="text-zinc-600 flex-shrink-0">{modelStatus?.model_name || 'model'}</span>
+              <span className="text-zinc-600 flex-shrink-0">{modelStatus?.model_name || 'model'}{modelStatus?.context_window ? ` (${Math.round(modelStatus.context_window / 1024)}k)` : ''}</span>
               <span className="text-zinc-700">|</span>
             </>
           )}

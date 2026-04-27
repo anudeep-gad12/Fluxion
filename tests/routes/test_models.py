@@ -98,6 +98,9 @@ async def test_select_model_creates_provider_override():
     assert data["display_name"] == "Qwen 3 72B"
     assert data["provider"] == "openrouter"
     assert data["context_window"] == 131072
+    assert data["max_output_tokens"] == 16384
+    assert data["effective_input_budget"] == 114688
+    assert data["source"] == "registry"
 
 
 @pytest.mark.asyncio
@@ -137,7 +140,10 @@ async def test_select_model_returns_metadata():
     assert data["model_id"] == "deepseek/deepseek-r1"
     assert data["provider"] == "openrouter"
     assert data["context_window"] == 163840
+    assert data["max_output_tokens"] == 16384
+    assert data["effective_input_budget"] == 147456
     assert data["supports_reasoning"] is True
+    assert data["source"] == "registry"
 
 
 @pytest.mark.asyncio
@@ -192,3 +198,18 @@ async def test_select_model_updates_active_state():
     data = response.json()
     assert data["active_model"] == "qwen3-72b"
     assert data["active_model_id"] == "qwen/qwen3-72b"
+
+
+@pytest.mark.asyncio
+async def test_model_status_includes_context_profile_fields():
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.get("/api/models/status")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["context_window"] > 0
+    assert data["max_output_tokens"] > 0
+    assert data["effective_input_budget"] == data["context_window"] - data["max_output_tokens"]
+    assert "source" in data

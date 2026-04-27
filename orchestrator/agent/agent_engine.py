@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 from orchestrator.agent.context_pruner import ContextPruner
 from orchestrator.agent.permissions import classify_tool_call
 from orchestrator.context.budget import ContextBudget
+from orchestrator.context.context_profile import ModelContextProfile
 from orchestrator.context.history_builder import HistoryBuilder
 from orchestrator.agent.recovery import (
     build_recovery_messages,
@@ -97,6 +98,9 @@ class AgentResult:
     timing_ms: int = 0
     total_tokens: int = 0
     context_usage: Optional[Dict[str, Any]] = None
+    context_profile: Optional[Dict[str, Any]] = None
+    compaction_count: int = 0
+    last_compacted_at_step: Optional[int] = None
     usage: Optional[Dict[str, int]] = None
     cost: Optional[Dict[str, Any]] = None
 
@@ -248,8 +252,10 @@ RESPONSE FORMAT:
 
 To provide your final answer, respond WITHOUT calling any tools."""
 
-    # Maximum characters for tool result content (prevents context blowout)
+    # Final emergency character floor after token-budget formatting.
     MAX_TOOL_RESULT_CHARS: int = 50000
+    COMPACTION_THRESHOLD_PCT: int = 90
+    COMPACTION_PREFIX: str = "Conversation compacted to preserve context window"
 
     def __init__(
         self,
@@ -276,6 +282,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
         input_cost_per_million: Optional[float] = None,
         cached_input_cost_per_million: Optional[float] = None,
         output_cost_per_million: Optional[float] = None,
+        context_profile: Optional[ModelContextProfile] = None,
     ) -> None:
         """Initialize agent engine.
 
@@ -324,6 +331,23 @@ To provide your final answer, respond WITHOUT calling any tools."""
         self._tool_choice = tool_choice
         self._max_context_tokens = max_context_tokens
         self._slow_response_threshold = slow_response_threshold
+        self._context_profile = context_profile or ModelContextProfile(
+            provider_name="unknown",
+            model_id=self._model_name,
+            display_name=self._model_name,
+            context_window=max_context_tokens,
+            max_output_tokens=max_tokens,
+            supports_tools=True,
+            supports_reasoning=bool(reasoning_effort),
+            pricing={
+                "input_cost_per_million": input_cost_per_million,
+                "cached_input_cost_per_million": cached_input_cost_per_million,
+                "output_cost_per_million": output_cost_per_million,
+            },
+            source="config_fallback",
+        )
+        self._compaction_count = 0
+        self._last_compacted_at_step: Optional[int] = None
 
         # Agent profile
         self._profile = profile
@@ -482,12 +506,13 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 step = await state_machine.start_step()
                 step_number = step["step_number"]
 
-                # Estimate context tokens for budget tracking
-                effective_budget = self._max_context_tokens - self._max_tokens
-                estimated_tokens = self._pruner.estimate_tokens(messages)
-                context_remaining = max(0, self._max_context_tokens - estimated_tokens)
+                pruned_messages, context_usage_payload, compacted_now = self._enforce_prompt_budget(
+                    messages,
+                    step_number,
+                )
+                estimated_tokens = context_usage_payload["prompt_tokens_current_call"]
+                context_remaining = context_usage_payload["remaining_tokens"]
 
-                # Update budget with actual per-step context usage
                 if self._context_budget:
                     fixed_tokens = (
                         self._context_budget.system_prompt_tokens
@@ -503,12 +528,15 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     step_number=step_number,
                     steps_remaining=state_machine.steps_remaining,
                     context_tokens=estimated_tokens,
-                    context_max=self._max_context_tokens,
+                    context_max=self._context_profile.context_window,
                     context_remaining=context_remaining,
                     total_tokens_used=self._total_tokens,
+                    context_usage=context_usage_payload,
+                    context_profile=self._context_profile_dict(),
+                    compaction_count=self._compaction_count,
+                    last_compacted_at_step=self._last_compacted_at_step,
                 )
 
-                # Trace: step_start
                 await self._add_trace_event(
                     run_id=run_id,
                     event_type="step_start",
@@ -516,56 +544,37 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         "step_number": step_number,
                         "steps_remaining": state_machine.steps_remaining,
                         "context_tokens": estimated_tokens,
-                        "context_max": self._max_context_tokens,
+                        "context_max": self._context_profile.context_window,
+                        "context_usage": context_usage_payload,
+                        "context_profile": self._context_profile_dict(),
                     },
                     step_number=step_number,
                 )
-                pruned_messages = messages
 
-                if estimated_tokens > effective_budget:
-                    prune_iterations = 0
-                    max_prune_iterations = 20
-
-                    while estimated_tokens > effective_budget and prune_iterations < max_prune_iterations:
-                        prune_iterations += 1
-                        logger.warning(
-                            "Context exceeds budget, force pruning",
-                            extra={
-                                "estimated_tokens": estimated_tokens,
-                                "max_context_tokens": self._max_context_tokens,
-                                "iteration": prune_iterations,
-                                "step": step_number,
-                            },
-                        )
-                        pruned_messages = self._force_prune_largest(pruned_messages, step_metadata)
-                        estimated_tokens = self._pruner.estimate_tokens(pruned_messages)
-
-                    logger.info(
-                        "Context budget enforced",
-                        extra={
-                            "prune_iterations": prune_iterations,
-                            "final_estimated_tokens": estimated_tokens,
-                            "messages_count": len(pruned_messages),
-                        },
+                if compacted_now:
+                    messages = pruned_messages
+                    context_usage_payload = self._current_context_usage_payload(
+                        self._pruner.estimate_tokens(pruned_messages)
                     )
                     self._emit(
                         event_callback,
-                        "context_pruned",
+                        "conversation_compacted",
                         run_id=run_id,
                         step_number=step_number,
-                        prune_iterations=prune_iterations,
-                        context_tokens=estimated_tokens,
-                        context_max=self._max_context_tokens,
+                        message=self.COMPACTION_PREFIX,
+                        context_usage=context_usage_payload,
+                        context_profile=self._context_profile_dict(),
+                        compaction_count=self._compaction_count,
                     )
                     await self._add_trace_event(
                         run_id=run_id,
-                        event_type="context_pruned",
+                        event_type="conversation_compacted",
                         content={
                             "step_number": step_number,
-                            "prune_iterations": prune_iterations,
-                            "context_tokens": estimated_tokens,
-                            "context_max": self._max_context_tokens,
-                            "messages_count": len(pruned_messages),
+                            "message": self.COMPACTION_PREFIX,
+                            "context_usage": context_usage_payload,
+                            "context_profile": self._context_profile_dict(),
+                            "compaction_count": self._compaction_count,
                         },
                         actor="system",
                         step_number=step_number,
@@ -635,6 +644,9 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         total_steps=step_number,
                         timing_ms=int((time.perf_counter() - start_time) * 1000),
                         total_tokens=self._total_tokens,
+                        context_profile=self._context_profile_dict(),
+                        compaction_count=self._compaction_count,
+                        last_compacted_at_step=self._last_compacted_at_step,
                         usage=self._usage_totals.copy(),
                         cost=self._current_cost(),
                     )
@@ -706,6 +718,12 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     usage=self._usage_totals,
                     latest_usage=normalized_usage,
                     cost=self._current_cost(),
+                    context_usage=self._current_context_usage_payload(
+                        self._pruner.estimate_tokens(pruned_messages)
+                    ),
+                    context_profile=self._context_profile_dict(),
+                    compaction_count=self._compaction_count,
+                    last_compacted_at_step=self._last_compacted_at_step,
                 )
 
                 # Model was truncated (hit max_tokens) — partial content
@@ -770,24 +788,14 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         step_metadata=step_metadata,
                     )
 
-                    # Add assistant message with tool calls
-                    # Include truncated reasoning for context so model doesn't re-analyze
-                    # each step. Limit to ~500 chars to avoid 400 errors with some providers.
-                    # Strip <tool_call> XML from text so it doesn't pollute conversation history
+                    # Add assistant message with tool calls. Historical reasoning stays
+                    # in DB/UI only and is never re-injected into future prompts.
                     assistant_content = llm_response.text
                     if assistant_content and "<tool_call>" in assistant_content:
                         import re as _re
                         assistant_content = _re.sub(
                             r"<tool_call>.*?</tool_call>", "", assistant_content, flags=_re.DOTALL
                         ).strip() or None
-                    if not assistant_content and llm_response.reasoning:
-                        # Use last portion of reasoning (most relevant to decision)
-                        reasoning = llm_response.reasoning.strip()
-                        if len(reasoning) > 500:
-                            # Take last 500 chars to preserve the conclusion/decision
-                            assistant_content = "..." + reasoning[-500:]
-                        else:
-                            assistant_content = reasoning
                     messages.append(
                         {
                             "role": "assistant",
@@ -803,7 +811,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                                 "role": "tool",
                                 "tool_call_id": tool_call.id,
                                 "name": tool_call.name,
-                                "content": self._format_tool_result(result),
+                                "content": self._format_tool_result(result, tool_call.name),
                                 "_step": step_number,
                             }
                         )
@@ -925,15 +933,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     # Trace: agent_complete
                     total_timing_ms = int((time.perf_counter() - start_time) * 1000)
 
-                    # Build context_usage payload
-                    _ctx = {}
-                    if self._context_budget:
-                        _ctx = {
-                            "total_tokens_used": self._context_budget.total_used,
-                            "history_tokens": self._context_budget.history_tokens,
-                            "max_tokens": self._max_context_tokens,
-                            "utilization_pct": round(self._context_budget.utilization_pct, 1),
-                        }
+                    _ctx = self._current_context_usage_payload(self._pruner.estimate_tokens(messages))
 
                     self._emit(
                         event_callback,
@@ -944,7 +944,10 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         citations=citations,
                         total_steps=step_number,
                         timing_ms=total_timing_ms,
-                        context_usage=_ctx if _ctx else None,
+                        context_usage=_ctx,
+                        context_profile=self._context_profile_dict(),
+                        compaction_count=self._compaction_count,
+                        last_compacted_at_step=self._last_compacted_at_step,
                         total_tokens=self._total_tokens,
                         usage=self._usage_totals,
                         cost=self._current_cost(),
@@ -974,7 +977,10 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         total_steps=step_number,
                         timing_ms=total_timing_ms,
                         total_tokens=self._total_tokens,
-                        context_usage=_ctx if _ctx else None,
+                        context_usage=_ctx,
+                        context_profile=self._context_profile_dict(),
+                        compaction_count=self._compaction_count,
+                        last_compacted_at_step=self._last_compacted_at_step,
                         usage=self._usage_totals.copy(),
                         cost=self._current_cost(),
                     )
@@ -1125,6 +1131,191 @@ To provide your final answer, respond WITHOUT calling any tools."""
         """
         if callback:
             callback({"type": event_type, **kwargs})
+
+    def _context_profile_dict(self) -> Dict[str, Any]:
+        return self._context_profile.to_dict()
+
+    def _current_context_usage_payload(
+        self,
+        prompt_tokens_current_call: int,
+    ) -> Dict[str, Any]:
+        effective_budget = self._context_profile.effective_input_budget
+        remaining = max(0, effective_budget - prompt_tokens_current_call)
+        utilization_pct = (prompt_tokens_current_call / effective_budget * 100) if effective_budget else 0.0
+        return {
+            "context_window": self._context_profile.context_window,
+            "reserved_output_tokens": self._context_profile.max_output_tokens,
+            "effective_input_budget": effective_budget,
+            "prompt_tokens_current_call": prompt_tokens_current_call,
+            "conversation_tokens_active_history": prompt_tokens_current_call,
+            "utilization_pct_effective": round(utilization_pct, 1),
+            "utilization_pct": round(utilization_pct, 1),
+            "compaction_threshold_pct": self.COMPACTION_THRESHOLD_PCT,
+            "next_compaction_at_tokens": int(effective_budget * self.COMPACTION_THRESHOLD_PCT / 100),
+            "remaining_tokens": remaining,
+            "compactions_so_far": self._compaction_count,
+            "compaction_count": self._compaction_count,
+            "last_compacted_at_step": self._last_compacted_at_step,
+        }
+
+    def _is_compaction_message(self, message: Dict[str, Any]) -> bool:
+        return message.get("role") == "system" and str(message.get("content") or "").startswith(self.COMPACTION_PREFIX)
+
+    def _find_latest_compaction_index(self, messages: List[Dict[str, Any]]) -> Optional[int]:
+        for idx in range(len(messages) - 1, -1, -1):
+            if self._is_compaction_message(messages[idx]):
+                return idx
+        return None
+
+    def _tool_log_entries_up_to_step(self, step_number: int) -> List[Dict[str, Any]]:
+        return [entry for entry in self._tool_call_log if entry.get("step_number", 0) <= step_number]
+
+    def _build_compaction_summary(
+        self,
+        messages_to_compact: List[Dict[str, Any]],
+        step_number: int,
+    ) -> str:
+        user_messages = [str(m.get("content") or "").strip() for m in messages_to_compact if m.get("role") == "user" and str(m.get("content") or "").strip()]
+        assistant_messages = [str(m.get("content") or "").strip() for m in messages_to_compact if m.get("role") == "assistant" and str(m.get("content") or "").strip()]
+        tool_entries = self._tool_log_entries_up_to_step(step_number)
+
+        files_inspected: List[str] = []
+        files_changed: List[str] = []
+        command_outcomes: List[str] = []
+        web_sources: List[str] = []
+        findings: List[str] = []
+
+        for entry in tool_entries:
+            tool_name = entry.get("tool_name", "")
+            arguments = entry.get("arguments", {}) or {}
+            summary = str(entry.get("result_summary") or "").strip()
+            if tool_name == "read_file" and arguments.get("file_path"):
+                files_inspected.append(str(arguments.get("file_path")))
+            elif tool_name == "grep" and arguments.get("path"):
+                files_inspected.append(str(arguments.get("path")))
+            elif tool_name in {"write_file", "edit_file"} and arguments.get("file_path"):
+                files_changed.append(str(arguments.get("file_path")))
+            elif tool_name == "bash" and summary:
+                command_outcomes.append(summary)
+            elif tool_name == "web_extract":
+                for url in arguments.get("urls", [])[:2]:
+                    web_sources.append(str(url))
+            elif tool_name == "web_search" and summary:
+                findings.append(summary)
+            if summary and tool_name in {"read_file", "grep", "python_execute", "web_extract"}:
+                findings.append(summary)
+
+        def _uniq(items: List[str], limit: int) -> List[str]:
+            seen = []
+            for item in items:
+                clean = item.strip()
+                if clean and clean not in seen:
+                    seen.append(clean)
+                if len(seen) >= limit:
+                    break
+            return seen
+
+        if self._profile and self._profile.name == "coding":
+            sections = [
+                self.COMPACTION_PREFIX,
+                "",
+                "Compacted coding context:",
+                f"- Repo/workspace: {getattr(self._profile, 'name', 'coding')} profile active.",
+            ]
+            if user_messages:
+                sections.append(f"- User goals and constraints: {' | '.join(_uniq(user_messages, 3))[:1200]}")
+            if files_inspected:
+                sections.append(f"- Files inspected: {', '.join(_uniq(files_inspected, 12))}")
+            if files_changed:
+                sections.append(f"- Files changed: {', '.join(_uniq(files_changed, 12))}")
+            if command_outcomes:
+                sections.append(f"- Command outcomes: {'; '.join(_uniq(command_outcomes, 6))[:1200]}")
+            if findings:
+                sections.append(f"- Important findings: {'; '.join(_uniq(findings, 6))[:1200]}")
+            if web_sources:
+                sections.append(f"- Sources consulted: {', '.join(_uniq(web_sources, 6))}")
+            if assistant_messages:
+                sections.append(f"- Unresolved implementation state: {assistant_messages[-1][:700]}")
+            sections.append(f"- Runtime state: model={self._context_profile.display_name}, compactions={self._compaction_count + 1}.")
+            return "\n".join(sections)
+
+        sections = [
+            self.COMPACTION_PREFIX,
+            "",
+            "Compacted conversation context:",
+        ]
+        if user_messages:
+            sections.append(f"- User intent: {' | '.join(_uniq(user_messages, 3))[:1200]}")
+        if findings:
+            sections.append(f"- Important facts: {'; '.join(_uniq(findings, 6))[:1200]}")
+        if assistant_messages:
+            sections.append(f"- Conclusions so far: {assistant_messages[-1][:900]}")
+        sections.append("- Open questions: continue from the most recent raw messages after this compaction.")
+        return "\n".join(sections)
+
+    def _compact_conversation(
+        self,
+        messages: List[Dict[str, Any]],
+        step_number: int,
+    ) -> List[Dict[str, Any]]:
+        if len(messages) <= 2:
+            return messages
+        base_system = messages[0]
+        latest_compaction_idx = self._find_latest_compaction_index(messages)
+        tail_messages: List[Dict[str, Any]] = []
+        if messages and messages[-1].get("role") == "user":
+            tail_messages = [messages[-1]]
+
+        cutoff_end = len(messages) - len(tail_messages)
+        start_idx = 1
+        if latest_compaction_idx is not None:
+            start_idx = latest_compaction_idx
+        messages_to_compact = messages[start_idx:cutoff_end]
+        if not messages_to_compact:
+            return messages
+
+        summary = self._build_compaction_summary(messages_to_compact, step_number)
+        compacted = [base_system, {"role": "system", "content": summary}] + tail_messages
+        self._compaction_count += 1
+        self._last_compacted_at_step = step_number
+        return compacted
+
+    def _enforce_prompt_budget(
+        self,
+        messages: List[Dict[str, Any]],
+        step_number: int,
+    ) -> tuple[List[Dict[str, Any]], Dict[str, Any], bool]:
+        effective_budget = self._context_profile.effective_input_budget
+        threshold_tokens = int(effective_budget * self.COMPACTION_THRESHOLD_PCT / 100)
+        prompt_tokens = self._pruner.estimate_tokens(messages)
+        compacted_now = False
+
+        if prompt_tokens >= threshold_tokens:
+            compacted_messages = self._compact_conversation(messages, step_number)
+            if compacted_messages is not messages:
+                messages = compacted_messages
+                prompt_tokens = self._pruner.estimate_tokens(messages)
+                compacted_now = True
+
+        if prompt_tokens > effective_budget:
+            prune_iterations = 0
+            while prompt_tokens > effective_budget and prune_iterations < 20:
+                prune_iterations += 1
+                messages = self._force_prune_largest(messages, {})
+                prompt_tokens = self._pruner.estimate_tokens(messages)
+            if prune_iterations:
+                logger.warning(
+                    "Emergency prompt truncation applied after compaction",
+                    extra={
+                        "step_number": step_number,
+                        "prune_iterations": prune_iterations,
+                        "prompt_tokens": prompt_tokens,
+                        "effective_budget": effective_budget,
+                    },
+                )
+
+        usage_payload = self._current_context_usage_payload(prompt_tokens)
+        return messages, usage_payload, compacted_now
 
     def _record_usage(self, raw_usage: dict[str, Any] | None) -> dict[str, int]:
         """Normalize and accumulate LLM token usage."""
@@ -1930,6 +2121,7 @@ When you complete each step, proceed to the next."""
                 "tool_name": tool_call.name,
                 "arguments": tool_call.arguments,
                 "success": result.success,
+                "result_summary": result.result_summary,
                 "step_number": step_number,
             })
 
@@ -2377,41 +2569,126 @@ When you complete each step, proceed to the next."""
             diff_text = diff_text[:5000] + "\n... (diff truncated)"
         return diff_text or None
 
-    def _format_tool_result(self, result: "ToolResult") -> str:
-        """Format tool result for message content.
+    def _truncate_text_to_tokens(self, text: str, max_tokens: int, preserve_tail: bool = False) -> str:
+        if not text:
+            return text
+        counter = self._pruner  # estimate_tokens delegates to shared token counter
+        if counter.estimate_tokens([{"content": text}]) <= max_tokens:
+            return text
+        if not preserve_tail:
+            estimated_chars = max_tokens * 4
+            return text[:estimated_chars] + "\n... [truncated for prompt budget]"
+        half = max(200, (max_tokens * 4) // 2)
+        return (
+            text[:half]
+            + "\n... [middle truncated for prompt budget] ...\n"
+            + text[-half:]
+        )
 
-        Args:
-            result: ToolResult from execution.
+    def _bounded_json(self, payload: Dict[str, Any], max_tokens: int) -> str:
+        text = json.dumps(payload, ensure_ascii=False)
+        if self._pruner.estimate_tokens([{"content": text}]) <= max_tokens:
+            return text
+        return self._truncate_text_to_tokens(text, max_tokens, preserve_tail=True)
 
-        Returns:
-            JSON string for tool message content, truncated if too large.
-        """
-        if result.success:
-            # Use full result_data if available, otherwise summary
-            if result.result_data:
-                content = json.dumps(result.result_data, ensure_ascii=False)
-            else:
-                content = result.result_summary
-        else:
-            content = json.dumps(
+    def _format_tool_result(self, result: "ToolResult", tool_name: Optional[str] = None) -> str:
+        """Format tool result for prompt history with per-tool token budgets."""
+        if not result.success:
+            return self._bounded_json(
                 {
                     "error": result.error_message or "Unknown error",
                     "summary": result.result_summary,
-                }
+                },
+                800,
             )
 
-        # Truncate if too large to prevent context blowout
+        if not result.result_data:
+            return result.result_summary
+
+        tool_name = tool_name or "unknown"
+        data = result.result_data
+
+        if tool_name == "read_file":
+            content = str(data)
+            lines = []
+            for raw_line in content.splitlines()[:400]:
+                if len(raw_line) > 300:
+                    lines.append(raw_line[:300] + "...")
+                else:
+                    lines.append(raw_line)
+            return self._truncate_text_to_tokens("\n".join(lines), 6000)
+
+        if tool_name == "grep":
+            lines = str(data).splitlines()[:75]
+            return self._truncate_text_to_tokens("\n".join(lines), 3000)
+
+        if tool_name == "glob":
+            lines = str(data).splitlines()[:200]
+            return self._truncate_text_to_tokens("\n".join(lines), 1500)
+
+        if tool_name == "list_directory":
+            lines = str(data).splitlines()[:200]
+            return self._truncate_text_to_tokens("\n".join(lines), 1500)
+
+        if tool_name == "web_search" and isinstance(data, dict):
+            results = []
+            for entry in (data.get("results") or [])[:8]:
+                results.append({
+                    "title": str(entry.get("title", ""))[:160],
+                    "url": entry.get("url", ""),
+                    "snippet": str(entry.get("snippet", ""))[:300],
+                })
+            return self._bounded_json({"query": data.get("query", ""), "results": results}, 2000)
+
+        if tool_name == "web_extract" and isinstance(data, dict):
+            extractions = []
+            for entry in (data.get("extractions") or [])[:2]:
+                extractions.append({
+                    "url": entry.get("url", ""),
+                    "title": str(entry.get("title", ""))[:160],
+                    "excerpt": self._truncate_text_to_tokens(str(entry.get("content", "")), 1500),
+                    "success": entry.get("success", True),
+                })
+            return self._bounded_json({"extractions": extractions}, 4000)
+
+        if tool_name == "bash" and isinstance(data, dict):
+            return self._bounded_json(
+                {
+                    "command": data.get("command", ""),
+                    "exit_code": data.get("exit_code"),
+                    "stdout": self._truncate_text_to_tokens(str(data.get("stdout", "")), 1500, preserve_tail=True),
+                    "stderr": self._truncate_text_to_tokens(str(data.get("stderr", "")), 1500, preserve_tail=True),
+                    "truncated": data.get("truncated", False),
+                },
+                4000,
+            )
+
+        if tool_name == "python_execute" and isinstance(data, dict):
+            code = data.get("code") or data.get("command") or ""
+            output = data.get("output") or data.get("stdout") or ""
+            return self._bounded_json(
+                {
+                    "code": self._truncate_text_to_tokens(str(code), 600),
+                    "stdout": self._truncate_text_to_tokens(str(output), 1800, preserve_tail=True),
+                    "stderr": self._truncate_text_to_tokens(str(data.get("stderr", "")), 600, preserve_tail=True),
+                    "exit_code": data.get("exit_code"),
+                },
+                3000,
+            )
+
+        if tool_name in {"write_file", "edit_file"}:
+            payload = data if isinstance(data, dict) else {"result": str(data)}
+            bounded = {
+                "file_path": payload.get("file_path"),
+                "summary": result.result_summary,
+                "diff": self._truncate_text_to_tokens(str(payload.get("diff") or payload.get("preview") or payload), 2000, preserve_tail=True),
+            }
+            return self._bounded_json(bounded, 2500)
+
+        content = json.dumps(data, ensure_ascii=False) if not isinstance(data, str) else data
         if len(content) > self.MAX_TOOL_RESULT_CHARS:
             truncated = content[: self.MAX_TOOL_RESULT_CHARS - 100]
             content = truncated + f"\n\n[... truncated {len(content) - len(truncated)} chars ...]"
-            logger.warning(
-                "Truncated large tool result",
-                extra={
-                    "original_chars": len(content),
-                    "truncated_to": self.MAX_TOOL_RESULT_CHARS,
-                },
-            )
-
         return content
 
     def _force_prune_largest(
@@ -2869,13 +3146,12 @@ When you complete each step, proceed to the next."""
             metrics["total_tokens"] = self._total_tokens
             metrics["usage"] = self._usage_totals.copy()
             metrics["cost"] = self._current_cost()
-            if self._context_budget:
-                metrics["context_usage"] = {
-                    "total_tokens_used": self._context_budget.total_used,
-                    "history_tokens": self._context_budget.history_tokens,
-                    "max_tokens": self._max_context_tokens,
-                    "utilization_pct": round(self._context_budget.utilization_pct, 1),
-                }
+            metrics["context_usage"] = self._current_context_usage_payload(
+                self._pruner.estimate_tokens([{"role": "system", "content": self._system_prompt}])
+            )
+            metrics["context_profile"] = self._context_profile_dict()
+            metrics["compaction_count"] = self._compaction_count
+            metrics["last_compacted_at_step"] = self._last_compacted_at_step
 
             # Store via trace_repo usage_stats (accepts dict, serializes to JSON)
             if self._trace_repo:

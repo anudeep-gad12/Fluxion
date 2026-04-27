@@ -8,6 +8,7 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException
 
+from orchestrator.context.context_profile import resolve_model_context_profile
 from orchestrator.logging_config import get_logger
 from orchestrator.models.registry import ModelRegistry, ResolvedModel
 from orchestrator.providers.factory import (
@@ -102,6 +103,14 @@ async def start_local_model(request: StartModelRequest):
     local_provider._input_cost_per_million = 0.0
     local_provider._cached_input_cost_per_million = 0.0
     local_provider._output_cost_per_million = 0.0
+    local_provider._context_window = int(ctx_size)
+    local_provider._max_output_tokens = 8192
+    local_provider._supports_tools = True
+    local_provider._supports_reasoning = False
+    local_provider._context_profile_source = "local"
+    local_provider._context_profile_provider_name = "local"
+    local_provider._context_profile_model_id = local_status.get("model_name") or request.model_path
+    local_provider._context_profile_display_name = local_status.get("model_name") or request.model_path
     set_provider_override(local_provider)
 
     model_name = local_models.status()["model_name"]
@@ -129,39 +138,71 @@ async def get_model_status():
     local_info = local_models.status()
 
     if override is not None and local_running:
+        profile = resolve_model_context_profile(
+            model_name=local_info.get("model_name"),
+            provider_override=override,
+        )
         return ModelStatusResponse(
             provider="local",
-            model_name=local_info.get("model_name"),
+            model_name=profile.display_name,
             base_url=f"http://localhost:{local_models.LLAMA_PORT}/v1",
             local_running=True,
+            context_window=profile.context_window,
+            max_output_tokens=profile.max_output_tokens,
+            effective_input_budget=profile.effective_input_budget,
+            supports_tools=profile.supports_tools,
+            supports_reasoning=profile.supports_reasoning,
+            source=profile.source,
         )
 
     if override is not None and _active_custom_model:
+        profile = resolve_model_context_profile(
+            model_name=_active_custom_model.get("model"),
+            provider_override=override,
+        )
         return ModelStatusResponse(
             provider=_active_custom_model.get("name", "custom"),
-            model_name=_active_custom_model.get("model"),
+            model_name=profile.display_name,
             base_url=_active_custom_model.get("base_url"),
             local_running=False,
+            context_window=profile.context_window,
+            max_output_tokens=profile.max_output_tokens,
+            effective_input_budget=profile.effective_input_budget,
+            supports_tools=profile.supports_tools,
+            supports_reasoning=profile.supports_reasoning,
+            source=profile.source,
         )
 
-    # Check if a registry model is active
     if _active_model:
+        profile = resolve_model_context_profile(model_name=_active_model.model_id, resolved_model=_active_model)
         return ModelStatusResponse(
             provider=_active_model.provider_name,
-            model_name=_active_model.display_name,
+            model_name=profile.display_name,
             base_url=_active_model.base_url,
             local_running=local_running,
+            context_window=profile.context_window,
+            max_output_tokens=profile.max_output_tokens,
+            effective_input_budget=profile.effective_input_budget,
+            supports_tools=profile.supports_tools,
+            supports_reasoning=profile.supports_reasoning,
+            source=profile.source,
         )
 
-    # Fall back to config-based info
     from orchestrator.config import get_chat_config
 
     config = get_chat_config()
+    profile = resolve_model_context_profile(model_name=config.model.name, config=config)
     return ModelStatusResponse(
         provider="cloud",
-        model_name=config.model.name,
+        model_name=profile.display_name,
         base_url=config.provider.base_url,
         local_running=local_running,
+        context_window=profile.context_window,
+        max_output_tokens=profile.max_output_tokens,
+        effective_input_budget=profile.effective_input_budget,
+        supports_tools=profile.supports_tools,
+        supports_reasoning=profile.supports_reasoning,
+        source=profile.source,
     )
 
 
@@ -217,6 +258,7 @@ async def select_model(request: SelectModelRequest):
         },
     )
 
+    profile = resolve_model_context_profile(model_name=resolved.model_id, resolved_model=resolved)
     return {
         "status": "ok",
         "model_id": resolved.model_id,
@@ -224,8 +266,10 @@ async def select_model(request: SelectModelRequest):
         "provider": resolved.provider_name,
         "context_window": resolved.context_window,
         "max_output_tokens": resolved.max_output_tokens,
+        "effective_input_budget": profile.effective_input_budget,
         "supports_tools": resolved.supports_tools,
         "supports_reasoning": resolved.reasoning_effort is not None,
+        "source": profile.source,
     }
 
 
@@ -252,6 +296,10 @@ async def select_custom_provider(request: CustomProviderRequest):
     provider._input_cost_per_million = request.input_cost_per_million
     provider._cached_input_cost_per_million = request.cached_input_cost_per_million
     provider._output_cost_per_million = request.output_cost_per_million
+    provider._context_profile_source = "custom"
+    provider._context_profile_provider_name = request.name or "custom"
+    provider._context_profile_model_id = request.model
+    provider._context_profile_display_name = request.model
     set_provider_override(provider)
 
     _active_model = None
@@ -275,7 +323,10 @@ async def select_custom_provider(request: CustomProviderRequest):
         },
     )
 
+    profile = resolve_model_context_profile(model_name=request.model, provider_override=provider)
     return {
         "status": "ok",
         **_active_custom_model,
+        "effective_input_budget": profile.effective_input_budget,
+        "source": profile.source,
     }

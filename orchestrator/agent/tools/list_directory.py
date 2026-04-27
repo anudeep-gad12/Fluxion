@@ -132,7 +132,7 @@ class ListDirectoryTool:
         max_depth: int,
         ignore_patterns: Set[str],
         lines: List[str],
-        max_entries: int = 500,
+        max_entries: int = 200,
         entry_count: List[int] = None,
     ) -> None:
         """Build tree-style directory listing."""
@@ -234,7 +234,7 @@ class ListDirectoryTool:
 
             self._build_tree(
                 dir_path, "", 0, effective_depth, ignore_patterns,
-                lines, max_entries=500, entry_count=entry_count,
+                lines, max_entries=200, entry_count=entry_count,
             )
 
             content = "\n".join(lines)

@@ -11,6 +11,7 @@ Supports profile-based configuration:
 from typing import TYPE_CHECKING, Optional
 
 from orchestrator.config import get_chat_config
+from orchestrator.context.context_profile import resolve_model_context_profile
 from orchestrator.logging_config import get_logger
 from orchestrator.providers.factory import create_provider
 from orchestrator.storage.db import get_db
@@ -216,19 +217,13 @@ async def create_agent_engine(
     planning_config = getattr(config, "agent_planning", None)
     max_plan_steps = planning_config.max_plan_steps if planning_config else profile.max_plan_steps
 
-    # Detect provider context capacity (resolved_model set above)
-    if resolved_model:
-        max_context = resolved_model.context_window
-    elif provider_override and hasattr(provider_override, "_context_window"):
-        max_context = int(getattr(provider_override, "_context_window"))
-    elif provider_override and hasattr(provider_override, "_default_model"):
-        model = provider_override._default_model
-        if "gpt-5" in model or "codex" in model:
-            max_context = 250000  # GPT-5.2 has 400k, reserve 128k for output + 22k buffer
-        else:
-            max_context = config.context.max_tokens
-    else:
-        max_context = config.context.max_tokens
+    context_profile = resolve_model_context_profile(
+        model_name=resolve_name,
+        provider_override=provider_override,
+        resolved_model=resolved_model,
+        config=config,
+    )
+    max_context = context_profile.context_window
 
     # Resolve model name, temperature, and reasoning per-request
     if resolved_model:
@@ -272,6 +267,7 @@ async def create_agent_engine(
         system_prompt=system_prompt,
         tool_choice=tool_choice,
         max_context_tokens=max_context,
+        context_profile=context_profile,
         slow_response_threshold=config.provider.slow_response_threshold,
         planning_enabled=False,  # Disabled: extra LLM call adds latency/cost with no benefit
         max_plan_steps=max_plan_steps,

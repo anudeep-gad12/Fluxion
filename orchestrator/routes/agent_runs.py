@@ -98,6 +98,7 @@ _EVENT_TYPE_MAP = {
     "slow_response": "slow_response",
     "usage_update": "usage_update",
     "context_pruned": "context_pruned",
+    "conversation_compacted": "conversation_compacted",
 }
 
 
@@ -383,6 +384,17 @@ async def _run_agent_task(
             python_provider=python_provider,
             agent_capabilities=agent_capabilities,
         )
+        db = await get_db()
+        trace_repo = TraceRepo(db)
+        await trace_repo.update_run(
+            run_id,
+            usage_stats={
+                "context_profile": engine._context_profile_dict(),
+                "compaction_count": 0,
+                "last_compacted_at_step": None,
+            },
+        )
+
         result = await engine.run(
             run_id=run_id,
             query=query,
@@ -407,6 +419,9 @@ async def _run_agent_task(
                     "usage": result.usage,
                     "cost": result.cost,
                     "context_usage": result.context_usage,
+                    "context_profile": result.context_profile,
+                    "compaction_count": result.compaction_count,
+                    "last_compacted_at_step": result.last_compacted_at_step,
                 },
             }
             _event_history.setdefault(run_id, []).append(end_event)
@@ -652,6 +667,9 @@ async def get_agent_run_status(run_id: str, http_request: Request):
         usage=usage_stats.get("usage"),
         cost=usage_stats.get("cost"),
         context_usage=usage_stats.get("context_usage"),
+        context_profile=usage_stats.get("context_profile"),
+        compaction_count=usage_stats.get("compaction_count", 0),
+        last_compacted_at_step=usage_stats.get("last_compacted_at_step"),
         created_at=run.get("created_at", ""),
         updated_at=run.get("updated_at"),
     )
@@ -801,6 +819,9 @@ async def stream_agent_events(
                                         "final_answer": run.get("final_answer"),
                                         "total_tokens": usage.get("total_tokens"),
                                         "context_usage": usage.get("context_usage"),
+                                        "context_profile": usage.get("context_profile"),
+                                        "compaction_count": usage.get("compaction_count", 0),
+                                        "last_compacted_at_step": usage.get("last_compacted_at_step"),
                                         "cost": usage.get("cost"),
                                     }
                                 ),
@@ -1075,6 +1096,22 @@ async def get_agent_run_trace(run_id: str, http_request: Request):
         for a in artifacts_raw
     ]
 
+    usage_stats = run.get("usage") or {}
+    run_events = await agent_repo.get_run_events(run_id)
+    system_events = [
+        {
+            "event_type": "conversation_compacted",
+            "message": (event.get("event_data") or {}).get(
+                "message", "Conversation compacted to preserve context window"
+            ),
+            "step_number": (event.get("event_data") or {}).get("step_number"),
+            "seq": event.get("seq"),
+            "created_at": event.get("created_at"),
+        }
+        for event in run_events
+        if event.get("event_type") == "conversation_compacted"
+    ]
+
     return AgentRunTraceResponse(
         run_id=run_id,
         status=run.get("status", "unknown"),
@@ -1083,9 +1120,14 @@ async def get_agent_run_trace(run_id: str, http_request: Request):
         tool_calls=tool_calls,
         citations=citations,
         artifacts=artifacts,
+        system_events=system_events,
         final_answer=run.get("final_answer"),
-        usage=(run.get("usage") or {}).get("usage"),
-        cost=(run.get("usage") or {}).get("cost"),
+        usage=usage_stats.get("usage"),
+        cost=usage_stats.get("cost"),
+        context_usage=usage_stats.get("context_usage"),
+        context_profile=usage_stats.get("context_profile"),
+        compaction_count=usage_stats.get("compaction_count", 0),
+        last_compacted_at_step=usage_stats.get("last_compacted_at_step"),
     )
 
 

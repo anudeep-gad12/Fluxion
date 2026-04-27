@@ -87,12 +87,16 @@ export function useAgentRunDetails(
           steps,
           toolCalls,
           citations,
+          systemEvents: trace.system_events || [],
           injectedSteers: [],
           lastSeq: 0,
           total_tokens: trace.usage?.total_tokens,
           usage: trace.usage,
           cost: trace.cost,
           context_usage: trace.context_usage,
+          context_profile: trace.context_profile,
+          compaction_count: trace.compaction_count,
+          last_compacted_at_step: trace.last_compacted_at_step,
         });
       })
       .catch((error) => {

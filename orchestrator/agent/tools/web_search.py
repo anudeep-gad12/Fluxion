@@ -30,7 +30,7 @@ class WebSearchTool:
         self,
         base_url: str = "https://api.parallel.ai/v1beta",
         api_key: Optional[str] = None,
-        max_results: int = 10,
+        max_results: int = 8,
         timeout_ms: int = 15000,
         max_retries: int = 3,
         base_delay: float = 1.0,
@@ -84,9 +84,9 @@ class WebSearchTool:
                     },
                     "num_results": {
                         "type": "integer",
-                        "description": "Number of results (max 10)",
-                        "default": 10,
-                        "maximum": 10,
+                        "description": "Number of results (max 8)",
+                        "default": 8,
+                        "maximum": 8,
                     },
                 },
                 "required": ["query"],
@@ -95,7 +95,7 @@ class WebSearchTool:
         )
 
     async def execute(
-        self, query: str, num_results: int = 10, **kwargs: Any
+        self, query: str, num_results: int = 8, **kwargs: Any
     ) -> ToolResult:
         """Execute web search.
 
