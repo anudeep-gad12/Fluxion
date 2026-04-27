@@ -276,6 +276,41 @@ class AgentCitationResponse(BaseModel):
     created_at: str
 
 
+
+
+class ModelPricingResponse(BaseModel):
+    """Known pricing metadata for an active model."""
+
+    input_cost_per_million: Optional[float] = None
+    cached_input_cost_per_million: Optional[float] = None
+    output_cost_per_million: Optional[float] = None
+
+
+class ModelContextProfileResponse(BaseModel):
+    """Normalized active model context profile."""
+
+    provider_name: str
+    model_id: str
+    display_name: str
+    context_window: int
+    max_output_tokens: int
+    effective_input_budget: int
+    supports_tools: bool
+    supports_reasoning: bool
+    pricing: ModelPricingResponse = Field(default_factory=ModelPricingResponse)
+    source: str
+
+
+class AgentSystemEventResponse(BaseModel):
+    """Visible system event for an agent run timeline."""
+
+    event_type: str
+    message: str
+    step_number: Optional[int] = None
+    seq: Optional[int] = None
+    created_at: Optional[str] = None
+
+
 class CreateAgentRunRequest(BaseModel):
     """Request to start an agent run."""
 
@@ -317,6 +352,9 @@ class AgentRunStatusResponse(BaseModel):
     usage: Optional[dict[str, Any]] = None
     cost: Optional[dict[str, Any]] = None
     context_usage: Optional[dict[str, Any]] = None
+    context_profile: Optional[ModelContextProfileResponse] = None
+    compaction_count: int = 0
+    last_compacted_at_step: Optional[int] = None
     created_at: str
     updated_at: Optional[str] = None
 
@@ -344,9 +382,14 @@ class AgentRunTraceResponse(BaseModel):
     tool_calls: list[AgentToolCallResponse]
     citations: list[AgentCitationResponse]
     artifacts: list[RunArtifactResponse] = []
+    system_events: list[AgentSystemEventResponse] = []
     final_answer: Optional[str] = None
     usage: Optional[dict[str, Any]] = None
     cost: Optional[dict[str, Any]] = None
+    context_usage: Optional[dict[str, Any]] = None
+    context_profile: Optional[ModelContextProfileResponse] = None
+    compaction_count: int = 0
+    last_compacted_at_step: Optional[int] = None
 
 
 # ==================== Local Model Schemas ====================
@@ -376,6 +419,12 @@ class ModelStatusResponse(BaseModel):
     model_name: Optional[str] = None
     base_url: Optional[str] = None
     local_running: bool = False
+    context_window: int = 32768
+    max_output_tokens: int = 8192
+    effective_input_budget: int = 24576
+    supports_tools: bool = True
+    supports_reasoning: bool = False
+    source: str = "config_fallback"
 
 
 class SelectModelRequest(BaseModel):

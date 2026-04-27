@@ -278,6 +278,7 @@ export const useStore = create<AppState>((set, get) => ({
           steps: [],
           toolCalls: [],
           citations: [],
+          systemEvents: [],
           injectedSteers: [],
           lastSeq: 0,
         },

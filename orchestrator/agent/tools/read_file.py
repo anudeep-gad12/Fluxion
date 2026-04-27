@@ -63,8 +63,9 @@ class ReadFileTool:
                     },
                     "limit": {
                         "type": "integer",
-                        "description": "Maximum lines to read. Default 2000 (reads entire file). Do not reduce this.",
-                        "default": 2000,
+                        "description": "Maximum lines to read. Default 250, hard max 400.",
+                        "default": 250,
+                        "maximum": 400,
                     },
                 },
                 "required": ["file_path"],
@@ -116,7 +117,7 @@ class ReadFileTool:
         self,
         file_path: str,
         offset: int = 1,
-        limit: int = 2000,
+        limit: int = 250,
         **kwargs: Any,
     ) -> ToolResult:
         """Read file contents.
@@ -165,6 +166,7 @@ class ReadFileTool:
 
             total_lines = len(all_lines)
             start_idx = max(0, offset - 1)
+            limit = min(max(1, limit), 400)
             end_idx = min(total_lines, start_idx + limit)
             selected_lines = all_lines[start_idx:end_idx]
 
@@ -172,8 +174,8 @@ class ReadFileTool:
             numbered_lines = []
             for i, line in enumerate(selected_lines, start=start_idx + 1):
                 # Truncate very long lines
-                if len(line) > 2000:
-                    line = line[:2000] + "...\n"
+                if len(line) > 300:
+                    line = line[:300] + "...\n"
                 numbered_lines.append(f"{i:>6}\t{line.rstrip()}")
 
             content = "\n".join(numbered_lines)

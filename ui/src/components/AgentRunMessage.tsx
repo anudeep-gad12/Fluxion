@@ -195,7 +195,8 @@ export function AgentRunMessage({ run, onShowTrace, onRetry, canRetry }: AgentRu
             ) : null}
             {!isActive && agentState?.context_usage && (
               <span className="text-zinc-600">
-                ctx est {Math.round(agentState.context_usage.utilization_pct)}%
+                ctx {Math.round(agentState.context_usage.utilization_pct_effective)}%
+                {typeof agentState.compaction_count === 'number' ? ` · compact ${agentState.compaction_count}` : ''}
               </span>
             )}
             {/* Copy / Retry actions - visible on hover */}

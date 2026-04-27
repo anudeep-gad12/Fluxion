@@ -75,14 +75,16 @@ class GrepTool:
                         "type": "integer",
                         "description": (
                             "Number of context lines before and "
-                            "after each match (default: 0)"
+                            "after each match (default: 1, hard max 2)"
                         ),
-                        "default": 0,
+                        "default": 1,
+                        "maximum": 2,
                     },
                     "max_results": {
                         "type": "integer",
-                        "description": "Maximum number of matches to return (default: 50)",
-                        "default": 50,
+                        "description": "Maximum number of matches to return (default: 40, hard max 75)",
+                        "default": 40,
+                        "maximum": 75,
                     },
                 },
                 "required": ["pattern"],
@@ -235,8 +237,8 @@ class GrepTool:
         pattern: str,
         path: Optional[str] = None,
         glob: Optional[str] = None,
-        context: int = 0,
-        max_results: int = 50,
+        context: int = 1,
+        max_results: int = 40,
         **kwargs: Any,
     ) -> ToolResult:
         """Search for pattern in files.
@@ -264,6 +266,9 @@ class GrepTool:
                     error_message=f"Path does not exist: {search_path}",
                     duration_ms=int((time.perf_counter() - start_time) * 1000),
                 )
+
+            context = min(max(0, context), 2)
+            max_results = min(max(1, max_results), 75)
 
             # Try ripgrep first, fall back to Python
             if self._rg_path:

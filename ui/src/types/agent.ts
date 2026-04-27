@@ -86,6 +86,33 @@ export interface AgentCitation {
 // API Request/Response Types
 // =============================================================================
 
+export interface ModelPricing {
+  input_cost_per_million?: number | null;
+  cached_input_cost_per_million?: number | null;
+  output_cost_per_million?: number | null;
+}
+
+export interface ModelContextProfile {
+  provider_name: string;
+  model_id: string;
+  display_name: string;
+  context_window: number;
+  max_output_tokens: number;
+  effective_input_budget: number;
+  supports_tools: boolean;
+  supports_reasoning: boolean;
+  pricing?: ModelPricing;
+  source: string;
+}
+
+export interface AgentSystemEvent {
+  event_type: string;
+  message: string;
+  step_number?: number;
+  seq?: number;
+  created_at?: string;
+}
+
 /** Request to create agent run */
 export interface CreateAgentRunRequest {
   query: string;
@@ -124,6 +151,9 @@ export interface AgentRunStatus {
   usage?: TokenUsage;
   cost?: CostUsage | null;
   context_usage?: ContextUsage;
+  context_profile?: ModelContextProfile;
+  compaction_count: number;
+  last_compacted_at_step?: number;
   created_at: string;
   updated_at?: string;
 }
@@ -136,10 +166,14 @@ export interface AgentRunTrace {
   steps: AgentStep[];
   tool_calls: AgentToolCall[];
   citations: AgentCitation[];
+  system_events?: AgentSystemEvent[];
   final_answer?: string;
   usage?: TokenUsage;
   cost?: CostUsage | null;
   context_usage?: ContextUsage;
+  context_profile?: ModelContextProfile;
+  compaction_count: number;
+  last_compacted_at_step?: number;
 }
 
 // =============================================================================
@@ -162,6 +196,7 @@ export type AgentSSEEventType =
   | 'resumed' // run resumed after pause
   | 'steer' // steering message injected
   | 'usage_update' // token/cost usage update
+  | 'conversation_compacted'
   | 'heartbeat'; // keep-alive
 
 /** Base SSE event structure */
@@ -186,6 +221,10 @@ export interface StepStartEvent extends AgentSSEEventBase {
   steps_remaining: number;
   context_tokens?: number;
   context_remaining?: number;
+  context_usage?: ContextUsage;
+  context_profile?: ModelContextProfile;
+  compaction_count?: number;
+  last_compacted_at_step?: number;
 }
 
 /** Thinking content event */
@@ -237,10 +276,19 @@ export interface AnswerEvent extends AgentSSEEventBase {
 
 /** Context usage from budget tracker */
 export interface ContextUsage {
-  total_tokens_used: number;
-  history_tokens: number;
-  max_tokens: number;
+  context_window: number;
+  reserved_output_tokens: number;
+  effective_input_budget: number;
+  prompt_tokens_current_call: number;
+  conversation_tokens_active_history: number;
+  utilization_pct_effective: number;
   utilization_pct: number;
+  compaction_threshold_pct: number;
+  next_compaction_at_tokens: number;
+  remaining_tokens: number;
+  compactions_so_far: number;
+  compaction_count?: number;
+  last_compacted_at_step?: number;
 }
 
 /** Normalized token usage. */
@@ -271,6 +319,10 @@ export interface UsageUpdateEvent extends AgentSSEEventBase {
   usage: TokenUsage;
   latest_usage?: TokenUsage;
   cost?: CostUsage | null;
+  context_usage?: ContextUsage;
+  context_profile?: ModelContextProfile;
+  compaction_count?: number;
+  last_compacted_at_step?: number;
 }
 
 /** Complete event */
@@ -285,6 +337,9 @@ export interface CompleteEvent extends AgentSSEEventBase {
   usage?: TokenUsage;
   cost?: CostUsage | null;
   context_usage?: ContextUsage;
+  context_profile?: ModelContextProfile;
+  compaction_count?: number;
+  last_compacted_at_step?: number;
 }
 
 /** Error event */
@@ -305,6 +360,16 @@ export interface ResumedEvent extends AgentSSEEventBase {
   step_number: number;
 }
 
+/** Conversation compaction event */
+export interface ConversationCompactedEvent extends AgentSSEEventBase {
+  type: 'conversation_compacted';
+  message: string;
+  step_number?: number;
+  context_usage?: ContextUsage;
+  context_profile?: ModelContextProfile;
+  compaction_count?: number;
+}
+
 /** Union type for all agent SSE events */
 export type AgentSSEEvent =
   | AgentStateEvent
@@ -318,7 +383,8 @@ export type AgentSSEEvent =
   | ErrorEvent
   | PausedEvent
   | ResumedEvent
-  | UsageUpdateEvent;
+  | UsageUpdateEvent
+  | ConversationCompactedEvent;
 
 // =============================================================================
 // UI State Types
@@ -343,5 +409,9 @@ export interface AgentUIState {
   cost?: CostUsage | null;
   context_tokens?: number;
   context_remaining?: number;
+  context_profile?: ModelContextProfile;
+  compaction_count?: number;
+  last_compacted_at_step?: number;
+  systemEvents?: AgentSystemEvent[];
   injectedSteers: Array<{ content: string; step_number: number }>;
 }

@@ -1533,3 +1533,69 @@ class TestForcePruneFilesystemTools:
         result = engine._force_prune_largest(messages, {})
         assert "src/main.py" in result[0]["content"]
         assert result[0]["_force_pruned"] is True
+
+    def test_format_read_file_result_applies_budget(self):
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=create_mock_repo(),
+            registry=create_mock_registry(),
+        )
+
+        long_line = "x" * 600
+        content = "\n".join(f"{i}\t{long_line}" for i in range(500))
+        result = ToolResult(success=True, result_summary="read ok", result_data=content)
+
+        formatted = engine._format_tool_result(result, "read_file")
+
+        assert len(formatted.splitlines()) <= 400
+        assert all(len(line) <= 303 for line in formatted.splitlines() if line)
+
+    def test_format_web_search_result_caps_results(self):
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=create_mock_repo(),
+            registry=create_mock_registry(),
+        )
+
+        result = ToolResult(
+            success=True,
+            result_summary="search ok",
+            result_data={
+                "query": "test",
+                "results": [
+                    {"title": f"Title {i}", "url": f"https://example.com/{i}", "snippet": "s" * 500}
+                    for i in range(20)
+                ],
+            },
+        )
+
+        formatted = json.loads(engine._format_tool_result(result, "web_search"))
+
+        assert len(formatted["results"]) == 8
+        assert all(len(item["snippet"]) <= 300 for item in formatted["results"])
+
+    def test_compaction_replaces_old_history_with_summary_and_tail_user(self):
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=create_mock_repo(),
+            registry=create_mock_registry(),
+        )
+        engine._tool_call_log = [
+            {"tool_name": "read_file", "arguments": {"file_path": "orchestrator/app.py"}, "result_summary": "Read app.py", "step_number": 1}
+        ]
+        messages = [
+            {"role": "system", "content": "System prompt"},
+            {"role": "user", "content": "Please inspect the backend"},
+            {"role": "assistant", "content": "Inspecting now"},
+            {"role": "user", "content": "Continue with the current task"},
+        ]
+
+        compacted = engine._compact_conversation(messages, step_number=2)
+
+        assert compacted[0]["role"] == "system"
+        assert compacted[1]["role"] == "system"
+        assert compacted[1]["content"].startswith(engine.COMPACTION_PREFIX)
+        assert "Read app.py" in compacted[1]["content"]
+        assert compacted[-1]["content"] == "Continue with the current task"
+        assert engine._compaction_count == 1
+        assert engine._last_compacted_at_step == 2

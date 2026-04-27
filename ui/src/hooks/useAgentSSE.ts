@@ -162,6 +162,10 @@ export function useAgentSSE(runId: string | null, maxSteps: number = 10) {
               // Track live context usage from step_start event
               context_tokens: stepEvent.context_tokens,
               context_remaining: stepEvent.context_remaining,
+              context_usage: stepEvent.context_usage,
+              context_profile: stepEvent.context_profile,
+              compaction_count: stepEvent.compaction_count,
+              last_compacted_at_step: stepEvent.last_compacted_at_step,
             });
             break;
           }
@@ -250,11 +254,46 @@ export function useAgentSSE(runId: string | null, maxSteps: number = 10) {
             const usageEvent = event as unknown as {
               usage?: TokenUsage;
               cost?: CostUsage | null;
+              context_usage?: ContextUsage;
+              context_profile?: import("@/types/agent").ModelContextProfile;
+              compaction_count?: number;
+              last_compacted_at_step?: number;
             };
             updateAgentState(id, {
               usage: usageEvent.usage,
               total_tokens: usageEvent.usage?.total_tokens,
               cost: usageEvent.cost,
+              context_usage: usageEvent.context_usage,
+              context_profile: usageEvent.context_profile,
+              compaction_count: usageEvent.compaction_count,
+              last_compacted_at_step: usageEvent.last_compacted_at_step,
+            });
+            break;
+          }
+
+          case 'conversation_compacted': {
+            const compactedEvent = event as unknown as {
+              message: string;
+              step_number?: number;
+              context_usage?: ContextUsage;
+              context_profile?: import("@/types/agent").ModelContextProfile;
+              compaction_count?: number;
+            };
+            const currentState = useStore.getState().agentRunState[id];
+            updateAgentState(id, {
+              systemEvents: [
+                ...(currentState?.systemEvents || []),
+                {
+                  event_type: 'conversation_compacted',
+                  message: compactedEvent.message,
+                  step_number: compactedEvent.step_number,
+                  seq: event.seq,
+                  created_at: event.timestamp,
+                },
+              ],
+              context_usage: compactedEvent.context_usage,
+              context_profile: compactedEvent.context_profile,
+              compaction_count: compactedEvent.compaction_count,
             });
             break;
           }
@@ -287,6 +326,9 @@ export function useAgentSSE(runId: string | null, maxSteps: number = 10) {
         usage?: TokenUsage;
         cost?: CostUsage | null;
         context_usage?: ContextUsage;
+        context_profile?: import("@/types/agent").ModelContextProfile;
+        compaction_count?: number;
+        last_compacted_at_step?: number;
       }) => {
         if (myConnectionId !== connectionIdRef.current) return;
         flushBufferedTokens();
@@ -307,6 +349,9 @@ export function useAgentSSE(runId: string | null, maxSteps: number = 10) {
           usage: result.usage,
           cost: result.cost,
           context_usage: result.context_usage,
+          context_profile: result.context_profile,
+          compaction_count: result.compaction_count,
+          last_compacted_at_step: result.last_compacted_at_step,
         });
 
         if (result.citations) {

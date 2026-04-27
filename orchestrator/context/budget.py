@@ -28,28 +28,22 @@ def context_params_for_model(
     """
     if model_name:
         try:
-            from orchestrator.models.registry import ModelRegistry, _ALIAS_INDEX, _MODEL_ID_INDEX
+            from orchestrator.context.context_profile import resolve_model_context_profile
 
-            # Only resolve known presets — unknown models get config defaults
-            lower_name = model_name.strip().lower()
-            if lower_name not in _ALIAS_INDEX and lower_name not in _MODEL_ID_INDEX:
-                raise KeyError("not a known preset")
-
-            resolved = ModelRegistry.resolve(model_name)
-            max_ctx = resolved.context_window
-            reserve = resolved.max_output_tokens
+            profile = resolve_model_context_profile(model_name=model_name)
             logger.info(
-                "Context params resolved from model registry",
+                "Context params resolved from active model profile",
                 extra={
                     "model": model_name,
-                    "context_window": max_ctx,
-                    "max_output_tokens": reserve,
+                    "context_window": profile.context_window,
+                    "max_output_tokens": profile.max_output_tokens,
+                    "source": profile.source,
                 },
             )
-            return max_ctx, reserve
+            return profile.context_window, profile.max_output_tokens
         except Exception:
             logger.debug(
-                "Model not found in registry, using config defaults",
+                "Model profile resolution failed, using config defaults",
                 extra={"model": model_name},
             )
 
