@@ -71,7 +71,7 @@ Reasoner is an AI chat application with multi-strategy reasoning capabilities. I
 - **Tool Approval Flow**: Permission-gated tool execution (strict/relaxed/yolo policies)
 - **Multi-Provider Support**: DeepInfra, ChatGPT (OAuth), llama-server, vLLM, Ollama
 - **Streaming-First**: Real-time token streaming via Server-Sent Events (SSE)
-- **Context Management**: Token-aware history pruning, turn summaries, project context injection
+- **Context Management**: Model-aware context profiles, threshold-based conversation compaction, bounded tool-result history, turn summaries, and project context injection
 - **Full Traceability**: Every LLM call, tool execution, approval, and file change is recorded
 - **Provider Failover**: Circuit breaker pattern with automatic provider switching
 - **Pause/Resume/Steer**: Pause agent between steps, resume later, or inject steering messages mid-run
@@ -162,6 +162,7 @@ orchestrator/                     # Backend (FastAPI)
 │
 ├── context/
 │   ├── budget.py                # ContextBudget tracking and utilization
+│   ├── context_profile.py       # Normalized active-model context profile
 │   ├── history_builder.py       # Budget-aware conversation history builder
 │   └── turn_summary.py          # Compact turn summaries (50-150 tokens)
 │
@@ -629,19 +630,21 @@ POST /api/models/local/stop
 **Via CLI** (`/switch` command):
 ```
 /switch chatgpt    # Switch to ChatGPT (requires /login first)
-/switch default    # Switch to cloud provider (DeepInfra)
+/switch default    # Switch to configured cloud provider
 ```
 
 **Via environment** (`.env`):
 ```bash
 LLM_BASE_URL=http://localhost:8080/v1              # Local llama-server
-LLM_BASE_URL=https://api.deepinfra.com/v1/openai   # DeepInfra (default)
+LLM_BASE_URL=https://api.fireworks.ai/inference/v1 # Fireworks (repo default)
+LLM_BASE_URL=https://api.deepinfra.com/v1/openai   # DeepInfra
 LLM_BASE_URL=https://openrouter.ai/api/v1           # OpenRouter
 LLM_MODEL=qwen/qwen3.5-35b-a3b
 ```
 
 **Supported Providers**:
-- DeepInfra (cloud, default)
+- Fireworks (cloud, repo default)
+- DeepInfra (cloud)
 - OpenRouter (cloud, reasoning model support)
 - llama-server (local, GGUF models)
 - vLLM (local, OpenAI-compatible)
@@ -917,7 +920,7 @@ Profiles configure the agent's tool set, system prompt, and context strategy:
 
 ### Context Management
 
-The context system prevents token blowout while maintaining relevant information:
+The context system prevents token blowout while maintaining relevant information. Older rolling tool-result pruning is no longer the primary strategy for agent runs:
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -934,21 +937,20 @@ The context system prevents token blowout while maintaining relevant information
 │                                                           │
 │  2. History Builder (conversation turns → messages)       │
 │                                                           │
-│  3. Context Pruner (token-aware)                          │
-│     ├─ Keep last 2 steps detailed                         │
-│     ├─ Summarize older tool results via LLM               │
-│     ├─ Python output: head/tail pattern (not LLM)         │
-│     ├─ Cache summaries to prevent duplicates              │
-│     └─ Fallback to basic truncation on error              │
+│  3. Model Context Profile                                 │
+│     ├─ Registry/custom/local/config fallback sources      │
+│     ├─ context_window / max_output_tokens / pricing       │
+│     └─ effective_input_budget for live accounting         │
 │                                                           │
-│  4. Model-Aware Limits                                    │
-│     └─ context_params_for_model() resolves context_window │
-│        and max_output_tokens from model registry; falls   │
-│        back to config defaults for unknown models         │
+│  4. Prompt-History Budgeting + Compaction                 │
+│     ├─ Per-tool bounded history formatting                │
+│     ├─ Historical reasoning never re-sent                 │
+│     ├─ Visible compaction at 90% of effective budget      │
+│     └─ Emergency hard truncation as final fallback        │
 └─────────────────────────────────────────────────────────┘
 ```
 
-**Live Context Accounting**: The `ContextBudget` is updated on each agent step with actual `estimated_tokens`. SSE `step_started` events emit `context_tokens`, `context_max`, and `context_remaining`, giving the UI real-time visibility into token utilization.
+**Live Context Accounting**: Agent SSE/status payloads now expose `context_window`, `reserved_output_tokens`, `effective_input_budget`, current prompt usage, remaining tokens, utilization percentage, and compaction counters so the UI can render the real active budget.
 
 ### Crash Recovery
 
@@ -965,14 +967,16 @@ The agent tracks key findings from each tool result to improve synthesis quality
 - Includes accumulated findings in forced synthesis prompt
 - Improves answer quality when hitting max steps
 
-### LLM-Based Context Summarization
+### Conversation Compaction
 
-The `ContextPruner` uses LLM calls to create query-aware summaries:
-- Summarizes tool results over 500 chars using LLM
-- Prompt extracts only facts relevant to the user's query
-- Results are cached to prevent duplicate LLM calls
-- Falls back to basic truncation on error
-- Python output keeps head/tail pattern (not LLM summarized)
+When active prompt history reaches 90% of the model's effective input budget:
+- the backend writes one visible compaction system message into the conversation
+- future prompt assembly uses only the latest compaction message plus raw post-compaction history
+- pre-compaction raw history is no longer sent to the model
+- compaction summaries exclude hidden reasoning/thinking
+- emergency hard truncation remains as a last-resort safety path
+
+Compaction is surfaced to the UI and traces as a visible system event and SSE event.
 
 ### Token Tracking
 
@@ -1063,8 +1067,8 @@ Single source of truth for all runtime settings:
 
 ```yaml
 provider:
-  # Default: DeepInfra cloud. Override with LLM_BASE_URL for local providers.
-  base_url: ${LLM_BASE_URL:-https://api.deepinfra.com/v1/openai}
+  # Repo default: Fireworks cloud. Override with LLM_BASE_URL for other providers.
+  base_url: ${LLM_BASE_URL:-https://api.fireworks.ai/inference/v1}
   api_key: ${LLM_API_KEY:-}
   endpoint: ${LLM_ENDPOINT:-chat_completions}  # chat_completions | responses | auto
   fallback_on_404: true
@@ -1082,15 +1086,15 @@ provider_chain:
   enabled: false              # Set true for multi-provider failover
 
 model:
-  name: ${LLM_MODEL:-openai/gpt-oss-120b}
+  name: ${LLM_MODEL:-accounts/fireworks/models/kimi-k2p6}
   temperature: 1.0
-  max_tokens: 4096
+  max_tokens: 32768
   reasoning_effort: "medium"  # For gpt-oss: low | medium | high
 
 context:
   max_messages: 50
-  max_tokens: 6000
-  reserve_for_response: 2048
+  max_tokens: 100000
+  reserve_for_response: 16384
   truncation_strategy: "sliding_window"
 
 thinking:

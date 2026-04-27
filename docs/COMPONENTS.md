@@ -1196,6 +1196,7 @@ class BaseTool(Protocol):
 |----------|----------|-------------|
 | `openrouter` | `https://openrouter.ai/api/v1` | `OPENROUTER_API_KEY` |
 | `deepinfra` | `https://api.deepinfra.com/v1/openai` | `DEEPINFRA_API_KEY` |
+| `fireworks` | `https://api.fireworks.ai/inference/v1` | `FIREWORKS_API_KEY` |
 | `local` | `http://localhost:8080/v1` | (none) |
 
 **Model Resolution** (`ModelRegistry.resolve()`):
@@ -1236,6 +1237,28 @@ class BaseTool(Protocol):
 - `total_used` — Sum of all component token counts
 - `utilization_pct` — Percentage of max_tokens currently used
 
+### `orchestrator/context/context_profile.py`
+
+**Purpose**: Resolve one normalized active-model context profile across registry models, custom OpenAI-compatible providers, local runtimes, and config fallback.
+
+**Key Dataclass**: `ModelContextProfile`
+- `provider_name`
+- `model_id`
+- `display_name`
+- `context_window`
+- `max_output_tokens`
+- `effective_input_budget`
+- `supports_tools`
+- `supports_reasoning`
+- `pricing`
+- `source`
+
+**Key Function**: `resolve_model_context_profile(...)`
+- Registry source → known preset metadata
+- Custom source → provider override metadata
+- Local source → running llama/MLX provider metadata
+- Config fallback → `chat_config.yaml` values when no richer source exists
+
 ### `orchestrator/context/history_builder.py`
 
 **Purpose**: Budget-aware conversation history construction.
@@ -1268,8 +1291,13 @@ class BaseTool(Protocol):
 - Generates compact context strings (50-150 tokens) at run completion
 - `summarize_agent_run(run, tool_calls, artifacts)` — Full agent summary
 - `summarize_chat_run(user_message, final_answer)` — Lightweight chat summary
-- `key_findings` extracted from top 3 result summaries of high-value tools (`web_search`, `web_extract`, `read_file`, `grep`); falls back to `thinking_summary`
+- `key_findings` extracted from top 3 result summaries of high-value tools (`web_search`, `web_extract`, `read_file`, `grep`); does not rehydrate historical thinking into future prompt context
 - Used by HistoryBuilder when full messages exceed budget
+
+**Current Agent Context Note**:
+- chat history still uses `HistoryBuilder` / `turn_summary`
+- agent cross-turn continuation now primarily uses persisted `runs.agent_state`
+- agent prompt assembly uses bounded tool-result formatting plus threshold-based compaction in `AgentEngine`
 
 ---
 
@@ -1493,6 +1521,7 @@ async with self._seq_lock:
 - Agent engine creates a Future when a tool needs approval, emits `tool_approval_required` SSE event
 - `/approve` resolves the Future with `True`, `/deny` resolves with `False`
 - Approval timeout: 5 minutes (tool is denied if no response)
+- `relaxed` policy is tool-aware, not blanket: read-only filesystem/web tools auto-run, write/edit operations still require approval, and bash commands are classified before auto-approval
 
 **Pause/Resume Flow**:
 - Agent checks `pause_signal` (asyncio.Event) between steps
@@ -1525,6 +1554,8 @@ _EVENT_TYPE_MAP = {
     "tool_start": "tool_start",
     "tool_approval_required": "tool_approval_required",
     "tool_result": "tool_result",
+    "usage_update": "usage_update",
+    "conversation_compacted": "conversation_compacted",
     "answer_token": "answer",
     "agent_complete": "complete",
 }

@@ -107,14 +107,22 @@ git merge feature/<name>
 git push origin test
 ```
 
-### Step 8: Update Implementation Log
+### Step 8: Update Documentation
 
-Add entry to `docs/IMPLEMENTATION_LOG.md`:
-- Branch name
-- Files changed
-- Tests added
-- Issues found/fixed
-- Trace verification
+Update `docs/IMPLEMENTATION_LOG.md` and every affected source-of-truth doc:
+- `docs/ARCHITECTURE.md`
+- `docs/COMPONENTS.md`
+- `docs/DATA_MODELS.md`
+- `docs/DATA_FLOW.md`
+- `docs/API_REFERENCE.md`
+- any topic-specific doc changed by the feature
+
+Document:
+- behavior changes
+- new or changed API fields
+- data model changes
+- SSE / trace / permission changes
+- operator-facing caveats
 
 ---
 

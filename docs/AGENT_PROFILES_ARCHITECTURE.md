@@ -240,6 +240,13 @@ class AgentResult:
 - Context pruner (base class)
 - Crash recovery / idempotency
 
+### Current Runtime Additions To Account For
+- agent prompt assembly now uses a normalized active model context profile
+- historical reasoning is excluded from future prompt history
+- tool results are budgeted per tool before entering prompt history
+- agent conversations compact visibly at 90% of effective input budget
+- `relaxed` permissions are tool-aware and bash-aware, not blanket auto-approval
+
 ### Gets Extracted into Profiles
 - System prompts (currently hardcoded as `DEFAULT_SYSTEM_PROMPT`, `CALCULATION_SYSTEM_PROMPT`)
 - Tool registry composition (currently `filesystem_enabled`, `calculation_only` booleans)

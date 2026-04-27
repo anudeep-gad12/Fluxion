@@ -615,33 +615,37 @@ Step 1: PLANNING (optional)
     ▼
 Step 2+: MAIN LOOP (while not synthesis and step < max_steps)
     │
-    ├── 1. CONTEXT PRUNING (ContextPruner)
-    │   ├── Calculate current token usage
-    │   ├── If over budget:
-    │   │   ├── Keep last 2 steps detailed
-    │   │   ├── Summarize older tool results via LLM
-    │   │   │   (query-aware: only facts relevant to user query)
-    │   │   ├── Python output: head/tail pattern (not LLM)
-    │   │   └── Cache summaries to prevent duplicate LLM calls
-    │   └── Fallback to basic truncation on error
-    │   └── ContextBudget.history_tokens updated with actual estimated_tokens
+    ├── 1. CONTEXT PROFILE + BUDGET
+    │   ├── Resolve active model context profile
+    │   ├── effective_input_budget = context_window - max_output_tokens
+    │   ├── Bound tool results before they enter prompt history
+    │   ├── Exclude historical reasoning from future prompt history
+    │   └── Compute active prompt token usage
     │
     ├── 2. HISTORY BUILDING (HistoryBuilder)
     │   ├── Load prior runs for conversation
-    │   ├── Use turn_summary if available (~10x more history)
+    │   ├── Chat flows use turn_summary when available (~10x more history)
     │   │   └── Turn summaries include key_findings from tool results
     │   │       for richer cross-turn context
+    │   ├── Agent flows primarily resume from persisted runs.agent_state
     │   ├── Else use raw user_message + final_answer pairs
     │   └── Apply token budget with sliding window
     │
-    ├── 3. LLM CALL with tool schemas
-    │   └── Messages: system + history + current context + user query
+    ├── 3. COMPACTION CHECK
+    │   ├── At 90% of effective_input_budget:
+    │   │   ├── create visible system compaction message
+    │   │   ├── keep only latest compaction summary active
+    │   │   └── future prompt = system + latest summary + post-summary raw msgs
+    │   └── Emergency hard truncation only if still over budget
     │
-    ├── 4. PARSE RESPONSE
+    ├── 4. LLM CALL with tool schemas
+    │   └── Messages: system + active history + current context + user query
+    │
+    ├── 5. PARSE RESPONSE
     │   ├── tool_calls → check approval → execute tools → extract findings
     │   └── synthesize decision → break to synthesis
     │
-    └── 5. RECORD (DB + SSE events)
+    └── 6. RECORD (DB + SSE events)
     │
     ▼
 SYNTHESIS
@@ -916,6 +920,8 @@ Connection opened
 | `tool_start` | Tool starting | `{tool_call_id, tool_name, arguments}` |
 | `tool_approval_required` | Approval needed | `{tool_call_id, tool_name, arguments}` |
 | `tool_result` | Tool finished | `{tool_call_id, success, result_summary}` |
+| `usage_update` | Live context/accounting update | `{context_usage, context_profile, compaction_count, last_compacted_at_step}` |
+| `conversation_compacted` | Visible compaction system event | `{message, step_number, context_usage, context_profile}` |
 | `answer` | Answer token | `{content: "..."}` |
 | `complete` | Agent done | `{final_answer, citations, total_steps, timing_ms}` |
 | `error` | Error occurred | `{error: "...", step: N}` |
@@ -1194,6 +1200,8 @@ ChatGPTProvider created with access_token
     ▼
 Token refresh: automatic on 401, or manual via POST /api/auth/chatgpt/refresh
 ```
+
+ChatGPT OAuth does not bypass the backend context system. Agent runs using ChatGPT still go through the same model-context-profile resolution, prompt-history budgeting, visible compaction, approval flow, traces, and SSE telemetry as any other provider source.
 
 ---
 
