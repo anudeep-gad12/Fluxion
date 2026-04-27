@@ -472,6 +472,49 @@ export interface ModelStatus {
   effective_input_budget: number;
   supports_tools: boolean;
   supports_reasoning: boolean;
+  provider_family: string;
+  reasoning_capabilities?: ReasoningCapabilities | null;
+  source: string;
+}
+
+export interface ReasoningControlCapability {
+  supported: boolean;
+  reason?: string | null;
+  options: string[];
+}
+
+export interface ReasoningCapabilities {
+  provider_family: string;
+  max_output_tokens: ReasoningControlCapability;
+  reasoning_effort: ReasoningControlCapability;
+  reasoning_summary: ReasoningControlCapability;
+  reasoning_enabled: ReasoningControlCapability;
+  reasoning_max_tokens: ReasoningControlCapability;
+  reasoning_exclude: ReasoningControlCapability;
+  fireworks_reasoning_mode: ReasoningControlCapability;
+  fireworks_thinking_budget_tokens: ReasoningControlCapability;
+  fireworks_reasoning_history: ReasoningControlCapability;
+}
+
+export interface ReasoningSettings {
+  max_output_tokens: number | null;
+  reasoning_effort: string | null;
+  reasoning_summary: string | null;
+  reasoning_enabled: boolean | null;
+  reasoning_max_tokens: number | null;
+  reasoning_exclude: boolean | null;
+  fireworks_reasoning_mode: 'effort' | 'thinking';
+  fireworks_thinking_type: 'enabled';
+  fireworks_thinking_budget_tokens: number | null;
+  fireworks_reasoning_history: 'discarded' | 'preserved' | null;
+}
+
+export interface ReasoningSettingsResponse {
+  settings: ReasoningSettings;
+  capabilities: ReasoningCapabilities;
+  provider_family: string;
+  model_name: string | null;
+  updated_at?: string | null;
   source: string;
 }
 
@@ -494,6 +537,19 @@ export async function stopLocalModel(): Promise<{ status: string; provider: stri
 
 export async function getModelStatus(): Promise<ModelStatus> {
   return fetchJson<ModelStatus>(`${API_BASE}/models/status`);
+}
+
+export async function getReasoningSettings(): Promise<ReasoningSettingsResponse> {
+  return fetchJson<ReasoningSettingsResponse>(`${API_BASE}/models/reasoning-settings`);
+}
+
+export async function updateReasoningSettings(
+  settings: ReasoningSettings,
+): Promise<ReasoningSettingsResponse> {
+  return fetchJson<ReasoningSettingsResponse>(`${API_BASE}/models/reasoning-settings`, {
+    method: 'PUT',
+    body: JSON.stringify({ settings }),
+  });
 }
 
 export interface WorkspaceDirectoryEntry {
@@ -579,6 +635,7 @@ export interface CustomProviderRequest {
   max_output_tokens: number;
   supports_tools: boolean;
   supports_reasoning: boolean;
+  reasoning_request_param?: string | null;
   input_cost_per_million?: number | null;
   cached_input_cost_per_million?: number | null;
   output_cost_per_million?: number | null;

@@ -254,4 +254,11 @@ CREATE TABLE IF NOT EXISTS run_artifacts (
     FOREIGN KEY(tool_call_id) REFERENCES agent_tool_calls(id) ON DELETE CASCADE
 );
 
+-- Global app settings
+CREATE TABLE IF NOT EXISTS app_settings (
+    setting_key TEXT PRIMARY KEY,
+    value_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_run_artifacts_run ON run_artifacts(run_id);

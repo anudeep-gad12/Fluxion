@@ -25,6 +25,7 @@ from orchestrator.logging_config import (
     set_component,
     set_request_id,
 )
+from orchestrator.reasoning_controls import ReasoningSettings
 from orchestrator.schemas import (
     AgentCitationResponse,
     AgentRunStatusResponse,
@@ -36,6 +37,7 @@ from orchestrator.schemas import (
     RunArtifactResponse,
 )
 from orchestrator.storage.db import get_db
+from orchestrator.services.reasoning_settings import get_runtime_reasoning_settings
 from orchestrator.storage.repositories.agent_repo import AgentRepo
 from orchestrator.storage.repositories.trace_repo import TraceRepo
 
@@ -250,6 +252,7 @@ async def _run_agent_task(
     profile_name: Optional[str] = None,
     python_provider: Optional[str] = None,
     agent_capabilities: Optional[dict] = None,
+    reasoning_settings: Optional[ReasoningSettings] = None,
 ) -> None:
     """Background task that runs the agent.
 
@@ -383,6 +386,7 @@ async def _run_agent_task(
             profile_name=profile_name,
             python_provider=python_provider,
             agent_capabilities=agent_capabilities,
+            reasoning_settings=reasoning_settings,
         )
         db = await get_db()
         trace_repo = TraceRepo(db)
@@ -537,6 +541,7 @@ async def create_agent_run(request: CreateAgentRunRequest, http_request: Request
         capabilities = request.capabilities.model_dump()
         if workspace_path and request.filesystem_enabled:
             capabilities["filesystem"] = True
+        reasoning_settings, _, _ = await get_runtime_reasoning_settings()
 
         # Create model config snapshot for agent
         model_config = {
@@ -545,6 +550,7 @@ async def create_agent_run(request: CreateAgentRunRequest, http_request: Request
             "workspace_path": workspace_path,
             "capabilities": capabilities,
             "permission_policy": request.permission_policy,
+            "reasoning_settings": reasoning_settings.model_dump(),
         }
 
         await trace_repo.create_run(
@@ -584,6 +590,7 @@ async def create_agent_run(request: CreateAgentRunRequest, http_request: Request
                 profile_name=request.profile,
                 python_provider=request.python_provider,
                 agent_capabilities=capabilities,
+                reasoning_settings=reasoning_settings,
             )
         )
 

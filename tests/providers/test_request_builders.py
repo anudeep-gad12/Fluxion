@@ -68,6 +68,18 @@ class TestBuildResponsesRequest:
 
         assert payload["reasoning"] == {"effort": "high"}
 
+    def test_with_reasoning_object_overrides_effort(self):
+        """Explicit reasoning object should pass through untouched."""
+        messages = [{"role": "user", "content": "Hello"}]
+        payload = build_responses_request(
+            messages,
+            model="gpt-oss-20b",
+            reasoning_effort="high",
+            reasoning={"effort": "low", "summary": "auto"},
+        )
+
+        assert payload["reasoning"] == {"effort": "low", "summary": "auto"}
+
     def test_with_previous_response_id(self):
         """Stateful mode includes previous_response_id."""
         messages = [{"role": "user", "content": "Hello"}]

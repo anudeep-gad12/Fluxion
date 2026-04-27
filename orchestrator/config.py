@@ -368,6 +368,20 @@ class ThinkingConfig(BaseModel):
     ui: ThinkingUIConfig = ThinkingUIConfig()
 
 
+class ReasoningControlConfig(BaseModel):
+    """Default unified reasoning controls for runtime settings initialization."""
+
+    max_output_tokens: Optional[int] = None
+    reasoning_effort: Optional[str] = "medium"
+    reasoning_summary: Optional[str] = None
+    reasoning_enabled: Optional[bool] = None
+    reasoning_max_tokens: Optional[int] = None
+    reasoning_exclude: Optional[bool] = None
+    fireworks_reasoning_mode: Literal["effort", "thinking"] = "effort"
+    fireworks_thinking_budget_tokens: Optional[int] = None
+    fireworks_reasoning_history: Optional[str] = None
+
+
 class QueryClassificationConfig(BaseModel):
     """Query classification settings for tool selection."""
 
@@ -433,6 +447,7 @@ class ChatConfig(BaseModel):
     system_prompt: str = "You are a helpful AI assistant. Answer directly and clearly."
     tracing: ChatTracingConfig = ChatTracingConfig()
     thinking: ThinkingConfig = ThinkingConfig()
+    reasoning_controls: ReasoningControlConfig = ReasoningControlConfig()
 
     # Tool configurations
     parallel: Optional[ParallelConfig] = None  # Parallel.ai for web search/extract
@@ -466,6 +481,7 @@ class ChatConfig(BaseModel):
             "system_prompt_hash": prompt_hash,
             "tracing": self.tracing.model_dump(),
             "thinking": self.thinking.model_dump(),
+            "reasoning_controls": self.reasoning_controls.model_dump(),
         }
         if self.provider_chain:
             snapshot["provider_chain"] = self.provider_chain.model_dump()

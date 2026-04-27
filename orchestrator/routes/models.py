@@ -16,6 +16,12 @@ from orchestrator.providers.factory import (
     get_provider_override,
     set_provider_override,
 )
+from orchestrator.reasoning_controls import ReasoningSettingsResponse
+from orchestrator.services.reasoning_settings import (
+    get_reasoning_capabilities_for_target,
+    get_runtime_reasoning_settings,
+    update_runtime_reasoning_settings,
+)
 
 # Note: set_provider_override is still imported for local model start/stop only
 from orchestrator.providers.openai_compat import OpenAICompatProvider
@@ -25,6 +31,7 @@ from orchestrator.schemas import (
     ModelStatusResponse,
     SelectModelRequest,
     StartModelRequest,
+    UpdateReasoningSettingsRequest,
 )
 from orchestrator.services import local_models
 
@@ -46,6 +53,22 @@ def get_active_model() -> Optional[ResolvedModel]:
 def get_active_model_name() -> Optional[str]:
     """Get the name/alias of the active model (for web UI fallback)."""
     return _active_model_name
+
+
+def _resolve_status_reasoning_capabilities(
+    *,
+    provider_name: Optional[str],
+    base_url: Optional[str],
+    provider_obj: Optional[object],
+    supports_reasoning: bool,
+):
+    capabilities = get_reasoning_capabilities_for_target(
+        provider_name=provider_name,
+        base_url=base_url,
+        provider_obj=provider_obj,
+        supports_reasoning=supports_reasoning,
+    )
+    return capabilities.provider_family, capabilities
 
 
 @router.get("/local", response_model=list[LocalModelSchema])
@@ -107,6 +130,7 @@ async def start_local_model(request: StartModelRequest):
     local_provider._max_output_tokens = 8192
     local_provider._supports_tools = True
     local_provider._supports_reasoning = False
+    local_provider._reasoning_provider_family = "local"
     local_provider._context_profile_source = "local"
     local_provider._context_profile_provider_name = "local"
     local_provider._context_profile_model_id = local_status.get("model_name") or request.model_path
@@ -142,6 +166,12 @@ async def get_model_status():
             model_name=local_info.get("model_name"),
             provider_override=override,
         )
+        provider_family, capabilities = _resolve_status_reasoning_capabilities(
+            provider_name="local",
+            base_url=f"http://localhost:{local_models.LLAMA_PORT}/v1",
+            provider_obj=override,
+            supports_reasoning=profile.supports_reasoning,
+        )
         return ModelStatusResponse(
             provider="local",
             model_name=profile.display_name,
@@ -152,6 +182,8 @@ async def get_model_status():
             effective_input_budget=profile.effective_input_budget,
             supports_tools=profile.supports_tools,
             supports_reasoning=profile.supports_reasoning,
+            provider_family=provider_family,
+            reasoning_capabilities=capabilities,
             source=profile.source,
         )
 
@@ -159,6 +191,12 @@ async def get_model_status():
         profile = resolve_model_context_profile(
             model_name=_active_custom_model.get("model"),
             provider_override=override,
+        )
+        provider_family, capabilities = _resolve_status_reasoning_capabilities(
+            provider_name=_active_custom_model.get("provider_family"),
+            base_url=_active_custom_model.get("base_url"),
+            provider_obj=override,
+            supports_reasoning=profile.supports_reasoning,
         )
         return ModelStatusResponse(
             provider=_active_custom_model.get("name", "custom"),
@@ -170,11 +208,19 @@ async def get_model_status():
             effective_input_budget=profile.effective_input_budget,
             supports_tools=profile.supports_tools,
             supports_reasoning=profile.supports_reasoning,
+            provider_family=provider_family,
+            reasoning_capabilities=capabilities,
             source=profile.source,
         )
 
     if _active_model:
         profile = resolve_model_context_profile(model_name=_active_model.model_id, resolved_model=_active_model)
+        provider_family, capabilities = _resolve_status_reasoning_capabilities(
+            provider_name=_active_model.provider_name,
+            base_url=_active_model.base_url,
+            provider_obj=override,
+            supports_reasoning=profile.supports_reasoning,
+        )
         return ModelStatusResponse(
             provider=_active_model.provider_name,
             model_name=profile.display_name,
@@ -185,6 +231,8 @@ async def get_model_status():
             effective_input_budget=profile.effective_input_budget,
             supports_tools=profile.supports_tools,
             supports_reasoning=profile.supports_reasoning,
+            provider_family=provider_family,
+            reasoning_capabilities=capabilities,
             source=profile.source,
         )
 
@@ -192,6 +240,12 @@ async def get_model_status():
 
     config = get_chat_config()
     profile = resolve_model_context_profile(model_name=config.model.name, config=config)
+    provider_family, capabilities = _resolve_status_reasoning_capabilities(
+        provider_name=None,
+        base_url=config.provider.base_url,
+        provider_obj=override,
+        supports_reasoning=profile.supports_reasoning,
+    )
     return ModelStatusResponse(
         provider="cloud",
         model_name=profile.display_name,
@@ -202,6 +256,8 @@ async def get_model_status():
         effective_input_budget=profile.effective_input_budget,
         supports_tools=profile.supports_tools,
         supports_reasoning=profile.supports_reasoning,
+        provider_family=provider_family,
+        reasoning_capabilities=capabilities,
         source=profile.source,
     )
 
@@ -293,6 +349,8 @@ async def select_custom_provider(request: CustomProviderRequest):
     provider._max_output_tokens = request.max_output_tokens
     provider._supports_tools = request.supports_tools
     provider._supports_reasoning = request.supports_reasoning
+    provider._reasoning_provider_family = request.name or "custom"
+    provider._reasoning_request_param = request.reasoning_request_param
     provider._input_cost_per_million = request.input_cost_per_million
     provider._cached_input_cost_per_million = request.cached_input_cost_per_million
     provider._output_cost_per_million = request.output_cost_per_million
@@ -312,6 +370,7 @@ async def select_custom_provider(request: CustomProviderRequest):
         "max_output_tokens": request.max_output_tokens,
         "supports_tools": request.supports_tools,
         "supports_reasoning": request.supports_reasoning,
+        "provider_family": request.name or "custom",
     }
 
     logger.info(
@@ -330,3 +389,33 @@ async def select_custom_provider(request: CustomProviderRequest):
         "effective_input_budget": profile.effective_input_budget,
         "source": profile.source,
     }
+
+
+@router.get("/reasoning-settings", response_model=ReasoningSettingsResponse)
+async def get_reasoning_settings():
+    """Get the global runtime reasoning settings and active-provider capabilities."""
+    settings, updated_at, source = await get_runtime_reasoning_settings()
+    status = await get_model_status()
+    return ReasoningSettingsResponse(
+        settings=settings,
+        capabilities=status.reasoning_capabilities,
+        provider_family=status.provider_family,
+        model_name=status.model_name,
+        updated_at=updated_at,
+        source=source,
+    )
+
+
+@router.put("/reasoning-settings", response_model=ReasoningSettingsResponse)
+async def put_reasoning_settings(request: UpdateReasoningSettingsRequest):
+    """Update the global runtime reasoning settings."""
+    settings, updated_at = await update_runtime_reasoning_settings(request.settings)
+    status = await get_model_status()
+    return ReasoningSettingsResponse(
+        settings=settings,
+        capabilities=status.reasoning_capabilities,
+        provider_family=status.provider_family,
+        model_name=status.model_name,
+        updated_at=updated_at,
+        source="database",
+    )

@@ -5,6 +5,12 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
+from orchestrator.reasoning_controls import (
+    ReasoningCapabilities,
+    ReasoningSettings,
+    ReasoningSettingsResponse,
+)
+
 # ==================== Run Schemas ====================
 
 
@@ -424,6 +430,8 @@ class ModelStatusResponse(BaseModel):
     effective_input_budget: int = 24576
     supports_tools: bool = True
     supports_reasoning: bool = False
+    provider_family: str = "generic"
+    reasoning_capabilities: Optional[ReasoningCapabilities] = None
     source: str = "config_fallback"
 
 
@@ -444,9 +452,16 @@ class CustomProviderRequest(BaseModel):
     max_output_tokens: int = 8192
     supports_tools: bool = True
     supports_reasoning: bool = False
+    reasoning_request_param: Optional[str] = None
     input_cost_per_million: Optional[float] = None
     cached_input_cost_per_million: Optional[float] = None
     output_cost_per_million: Optional[float] = None
+
+
+class UpdateReasoningSettingsRequest(BaseModel):
+    """Request to update global runtime reasoning settings."""
+
+    settings: ReasoningSettings
 
 
 # ==================== Helpers ====================

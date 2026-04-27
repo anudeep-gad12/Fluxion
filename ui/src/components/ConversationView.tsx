@@ -21,9 +21,11 @@ import {
   startLocalModel,
   stopLocalModel,
   getModelStatus,
+  getReasoningSettings,
   listRegistryModels,
   selectModel,
   selectCustomProvider,
+  updateReasoningSettings,
   getUsage,
   steerAgentRun,
   browseWorkspaceDirectories,
@@ -36,6 +38,8 @@ import type {
   CustomProviderRequest,
   UsageInfo,
   WorkspaceBrowseResponse,
+  ReasoningSettingsResponse,
+  ReasoningSettings,
 } from '@/api/client';
 import {
   Dialog,
@@ -47,7 +51,7 @@ import { useConversationRuns, useSelectedConversation, useStore, useHasActiveRun
 import { useSSE } from '@/hooks/useSSE';
 import { useAgentSSE } from '@/hooks/useAgentSSE';
 import { cn, formatRelativeTime } from '@/lib/utils';
-import type { Run, Conversation, ReasoningEffort } from '@/types';
+import type { Run, Conversation } from '@/types';
 
 /** Maximum characters allowed in the input textarea (~2000 tokens) */
 const MAX_INPUT_CHARS = 8000;
@@ -397,6 +401,249 @@ function ModelPicker({
   );
 }
 
+function ReasoningSettingsDialog({
+  open,
+  onOpenChange,
+  settingsResponse,
+  draft,
+  onDraftChange,
+  onSave,
+  saving,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  settingsResponse: ReasoningSettingsResponse | null;
+  draft: ReasoningSettings | null;
+  onDraftChange: (next: ReasoningSettings) => void;
+  onSave: () => void;
+  saving: boolean;
+}) {
+  const capabilities = settingsResponse?.capabilities;
+  const providerFamily = settingsResponse?.provider_family || 'generic';
+  const modelName = settingsResponse?.model_name || 'model';
+  const isFireworks = providerFamily === 'fireworks';
+  const fireworksMode = draft?.fireworks_reasoning_mode ?? 'effort';
+
+  const disabledReason = (supported?: boolean, reason?: string | null) =>
+    supported ? undefined : (reason || 'Unsupported by active provider/model');
+
+  const update = <K extends keyof ReasoningSettings>(key: K, value: ReasoningSettings[K]) => {
+    if (!draft) return;
+    onDraftChange({ ...draft, [key]: value });
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogHeader>
+        <DialogTitle className="font-mono text-sm">Reasoning Settings</DialogTitle>
+      </DialogHeader>
+      <DialogContent>
+        {!draft || !capabilities ? (
+          <p className="text-xs text-zinc-500 font-mono">Loading reasoning settings...</p>
+        ) : (
+          <div className="space-y-4 font-mono text-xs">
+            <div className="text-zinc-500">
+              <div>{modelName}</div>
+              <div className="uppercase text-[10px] mt-1">{providerFamily}</div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <label className="space-y-1">
+                <div className="text-zinc-400">max output tokens</div>
+                <input
+                  type="number"
+                  min={1}
+                  value={draft.max_output_tokens ?? ''}
+                  onChange={(e) => update('max_output_tokens', e.target.value === '' ? null : Number(e.target.value))}
+                  className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-zinc-200"
+                />
+              </label>
+              {!isFireworks && (
+                <label className="space-y-1">
+                  <div className="text-zinc-400">reasoning effort</div>
+                  <select
+                    value={draft.reasoning_effort ?? ''}
+                    onChange={(e) => update('reasoning_effort', e.target.value || null)}
+                    disabled={!capabilities.reasoning_effort.supported}
+                    title={disabledReason(capabilities.reasoning_effort.supported, capabilities.reasoning_effort.reason)}
+                    className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-zinc-200 disabled:text-zinc-600"
+                  >
+                    <option value="">default</option>
+                    {(capabilities.reasoning_effort.options.length ? capabilities.reasoning_effort.options : ['low', 'medium', 'high']).map((opt) => (
+                      <option key={opt} value={opt}>{opt}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
+            </div>
+
+            {isFireworks ? (
+              <div className="border-t border-zinc-800 pt-3 space-y-3">
+                <div className="text-zinc-500 uppercase text-[10px]">Fireworks reasoning</div>
+                <div className="text-[11px] text-zinc-600">
+                  Fireworks supports two alternative reasoning controls. Only the active mode below is sent in requests.
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="space-y-1">
+                    <div className="text-zinc-400">mode</div>
+                    <select
+                      value={draft.fireworks_reasoning_mode}
+                      onChange={(e) => update('fireworks_reasoning_mode', e.target.value as 'effort' | 'thinking')}
+                      disabled={!capabilities.fireworks_reasoning_mode.supported}
+                      title={disabledReason(capabilities.fireworks_reasoning_mode.supported, capabilities.fireworks_reasoning_mode.reason)}
+                      className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-zinc-200 disabled:text-zinc-600"
+                    >
+                      <option value="effort">effort-based</option>
+                      <option value="thinking">budget-based</option>
+                    </select>
+                  </label>
+
+                  {fireworksMode === 'effort' ? (
+                    <label className="space-y-1">
+                      <div className="text-zinc-400">reasoning effort</div>
+                      <select
+                        value={draft.reasoning_effort ?? ''}
+                        onChange={(e) => update('reasoning_effort', e.target.value || null)}
+                        disabled={!capabilities.reasoning_effort.supported}
+                        title={disabledReason(capabilities.reasoning_effort.supported, capabilities.reasoning_effort.reason)}
+                        className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-zinc-200 disabled:text-zinc-600"
+                      >
+                        <option value="">default</option>
+                        {(capabilities.reasoning_effort.options.length ? capabilities.reasoning_effort.options : ['low', 'medium', 'high']).map((opt) => (
+                          <option key={opt} value={opt}>{opt}</option>
+                        ))}
+                      </select>
+                    </label>
+                  ) : (
+                    <label className="space-y-1">
+                      <div className="text-zinc-400">thinking budget</div>
+                      <input
+                        type="number"
+                        min={1024}
+                        value={draft.fireworks_thinking_budget_tokens ?? ''}
+                        onChange={(e) => update('fireworks_thinking_budget_tokens', e.target.value === '' ? null : Number(e.target.value))}
+                        disabled={!capabilities.fireworks_thinking_budget_tokens.supported}
+                        title={disabledReason(capabilities.fireworks_thinking_budget_tokens.supported, capabilities.fireworks_thinking_budget_tokens.reason)}
+                        className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-zinc-200 disabled:text-zinc-600"
+                      />
+                    </label>
+                  )}
+                </div>
+
+                <label className="space-y-1 block">
+                  <div className="text-zinc-400">reasoning history</div>
+                  <select
+                    value={draft.fireworks_reasoning_history ?? ''}
+                    onChange={(e) => update('fireworks_reasoning_history', (e.target.value || null) as 'discarded' | 'preserved' | null)}
+                    disabled={!capabilities.fireworks_reasoning_history.supported}
+                    title={disabledReason(capabilities.fireworks_reasoning_history.supported, capabilities.fireworks_reasoning_history.reason)}
+                    className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-zinc-200 disabled:text-zinc-600"
+                  >
+                    <option value="">default</option>
+                    <option value="discarded">discarded</option>
+                    <option value="preserved">preserved</option>
+                  </select>
+                </label>
+
+                <div className="text-[11px] text-zinc-600">
+                  {fireworksMode === 'effort'
+                    ? 'This sends Fireworks reasoning_effort. Thinking budget is not sent.'
+                    : 'This sends Fireworks thinking.budget_tokens. Reasoning effort is not sent.'}
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="space-y-1">
+                    <div className="text-zinc-400">reasoning enabled</div>
+                    <select
+                      value={draft.reasoning_enabled == null ? '' : String(draft.reasoning_enabled)}
+                      onChange={(e) => update('reasoning_enabled', e.target.value === '' ? null : e.target.value === 'true')}
+                      disabled={!capabilities.reasoning_enabled.supported}
+                      title={disabledReason(capabilities.reasoning_enabled.supported, capabilities.reasoning_enabled.reason)}
+                      className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-zinc-200 disabled:text-zinc-600"
+                    >
+                      <option value="">default</option>
+                      <option value="true">true</option>
+                      <option value="false">false</option>
+                    </select>
+                  </label>
+
+                  <label className="space-y-1">
+                    <div className="text-zinc-400">reasoning summary</div>
+                    <select
+                      value={draft.reasoning_summary ?? ''}
+                      onChange={(e) => update('reasoning_summary', e.target.value || null)}
+                      disabled={!capabilities.reasoning_summary.supported}
+                      title={disabledReason(capabilities.reasoning_summary.supported, capabilities.reasoning_summary.reason)}
+                      className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-zinc-200 disabled:text-zinc-600"
+                    >
+                      <option value="">default</option>
+                      {(capabilities.reasoning_summary.options.length ? capabilities.reasoning_summary.options : ['auto', 'concise', 'detailed']).map((opt) => (
+                        <option key={opt} value={opt}>{opt}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="space-y-1">
+                    <div className="text-zinc-400">reasoning max tokens</div>
+                    <input
+                      type="number"
+                      min={1}
+                      value={draft.reasoning_max_tokens ?? ''}
+                      onChange={(e) => update('reasoning_max_tokens', e.target.value === '' ? null : Number(e.target.value))}
+                      disabled={!capabilities.reasoning_max_tokens.supported}
+                      title={disabledReason(capabilities.reasoning_max_tokens.supported, capabilities.reasoning_max_tokens.reason)}
+                      className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-zinc-200 disabled:text-zinc-600"
+                    />
+                  </label>
+
+                  <label className="space-y-1">
+                    <div className="text-zinc-400">reasoning exclude</div>
+                    <select
+                      value={draft.reasoning_exclude == null ? '' : String(draft.reasoning_exclude)}
+                      onChange={(e) => update('reasoning_exclude', e.target.value === '' ? null : e.target.value === 'true')}
+                      disabled={!capabilities.reasoning_exclude.supported}
+                      title={disabledReason(capabilities.reasoning_exclude.supported, capabilities.reasoning_exclude.reason)}
+                      className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-zinc-200 disabled:text-zinc-600"
+                    >
+                      <option value="">default</option>
+                      <option value="true">true</option>
+                      <option value="false">false</option>
+                    </select>
+                  </label>
+                </div>
+              </>
+            )}
+
+            <div className="text-[11px] text-zinc-600">
+              Unsupported controls stay visible and are ignored for providers/models that do not expose them.
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => onOpenChange(false)}
+                className="px-3 py-1 text-zinc-500 hover:text-zinc-300"
+              >
+                cancel
+              </button>
+              <button
+                onClick={onSave}
+                disabled={saving}
+                className="px-3 py-1 bg-zinc-200 text-zinc-900 disabled:opacity-60"
+              >
+                {saving ? 'saving...' : 'save'}
+              </button>
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function WorkspacePicker({
   open,
   onOpenChange,
@@ -637,7 +884,6 @@ export function ConversationView() {
   const hasActiveRun = useHasActiveRun();
   const [message, setMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>('medium');
   const [mode, setMode] = useState<ChatMode>('agent');
   const [workspacePath, setWorkspacePath] = useState(
     () => localStorage.getItem('reasoner_workspace_path') || ''
@@ -653,6 +899,10 @@ export function ConversationView() {
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [modelStatus, setModelStatus] = useState<ModelStatus | null>(null);
   const [modelSelectEnabled, setModelSelectEnabled] = useState(false);
+  const [reasoningSettingsOpen, setReasoningSettingsOpen] = useState(false);
+  const [reasoningSettings, setReasoningSettings] = useState<ReasoningSettingsResponse | null>(null);
+  const [reasoningDraft, setReasoningDraft] = useState<ReasoningSettings | null>(null);
+  const [reasoningSaving, setReasoningSaving] = useState(false);
 
   // Usage limits state
   const [usage, setUsage] = useState<UsageInfo>({ limit: -1, used: 0, remaining: -1 });
@@ -661,6 +911,15 @@ export function ConversationView() {
 
   const refreshUsage = useCallback(() => {
     getUsage().then(setUsage).catch(() => {});
+  }, []);
+
+  const refreshReasoningSettings = useCallback(() => {
+    getReasoningSettings()
+      .then((data) => {
+        setReasoningSettings(data);
+        setReasoningDraft(data.settings);
+      })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -679,7 +938,13 @@ export function ConversationView() {
       .then((data) => setModelSelectEnabled(data.local_models_enabled ?? false))
       .catch(() => {});
     refreshUsage();
-  }, [refreshUsage]);
+    refreshReasoningSettings();
+  }, [refreshUsage, refreshReasoningSettings]);
+
+  useEffect(() => {
+    if (!modelStatus) return;
+    refreshReasoningSettings();
+  }, [modelStatus?.provider, modelStatus?.model_name, refreshReasoningSettings]);
 
   // Stop generation state
   const [pendingMessage, setPendingMessage] = useState('');
@@ -819,6 +1084,25 @@ export function ConversationView() {
     requestAnimationFrame(() => textareaRef.current?.focus());
   }, [hasActiveRun]);
 
+  const handleSaveReasoningSettings = useCallback(async () => {
+    if (!reasoningDraft) return;
+    setReasoningSaving(true);
+    try {
+      const updated = await updateReasoningSettings(reasoningDraft);
+      setReasoningSettings(updated);
+      setReasoningDraft(updated.settings);
+      setReasoningSettingsOpen(false);
+      const status = await getModelStatus();
+      setModelStatus(status);
+      toast.success('Reasoning settings updated');
+    } catch (error: unknown) {
+      const message = (error as { message?: string })?.message || 'Failed to update reasoning settings';
+      toast.error(message);
+    } finally {
+      setReasoningSaving(false);
+    }
+  }, [reasoningDraft]);
+
   const handleSubmit = async () => {
     if (!message.trim() || isSubmitting) return;
 
@@ -917,7 +1201,6 @@ export function ConversationView() {
         // Chat mode: use regular conversation API
         const response = await createConversationRun(conversationId!, {
           message: messageToSend,
-          reasoning_effort: reasoningEffort,
         });
 
         setPendingRunId(response.run_id);
@@ -1104,6 +1387,14 @@ export function ConversationView() {
             ) : (
               <span className="text-zinc-600">{modelStatus?.model_name || 'model'}{modelStatus?.context_window ? ` (${Math.round(modelStatus.context_window / 1024)}k)` : ''}</span>
             )}
+            <span className="text-zinc-700">|</span>
+            <button
+              onClick={() => setReasoningSettingsOpen(true)}
+              className="text-zinc-600 hover:text-zinc-400 transition-colors"
+              title="Open reasoning settings"
+            >
+              reasoning
+            </button>
           </div>
           <button
             onClick={() => navigate('/benchmarks')}
@@ -1121,6 +1412,15 @@ export function ConversationView() {
             onModelStatusChange={setModelStatus}
           />
         )}
+        <ReasoningSettingsDialog
+          open={reasoningSettingsOpen}
+          onOpenChange={setReasoningSettingsOpen}
+          settingsResponse={reasoningSettings}
+          draft={reasoningDraft}
+          onDraftChange={setReasoningDraft}
+          onSave={handleSaveReasoningSettings}
+          saving={reasoningSaving}
+        />
         <WorkspacePicker
           open={workspacePickerOpen}
           onOpenChange={setWorkspacePickerOpen}
@@ -1226,18 +1526,6 @@ export function ConversationView() {
                   </select>
                 </>
               )}
-              {mode === 'chat' && (
-                <select
-                  value={reasoningEffort}
-                  onChange={(e) => setReasoningEffort(e.target.value as ReasoningEffort)}
-                  className="bg-transparent border-none outline-none text-xs font-mono text-zinc-500 cursor-pointer"
-                  title="Reasoning effort"
-                >
-                  <option value="low">fast</option>
-                  <option value="medium">balanced</option>
-                  <option value="high">deep</option>
-                </select>
-              )}
               <span className="text-zinc-700">|</span>
               {isGenerating ? (
                 <button onClick={handleStop} className="text-red-400 hover:text-red-300 transition-colors">
@@ -1298,6 +1586,14 @@ export function ConversationView() {
               <span className="text-zinc-700">|</span>
             </>
           )}
+          <button
+            onClick={() => setReasoningSettingsOpen(true)}
+            className="text-zinc-600 hover:text-zinc-400 transition-colors flex-shrink-0"
+            title="Open reasoning settings"
+          >
+            reasoning
+          </button>
+          <span className="text-zinc-700">|</span>
           <span className="text-zinc-600 truncate">
             {conversation?.title || 'conversation'}
           </span>
@@ -1318,6 +1614,15 @@ export function ConversationView() {
           onModelStatusChange={setModelStatus}
         />
       )}
+      <ReasoningSettingsDialog
+        open={reasoningSettingsOpen}
+        onOpenChange={setReasoningSettingsOpen}
+        settingsResponse={reasoningSettings}
+        draft={reasoningDraft}
+        onDraftChange={setReasoningDraft}
+        onSave={handleSaveReasoningSettings}
+        saving={reasoningSaving}
+      />
       <WorkspacePicker
         open={workspacePickerOpen}
         onOpenChange={setWorkspacePickerOpen}
@@ -1433,26 +1738,21 @@ export function ConversationView() {
                   <option value="strict">strict</option>
                   <option value="relaxed">relaxed</option>
                   <option value="yolo">yolo</option>
-                </select>
-              </>
-            )}
-            {mode === 'chat' && (
-              <select
-                value={reasoningEffort}
-                onChange={(e) => setReasoningEffort(e.target.value as ReasoningEffort)}
-                className="bg-transparent border-none outline-none text-xs font-mono text-zinc-500 cursor-pointer"
-                title="Reasoning effort"
+                  </select>
+                </>
+              )}
+              <button
+                onClick={() => setReasoningSettingsOpen(true)}
+                className="text-zinc-500 hover:text-zinc-300 transition-colors"
+                title="Configure reasoning settings"
               >
-                <option value="low">fast</option>
-                <option value="medium">balanced</option>
-                <option value="high">deep</option>
-              </select>
-            )}
-            <span className="text-zinc-700">|</span>
-            {isGenerating ? (
-              <button onClick={handleStop} className="text-red-400 hover:text-red-300 transition-colors">
-                stop
+                reasoning
               </button>
+              <span className="text-zinc-700">|</span>
+              {isGenerating ? (
+                <button onClick={handleStop} className="text-red-400 hover:text-red-300 transition-colors">
+                  stop
+                </button>
             ) : (
               <button
                 onClick={handleSubmit}
