@@ -558,10 +558,21 @@ export interface WorkspaceDirectoryEntry {
   hidden: boolean;
 }
 
+export interface WorkspaceFileEntry {
+  name: string;
+  path: string;
+}
+
 export interface WorkspaceBrowseResponse {
   path: string;
   parent: string | null;
   entries: WorkspaceDirectoryEntry[];
+}
+
+export interface WorkspaceFileSearchResponse {
+  workspace_path: string;
+  query: string;
+  entries: WorkspaceFileEntry[];
 }
 
 export async function browseWorkspaceDirectories(
@@ -571,6 +582,18 @@ export async function browseWorkspaceDirectories(
   if (path) params.set('path', path);
   const query = params.toString() ? `?${params}` : '';
   return fetchJson<WorkspaceBrowseResponse>(`${API_BASE}/workspaces/browse${query}`);
+}
+
+export async function searchWorkspaceFiles(
+  workspacePath: string,
+  query: string,
+  limit = 20,
+): Promise<WorkspaceFileSearchResponse> {
+  const params = new URLSearchParams();
+  params.set('workspace_path', workspacePath);
+  params.set('q', query);
+  params.set('limit', String(limit));
+  return fetchJson<WorkspaceFileSearchResponse>(`${API_BASE}/workspaces/search-files?${params}`);
 }
 
 export interface UsageInfo {
