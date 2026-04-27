@@ -29,6 +29,7 @@ import {
   getUsage,
   steerAgentRun,
   browseWorkspaceDirectories,
+  searchWorkspaceFiles,
 } from '@/api/client';
 import type {
   LocalModel,
@@ -38,6 +39,7 @@ import type {
   CustomProviderRequest,
   UsageInfo,
   WorkspaceBrowseResponse,
+  WorkspaceFileEntry,
   ReasoningSettingsResponse,
   ReasoningSettings,
 } from '@/api/client';
@@ -55,6 +57,7 @@ import type { Run, Conversation } from '@/types';
 
 /** Maximum characters allowed in the input textarea (~2000 tokens) */
 const MAX_INPUT_CHARS = 8000;
+const MENTION_RESULT_LIMIT = 20;
 
 /** Preset questions showcasing multi-step agent capabilities */
 const PRESET_QUESTIONS = [
@@ -868,6 +871,81 @@ const RunMessage = memo(function RunMessage({
   );
 });
 
+function extractActiveMention(value: string, cursor: number): { start: number; end: number; query: string } | null {
+  const safeCursor = Math.max(0, Math.min(cursor, value.length));
+  const beforeCursor = value.slice(0, safeCursor);
+  const tokenStart = Math.max(
+    beforeCursor.lastIndexOf(" "),
+    beforeCursor.lastIndexOf("\n"),
+    beforeCursor.lastIndexOf("\t"),
+  ) + 1;
+  const token = beforeCursor.slice(tokenStart);
+  if (!token.startsWith("@")) return null;
+  if (token.length > 1 && token.includes("@", 1)) return null;
+  return {
+    start: tokenStart,
+    end: safeCursor,
+    query: token.slice(1),
+  };
+}
+
+function MentionPicker({
+  open,
+  loading,
+  entries,
+  selectedIndex,
+  onSelect,
+}: {
+  open: boolean;
+  loading: boolean;
+  entries: WorkspaceFileEntry[];
+  selectedIndex: number;
+  onSelect: (entry: WorkspaceFileEntry) => void;
+}) {
+  const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
+
+  useEffect(() => {
+    if (!open) return;
+    const activeItem = itemRefs.current[selectedIndex];
+    activeItem?.scrollIntoView({ block: 'nearest' });
+  }, [open, selectedIndex, entries]);
+
+  if (!open) return null;
+
+  return (
+    <div className="absolute left-0 right-0 bottom-full mb-2 border border-zinc-800 bg-zinc-950 shadow-2xl z-20 max-h-64 overflow-y-auto">
+      {loading ? (
+        <div className="px-3 py-2 text-xs font-mono text-zinc-500">searching files...</div>
+      ) : entries.length === 0 ? (
+        <div className="px-3 py-2 text-xs font-mono text-zinc-500">no matching files</div>
+      ) : (
+        entries.map((entry, index) => (
+          <button
+            key={entry.path}
+            type="button"
+            ref={(node) => {
+              itemRefs.current[index] = node;
+            }}
+            onMouseDown={(e) => {
+              e.preventDefault();
+              onSelect(entry);
+            }}
+            className={cn(
+              "block w-full px-3 py-2 text-left font-mono text-xs transition-colors",
+              index === selectedIndex
+                ? "bg-zinc-800 text-zinc-100"
+                : "text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200"
+            )}
+          >
+            <div className="truncate">{entry.path}</div>
+            <div className="truncate text-[10px] text-zinc-600">{entry.name}</div>
+          </button>
+        ))
+      )}
+    </div>
+  );
+}
+
 export function ConversationView() {
   const navigate = useNavigate();
   const selectedConversationId = useStore((s) => s.selectedConversationId);
@@ -889,6 +967,11 @@ export function ConversationView() {
     () => localStorage.getItem('reasoner_workspace_path') || ''
   );
   const [workspacePickerOpen, setWorkspacePickerOpen] = useState(false);
+  const [mentionResults, setMentionResults] = useState<WorkspaceFileEntry[]>([]);
+  const [mentionOpen, setMentionOpen] = useState(false);
+  const [mentionLoading, setMentionLoading] = useState(false);
+  const [mentionSelectedIndex, setMentionSelectedIndex] = useState(0);
+  const [activeMention, setActiveMention] = useState<{ start: number; end: number; query: string } | null>(null);
   const [permissionPolicy, setPermissionPolicy] = useState<'strict' | 'relaxed' | 'yolo'>(
     () => (localStorage.getItem('reasoner_permission_policy') as 'strict' | 'relaxed' | 'yolo') || 'strict'
   );
@@ -920,6 +1003,14 @@ export function ConversationView() {
         setReasoningDraft(data.settings);
       })
       .catch(() => {});
+  }, []);
+
+  const clearMentionState = useCallback(() => {
+    setActiveMention(null);
+    setMentionOpen(false);
+    setMentionLoading(false);
+    setMentionResults([]);
+    setMentionSelectedIndex(0);
   }, []);
 
   useEffect(() => {
@@ -1079,10 +1170,11 @@ export function ConversationView() {
   /** Retry a message: pre-fill the input with the original user message */
   const handleRetry = useCallback((userMessage: string) => {
     if (hasActiveRun) return;
+    clearMentionState();
     setMessage(userMessage);
     // Focus the textarea so user can edit before sending
     requestAnimationFrame(() => textareaRef.current?.focus());
-  }, [hasActiveRun]);
+  }, [clearMentionState, hasActiveRun]);
 
   const handleSaveReasoningSettings = useCallback(async () => {
     if (!reasoningDraft) return;
@@ -1110,6 +1202,7 @@ export function ConversationView() {
     if (hasActiveRun && activeRunId) {
       const steerMsg = message.trim();
       setMessage('');
+      clearMentionState();
       try {
         await steerAgentRun(activeRunId, steerMsg);
         setQueuedSteers((prev) => [...prev, steerMsg]);
@@ -1126,6 +1219,7 @@ export function ConversationView() {
     setIsSubmitting(true);
     setPendingMessage(messageToSend);
     setMessage('');
+    clearMentionState();
     setPendingIsAgent(mode === 'agent');
     let conversationId = selectedConversationId;
 
@@ -1241,6 +1335,7 @@ export function ConversationView() {
       }
       // Restore message on error
       setMessage(messageToSend);
+      clearMentionState();
       setPendingMessage('');
       setPendingRunId(null);
       setPendingIsAgent(false);
@@ -1264,10 +1359,11 @@ export function ConversationView() {
       setPendingRunId(null);
       setPendingIsAgent(false);
       setIsSubmitting(false);
+      clearMentionState();
       setQueuedSteers([]);
       subscribedRunRef.current = null;
     }
-  }, [selectedConversationId, activeRunId, pendingRunId]);
+  }, [clearMentionState, selectedConversationId, activeRunId, pendingRunId]);
 
   const handleStop = async () => {
     if (!pendingRunId) return;
@@ -1292,6 +1388,7 @@ export function ConversationView() {
 
       // 4. Restore user message
       setMessage(pendingMessage);
+      clearMentionState();
 
       // 5. Reset state
       setPendingRunId(null);
@@ -1310,6 +1407,36 @@ export function ConversationView() {
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (mentionOpen) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setMentionSelectedIndex((prev) => (
+          mentionResults.length ? (prev + 1) % mentionResults.length : 0
+        ));
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setMentionSelectedIndex((prev) => (
+          mentionResults.length ? (prev - 1 + mentionResults.length) % mentionResults.length : 0
+        ));
+        return;
+      }
+      if (e.key === 'Enter' && !e.metaKey && !e.ctrlKey) {
+        const entry = mentionResults[mentionSelectedIndex];
+        if (entry) {
+          e.preventDefault();
+          handleMentionSelect(entry);
+          return;
+        }
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setMentionOpen(false);
+        return;
+      }
+    }
+
     // Cmd/Ctrl + Enter to send
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
@@ -1341,15 +1468,53 @@ export function ConversationView() {
     ta.style.height = Math.min(ta.scrollHeight, 200) + 'px';
   }, []);
 
+  const handleMentionSelect = useCallback((entry: WorkspaceFileEntry) => {
+    const mention = activeMention;
+    if (!mention) return;
+    const nextMessage = `${message.slice(0, mention.start)}${entry.path}${message.slice(mention.end)}`;
+    const nextCursor = mention.start + entry.path.length;
+    setMessage(nextMessage);
+    setMentionOpen(false);
+    setMentionResults([]);
+    setActiveMention(null);
+    requestAnimationFrame(() => {
+      resizeTextarea();
+      const textarea = textareaRef.current;
+      if (!textarea) return;
+      textarea.focus();
+      textarea.setSelectionRange(nextCursor, nextCursor);
+    });
+  }, [activeMention, message, resizeTextarea]);
+
+  const syncMentionState = useCallback((value: string, selectionStart: number | null) => {
+    if (mode !== 'agent' || !workspacePath.trim()) {
+      setActiveMention(null);
+      setMentionOpen(false);
+      return;
+    }
+    const mention = extractActiveMention(value, selectionStart ?? value.length);
+    setActiveMention(mention);
+    if (!mention) {
+      setMentionOpen(false);
+    }
+  }, [mode, workspacePath]);
+
   const handleMessageChange = useCallback((e: ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value;
     // Enforce character limit
     if (value.length <= MAX_INPUT_CHARS) {
       setMessage(value);
+      syncMentionState(value, e.target.selectionStart);
     }
     // Resize on next frame after state update
     requestAnimationFrame(resizeTextarea);
-  }, [resizeTextarea]);
+  }, [resizeTextarea, syncMentionState]);
+
+  const handleTextareaSelection = useCallback(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    syncMentionState(textarea.value, textarea.selectionStart);
+  }, [syncMentionState]);
 
   // Reset textarea height when message is cleared (after submit)
   useEffect(() => {
@@ -1358,7 +1523,42 @@ export function ConversationView() {
     }
   }, [message]);
 
+  useEffect(() => {
+    if (mode !== 'agent' || !workspacePath.trim() || !activeMention) {
+      clearMentionState();
+      return;
+    }
+
+    let cancelled = false;
+    setMentionLoading(true);
+    const timer = window.setTimeout(() => {
+      searchWorkspaceFiles(workspacePath.trim(), activeMention.query, MENTION_RESULT_LIMIT)
+        .then((response) => {
+          if (cancelled) return;
+          setMentionResults(response.entries);
+          setMentionSelectedIndex(0);
+          setMentionOpen(true);
+        })
+        .catch(() => {
+          if (cancelled) return;
+          setMentionResults([]);
+          setMentionOpen(false);
+        })
+        .finally(() => {
+          if (!cancelled) {
+            setMentionLoading(false);
+          }
+        });
+    }, 120);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [activeMention, clearMentionState, mode, workspacePath]);
+
   const handlePresetClick = (query: string) => {
+    clearMentionState();
     setMessage(query);
     setMode('agent'); // Preset questions are designed for agent mode
     requestAnimationFrame(resizeTextarea);
@@ -1461,7 +1661,7 @@ export function ConversationView() {
         </div>
         <div className="p-3 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-4 sm:pb-[max(1rem,env(safe-area-inset-bottom))] flex-shrink-0 space-y-2">
           {/* Prompt area */}
-          <div className="border border-zinc-700 bg-zinc-900 focus-within:border-zinc-500 transition-colors">
+          <div className="relative border border-zinc-700 bg-zinc-900 focus-within:border-zinc-500 transition-colors">
             <div className="flex items-start p-3 gap-2">
               <span className="text-zinc-500 font-mono text-sm mt-0.5 select-none">&gt;</span>
               <textarea
@@ -1470,12 +1670,21 @@ export function ConversationView() {
                 value={message}
                 onChange={handleMessageChange}
                 onKeyDown={handleKeyDown}
+                onSelect={handleTextareaSelection}
+                onClick={handleTextareaSelection}
                 rows={2}
                 className="flex-1 bg-transparent border-none outline-none resize-none text-sm font-mono text-zinc-100 placeholder:text-zinc-600"
                 disabled={isSubmitting || hasActiveRun}
                 style={{ maxHeight: '200px' }}
               />
             </div>
+            <MentionPicker
+              open={mentionOpen}
+              loading={mentionLoading}
+              entries={mentionResults}
+              selectedIndex={mentionSelectedIndex}
+              onSelect={handleMentionSelect}
+            />
           </div>
           {/* Toolbar */}
           <div className="flex items-center justify-between px-1">
@@ -1676,7 +1885,7 @@ export function ConversationView() {
           </div>
         )}
         {/* Prompt area */}
-        <div className="border border-zinc-700 bg-zinc-900 focus-within:border-zinc-500 transition-colors">
+        <div className="relative border border-zinc-700 bg-zinc-900 focus-within:border-zinc-500 transition-colors">
           <div className="flex items-start p-3 gap-2">
             <span className="text-zinc-500 font-mono text-sm mt-0.5 select-none">&gt;</span>
             <textarea
@@ -1685,12 +1894,21 @@ export function ConversationView() {
               value={message}
               onChange={handleMessageChange}
               onKeyDown={handleKeyDown}
+              onSelect={handleTextareaSelection}
+              onClick={handleTextareaSelection}
               rows={2}
               className="flex-1 bg-transparent border-none outline-none resize-none text-sm font-mono text-zinc-100 placeholder:text-zinc-600"
               disabled={isSubmitting || atLimit}
               style={{ maxHeight: '200px' }}
             />
           </div>
+          <MentionPicker
+            open={mentionOpen}
+            loading={mentionLoading}
+            entries={mentionResults}
+            selectedIndex={mentionSelectedIndex}
+            onSelect={handleMentionSelect}
+          />
         </div>
         {/* Toolbar */}
         <div className="flex items-center justify-between px-1">
