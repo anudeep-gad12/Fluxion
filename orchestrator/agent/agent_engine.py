@@ -500,6 +500,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
             # Step metadata for context pruning (maps tool_call_id -> step_number)
             step_metadata: Dict[str, int] = {}
             tool_steps_completed = 0
+            consecutive_filtered_steps = 0
 
             # Main agent loop
             while state_machine.can_continue():
@@ -750,6 +751,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         decision="truncated",
                         thinking_text=thinking_text,
                     )
+                    consecutive_filtered_steps = 0
                     continue
 
                 if tool_calls:
@@ -772,6 +774,43 @@ To provide your final answer, respond WITHOUT calling any tools."""
                             await state_machine.complete_step(
                                 decision="filtered",
                                 thinking_text=thinking_text,
+                            )
+                            consecutive_filtered_steps += 1
+                            if consecutive_filtered_steps >= 2:
+                                logger.warning(
+                                    "Model repeated filtered tool calls; forcing synthesis",
+                                    extra={
+                                        "run_id": run_id,
+                                        "step_number": step_number,
+                                        "consecutive_filtered_steps": consecutive_filtered_steps,
+                                        "reasons": reasons,
+                                    },
+                                )
+                                final_answer = await self._force_synthesis(
+                                    messages=messages,
+                                    event_callback=event_callback,
+                                    run_id=run_id,
+                                )
+                                return await self._finalize_successful_run(
+                                    final_answer=final_answer,
+                                    messages=messages,
+                                    state_machine=state_machine,
+                                    step_number=step_number,
+                                    start_time=start_time,
+                                    event_callback=event_callback,
+                                    run_id=run_id,
+                                    query=query,
+                                    forced_synthesis=True,
+                                )
+
+                            messages.append(
+                                {
+                                    "role": "user",
+                                    "content": (
+                                        "Do not repeat filtered or duplicate tool calls. "
+                                        "Either provide the final answer now or choose a genuinely different tool call."
+                                    ),
+                                }
                             )
                             continue
 
@@ -839,6 +878,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         self._update_plan_progress(parsed_calls, step_number)
 
                     tool_steps_completed += 1
+                    consecutive_filtered_steps = 0
 
                     await state_machine.complete_step(
                         decision="call_tool",
@@ -918,71 +958,19 @@ To provide your final answer, respond WITHOUT calling any tools."""
                             content=final_answer,
                         )
 
-                    # Extract and store citations
-                    citations = await self._extract_and_store_citations(
-                        run_id=run_id,
-                        answer=final_answer,
-                    )
-
                     await state_machine.complete_step(
                         decision="synthesize",
                         thinking_text=thinking_text,
                     )
-                    await state_machine.complete_run(final_answer)
-
-                    # Trace: agent_complete
-                    total_timing_ms = int((time.perf_counter() - start_time) * 1000)
-
-                    _ctx = self._current_context_usage_payload(self._pruner.estimate_tokens(messages))
-
-                    self._emit(
-                        event_callback,
-                        "agent_complete",
-                        run_id=run_id,
-                        success=True,
+                    return await self._finalize_successful_run(
                         final_answer=final_answer,
-                        citations=citations,
-                        total_steps=step_number,
-                        timing_ms=total_timing_ms,
-                        context_usage=_ctx,
-                        context_profile=self._context_profile_dict(),
-                        compaction_count=self._compaction_count,
-                        last_compacted_at_step=self._last_compacted_at_step,
-                        total_tokens=self._total_tokens,
-                        usage=self._usage_totals,
-                        cost=self._current_cost(),
-                    )
-                    await self._add_trace_event(
+                        messages=messages,
+                        state_machine=state_machine,
+                        step_number=step_number,
+                        start_time=start_time,
+                        event_callback=event_callback,
                         run_id=run_id,
-                        event_type="agent_complete",
-                        content={
-                            "success": True,
-                            "total_steps": step_number,
-                            "answer_length": len(final_answer) if final_answer else 0,
-                            "citations_count": len(citations),
-                        },
-                        duration_ms=total_timing_ms,
-                    )
-
-                    # Compute and store run metrics + turn summary
-                    await self._store_run_metrics(run_id, total_timing_ms)
-                    await self._store_turn_summary(run_id, query, final_answer)
-                    await self._store_conversation_messages(run_id, messages)
-
-                    return AgentResult(
-                        run_id=run_id,
-                        success=True,
-                        final_answer=final_answer,
-                        citations=citations,
-                        total_steps=step_number,
-                        timing_ms=total_timing_ms,
-                        total_tokens=self._total_tokens,
-                        context_usage=_ctx,
-                        context_profile=self._context_profile_dict(),
-                        compaction_count=self._compaction_count,
-                        last_compacted_at_step=self._last_compacted_at_step,
-                        usage=self._usage_totals.copy(),
-                        cost=self._current_cost(),
+                        query=query,
                     )
 
             # Max steps reached - force synthesis
@@ -992,69 +980,16 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 run_id=run_id,
             )
 
-            citations = await self._extract_and_store_citations(
-                run_id=run_id,
-                answer=final_answer,
-            )
-
-            await state_machine.complete_run(final_answer)
-
-            # Trace: agent_complete (max steps)
-            total_timing_ms = int((time.perf_counter() - start_time) * 1000)
-
-            # Build context_usage payload
-            _ctx2 = {}
-            if self._context_budget:
-                _ctx2 = {
-                    "total_tokens_used": self._context_budget.total_used,
-                    "history_tokens": self._context_budget.history_tokens,
-                    "max_tokens": self._max_context_tokens,
-                    "utilization_pct": round(self._context_budget.utilization_pct, 1),
-                }
-
-            self._emit(
-                event_callback,
-                "agent_complete",
-                run_id=run_id,
-                success=True,
+            return await self._finalize_successful_run(
                 final_answer=final_answer,
-                citations=citations,
-                total_steps=state_machine.current_step,
-                timing_ms=total_timing_ms,
-                context_usage=_ctx2 if _ctx2 else None,
-                total_tokens=self._total_tokens,
-                usage=self._usage_totals,
-                cost=self._current_cost(),
-            )
-            await self._add_trace_event(
+                messages=messages,
+                state_machine=state_machine,
+                step_number=state_machine.current_step,
+                start_time=start_time,
+                event_callback=event_callback,
                 run_id=run_id,
-                event_type="agent_complete",
-                content={
-                    "success": True,
-                    "total_steps": state_machine.current_step,
-                    "answer_length": len(final_answer) if final_answer else 0,
-                    "citations_count": len(citations),
-                    "forced_synthesis": True,
-                },
-                duration_ms=total_timing_ms,
-            )
-
-            # Compute and store run metrics + turn summary
-            await self._store_run_metrics(run_id, total_timing_ms)
-            await self._store_turn_summary(run_id, query, final_answer)
-            await self._store_conversation_messages(run_id, messages)
-
-            return AgentResult(
-                run_id=run_id,
-                success=True,
-                final_answer=final_answer,
-                citations=citations,
-                total_steps=state_machine.current_step,
-                timing_ms=total_timing_ms,
-                total_tokens=self._total_tokens,
-                context_usage=_ctx2 if _ctx2 else None,
-                usage=self._usage_totals.copy(),
-                cost=self._current_cost(),
+                query=query,
+                forced_synthesis=True,
             )
 
         except MaxStepsExceededError:
@@ -3174,6 +3109,92 @@ When you complete each step, proceed to the next."""
                 "Failed to store run metrics",
                 extra={"run_id": run_id, "error": str(e)},
             )
+
+    async def _finalize_successful_run(
+        self,
+        *,
+        final_answer: str,
+        messages: list[dict[str, Any]],
+        state_machine: Any,
+        step_number: int,
+        start_time: float,
+        event_callback: Optional[Callable[[Dict[str, Any]], None]],
+        run_id: str,
+        query: str,
+        forced_synthesis: bool = False,
+    ) -> AgentResult:
+        """Finalize a successful run and persist artifacts/metrics."""
+        if final_answer and (
+            not messages
+            or messages[-1].get("role") != "assistant"
+            or (messages[-1].get("content") or "") != final_answer
+        ):
+            messages.append(
+                {
+                    "role": "assistant",
+                    "content": final_answer,
+                }
+            )
+
+        citations = await self._extract_and_store_citations(
+            run_id=run_id,
+            answer=final_answer,
+        )
+
+        await state_machine.complete_run(final_answer)
+
+        total_timing_ms = int((time.perf_counter() - start_time) * 1000)
+        context_usage = self._current_context_usage_payload(self._pruner.estimate_tokens(messages))
+
+        self._emit(
+            event_callback,
+            "agent_complete",
+            run_id=run_id,
+            success=True,
+            final_answer=final_answer,
+            citations=citations,
+            total_steps=step_number,
+            timing_ms=total_timing_ms,
+            context_usage=context_usage,
+            context_profile=self._context_profile_dict(),
+            compaction_count=self._compaction_count,
+            last_compacted_at_step=self._last_compacted_at_step,
+            total_tokens=self._total_tokens,
+            usage=self._usage_totals,
+            cost=self._current_cost(),
+        )
+        await self._add_trace_event(
+            run_id=run_id,
+            event_type="agent_complete",
+            content={
+                "success": True,
+                "total_steps": step_number,
+                "answer_length": len(final_answer) if final_answer else 0,
+                "citations_count": len(citations),
+                "forced_synthesis": forced_synthesis,
+            },
+            duration_ms=total_timing_ms,
+        )
+
+        await self._store_run_metrics(run_id, total_timing_ms)
+        await self._store_turn_summary(run_id, query, final_answer)
+        await self._store_conversation_messages(run_id, messages)
+
+        return AgentResult(
+            run_id=run_id,
+            success=True,
+            final_answer=final_answer,
+            citations=citations,
+            total_steps=step_number,
+            timing_ms=total_timing_ms,
+            total_tokens=self._total_tokens,
+            context_usage=context_usage,
+            context_profile=self._context_profile_dict(),
+            compaction_count=self._compaction_count,
+            last_compacted_at_step=self._last_compacted_at_step,
+            usage=self._usage_totals.copy(),
+            cost=self._current_cost(),
+        )
 
     async def _store_turn_summary(
         self, run_id: str, query: str, final_answer: str
