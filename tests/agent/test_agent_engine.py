@@ -875,6 +875,108 @@ class TestAgentEngineToolExecution:
         assert len(tool_results) == 1
         assert tool_results[0]["success"] is False
 
+    @pytest.mark.asyncio
+    async def test_forces_synthesis_after_repeated_filtered_duplicate_tool_calls(self):
+        """Repeated duplicate tool calls should not spin until max steps."""
+        call_count = 0
+
+        async def mock_streaming(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return LLMResponse(
+                    text="Let me inspect git status.",
+                    tool_calls=[
+                        {
+                            "id": "tc-1",
+                            "function": {
+                                "name": "bash",
+                                "arguments": '{"command": "git status"}',
+                            },
+                        }
+                    ],
+                )
+            if call_count in (2, 3):
+                return LLMResponse(
+                    text="",
+                    tool_calls=[
+                        {
+                            "id": f"tc-{call_count}",
+                            "function": {
+                                "name": "bash",
+                                "arguments": '{"command": "git status"}',
+                            },
+                        }
+                    ],
+                )
+            return LLMResponse(
+                text="I already checked git status. The revert is complete.",
+                tool_calls=None,
+            )
+
+        provider = MagicMock()
+        provider.complete_streaming = AsyncMock(side_effect=mock_streaming)
+
+        mock_tool = MagicMock()
+        mock_tool.execute = AsyncMock(
+            return_value=ToolResult(
+                success=True,
+                result_summary="Command succeeded (exit 0): git status",
+                result_data={
+                    "command": "git status",
+                    "exit_code": 0,
+                    "stdout": "clean",
+                    "stderr": "",
+                    "truncated": False,
+                },
+                duration_ms=50,
+            )
+        )
+
+        registry = MagicMock()
+        registry.get_openai_schemas.return_value = [
+            {"type": "function", "function": {"name": "bash"}}
+        ]
+        registry.get.return_value = mock_tool
+        registry.is_idempotent.return_value = True
+
+        mock_sm = create_mock_state_machine(
+            can_continue_sequence=[True, True, True, True, False],
+            step_sequence=[
+                {"step_number": 1, "id": "step-1"},
+                {"step_number": 2, "id": "step-2"},
+                {"step_number": 3, "id": "step-3"},
+            ],
+        )
+        mock_sm.record_tool_call = AsyncMock(return_value={"id": "tc-1"})
+
+        with patch(
+            "orchestrator.agent.agent_engine.AgentStateMachine",
+            return_value=mock_sm,
+        ):
+            engine = AgentEngine(
+                provider=provider,
+                repo=create_mock_repo(),
+                registry=registry,
+            )
+
+            result = await engine.run(
+                run_id="test-run",
+                query="Revert the previous change",
+            )
+
+        assert result.success is True
+        assert result.final_answer == "I already checked git status. The revert is complete."
+        assert result.total_steps == 3
+        assert mock_tool.execute.call_count == 1
+        assert provider.complete_streaming.call_count == 4
+
+        decisions = [
+            call.kwargs.get("decision")
+            for call in mock_sm.complete_step.await_args_list
+        ]
+        assert decisions == ["call_tool", "filtered", "filtered"]
+
 
 class TestAgentEngineCitations:
     """Tests for citation handling."""

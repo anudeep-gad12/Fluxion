@@ -13,6 +13,7 @@ cat docs/IMPLEMENTATION_LOG.md | head -40  # What's been done
 ```
 
 Key references:
+
 - `docs/IMPLEMENTATION_LOG.md` - Feature tracking (read first, **update after every feature/bug fix**)
 - `docs/WORKFLOW.md` - Development process guide
 
@@ -68,25 +69,30 @@ uv run ruff check orchestrator && uv run ruff format orchestrator
 
 ## Key Files
 
-| Purpose | Path |
-|---------|------|
-| API entry | `orchestrator/app.py` |
-| UI entry | `ui/src/App.tsx` |
-| Chat engine | `orchestrator/engine/chat_engine.py` |
-| Agent engine | `orchestrator/agent/agent_engine.py` |
-| Provider | `orchestrator/providers/openai_compat.py` |
-| Config | `orchestrator/chat_config.yaml` |
+
+| Purpose      | Path                                      |
+| ------------ | ----------------------------------------- |
+| API entry    | `orchestrator/app.py`                     |
+| UI entry     | `ui/src/App.tsx`                          |
+| Chat engine  | `orchestrator/engine/chat_engine.py`      |
+| Agent engine | `orchestrator/agent/agent_engine.py`      |
+| Provider     | `orchestrator/providers/openai_compat.py` |
+| Config       | `orchestrator/chat_config.yaml`           |
+
 
 ## Documentation
 
 Source of truth for architecture (docs/ folder only):
 
-| Document | Purpose |
-|----------|---------|
+
+| Document                     | Purpose                       |
+| ---------------------------- | ----------------------------- |
 | `docs/IMPLEMENTATION_LOG.md` | Feature tracking (read first) |
-| `docs/WORKFLOW.md` | Development process guide |
-| `docs/ARCHITECTURE.md` | System architecture |
-| `docs/COMPONENTS.md` | Component documentation |
-| `docs/DATA_MODELS.md` | Data models |
-| `docs/DATA_FLOW.md` | Data flow diagrams |
-| `docs/API_REFERENCE.md` | API documentation |
+| `docs/WORKFLOW.md`           | Development process guide     |
+| `docs/ARCHITECTURE.md`       | System architecture           |
+| `docs/COMPONENTS.md`         | Component documentation       |
+| `docs/DATA_MODELS.md`        | Data models                   |
+| `docs/DATA_FLOW.md`          | Data flow diagrams            |
+| `docs/API_REFERENCE.md`      | API documentation             |
+
+
