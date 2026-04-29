@@ -107,6 +107,37 @@ class Database:
             )
             """,
         )
+        # Migration 11: Global app settings storage
+        await self._create_table_if_not_exists(
+            "app_settings",
+            """
+            CREATE TABLE IF NOT EXISTS app_settings (
+                setting_key TEXT PRIMARY KEY,
+                value_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """,
+        )
+        # Migration 12: Browser terminal session metadata
+        await self._create_table_if_not_exists(
+            "terminal_sessions",
+            """
+            CREATE TABLE IF NOT EXISTS terminal_sessions (
+                session_id TEXT PRIMARY KEY,
+                conversation_id TEXT NOT NULL UNIQUE,
+                workspace_path TEXT,
+                shell TEXT NOT NULL,
+                status TEXT NOT NULL,
+                cols INTEGER NOT NULL,
+                rows INTEGER NOT NULL,
+                session_owner TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                last_activity_at TEXT NOT NULL,
+                FOREIGN KEY(conversation_id) REFERENCES conversations(conversation_id) ON DELETE CASCADE
+            )
+            """,
+        )
 
     async def _create_table_if_not_exists(
         self, table: str, create_sql: str

@@ -23,6 +23,11 @@ from orchestrator.config import ChatConfig, get_chat_config
 from orchestrator.context.budget import ContextBudget
 from orchestrator.context.history_builder import HistoryBuilder
 from orchestrator.logging_config import get_logger, set_component
+from orchestrator.reasoning_controls import (
+    ReasoningSettings,
+    apply_reasoning_settings,
+    infer_provider_family,
+)
 
 logger = get_logger(__name__)
 from orchestrator.providers import create_provider, LLMProvider
@@ -100,6 +105,7 @@ class ChatEngine:
         thinking_strategy: Optional[str] = None,
         thinking_params: Optional[dict] = None,
         reasoning_effort: Optional[str] = None,  # "low", "medium", "high" for native reasoning
+        reasoning_settings: Optional[ReasoningSettings] = None,
         session_id: Optional[str] = None,  # Session ID for demo mode isolation
     ) -> ChatResult:
         """Send a message and get a response.
@@ -159,12 +165,15 @@ class ChatEngine:
             )
 
         # Create trace record (status: running)
+        model_config_snapshot = self.config.model.model_dump()
+        if reasoning_settings is not None:
+            model_config_snapshot["reasoning_settings"] = reasoning_settings.model_dump()
         await trace_repo.create_conversation_trace(
             run_id=run_id,
             conversation_id=conversation_id,
             profile_name="chat",
             mode="chat",
-            model_config=self.config.model.model_dump(),
+            model_config=model_config_snapshot,
             user_message=message,
             system_prompt=self.config.system_prompt,
             session_id=session_id,
@@ -335,6 +344,7 @@ class ChatEngine:
                         on_token,
                         stop=stop,
                         reasoning_effort=reasoning_effort,
+                        reasoning_settings=reasoning_settings,
                         reasoning_callback=on_reasoning,
                         previous_response_id=previous_response_id,
                     )
@@ -619,6 +629,7 @@ class ChatEngine:
         token_callback: Optional[Callable[[str], None]] = None,
         stop: Optional[list[str]] = None,
         reasoning_effort: Optional[str] = None,  # Per-request override
+        reasoning_settings: Optional[ReasoningSettings] = None,
         reasoning_callback: Optional[
             Callable[[str], None]
         ] = None,  # Separate callback for native reasoning
@@ -644,13 +655,28 @@ class ChatEngine:
         Returns:
             Tuple of (response_text, usage_stats, reasoning_text, response_id).
         """
-        # Resolve reasoning effort (per-request override takes precedence)
-        effort = reasoning_effort or self.config.model.reasoning_effort
+        settings = reasoning_settings or ReasoningSettings(
+            max_output_tokens=self.config.model.max_tokens,
+            reasoning_effort=reasoning_effort or self.config.model.reasoning_effort,
+        )
+        if reasoning_effort is not None:
+            settings = settings.model_copy(update={"reasoning_effort": reasoning_effort})
 
-        # Use provider for streaming
-        # Pass reasoning config for providers like OpenRouter that use it
-        # to separate thinking from content in chat/completions
-        reasoning_config = {"effort": effort} if effort else None
+        provider_family = infer_provider_family(
+            provider_obj=self._provider,
+            base_url=getattr(self._provider, "_base_url", None),
+        )
+        provider_kwargs = apply_reasoning_settings(
+            settings,
+            provider_family=provider_family,
+            supports_reasoning=bool(
+                getattr(self._provider, "_supports_reasoning", None)
+                if getattr(self._provider, "_supports_reasoning", None) is not None
+                else True
+            ),
+        )
+        effective_max_tokens = provider_kwargs.pop("max_tokens", self.config.model.max_tokens)
+        effort = provider_kwargs.get("reasoning_effort")
 
         response = await self._provider.complete_streaming(
             messages=messages,
@@ -658,7 +684,7 @@ class ChatEngine:
             on_token=token_callback or (lambda _: None),
             on_reasoning=reasoning_callback,
             instructions=self.config.system_prompt,
-            max_tokens=self.config.model.max_tokens,
+            max_tokens=effective_max_tokens,
             temperature=self.config.model.temperature,
             reasoning_effort=effort,
             previous_response_id=previous_response_id,
@@ -667,7 +693,7 @@ class ChatEngine:
             top_p=self.config.model.top_p,
             frequency_penalty=self.config.model.frequency_penalty,
             presence_penalty=self.config.model.presence_penalty,
-            reasoning=reasoning_config,
+            **provider_kwargs,
         )
 
         # Get response text from provider's normalized response

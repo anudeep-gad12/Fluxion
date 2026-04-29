@@ -68,6 +68,18 @@ class TestBuildResponsesRequest:
 
         assert payload["reasoning"] == {"effort": "high"}
 
+    def test_with_reasoning_object_overrides_effort(self):
+        """Explicit reasoning object should pass through untouched."""
+        messages = [{"role": "user", "content": "Hello"}]
+        payload = build_responses_request(
+            messages,
+            model="gpt-oss-20b",
+            reasoning_effort="high",
+            reasoning={"effort": "low", "summary": "auto"},
+        )
+
+        assert payload["reasoning"] == {"effort": "low", "summary": "auto"}
+
     def test_with_previous_response_id(self):
         """Stateful mode includes previous_response_id."""
         messages = [{"role": "user", "content": "Hello"}]
@@ -179,6 +191,7 @@ class TestBuildChatCompletionsRequest:
         assert payload["model"] == "gpt-4"
         assert payload["messages"] == messages
         assert payload["stream"] is True
+        assert payload["stream_options"] == {"include_usage": True}
         assert "tools" not in payload
         assert "max_tokens" not in payload
 
@@ -259,3 +272,35 @@ class TestBuildChatCompletionsRequest:
         )
 
         assert payload["stream"] is False
+        assert "stream_options" not in payload
+
+    def test_internal_message_metadata_is_stripped(self):
+        """Underscore-prefixed internal message keys are not sent to providers."""
+        messages = [
+            {
+                "role": "system",
+                "content": "You are helpful.",
+                "_working_memory": True,
+                "_step": 2,
+            },
+            {
+                "role": "tool",
+                "name": "read_file",
+                "content": "file excerpt",
+                "tool_call_id": "tc-1",
+                "_custom_internal": "x",
+            },
+        ]
+
+        payload = build_chat_completions_request(messages, model="gpt-4")
+
+        assert payload["messages"][0] == {
+            "role": "system",
+            "content": "You are helpful.",
+        }
+        assert payload["messages"][1] == {
+            "role": "tool",
+            "name": "read_file",
+            "content": "file excerpt",
+            "tool_call_id": "tc-1",
+        }

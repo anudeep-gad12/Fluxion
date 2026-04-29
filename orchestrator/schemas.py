@@ -5,6 +5,12 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
+from orchestrator.reasoning_controls import (
+    ReasoningCapabilities,
+    ReasoningSettings,
+    ReasoningSettingsResponse,
+)
+
 # ==================== Run Schemas ====================
 
 
@@ -217,6 +223,40 @@ class AgentToolCallStatus(str, Enum):
     INTERRUPTED = "interrupted"
 
 
+class AgentCapabilities(BaseModel):
+    """Tool capabilities enabled for a browser agent run."""
+
+    web: bool = True
+    filesystem: bool = False
+    bash: bool = False
+    python: bool = False
+
+
+class TerminalSessionRequest(BaseModel):
+    """Create/restart browser terminal session request."""
+
+    workspace_path: Optional[str] = None
+    cols: int = 120
+    rows: int = 30
+
+
+class TerminalSessionResponse(BaseModel):
+    """Browser terminal session metadata."""
+
+    session_id: str
+    conversation_id: str
+    workspace_path: Optional[str] = None
+    shell: str
+    status: str
+    cols: int
+    rows: int
+    created_at: str
+    updated_at: str
+    last_activity_at: str
+    reconnect_supported: bool = False
+    replay_buffer: str = ""
+
+
 class AgentStepResponse(BaseModel):
     """Agent step details."""
 
@@ -267,12 +307,49 @@ class AgentCitationResponse(BaseModel):
     created_at: str
 
 
+
+
+class ModelPricingResponse(BaseModel):
+    """Known pricing metadata for an active model."""
+
+    input_cost_per_million: Optional[float] = None
+    cached_input_cost_per_million: Optional[float] = None
+    output_cost_per_million: Optional[float] = None
+
+
+class ModelContextProfileResponse(BaseModel):
+    """Normalized active model context profile."""
+
+    provider_name: str
+    model_id: str
+    display_name: str
+    context_window: int
+    max_output_tokens: int
+    effective_input_budget: int
+    supports_tools: bool
+    supports_reasoning: bool
+    pricing: ModelPricingResponse = Field(default_factory=ModelPricingResponse)
+    source: str
+
+
+class AgentSystemEventResponse(BaseModel):
+    """Visible system event for an agent run timeline."""
+
+    event_type: str
+    message: str
+    step_number: Optional[int] = None
+    seq: Optional[int] = None
+    created_at: Optional[str] = None
+
+
 class CreateAgentRunRequest(BaseModel):
     """Request to start an agent run."""
 
     query: str
     conversation_id: Optional[str] = None
     max_steps: int = 1000
+    workspace_path: Optional[str] = None
+    capabilities: AgentCapabilities = Field(default_factory=AgentCapabilities)
     filesystem_enabled: bool = False
     working_dir: Optional[str] = None
     permission_policy: str = "strict"
@@ -303,6 +380,12 @@ class AgentRunStatusResponse(BaseModel):
     max_steps: int = 1000
     final_answer: Optional[str] = None
     error_message: Optional[str] = None
+    usage: Optional[dict[str, Any]] = None
+    cost: Optional[dict[str, Any]] = None
+    context_usage: Optional[dict[str, Any]] = None
+    context_profile: Optional[ModelContextProfileResponse] = None
+    compaction_count: int = 0
+    last_compacted_at_step: Optional[int] = None
     created_at: str
     updated_at: Optional[str] = None
 
@@ -330,7 +413,14 @@ class AgentRunTraceResponse(BaseModel):
     tool_calls: list[AgentToolCallResponse]
     citations: list[AgentCitationResponse]
     artifacts: list[RunArtifactResponse] = []
+    system_events: list[AgentSystemEventResponse] = []
     final_answer: Optional[str] = None
+    usage: Optional[dict[str, Any]] = None
+    cost: Optional[dict[str, Any]] = None
+    context_usage: Optional[dict[str, Any]] = None
+    context_profile: Optional[ModelContextProfileResponse] = None
+    compaction_count: int = 0
+    last_compacted_at_step: Optional[int] = None
 
 
 # ==================== Local Model Schemas ====================
@@ -360,12 +450,43 @@ class ModelStatusResponse(BaseModel):
     model_name: Optional[str] = None
     base_url: Optional[str] = None
     local_running: bool = False
+    context_window: int = 32768
+    max_output_tokens: int = 8192
+    effective_input_budget: int = 24576
+    supports_tools: bool = True
+    supports_reasoning: bool = False
+    provider_family: str = "generic"
+    reasoning_capabilities: Optional[ReasoningCapabilities] = None
+    source: str = "config_fallback"
 
 
 class SelectModelRequest(BaseModel):
     """Request to select a model from the registry."""
 
     model: str  # Model alias, full ID, or "provider:model" string
+
+
+class CustomProviderRequest(BaseModel):
+    """Request to select a custom OpenAI-compatible provider."""
+
+    name: str = "custom"
+    base_url: str
+    api_key: Optional[str] = None
+    model: str
+    context_window: int = 32768
+    max_output_tokens: int = 8192
+    supports_tools: bool = True
+    supports_reasoning: bool = False
+    reasoning_request_param: Optional[str] = None
+    input_cost_per_million: Optional[float] = None
+    cached_input_cost_per_million: Optional[float] = None
+    output_cost_per_million: Optional[float] = None
+
+
+class UpdateReasoningSettingsRequest(BaseModel):
+    """Request to update global runtime reasoning settings."""
+
+    settings: ReasoningSettings
 
 
 # ==================== Helpers ====================

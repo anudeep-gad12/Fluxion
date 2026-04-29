@@ -67,6 +67,7 @@ def build_responses_request(
     tools: Optional[List[Dict[str, Any]]] = None,
     tool_choice: Optional[str] = None,
     reasoning_effort: Optional[str] = None,
+    reasoning: Optional[Dict[str, Any]] = None,
     max_output_tokens: Optional[int] = None,
     stream: bool = True,
     previous_response_id: Optional[str] = None,
@@ -135,7 +136,9 @@ def build_responses_request(
                     "name": tool_choice,
                 }
 
-    if reasoning_effort:
+    if reasoning is not None:
+        payload["reasoning"] = reasoning
+    elif reasoning_effort:
         payload["reasoning"] = {"effort": reasoning_effort}
 
     # Stateful mode: chain to previous response
@@ -176,10 +179,10 @@ def build_chat_completions_request(
     Note:
         reasoning_effort is NOT supported by chat/completions and is ignored.
     """
-    # Strip internal metadata fields that strict APIs (e.g. Mistral) reject
-    _internal_keys = {"_plan", "_step", "_pruned", "_llm_summary"}
+    # Strip internal metadata fields that strict APIs reject. Keep only
+    # user/provider-visible message keys.
     clean_messages = [
-        {k: v for k, v in msg.items() if k not in _internal_keys}
+        {k: v for k, v in msg.items() if not str(k).startswith("_")}
         for msg in messages
     ]
 
@@ -188,6 +191,9 @@ def build_chat_completions_request(
         "messages": clean_messages,
         "stream": stream,
     }
+
+    if stream:
+        payload["stream_options"] = {"include_usage": True}
 
     if tools:
         payload["tools"] = tools

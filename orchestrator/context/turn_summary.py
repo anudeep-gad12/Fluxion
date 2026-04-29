@@ -59,7 +59,7 @@ class TurnSummarizer:
         """
         user_message = run.get("user_message", "")
         final_answer = run.get("final_answer", "")
-        thinking_summary = run.get("thinking_summary", "")
+        _ = run.get("thinking_summary", "")
 
         # Deduplicated tool names
         tools = list(dict.fromkeys(
@@ -82,8 +82,6 @@ class TurnSummarizer:
                 key_facts.append(result_summary[:80])
         if key_facts:
             key_findings = "; ".join(key_facts[:3])
-        elif thinking_summary:
-            key_findings = thinking_summary[:200]
         else:
             key_findings = final_answer[:200] if final_answer else ""
 

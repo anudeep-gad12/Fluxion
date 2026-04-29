@@ -16,6 +16,8 @@ logger = get_logger(__name__)
 
 # Maximum output size in characters
 _MAX_OUTPUT = 30000
+_DEFAULT_TIMEOUT = 300
+_MAX_TIMEOUT = 1800
 
 
 class BashTool:
@@ -61,8 +63,8 @@ class BashTool:
                     },
                     "timeout": {
                         "type": "integer",
-                        "description": "Timeout in seconds (default: 120, max: 600)",
-                        "default": 120,
+                        "description": "Timeout in seconds (default: 300, max: 1800)",
+                        "default": 300,
                     },
                 },
                 "required": ["command"],
@@ -74,21 +76,21 @@ class BashTool:
     async def execute(
         self,
         command: str,
-        timeout: int = 120,
+        timeout: int = _DEFAULT_TIMEOUT,
         **kwargs: Any,
     ) -> ToolResult:
         """Execute a shell command.
 
         Args:
             command: Shell command to run.
-            timeout: Timeout in seconds (max 600).
+            timeout: Timeout in seconds (max 1800).
             **kwargs: Additional arguments (ignored).
 
         Returns:
             ToolResult with command output.
         """
         start_time = time.perf_counter()
-        timeout = min(timeout, 600)
+        timeout = min(timeout, _MAX_TIMEOUT)
 
         try:
             proc = await asyncio.create_subprocess_shell(
@@ -98,38 +100,104 @@ class BashTool:
                 cwd=self._cwd,
             )
 
+            stdout_buffer = bytearray()
+            stderr_buffer = bytearray()
+
+            async def _drain_stream(
+                stream: asyncio.StreamReader | None,
+                buffer: bytearray,
+            ) -> None:
+                if stream is None:
+                    return
+                while True:
+                    chunk = await stream.read(4096)
+                    if not chunk:
+                        break
+                    buffer.extend(chunk)
+
             try:
-                stdout, stderr = await asyncio.wait_for(
-                    proc.communicate(), timeout=timeout
-                )
+                stdout_task = asyncio.create_task(_drain_stream(proc.stdout, stdout_buffer))
+                stderr_task = asyncio.create_task(_drain_stream(proc.stderr, stderr_buffer))
+                await asyncio.wait_for(proc.wait(), timeout=timeout)
+                await asyncio.gather(stdout_task, stderr_task)
             except asyncio.TimeoutError:
-                proc.kill()
-                await proc.wait()
+                proc.terminate()
+                try:
+                    await asyncio.wait_for(proc.wait(), timeout=2)
+                except asyncio.TimeoutError:
+                    proc.kill()
+                    await proc.wait()
+                await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
                 duration_ms = int((time.perf_counter() - start_time) * 1000)
+                stdout_text = stdout_buffer.decode("utf-8", errors="replace")
+                stderr_text = stderr_buffer.decode("utf-8", errors="replace")
+                output = "\n".join(
+                    part
+                    for part in (
+                        stdout_text,
+                        f"STDERR:\n{stderr_text}" if stderr_text else "",
+                    )
+                    if part
+                )
+                truncated = False
+                if len(output) > _MAX_OUTPUT:
+                    head = output[: _MAX_OUTPUT // 2]
+                    tail = output[-(_MAX_OUTPUT // 2):]
+                    output = (
+                        f"{head}\n\n... (output truncated at {_MAX_OUTPUT} chars; "
+                        "showing head and tail) ...\n\n"
+                        f"{tail}"
+                    )
+                    truncated = True
                 return ToolResult(
                     success=False,
-                    result_summary=f"Command timed out after {timeout}s",
+                    result_summary=(
+                        f"Command timed out after {timeout}s"
+                        + (" (partial output captured)" if output else "")
+                    ),
+                    result_data={
+                        "command": command,
+                        "exit_code": proc.returncode,
+                        "stdout": stdout_text[:_MAX_OUTPUT],
+                        "stderr": stderr_text[:_MAX_OUTPUT],
+                        "output": output if output else "(no output before timeout)",
+                        "truncated": truncated,
+                        "timed_out": True,
+                    },
                     error_message=f"Command timed out after {timeout} seconds: {command[:80]}",
                     duration_ms=duration_ms,
+                    metadata={
+                        "exit_code": proc.returncode,
+                        "truncated": truncated,
+                        "timed_out": True,
+                    },
                 )
 
-            stdout_text = stdout.decode("utf-8", errors="replace")
-            stderr_text = stderr.decode("utf-8", errors="replace")
+            stdout_text = stdout_buffer.decode("utf-8", errors="replace")
+            stderr_text = stderr_buffer.decode("utf-8", errors="replace")
             exit_code = proc.returncode
 
             # Build output
-            output_parts = []
-            if stdout_text:
-                output_parts.append(stdout_text)
-            if stderr_text:
-                output_parts.append(f"STDERR:\n{stderr_text}")
+            output = "\n".join(
+                part
+                for part in (
+                    stdout_text,
+                    f"STDERR:\n{stderr_text}" if stderr_text else "",
+                )
+                if part
+            )
 
-            output = "\n".join(output_parts)
-
-            # Truncate if needed
+            # Truncate combined output for model context, preserving full split
+            # streams only up to the same hard cap.
             truncated = False
             if len(output) > _MAX_OUTPUT:
-                output = output[:_MAX_OUTPUT] + f"\n\n... (output truncated at {_MAX_OUTPUT} chars)"
+                head = output[: _MAX_OUTPUT // 2]
+                tail = output[-(_MAX_OUTPUT // 2):]
+                output = (
+                    f"{head}\n\n... (output truncated at {_MAX_OUTPUT} chars; "
+                    "showing head and tail) ...\n\n"
+                    f"{tail}"
+                )
                 truncated = True
 
             duration_ms = int((time.perf_counter() - start_time) * 1000)
@@ -144,12 +212,21 @@ class BashTool:
             return ToolResult(
                 success=success,
                 result_summary=summary,
-                result_data=output if output else "(no output)",
+                result_data={
+                    "command": command,
+                    "exit_code": exit_code,
+                    "stdout": stdout_text[:_MAX_OUTPUT],
+                    "stderr": stderr_text[:_MAX_OUTPUT],
+                    "output": output if output else "(no output)",
+                    "truncated": truncated,
+                    "timed_out": False,
+                },
                 error_message=stderr_text[:500] if not success and stderr_text else None,
                 duration_ms=duration_ms,
                 metadata={
                     "exit_code": exit_code,
                     "truncated": truncated,
+                    "timed_out": False,
                 },
             )
 

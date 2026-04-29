@@ -39,6 +39,14 @@ class InMemoryRateLimiter:
         # Dict[ip_address, Dict[endpoint_key, RateLimitWindow]]
         self._windows: Dict[str, Dict[str, RateLimitWindow]] = defaultdict(dict)
 
+    def reset(self) -> None:
+        """Clear all tracked rate-limit windows.
+
+        Used by tests and safe operational resets. Production rate limits are
+        in-memory today, so clearing the process-local map is sufficient.
+        """
+        self._windows.clear()
+
     def check_rate_limit(
         self,
         ip: str,

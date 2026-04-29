@@ -35,8 +35,12 @@ class ModelPreset:
     default_temperature: float = 0.7
     supports_tools: bool = True
     supports_reasoning: bool = False
+    reasoning_request_param: Optional[str] = None
     reasoning_effort: Optional[str] = None
     provider_hint: Optional[str] = None  # Force specific provider
+    input_cost_per_million: Optional[float] = None
+    cached_input_cost_per_million: Optional[float] = None
+    output_cost_per_million: Optional[float] = None
 
 
 @dataclass
@@ -54,6 +58,10 @@ class ResolvedModel:
     temperature: float
     reasoning_effort: Optional[str]
     supports_tools: bool
+    reasoning_request_param: Optional[str] = None
+    input_cost_per_million: Optional[float] = None
+    cached_input_cost_per_million: Optional[float] = None
+    output_cost_per_million: Optional[float] = None
 
 
 # =============================================================================
@@ -71,6 +79,12 @@ PROVIDERS: dict[str, ProviderDef] = {
         name="deepinfra",
         base_url="https://api.deepinfra.com/v1/openai",
         api_key_env="DEEPINFRA_API_KEY",
+        endpoint="chat_completions",
+    ),
+    "fireworks": ProviderDef(
+        name="fireworks",
+        base_url="https://api.fireworks.ai/inference/v1",
+        api_key_env="FIREWORKS_API_KEY",
         endpoint="chat_completions",
     ),
     "local": ProviderDef(
@@ -96,6 +110,7 @@ MODEL_PRESETS: list[ModelPreset] = [
         context_window=131072,
         max_output_tokens=16384,
         supports_reasoning=True,
+        reasoning_request_param=None,
         reasoning_effort="medium",
     ),
     ModelPreset(
@@ -106,6 +121,7 @@ MODEL_PRESETS: list[ModelPreset] = [
         context_window=131072,
         max_output_tokens=16384,
         supports_reasoning=True,
+        reasoning_request_param=None,
         reasoning_effort="medium",
     ),
     ModelPreset(
@@ -116,6 +132,7 @@ MODEL_PRESETS: list[ModelPreset] = [
         context_window=131072,
         max_output_tokens=16384,
         supports_reasoning=True,
+        reasoning_request_param="reasoning",
         reasoning_effort="medium",
     ),
     ModelPreset(
@@ -126,6 +143,7 @@ MODEL_PRESETS: list[ModelPreset] = [
         context_window=131072,
         max_output_tokens=16384,
         supports_reasoning=True,
+        reasoning_request_param="reasoning",
         reasoning_effort="medium",
     ),
     ModelPreset(
@@ -232,6 +250,7 @@ MODEL_PRESETS: list[ModelPreset] = [
         context_window=1048576,
         max_output_tokens=65536,
         supports_reasoning=True,
+        reasoning_request_param=None,
         reasoning_effort="medium",
     ),
     ModelPreset(
@@ -253,6 +272,7 @@ MODEL_PRESETS: list[ModelPreset] = [
         context_window=202752,
         max_output_tokens=16384,
         supports_reasoning=True,
+        reasoning_request_param=None,
         reasoning_effort="medium",
         provider_hint="deepinfra",
     ),
@@ -305,6 +325,121 @@ MODEL_PRESETS: list[ModelPreset] = [
         reasoning_effort="high",
         provider_hint="deepinfra",
     ),
+    # --- Fireworks-specific ---
+    ModelPreset(
+        model_id="accounts/fireworks/models/kimi-k2p6",
+        display_name="Kimi K2.6 (Fireworks)",
+        provider="fireworks",
+        aliases=[
+            "kimi-k2.6",
+            "kimi-2.6",
+            "kimi-k2p6",
+            "fireworks-kimi-k2p6",
+            "fw-kimi-k2p6",
+        ],
+        context_window=262144,
+        max_output_tokens=32768,
+        supports_reasoning=True,
+        reasoning_effort="medium",
+        provider_hint="fireworks",
+        input_cost_per_million=0.95,
+        cached_input_cost_per_million=0.16,
+        output_cost_per_million=4.00,
+    ),
+    ModelPreset(
+        model_id="accounts/fireworks/models/kimi-k2p5",
+        display_name="Kimi K2.5 (Fireworks)",
+        provider="fireworks",
+        aliases=[
+            "kimi-k2.5",
+            "kimi-2.5",
+            "kimi-k2p5",
+            "fireworks-kimi-k2p5",
+            "fw-kimi-k2p5",
+        ],
+        context_window=262144,
+        max_output_tokens=32768,
+        supports_reasoning=True,
+        reasoning_effort="medium",
+        provider_hint="fireworks",
+        input_cost_per_million=0.60,
+        cached_input_cost_per_million=0.10,
+        output_cost_per_million=3.00,
+    ),
+    ModelPreset(
+        model_id="accounts/fireworks/models/gpt-oss-120b",
+        display_name="GPT-OSS 120B (Fireworks)",
+        provider="fireworks",
+        aliases=["fireworks-gpt-oss-120b", "fw-gpt-oss-120b"],
+        context_window=131072,
+        max_output_tokens=16384,
+        supports_reasoning=True,
+        reasoning_effort="medium",
+        provider_hint="fireworks",
+        input_cost_per_million=0.15,
+        cached_input_cost_per_million=0.01,
+        output_cost_per_million=0.60,
+    ),
+    ModelPreset(
+        model_id="accounts/fireworks/models/gpt-oss-20b",
+        display_name="GPT-OSS 20B (Fireworks)",
+        provider="fireworks",
+        aliases=["fireworks-gpt-oss-20b", "fw-gpt-oss-20b"],
+        context_window=131072,
+        max_output_tokens=16384,
+        supports_reasoning=True,
+        reasoning_effort="medium",
+        provider_hint="fireworks",
+        input_cost_per_million=0.07,
+        cached_input_cost_per_million=0.04,
+        output_cost_per_million=0.30,
+    ),
+    ModelPreset(
+        model_id="accounts/fireworks/models/deepseek-v3p1",
+        display_name="DeepSeek V3.1 (Fireworks)",
+        provider="fireworks",
+        aliases=["fireworks-deepseek-v3p1", "fw-deepseek-v3p1"],
+        context_window=163840,
+        max_output_tokens=16384,
+        supports_reasoning=True,
+        reasoning_effort="medium",
+        provider_hint="fireworks",
+        input_cost_per_million=0.56,
+        cached_input_cost_per_million=0.28,
+        output_cost_per_million=1.68,
+    ),
+    ModelPreset(
+        model_id="accounts/fireworks/models/qwen3-8b",
+        display_name="Qwen3 8B (Fireworks)",
+        provider="fireworks",
+        aliases=["fireworks-qwen3-8b", "fw-qwen3-8b"],
+        context_window=41000,
+        max_output_tokens=8192,
+        supports_reasoning=True,
+        reasoning_effort="medium",
+        provider_hint="fireworks",
+        input_cost_per_million=0.20,
+        cached_input_cost_per_million=0.10,
+        output_cost_per_million=0.20,
+    ),
+    ModelPreset(
+        model_id="accounts/fireworks/models/glm-5",
+        display_name="GLM-5 (Fireworks)",
+        provider="fireworks",
+        aliases=[
+            "fireworks-glm-5",
+            "fw-glm-5",
+            "glm-5-fireworks",
+        ],
+        context_window=202752,
+        max_output_tokens=16384,
+        supports_reasoning=True,
+        reasoning_effort="medium",
+        provider_hint="fireworks",
+        input_cost_per_million=1.00,
+        cached_input_cost_per_million=0.20,
+        output_cost_per_million=3.20,
+    ),
     # --- Local models (common GGUF patterns) ---
     ModelPreset(
         model_id="local-model",
@@ -315,6 +450,8 @@ MODEL_PRESETS: list[ModelPreset] = [
         max_output_tokens=4096,
         default_temperature=0.7,
         supports_tools=True,
+        input_cost_per_million=0.0,
+        output_cost_per_million=0.0,
     ),
 ]
 
@@ -323,6 +460,12 @@ _ALIAS_INDEX: dict[str, ModelPreset] = {}
 _MODEL_ID_INDEX: dict[str, ModelPreset] = {}
 
 for _preset in MODEL_PRESETS:
+    if (
+        _preset.supports_reasoning
+        and _preset.provider != "fireworks"
+        and _preset.reasoning_request_param is None
+    ):
+        _preset.reasoning_request_param = "reasoning"
     _MODEL_ID_INDEX[_preset.model_id.lower()] = _preset
     for _alias in _preset.aliases:
         _ALIAS_INDEX[_alias.lower()] = _preset
@@ -380,6 +523,11 @@ class ModelRegistry:
             # Check API key
             api_key = ModelRegistry._get_api_key(provider_def)
             if not api_key and provider_name != "local":
+                if preset.provider_hint:
+                    raise ValueError(
+                        f"No API key found for {provider_name}. "
+                        f"Set {provider_def.api_key_env} environment variable."
+                    )
                 # Try to fall back to another provider that has a key
                 api_key, provider_name, provider_def = ModelRegistry._find_available_provider(
                     prefer=provider_name
@@ -396,7 +544,11 @@ class ModelRegistry:
                 max_output_tokens=preset.max_output_tokens,
                 temperature=preset.default_temperature,
                 reasoning_effort=preset.reasoning_effort,
+                reasoning_request_param=preset.reasoning_request_param,
                 supports_tools=preset.supports_tools,
+                input_cost_per_million=preset.input_cost_per_million,
+                cached_input_cost_per_million=preset.cached_input_cost_per_million,
+                output_cost_per_million=preset.output_cost_per_million,
             )
 
         # Unknown model — use as raw model ID with conservative defaults
@@ -424,7 +576,10 @@ class ModelRegistry:
             max_output_tokens=8192,
             temperature=0.7,
             reasoning_effort=None,
+            reasoning_request_param=None,
             supports_tools=True,
+            input_cost_per_million=0.0 if provider_name == "local" else None,
+            output_cost_per_million=0.0 if provider_name == "local" else None,
         )
 
     @staticmethod
@@ -450,6 +605,10 @@ class ModelRegistry:
                     "max_output_tokens": p.max_output_tokens,
                     "supports_tools": p.supports_tools,
                     "supports_reasoning": p.supports_reasoning,
+                    "reasoning_request_param": p.reasoning_request_param,
+                    "input_cost_per_million": p.input_cost_per_million,
+                    "cached_input_cost_per_million": p.cached_input_cost_per_million,
+                    "output_cost_per_million": p.output_cost_per_million,
                 }
                 for p in MODEL_PRESETS
                 if p.provider == provider_name
@@ -492,8 +651,8 @@ class ModelRegistry:
             if key:
                 return key, prefer, pdef
 
-        # Try OpenRouter first (larger catalog), then DeepInfra
-        for name in ("openrouter", "deepinfra"):
+        # Try OpenRouter first (larger catalog), then DeepInfra, then Fireworks.
+        for name in ("openrouter", "deepinfra", "fireworks"):
             pdef = PROVIDERS[name]
             key = ModelRegistry._get_api_key(pdef)
             if key:

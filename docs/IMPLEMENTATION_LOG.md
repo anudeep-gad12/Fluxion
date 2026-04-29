@@ -9,6 +9,27 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| feature/browser-coding-agent | Fluxion branding pass — renamed the visible browser/app branding from Reasoner to Fluxion in the UI header, FastAPI app title/logging, README, and core docs without changing internal command names, config paths, localStorage keys, or project rules directory semantics | done | 2026-04-29 |
+| feature/browser-coding-agent | Integrated browser terminal — added a per-conversation persistent PTY terminal for desktop agent mode with backend terminal session metadata + websocket I/O, a collapsible/resizable pane in the main window, xterm-based local shell UI, restart/clear/collapse controls, and route tests covering session creation, websocket command execution, and restart behavior | done | 2026-04-28 |
+| feature/browser-coding-agent | Agent prompt-history refactor — stopped normal agent cross-turn replay from restoring serialized `agent_state`, switched agent prompt assembly to use summary-based scaffold + injected structured working memory while keeping exact file/tool transcript available for the full duration of a single run, preserved full tool outputs in traces/DB, and added tests covering summary-only cross-turn history, working-memory folding, per-run raw-context retention, and allowed same-run file rereads | done | 2026-04-27 |
+| feature/browser-coding-agent | Workspace `@file` mentions — added agent-composer autocomplete backed by a new read-only workspace file-search API so typing `@` in an active workspace suggests matching relative file paths, excludes hidden/ignored directories, and inserts the selected path into the prompt without auto-attaching file contents | done | 2026-04-27 |
+| feature/browser-coding-agent | Fireworks GLM-5 registry preset — added `accounts/fireworks/models/glm-5` with Fireworks model-card pricing/context metadata, explicit Fireworks aliases, and registry tests so it shows up alongside the other Fireworks presets instead of only the existing DeepInfra GLM-5 entry | done | 2026-04-27 |
+| feature/browser-coding-agent | Unified runtime reasoning controls — added one global backend-persisted reasoning settings object for chat + agent runs, exposed provider-aware capability/status APIs and a browser settings panel, wired OpenAI/OpenRouter/DeepInfra/Fireworks-specific request fields including OpenRouter reasoning max tokens and Fireworks thinking budget/history, and snapshot the effective reasoning config into run metadata | done | 2026-04-27 |
+| feature/browser-coding-agent | Bash live-output timeout fix — bash tool now defaults to a longer timeout (300s, max 1800s), preserves partial stdout/stderr on timeout so the agent can see startup logs instead of only a bare timeout, and includes explicit `timed_out` metadata in prompt-history formatting to reduce blind retries on long-running commands like `npm run dev` | done | 2026-04-27 |
+| feature/browser-coding-agent | Relaxed permission policy wiring fix — traced approvals still firing in relaxed mode to the factory route path dropping `permission_policy`, then passed it through route → factory → engine so the new per-tool relaxed policy actually takes effect at runtime | done | 2026-04-25 |
+| feature/browser-coding-agent | Docs refresh — incrementally updated the source-of-truth docs to document model context profiles, 90%-threshold conversation compaction, bounded prompt-history tool outputs, browser-agent permission behavior, and live SSE/context telemetry without replacing the existing detailed docs | done | 2026-04-27 |
+| feature/browser-coding-agent | Context-window-aware conversation compaction + tool-output budgeting — added a normalized backend context profile across registry/custom/local/config sources, switched agent prompt assembly to 90%-threshold visible compaction with persisted summary messages and no historical reasoning rehydration, standardized per-tool prompt-history caps, surfaced context profile/usage/compaction telemetry through model status + agent status/trace/SSE, and updated the browser UI to show live window/reserve/used/remaining plus visible compaction events | done | 2026-04-27 |
+| feature/browser-coding-agent | Relaxed permission policy hardening — made relaxed mode tool-wise instead of blanket, auto-allowing read-only filesystem/web tools, requiring approval for write/edit mutations, and classifying bash commands so read-only commands auto-run while mutating, destructive, and outside-workspace commands require approval | done | 2026-04-25 |
+| feature/browser-coding-agent | Agent activity timeline polish — made per-step thinking blocks collapsible, kept tool call output always visible, restyled the activity stream into a dot-line-dot timeline, added animated agenting/llming/tooling status words, and extended auto-scroll so live step/tool updates keep following the latest activity | done | 2026-04-25 |
+| feature/browser-coding-agent | Browser agent SSE stuck fix — fixed UI getting stuck when EventSource disconnected mid-run by reconnecting with the latest SSE sequence, de-duping replayed events to avoid duplicate streamed text, and keeping token buffering to reduce render pressure during long agent outputs | done | 2026-04-25 |
+| feature/browser-coding-agent | Fireworks request compatibility fix — traced latest failed run to Fireworks rejecting the OpenRouter-style `reasoning` request field, added provider/model metadata to only send reasoning params to providers that accept them, and suppressed misleading `$0` cost on zero-token failed runs | done | 2026-04-25 |
+| feature/browser-coding-agent | Fireworks auth failure fix — traced conversation `4159afc2-6412-46fc-bb97-e4f8ac79281f` to an unauthenticated Fireworks request, added provider-specific env fallback for Fireworks/DeepInfra keys, made known-model resolution surface missing API key errors instead of falling through to cryptic 401s, and updated dev provider switching to pass `FIREWORKS_API_KEY` through `LLM_API_KEY` | done | 2026-04-25 |
+| feature/browser-coding-agent | Usage/cost visibility + Fireworks default — added visible provider token/cost cards in the browser agent UI, clarified estimated context usage, added Fireworks provider/model presets with Kimi K2.6 as default, wired Fireworks pricing including cached-input rates, requested streaming usage where supported, and fixed custom cloud providers so cost is n/a unless pricing is configured instead of incorrectly showing $0 | done | 2026-04-25 |
+| feature/browser-coding-agent | Single-agent hardening batch 1 — fixed test rate-limit leakage, added durable SSE event replay from DB, normalized token usage/cost plumbing, split bash stdout/stderr output, added edit failure candidate hints, and added custom OpenAI-compatible provider selection in browser model picker | done | 2026-04-25 |
+| feature/browser-coding-agent | Browser coding tool polish — write_file now refuses accidental overwrites unless allow_overwrite=true, coding prompt strongly routes existing-file changes through edit_file, and browser diffs render side-by-side before/after columns | done | 2026-04-24 |
+| feature/browser-coding-agent | Agent activity UI flattening — replaced boxed Step 1/2/3 panel with continuous inline activity stream and animated loader for active thinking/tool phases | done | 2026-04-24 |
+| feature/browser-coding-agent | Browser tool diff UI — write_file now returns unified diffs for new files and overwrites; approval/result cards render red/green diffs for edit/write/create operations | done | 2026-04-24 |
+| feature/browser-coding-agent | Browser-first coding agent foundation — agent mode sends workspace/capability/permission config, browser approval UI handles tool approval events, capability-based backend tool registry enables filesystem/bash without CLI/TUI product coupling, coding prompt rewritten for browser workspace use | done | 2026-04-24 |
 | test | Pause/resume agent runs, mid-run steering messages, per-session message limits, conversation history fix | done | 2026-03-19 |
 | feature/arch-context-prompts | Architecture + fixes: (1) model-aware context from registry, (2) live context accounting per step, (3) richer turn summaries, (4) disable planning LLM call, (5) system prompts rewrite (autonomy, self-correction, recency), (6) provider API key fix — factory uses registry key not LLM_API_KEY, (7) default model fallback via config.model.name, (8) GLM-5 added to registry, (9) model picker shows all registry models always visible, (10) model select disabled in prod/staging, (11) rate limit bypass fix — X-Forwarded-For only trusted behind proxy, (12) only resolve known registry presets — unknown models use config provider | done | 2026-03-15 |
 | feature/ui-tier1-improvements | UI Tier 1 — 5 features: (1) syntax-highlighted code blocks with Prism + language labels, (2) visual message differentiation with avatars/status colors, (3) message actions (copy/retry) on hover, (4) agent progress bar with elapsed timer/token counter/state labels, (5) streaming UX: shimmer skeleton, thinking timer, scroll-to-bottom pill | done | 2026-03-15 |
@@ -362,7 +383,7 @@ Restyled entire chat UI from light bubbly design to black-and-white CLI/terminal
 - `ui/src/index.css` — CSS variables to zinc dark palette, body font to IBM Plex Mono, markdown styles to zinc, scrollbar to 4px dark, KaTeX color inherit
 - `ui/tailwind.config.js` — Added fontFamily.mono with IBM Plex Mono stack
 - 5 UI primitives (`button`, `badge`, `card`, `textarea`, `dialog`) — square corners, remove shadows, dark backgrounds
-- `ui/src/App.tsx` — Remove gradients, dark sidebar, `reasoner>` title, dark Toaster
+- `ui/src/App.tsx` — Remove gradients, dark sidebar, `fluxion>` title, dark Toaster
 - `ui/src/components/ConversationView.tsx` — Chat bubbles to flat `>` prompts, dark input, remove emojis, zinc colors
 - `ui/src/components/ConversationList.tsx` — Dark cards, zinc selection colors
 - `ui/src/components/ThinkingPanel.tsx` — Dark container, `[thinking]` label, zinc colors
@@ -560,7 +581,7 @@ Visual/UX improvements, terminology updates, benchmark trace filtering, and depl
 
 **Label & Branding Updates:**
 - `ui/src/components/ConversationView.tsx` — Mode button label changed from "Research" to "Agent" (both input areas)
-- `ui/src/App.tsx` — Removed "Local AI Chat" subtitle from sidebar header (just shows "Reasoner" now)
+- `ui/src/App.tsx` — Removed "Local AI Chat" subtitle from sidebar header (just shows "Fluxion" now)
 
 **Benchmark Fixes:**
 - `ui/src/components/TracesModal.tsx` — Added filter to exclude Mistral traces from comparison modal (`!trace.model.toLowerCase().includes('mistral')`)
@@ -603,7 +624,7 @@ Ran GPT-5-mini (OpenAI) against the full GAIA benchmark validation set (127 ques
 **Status:** done
 
 **Description:**
-Made the entire Reasoner chat application mobile-friendly with progressive enhancement from 320px phones to 1920px+ desktops. Implemented responsive breakpoints, touch-optimized interfaces, and mobile-specific layouts while preserving all existing functionality.
+Made the entire Fluxion chat application mobile-friendly with progressive enhancement from 320px phones to 1920px+ desktops. Implemented responsive breakpoints, touch-optimized interfaces, and mobile-specific layouts while preserving all existing functionality.
 
 **Key Changes:**
 - **App Layout**: Hamburger menu and drawer navigation for mobile (respects demo mode restrictions)
@@ -659,7 +680,7 @@ Made the entire Reasoner chat application mobile-friendly with progressive enhan
    - Stats hidden on very small screens with `hidden sm:flex`
 
 **Mobile UX Refinements (Post-Initial Implementation):**
-- Removed duplicate "Reasoner" branding from mobile header
+- Removed duplicate "Fluxion" branding from mobile header
 - Added New Chat button to mobile header (right-aligned, disabled during active run)
 - Reduced button heights from h-11 (44px) to h-9 (36px) to maximize typing space
 - Removed text labels from mode toggle buttons on mobile (icon-only for space)

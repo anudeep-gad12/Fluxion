@@ -202,6 +202,7 @@ class OpenAICompatProvider:
                 instructions=instructions,
                 tools=tools,
                 reasoning_effort=reasoning_effort,
+                reasoning=kwargs.get("reasoning"),
                 max_output_tokens=max_tokens,
                 stream=False,
                 previous_response_id=previous_response_id,
@@ -297,6 +298,7 @@ class OpenAICompatProvider:
                 tools=tools,
                 tool_choice=tool_choice,
                 reasoning_effort=reasoning_effort,
+                reasoning=kwargs.get("reasoning"),
                 max_output_tokens=max_tokens,
                 stream=True,
                 previous_response_id=previous_response_id,
@@ -436,9 +438,34 @@ class OpenAICompatProvider:
                         response.raise_for_status()
                 elif response.status_code >= 400:
                     error_body = await response.aread()
+                    error_text = error_body.decode(errors="replace")
+                    if (
+                        response.status_code in (400, 422)
+                        and "stream_options" in payload
+                        and "stream_options" in error_text
+                    ):
+                        logger.warning(
+                            "Provider rejected stream_options; retrying stream without usage hint",
+                            extra={"status": response.status_code, "url": url},
+                        )
+                        retry_payload = dict(payload)
+                        retry_payload.pop("stream_options", None)
+                        return await self._do_streaming(
+                            url=url,
+                            payload=retry_payload,
+                            endpoint_type=endpoint_type,
+                            on_token=on_token,
+                            on_reasoning=on_reasoning,
+                            messages=messages,
+                            model=model,
+                            tools=tools,
+                            max_tokens=max_tokens,
+                            temperature=temperature,
+                            **kwargs,
+                        )
                     logger.error(
                         "API error response",
-                        extra={"status": response.status_code, "body": error_body.decode()[:2000]},
+                        extra={"status": response.status_code, "body": error_text[:2000]},
                     )
                     response.raise_for_status()
 
@@ -841,9 +868,60 @@ class OpenAICompatProvider:
         async with self._client.stream("POST", url, json=payload) as response:
             if response.status_code >= 400:
                 error_body = await response.aread()
+                error_text = error_body.decode(errors="replace")
+                if (
+                    response.status_code in (400, 422)
+                    and "stream_options" in payload
+                    and "stream_options" in error_text
+                ):
+                    logger.warning(
+                        "Provider rejected stream_options; retrying fallback stream "
+                        "without usage hint",
+                        extra={"status": response.status_code, "url": url},
+                    )
+                    retry_payload = dict(payload)
+                    retry_payload.pop("stream_options", None)
+                    async with self._client.stream(
+                        "POST",
+                        url,
+                        json=retry_payload,
+                    ) as retry_response:
+                        retry_response.raise_for_status()
+                        async for line in retry_response.aiter_lines():
+                            if not line or not line.startswith("data: "):
+                                continue
+                            data_str = line[6:]
+                            if data_str == "[DONE]":
+                                break
+                            try:
+                                data = json.loads(data_str)
+                            except json.JSONDecodeError:
+                                continue
+                            choices = data.get("choices", [{}])
+                            if choices:
+                                choice_delta = choices[0].get("delta", {})
+                                delta = parse_streaming_delta(choice_delta, "chat_completions")
+                                finish_reason = choices[0].get("finish_reason") or finish_reason
+                                if delta["content"]:
+                                    full_content.append(delta["content"])
+                                    on_token(delta["content"])
+                                if delta["reasoning"] and on_reasoning:
+                                    full_reasoning.append(delta["reasoning"])
+                                    on_reasoning(delta["reasoning"])
+                            if "usage" in data:
+                                usage = data["usage"]
+                    return LLMResponse(
+                        text="".join(full_content),
+                        tool_calls=None,
+                        reasoning="".join(full_reasoning) if full_reasoning else None,
+                        raw={},
+                        endpoint_used=url,
+                        usage=usage,
+                        finish_reason=finish_reason,
+                    )
                 logger.error(
                     "API error response",
-                    extra={"status": response.status_code, "body": error_body.decode()[:2000]},
+                    extra={"status": response.status_code, "body": error_text[:2000]},
                 )
             response.raise_for_status()
 

@@ -1,6 +1,6 @@
 # Components
 
-Detailed documentation of every component in the Reasoner system.
+Detailed documentation of every component in the Fluxion system.
 
 ## Table of Contents
 
@@ -1196,6 +1196,7 @@ class BaseTool(Protocol):
 |----------|----------|-------------|
 | `openrouter` | `https://openrouter.ai/api/v1` | `OPENROUTER_API_KEY` |
 | `deepinfra` | `https://api.deepinfra.com/v1/openai` | `DEEPINFRA_API_KEY` |
+| `fireworks` | `https://api.fireworks.ai/inference/v1` | `FIREWORKS_API_KEY` |
 | `local` | `http://localhost:8080/v1` | (none) |
 
 **Model Resolution** (`ModelRegistry.resolve()`):
@@ -1236,6 +1237,28 @@ class BaseTool(Protocol):
 - `total_used` — Sum of all component token counts
 - `utilization_pct` — Percentage of max_tokens currently used
 
+### `orchestrator/context/context_profile.py`
+
+**Purpose**: Resolve one normalized active-model context profile across registry models, custom OpenAI-compatible providers, local runtimes, and config fallback.
+
+**Key Dataclass**: `ModelContextProfile`
+- `provider_name`
+- `model_id`
+- `display_name`
+- `context_window`
+- `max_output_tokens`
+- `effective_input_budget`
+- `supports_tools`
+- `supports_reasoning`
+- `pricing`
+- `source`
+
+**Key Function**: `resolve_model_context_profile(...)`
+- Registry source → known preset metadata
+- Custom source → provider override metadata
+- Local source → running llama/MLX provider metadata
+- Config fallback → `chat_config.yaml` values when no richer source exists
+
 ### `orchestrator/context/history_builder.py`
 
 **Purpose**: Budget-aware conversation history construction.
@@ -1268,8 +1291,13 @@ class BaseTool(Protocol):
 - Generates compact context strings (50-150 tokens) at run completion
 - `summarize_agent_run(run, tool_calls, artifacts)` — Full agent summary
 - `summarize_chat_run(user_message, final_answer)` — Lightweight chat summary
-- `key_findings` extracted from top 3 result summaries of high-value tools (`web_search`, `web_extract`, `read_file`, `grep`); falls back to `thinking_summary`
+- `key_findings` extracted from top 3 result summaries of high-value tools (`web_search`, `web_extract`, `read_file`, `grep`); does not rehydrate historical thinking into future prompt context
 - Used by HistoryBuilder when full messages exceed budget
+
+**Current Agent Context Note**:
+- chat history still uses `HistoryBuilder` / `turn_summary`
+- agent cross-turn continuation now primarily uses persisted `runs.agent_state`
+- agent prompt assembly uses bounded tool-result formatting plus threshold-based compaction in `AgentEngine`
 
 ---
 
@@ -1357,6 +1385,16 @@ async with self._seq_lock:
 - `add_citation()`, `get_citations()` - Evidence management
 - `get_agent_trace()` - Full trace assembly
 
+### `orchestrator/storage/repositories/terminal_repo.py`
+
+**Purpose**: Browser-terminal metadata persistence.
+
+**Methods**:
+- `get_by_conversation()` / `get_by_session_id()` — Metadata lookup
+- `upsert()` — Create or replace the current session metadata for a conversation
+- `mark_status()` / `touch()` — Status, size, and last-activity updates
+- `delete()` — Remove persisted metadata
+
 ---
 
 ## Routes Layer
@@ -1382,6 +1420,39 @@ async with self._seq_lock:
 - `get_active_model()` / `get_active_model_name()` — Accessors for engine integration
 
 **Dependencies**: `orchestrator/models/registry.py` for model resolution, `orchestrator/services/local_models.py` for server management, `orchestrator/providers/factory.py` for provider creation and override.
+
+---
+
+### `orchestrator/routes/terminal.py`
+
+**Purpose**: Browser terminal API — persistent PTY session lifecycle + websocket attach for desktop agent mode.
+
+**Endpoints**:
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/terminal/conversations/{conversation_id}/session` | Get terminal metadata + replay buffer |
+| `POST` | `/api/terminal/conversations/{conversation_id}/session` | Create or reattach a live terminal session |
+| `POST` | `/api/terminal/conversations/{conversation_id}/session/restart` | Restart shell rooted at current workspace |
+| `POST` | `/api/terminal/conversations/{conversation_id}/session/close` | Close terminal session |
+| `WS` | `/api/terminal/conversations/{conversation_id}/ws` | Interactive PTY I/O (`input`, `resize`, `output`, `exit`) |
+
+**Dependencies**: `ConversationRepo` for session/owner checks, `TerminalSessionManager` for live PTY state, `_resolve_workspace_path()` for workspace validation.
+
+### `orchestrator/services/browser_terminal.py`
+
+**Purpose**: PTY-backed terminal manager for the browser UI.
+
+**Key Elements**:
+- `TerminalSession` — Live PTY process, bounded replay buffer, websocket subscriber queues
+- `TerminalSessionManager` — Per-conversation live session map + restart/close logic
+- `get_terminal_manager()` — Singleton accessor
+
+**Behavior**:
+- Starts shell in the selected workspace on first open
+- Keeps one persistent live shell per conversation
+- Stores only lightweight metadata in SQLite; PTY handles stay in memory
+- Returns `status="stale"` when metadata exists but the live PTY died (for example after server restart)
 
 ---
 
@@ -1493,6 +1564,7 @@ async with self._seq_lock:
 - Agent engine creates a Future when a tool needs approval, emits `tool_approval_required` SSE event
 - `/approve` resolves the Future with `True`, `/deny` resolves with `False`
 - Approval timeout: 5 minutes (tool is denied if no response)
+- `relaxed` policy is tool-aware, not blanket: read-only filesystem/web tools auto-run, write/edit operations still require approval, and bash commands are classified before auto-approval
 
 **Pause/Resume Flow**:
 - Agent checks `pause_signal` (asyncio.Event) between steps
@@ -1525,6 +1597,8 @@ _EVENT_TYPE_MAP = {
     "tool_start": "tool_start",
     "tool_approval_required": "tool_approval_required",
     "tool_result": "tool_result",
+    "usage_update": "usage_update",
+    "conversation_compacted": "conversation_compacted",
     "answer_token": "answer",
     "agent_complete": "complete",
 }
@@ -1879,7 +1953,7 @@ Built with the [Textual](https://textual.textualize.io/) framework. Always uses 
 
 **Features**:
 - Mode toggle in input form (labels: "Agent" / "Chat")
-- Reasoning effort selector (chat mode)
+- Global reasoning settings button
 - Message history display
 - Stop/cancel button while generating
 - Auto-scroll during streaming (watches text length, scrolls when near bottom)
@@ -1887,6 +1961,8 @@ Built with the [Textual](https://textual.textualize.io/) framework. Always uses 
 - Toast error notifications for failed runs/aborts (via sonner)
 - Preset question chips on empty state
 - Benchmarks navigation chip in header
+- Desktop agent-mode terminal toggle; embeds a collapsible, resizable terminal pane above the composer
+- Terminal pane is conversation-scoped and preserves shell state across collapse/reopen and conversation switches
 
 **State**:
 - Uses `useSSE` for chat streaming (only auto-subscribes to `activeChatRunId`, not agent runs)
@@ -1899,6 +1975,22 @@ Built with the [Textual](https://textual.textualize.io/) framework. Always uses 
 - During active agent runs, textarea shows "Steer the agent..." placeholder and send button displays "steer" in amber
 - Queued steer message chips appear above textarea and are cleared after injection
 - Usage counter shows "X left" when message limits are enabled; input disabled at limit with 429 toast handling
+
+### `ui/src/components/IntegratedTerminal.tsx`
+
+**Purpose**: Desktop browser terminal pane for agent mode.
+
+**Features**:
+- xterm-based terminal surface
+- Collapsible and vertically resizable bottom pane
+- Per-conversation session attach/reconnect
+- Restart, clear, and collapse controls
+- Workspace-change warning when the conversation workspace path no longer matches the running shell session
+
+**Integration**:
+- Calls `/api/terminal/...` endpoints to create/restart metadata-backed PTY sessions
+- Uses websocket attach endpoint for live terminal I/O
+- Persists pane open state per conversation and pane height in localStorage
 
 ### `ui/src/components/ConversationList.tsx`
 

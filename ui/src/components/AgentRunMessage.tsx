@@ -27,6 +27,12 @@ function formatTokens(tokens: number): string {
   return tokens.toLocaleString();
 }
 
+function formatCost(cost: number): string {
+  if (cost === 0) return '$0';
+  if (cost < 0.01) return `$${cost.toFixed(4)}`;
+  return `$${cost.toFixed(2)}`;
+}
+
 interface AgentRunMessageProps {
   run: Run;
   onShowTrace: () => void;
@@ -84,7 +90,7 @@ export function AgentRunMessage({ run, onShowTrace, onRetry, canRetry }: AgentRu
             <p className="text-[11px] text-zinc-600">
               {formatRelativeTime(run.created_at)}
             </p>
-            <span className="text-[11px] text-cyan-700 font-mono">research</span>
+            <span className="text-[11px] text-cyan-700 font-mono">agent</span>
           </div>
         </div>
       </div>
@@ -117,7 +123,7 @@ export function AgentRunMessage({ run, onShowTrace, onRetry, canRetry }: AgentRu
               null
             ) : run.status === 'failed' ? (
               <div className="text-sm text-zinc-400">
-                [error] {run.error_detail || 'Research failed. Please try again.'}
+                [error] {run.error_detail || 'Agent failed. Please try again.'}
               </div>
             ) : null}
           </div>
@@ -163,7 +169,7 @@ export function AgentRunMessage({ run, onShowTrace, onRetry, canRetry }: AgentRu
                     : 'text-cyan-700'
               )}
             >
-              [{run.status === 'running' ? 'researching...' : run.status === 'succeeded' ? 'done' : run.status}]
+              [{run.status === 'running' ? 'agenting...' : run.status === 'succeeded' ? 'done' : run.status}]
             </span>
             {!isActive && agentState?.timing_ms && (
               <span className="text-zinc-600">
@@ -175,9 +181,22 @@ export function AgentRunMessage({ run, onShowTrace, onRetry, canRetry }: AgentRu
                 {formatTokens(agentState.total_tokens)} tok
               </span>
             )}
+            {!isActive && agentState?.usage && (
+              <span className="text-zinc-600">
+                in {formatTokens(agentState.usage.input_tokens)} / out {formatTokens(agentState.usage.output_tokens)}
+              </span>
+            )}
+            {!isActive && agentState?.cost && agentState?.usage?.total_tokens ? (
+              <span className="text-zinc-600">
+                est {formatCost(agentState.cost.total_cost)}
+              </span>
+            ) : !isActive && agentState?.usage ? (
+              <span className="text-zinc-600">cost n/a</span>
+            ) : null}
             {!isActive && agentState?.context_usage && (
               <span className="text-zinc-600">
-                ctx {Math.round(agentState.context_usage.utilization_pct)}%
+                ctx {Math.round(agentState.context_usage.utilization_pct_effective)}%
+                {typeof agentState.compaction_count === 'number' ? ` · compact ${agentState.compaction_count}` : ''}
               </span>
             )}
             {/* Copy / Retry actions - visible on hover */}

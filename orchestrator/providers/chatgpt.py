@@ -218,6 +218,8 @@ class ChatGPTProvider:
         instructions: Optional[str] = None,
         tools: Optional[List[Dict[str, Any]]] = None,
         reasoning_effort: Optional[str] = None,
+        reasoning: Optional[Dict[str, Any]] = None,
+        max_output_tokens: Optional[int] = None,
         stream: bool = True,
     ) -> Dict[str, Any]:
         """Build the Codex Responses API request payload.
@@ -243,11 +245,15 @@ class ChatGPTProvider:
             "stream": stream,
             "store": False,
             "include": ["reasoning.encrypted_content"],
-            "reasoning": {
-                "effort": reasoning_effort or self._reasoning_effort,
-                "summary": "auto",
-            },
         }
+
+        payload["reasoning"] = reasoning or {
+            "effort": reasoning_effort or self._reasoning_effort,
+            "summary": "auto",
+        }
+
+        if max_output_tokens is not None:
+            payload["max_output_tokens"] = max_output_tokens
 
         if extracted_instructions:
             payload["instructions"] = extracted_instructions
@@ -397,6 +403,8 @@ class ChatGPTProvider:
             instructions=instructions,
             tools=tools,
             reasoning_effort=reasoning_effort,
+            reasoning=kwargs.get("reasoning"),
+            max_output_tokens=max_tokens,
             stream=True,  # Always stream from backend, accumulate locally
         )
 
@@ -515,6 +523,8 @@ class ChatGPTProvider:
                     instructions=instructions,
                     tools=tools,
                     reasoning_effort=reasoning_effort,
+                    reasoning=kwargs.get("reasoning"),
+                    max_output_tokens=max_tokens,
                 )
             except (httpx.RemoteProtocolError, httpx.ReadError, httpx.HTTPStatusError) as e:
                 is_http_err = isinstance(e, httpx.HTTPStatusError)
@@ -549,6 +559,8 @@ class ChatGPTProvider:
         instructions: Optional[str],
         tools: Optional[List[Dict[str, Any]]],
         reasoning_effort: Optional[str],
+        reasoning: Optional[Dict[str, Any]],
+        max_output_tokens: Optional[int],
     ) -> LLMResponse:
         """Execute the actual streaming request.
 
@@ -581,6 +593,8 @@ class ChatGPTProvider:
             instructions=instructions,
             tools=tools,
             reasoning_effort=reasoning_effort,
+            reasoning=reasoning,
+            max_output_tokens=max_output_tokens,
             stream=True,
         )
 

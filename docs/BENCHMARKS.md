@@ -1,6 +1,6 @@
 # Benchmarks
 
-Performance evaluation of the Reasoner agent system.
+Performance evaluation of the Fluxion agent system.
 
 ## GAIA Benchmark
 

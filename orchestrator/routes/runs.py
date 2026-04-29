@@ -27,6 +27,7 @@ from orchestrator.schemas import (
     trace_to_run,
 )
 from orchestrator.storage.db import get_db
+from orchestrator.services.reasoning_settings import get_runtime_reasoning_settings
 from orchestrator.storage.repositories.conversation_repo import ConversationRepo
 from orchestrator.storage.repositories.trace_repo import TraceRepo
 
@@ -229,6 +230,7 @@ async def create_conversation_run(
 
     # Capture session_id for background task
     run_session_id = session_id
+    reasoning_settings, _, _ = await get_runtime_reasoning_settings()
 
     async def run_chat():
         config = get_chat_config()
@@ -259,6 +261,7 @@ async def create_conversation_run(
                 event_callback=event_callback,
                 thinking_strategy=strategy,
                 reasoning_effort=request.reasoning_effort,
+                reasoning_settings=reasoning_settings,
                 session_id=run_session_id,
             )
 
@@ -338,6 +341,7 @@ async def create_run(request: CreateRunRequest, http_request: Request):
 
     # Capture session_id for background task
     run_session_id = session_id
+    reasoning_settings, _, _ = await get_runtime_reasoning_settings()
 
     async def run_chat():
         config = get_chat_config()
@@ -363,6 +367,7 @@ async def create_run(request: CreateRunRequest, http_request: Request):
                 message=request.prompt,
                 run_id=run_id,
                 event_callback=event_callback,
+                reasoning_settings=reasoning_settings,
                 session_id=run_session_id,
             )
 
