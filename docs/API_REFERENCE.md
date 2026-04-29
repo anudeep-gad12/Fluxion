@@ -1,6 +1,6 @@
 # API Reference
 
-Complete documentation of all API endpoints in the Reasoner system.
+Complete documentation of all API endpoints in the Fluxion system.
 
 ## Table of Contents
 
@@ -10,11 +10,12 @@ Complete documentation of all API endpoints in the Reasoner system.
 4. [Agent Runs](#agent-runs)
 5. [ChatGPT Auth](#chatgpt-auth-cli)
 6. [Models](#models)
-7. [Benchmarks](#benchmarks)
-8. [System](#system)
-9. [Rate Limiting](#rate-limiting)
-10. [SSE Streaming](#sse-streaming)
-11. [Error Handling](#error-handling)
+7. [Browser Terminal](#browser-terminal)
+8. [Benchmarks](#benchmarks)
+9. [System](#system)
+10. [Rate Limiting](#rate-limiting)
+11. [SSE Streaming](#sse-streaming)
+12. [Error Handling](#error-handling)
 
 ---
 
@@ -720,6 +721,36 @@ GET /api/agent/runs/{run_id}
   "current_step": 2,
   "max_steps": 10,
   "final_answer": null,
+  "context_usage": {
+    "context_window": 262144,
+    "reserved_output_tokens": 32768,
+    "effective_input_budget": 229376,
+    "prompt_tokens_current_call": 21107,
+    "remaining_tokens": 208269,
+    "utilization_pct_effective": 9.2,
+    "compaction_threshold_pct": 90,
+    "next_compaction_at_tokens": 206438,
+    "compaction_count": 0,
+    "last_compacted_at_step": null
+  },
+  "context_profile": {
+    "provider_name": "fireworks",
+    "model_id": "accounts/fireworks/models/kimi-k2p6",
+    "display_name": "Kimi K2.6",
+    "context_window": 262144,
+    "max_output_tokens": 32768,
+    "effective_input_budget": 229376,
+    "supports_tools": true,
+    "supports_reasoning": false,
+    "pricing": {
+      "input_cost_per_million": null,
+      "cached_input_cost_per_million": null,
+      "output_cost_per_million": null
+    },
+    "source": "registry"
+  },
+  "compaction_count": 0,
+  "last_compacted_at_step": null,
   "created_at": "2024-01-15T10:31:00Z",
   "updated_at": "2024-01-15T10:31:30Z"
 }
@@ -818,6 +849,45 @@ GET /api/agent/runs/{run_id}/trace
       "created_at": "2024-01-15T10:31:05Z"
     }
   ],
+  "system_events": [
+    {
+      "event_type": "conversation_compacted",
+      "message": "Conversation compacted to preserve context window",
+      "step_number": 6,
+      "seq": 42,
+      "created_at": "2024-01-15T10:31:12Z"
+    }
+  ],
+  "context_profile": {
+    "provider_name": "fireworks",
+    "model_id": "accounts/fireworks/models/kimi-k2p6",
+    "display_name": "Kimi K2.6",
+    "context_window": 262144,
+    "max_output_tokens": 32768,
+    "effective_input_budget": 229376,
+    "supports_tools": true,
+    "supports_reasoning": false,
+    "pricing": {
+      "input_cost_per_million": null,
+      "cached_input_cost_per_million": null,
+      "output_cost_per_million": null
+    },
+    "source": "registry"
+  },
+  "context_usage": {
+    "context_window": 262144,
+    "reserved_output_tokens": 32768,
+    "effective_input_budget": 229376,
+    "prompt_tokens_current_call": 21107,
+    "remaining_tokens": 208269,
+    "utilization_pct_effective": 9.2,
+    "compaction_threshold_pct": 90,
+    "next_compaction_at_tokens": 206438,
+    "compaction_count": 0,
+    "last_compacted_at_step": null
+  },
+  "compaction_count": 0,
+  "last_compacted_at_step": null,
   "citations": [
     {
       "id": "cit_001",
@@ -1103,33 +1173,21 @@ GET /api/models
 **Response** (200 OK):
 ```json
 {
-  "models": [
-    {
-      "model_id": "qwen/qwen3-72b",
-      "display_name": "Qwen 3 72B",
-      "provider": "openrouter",
-      "context_window": 131072,
-      "supports_tools": true,
-      "supports_reasoning": false,
-      "available": true
-    },
-    ...
-  ],
   "providers": {
     "openrouter": [...],
     "deepinfra": [...],
+    "fireworks": [...],
     "local": [...]
   },
-  "active_model": "Qwen 3 72B",
+  "active_model": "qwen3-72b",
   "active_model_id": "qwen/qwen3-72b"
 }
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `models` | array | Flat list of all registry models |
 | `providers` | object | Models grouped by provider name |
-| `active_model` | string\|null | Display name of the currently active model, or `null` if none |
+| `active_model` | string\|null | The last selected model string (alias/ID), or `null` if none |
 | `active_model_id` | string\|null | ID of the currently active model, or `null` if none |
 
 The `available` field on each model indicates whether the required API key is set.
@@ -1163,7 +1221,12 @@ POST /api/models/select
   "model_id": "qwen/qwen3-72b",
   "display_name": "Qwen 3 72B",
   "provider": "openrouter",
-  "context_window": 131072
+  "context_window": 131072,
+  "max_output_tokens": 8192,
+  "effective_input_budget": 122880,
+  "supports_tools": true,
+  "supports_reasoning": false,
+  "source": "registry"
 }
 ```
 
@@ -1181,6 +1244,14 @@ POST /api/models/select
 ### Get Model Status
 
 Get current provider and model info.
+
+Current status payload also includes:
+- `context_window`
+- `max_output_tokens`
+- `effective_input_budget`
+- `supports_tools`
+- `supports_reasoning`
+- `source`
 
 **Request**:
 ```
@@ -1277,6 +1348,108 @@ POST /api/models/local/stop
   "provider": "cloud"
 }
 ```
+
+---
+
+## Browser Terminal
+
+Desktop agent mode exposes a per-conversation persistent terminal session backed by a PTY shell. The browser terminal is separate from the agent `bash` tool: it is user-driven, interactive, and long-lived until restarted or closed.
+
+### Create or Reattach Terminal Session
+
+**Request**:
+```
+POST /api/terminal/conversations/{conversation_id}/session
+```
+
+**Body**:
+```json
+{
+  "workspace_path": "/Users/me/project",
+  "cols": 120,
+  "rows": 30
+}
+```
+
+**Response** (200 OK):
+```json
+{
+  "session_id": "6f1d...",
+  "conversation_id": "abc123",
+  "workspace_path": "/Users/me/project",
+  "shell": "/bin/zsh",
+  "status": "running",
+  "cols": 120,
+  "rows": 30,
+  "created_at": "2026-04-28T12:00:00+00:00",
+  "updated_at": "2026-04-28T12:00:00+00:00",
+  "last_activity_at": "2026-04-28T12:00:00+00:00",
+  "reconnect_supported": true,
+  "replay_buffer": ""
+}
+```
+
+If the conversation already has a live terminal session, this endpoint returns the existing session metadata instead of creating a new shell.
+
+### Get Terminal Session Metadata
+
+**Request**:
+```
+GET /api/terminal/conversations/{conversation_id}/session
+```
+
+Returns the persisted session metadata plus:
+- `reconnect_supported=true` when the live PTY still exists in memory
+- `status="stale"` when metadata exists but the server restart/loss killed the live shell
+- `replay_buffer` containing bounded recent output for reconnect/reopen
+
+### Restart Terminal Session
+
+**Request**:
+```
+POST /api/terminal/conversations/{conversation_id}/session/restart
+```
+
+Same request body as create. This kills the old shell, starts a new PTY, and updates the session metadata to the current workspace path and terminal size.
+
+### Close Terminal Session
+
+**Request**:
+```
+POST /api/terminal/conversations/{conversation_id}/session/close
+```
+
+**Response**:
+```json
+{
+  "status": "closed",
+  "conversation_id": "abc123"
+}
+```
+
+### WebSocket Attach Endpoint
+
+**Request**:
+```
+GET /api/terminal/conversations/{conversation_id}/ws?session_id={session_id}
+```
+
+Protocol:
+- browser → server:
+  - `{"type":"input","data":"ls\r"}`
+  - `{"type":"resize","cols":132,"rows":36}`
+  - `{"type":"ping"}`
+- server → browser:
+  - `{"type":"status","status":"running"}`
+  - `{"type":"replay","data":"..."}`
+  - `{"type":"output","data":"..."}`
+  - `{"type":"exit","exit_code":0}`
+  - `{"type":"pong"}`
+
+Notes:
+- The terminal session is scoped per conversation, not per browser tab.
+- Changing the conversation workspace path later does not automatically reset the running shell.
+- WebSocket access follows the same owner/session isolation rules as the rest of the browser app.
 
 ---
 
@@ -1424,20 +1597,21 @@ GET /api/config
 {
   "config": {
     "provider": {
-      "base_url": "https://api.deepinfra.com/v1/openai",
+      "base_url": "https://api.fireworks.ai/inference/v1",
       "endpoint": "chat_completions",
       "fallback_on_404": true,
       "timeout": 120.0
     },
     "model": {
-      "name": "openai/gpt-oss-120b",
+      "name": "accounts/fireworks/models/kimi-k2p6",
       "temperature": 1.0,
-      "max_tokens": 4096,
+      "max_tokens": 32768,
       "reasoning_effort": "medium"
     },
     "context": {
       "max_messages": 50,
-      "max_tokens": 6000,
+      "max_tokens": 100000,
+      "reserve_for_response": 16384,
       "truncation_strategy": "sliding_window"
     },
     "thinking": {
@@ -1450,7 +1624,7 @@ GET /api/config
 }
 ```
 
-Note: The response is wrapped in a `config` key and shows values from `chat_config.yaml`. Default provider is DeepInfra cloud - override with `LLM_BASE_URL` environment variable for local providers.
+Note: The response is wrapped in a `config` key and shows values from `chat_config.yaml`. In this repo the current YAML defaults point at Fireworks with `accounts/fireworks/models/kimi-k2p6`; environment variables can override that at runtime.
 
 ---
 
@@ -1532,6 +1706,8 @@ data: {"error": "Connection failed", "code": "PROVIDER_ERROR"}
 | `tool_approval_required` | Approval needed | `{tool_call_id, tool_name, arguments}` |
 | `tool_result` | Tool finished | `{tool_call_id, success, result_summary, duration_ms}` |
 | `answer` | Answer token | `{content}` |
+| `usage_update` | Live usage/context budget update | `{context_usage, context_profile, compaction_count, last_compacted_at_step}` |
+| `conversation_compacted` | Visible conversation compaction event | `{message, step_number, context_usage, context_profile}` |
 | `complete` | Agent done | `{success, final_answer, citations, total_steps, timing_ms, total_tokens}` |
 | `error` | Error | `{error, step}` |
 | `paused` | Agent paused | `{step}` |
@@ -1555,11 +1731,13 @@ data: {"seq": 4, "type": "tool_approval_required", "tool_call_id": "tc_002", "to
 
 data: {"seq": 5, "type": "tool_result", "tool_call_id": "tc_001", "success": true, "result_summary": "Found 5 results...", "duration_ms": 2500}
 
-data: {"seq": 6, "type": "agent_state", "state": "synthesizing", "current_step": 2}
+data: {"seq": 6, "type": "usage_update", "context_usage": {"context_window": 262144, "reserved_output_tokens": 32768, "effective_input_budget": 229376, "prompt_tokens_current_call": 21107, "remaining_tokens": 208269, "utilization_pct_effective": 9.2, "compaction_threshold_pct": 90, "next_compaction_at_tokens": 206438, "compaction_count": 0}, "context_profile": {"provider_name": "fireworks", "model_id": "accounts/fireworks/models/kimi-k2p6", "display_name": "Kimi K2.6", "context_window": 262144, "max_output_tokens": 32768, "effective_input_budget": 229376, "supports_tools": true, "supports_reasoning": false, "pricing": {"input_cost_per_million": null, "cached_input_cost_per_million": null, "output_cost_per_million": null}, "source": "registry"}}
 
-data: {"seq": 7, "type": "answer", "content": "Based on my research"}
+data: {"seq": 7, "type": "agent_state", "state": "synthesizing", "current_step": 2}
 
-data: {"seq": 8, "type": "complete", "success": true, "final_answer": "Based on my research...", "citations": [...], "total_steps": 2, "timing_ms": 15000, "total_tokens": 4250}
+data: {"seq": 8, "type": "answer", "content": "Based on my research"}
+
+data: {"seq": 9, "type": "complete", "success": true, "final_answer": "Based on my research...", "citations": [...], "total_steps": 2, "timing_ms": 15000, "total_tokens": 4250}
 
 ```
 
@@ -1572,9 +1750,10 @@ GET /api/agent/runs/{run_id}/stream?token=abc123&since_seq=5
 ```
 
 The server:
-1. Replays events from in-memory history with `seq > since_seq`
-2. Continues streaming live events from the queue
-3. Deduplicates events by sequence number to prevent overlap
+1. Replays events from the shared event history with `seq > since_seq`
+2. Continues streaming live events from the append-only in-memory history
+3. Restores persisted run-event history from SQLite if needed before replay
+4. Deduplicates events by sequence number to prevent overlap
 
 The `token` parameter authenticates the stream connection. If provided and invalid, the server returns 403. The token is optional to support reconnection after page reload (before localStorage token is restored).
 

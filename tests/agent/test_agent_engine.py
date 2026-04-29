@@ -8,7 +8,9 @@ from orchestrator.agent.agent_engine import (
     AgentEngine,
     AgentResult,
     ParsedToolCall,
+    WorkingMemory,
 )
+from orchestrator.agent.tools.bash_tool import BashTool
 from orchestrator.agent.tools.base import ToolResult
 from orchestrator.agent.state_machine import RecoveryContext
 from orchestrator.providers.base import LLMResponse
@@ -49,6 +51,14 @@ def create_mock_registry():
     registry.get.return_value = None
     registry.is_idempotent.return_value = True
     return registry
+
+
+def create_mock_trace_repo(prior_runs=None):
+    """Create a mock TraceRepo."""
+    repo = MagicMock()
+    repo.list_runs_for_conversation = AsyncMock(return_value=prior_runs or [])
+    repo.update_run = AsyncMock()
+    return repo
 
 
 def create_mock_state_machine(
@@ -176,9 +186,9 @@ class TestAgentEngineInit:
             registry=create_mock_registry(),
         )
 
-        assert engine._model_name == "openai/gpt-oss-120b"
+        assert engine._model_name == "accounts/fireworks/models/kimi-k2p6"
         assert engine._max_steps == 1000
-        assert engine._max_tokens == 16384
+        assert engine._max_tokens == 32768
         assert engine._temperature == 0.7
 
     def test_init_with_custom_settings(self):
@@ -247,6 +257,76 @@ class TestAgentEngineHelpers:
         assert messages[1]["content"] == "What is 2+2?"
         assert budget.max_tokens == 100000
         assert budget.history_tokens == 0
+
+    async def test_build_initial_messages_uses_turn_summary_not_prior_agent_state(self):
+        """Cross-turn context should come from summaries, not prior serialized transcript."""
+        trace_repo = create_mock_trace_repo(
+            prior_runs=[
+                {
+                    "created_at": "2026-04-27T10:00:00Z",
+                    "status": "succeeded",
+                    "user_message": "Inspect the chart issue",
+                    "final_answer": "Fixed it",
+                    "turn_summary": "Q: Inspect the chart issue | A: Investigated chart ordering and fixed descending sort.",
+                    "agent_state": json.dumps(
+                        [
+                            {"role": "system", "content": "old system"},
+                            {"role": "tool", "name": "read_file", "content": "huge raw file dump"},
+                        ]
+                    ),
+                }
+            ]
+        )
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=create_mock_repo(),
+            registry=create_mock_registry(),
+            trace_repo=trace_repo,
+            system_prompt="You are helpful.",
+        )
+
+        messages, _ = await engine._build_initial_messages(
+            "What should I change next?",
+            conversation_id="conv-1",
+        )
+
+        assert [message["role"] for message in messages] == [
+            "system",
+            "user",
+            "assistant",
+            "user",
+        ]
+        assert messages[2]["content"] == "Investigated chart ordering and fixed descending sort."
+        assert all(message["role"] != "tool" for message in messages)
+
+    def test_build_prompt_messages_includes_working_memory_and_run_transcript(self):
+        """Prompt assembly injects working memory without dropping run transcript."""
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=create_mock_repo(),
+            registry=create_mock_registry(),
+        )
+        scaffold = [
+            {"role": "system", "content": "You are helpful."},
+            {"role": "user", "content": "Fix the chart ordering."},
+            {"role": "assistant", "content": "Inspecting chart code."},
+        ]
+        memory = WorkingMemory(
+            objective="Fix the chart ordering.",
+            files_inspected={"src/chart.ts": "Sorts dates descending."},
+        )
+        run_messages = [
+            {"role": "assistant", "content": None, "tool_calls": [{"id": "tc-1"}]},
+            {"role": "tool", "name": "read_file", "content": "raw file excerpt"},
+        ]
+
+        prompt = engine._build_prompt_messages(scaffold + run_messages, memory)
+
+        assert prompt[0]["role"] == "system"
+        assert prompt[1]["role"] == "system"
+        assert "WORKING MEMORY" in prompt[1]["content"]
+        assert prompt[-1]["role"] == "tool"
+        assert prompt[-1]["content"] == "raw file excerpt"
 
     def test_extract_thinking_with_tags(self):
         """Extract thinking from Harmony format."""
@@ -496,6 +576,86 @@ class TestAgentEngineFormatResult:
         assert parsed["summary"] == "Failed"
 
 
+class TestAgentWorkingMemory:
+    """Tests for structured agent working memory."""
+
+    def test_update_working_memory_from_tools(self):
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=create_mock_repo(),
+            registry=create_mock_registry(),
+        )
+        memory = WorkingMemory(objective="Fix issue")
+
+        tool_results = [
+            (
+                ParsedToolCall(
+                    id="tc-read",
+                    name="read_file",
+                    arguments={"file_path": "src/chart.ts"},
+                    raw_arguments='{"file_path":"src/chart.ts"}',
+                ),
+                ToolResult(
+                    success=True,
+                    result_summary="Read 20 lines from src/chart.ts",
+                    result_data="1\tconst data = sortDesc(items)\n2\treturn data\n",
+                ),
+            ),
+            (
+                ParsedToolCall(
+                    id="tc-edit",
+                    name="edit_file",
+                    arguments={"file_path": "src/chart.ts"},
+                    raw_arguments='{"file_path":"src/chart.ts"}',
+                ),
+                ToolResult(
+                    success=True,
+                    result_summary="Edited src/chart.ts",
+                    result_data="--- a/src/chart.ts\n+++ b/src/chart.ts\n-sortDesc(items)\n+sortAsc(items)\n",
+                ),
+            ),
+            (
+                ParsedToolCall(
+                    id="tc-bash",
+                    name="bash",
+                    arguments={"command": "npm run build"},
+                    raw_arguments='{"command":"npm run build"}',
+                ),
+                ToolResult(
+                    success=False,
+                    result_summary="Command failed (exit 2): npm run build",
+                    result_data={
+                        "exit_code": 2,
+                        "stdout": "",
+                        "stderr": "src/chart.ts:44 error TS2322: bad type",
+                        "timed_out": False,
+                    },
+                ),
+            ),
+            (
+                ParsedToolCall(
+                    id="tc-grep",
+                    name="grep",
+                    arguments={"pattern": "sort", "path": "src"},
+                    raw_arguments='{"pattern":"sort","path":"src"}',
+                ),
+                ToolResult(
+                    success=True,
+                    result_summary="Found 3 matches in src",
+                    result_data="src/chart.ts:12: sortDesc(items)",
+                ),
+            ),
+        ]
+
+        engine._update_working_memory_from_tools(memory, tool_results)
+
+        assert "src/chart.ts" in memory.files_inspected
+        assert "src/chart.ts" in memory.files_changed
+        assert memory.recent_validation == "Command failed (exit 2): npm run build"
+        assert any("TS2322" in item for item in memory.latest_diagnostics)
+        assert any("grep 'sort'" in item for item in memory.discoveries)
+
+
 # =============================================================================
 # AgentEngine Run Tests
 # =============================================================================
@@ -536,6 +696,128 @@ class TestAgentEngineRun:
         assert "14 million" in result.final_answer
         assert any(e["type"] == "agent_started" for e in events)
         assert any(e["type"] == "agent_complete" for e in events)
+
+    @pytest.mark.asyncio
+    async def test_raw_tool_results_persist_for_full_run(self):
+        """Exact tool results stay available across later steps in the same run."""
+        provider = MagicMock()
+        provider.complete_streaming = AsyncMock(
+            side_effect=[
+                LLMResponse(
+                    text="I'll inspect the file.",
+                    tool_calls=[
+                        {
+                            "id": "tc-read",
+                            "type": "function",
+                            "function": {
+                                "name": "read_file",
+                                "arguments": '{"file_path": "src/chart.ts"}',
+                            },
+                        }
+                    ],
+                ),
+                LLMResponse(
+                    text="Now validate with a build.",
+                    tool_calls=[
+                        {
+                            "id": "tc-bash",
+                            "type": "function",
+                            "function": {
+                                "name": "bash",
+                                "arguments": '{"command": "npm run build"}',
+                            },
+                        }
+                    ],
+                ),
+                LLMResponse(text="Done."),
+            ]
+        )
+        repo = create_mock_repo()
+        registry = create_mock_registry()
+        mock_sm = create_mock_state_machine(
+            can_continue_sequence=[True, True, True, False],
+            step_sequence=[
+                {"step_number": 1, "id": "step-1"},
+                {"step_number": 2, "id": "step-2"},
+                {"step_number": 3, "id": "step-3"},
+            ],
+        )
+
+        with patch(
+            "orchestrator.agent.agent_engine.AgentStateMachine",
+            return_value=mock_sm,
+        ):
+            engine = AgentEngine(
+                provider=provider,
+                repo=repo,
+                registry=registry,
+            )
+            with patch.object(
+                engine,
+                "_execute_tool_calls",
+                AsyncMock(
+                    side_effect=[
+                        [
+                            (
+                                ParsedToolCall(
+                                    id="tc-read",
+                                    name="read_file",
+                                    arguments={"file_path": "src/chart.ts"},
+                                    raw_arguments='{"file_path": "src/chart.ts"}',
+                                ),
+                                ToolResult(
+                                    success=True,
+                                    result_summary="Read 20 lines from src/chart.ts",
+                                    result_data="1\tconst points = data.sort(desc)\n2\texport default points\n",
+                                ),
+                            )
+                        ],
+                        [
+                            (
+                                ParsedToolCall(
+                                    id="tc-bash",
+                                    name="bash",
+                                    arguments={"command": "npm run build"},
+                                    raw_arguments='{"command": "npm run build"}',
+                                ),
+                                ToolResult(
+                                    success=True,
+                                    result_summary="Command succeeded (exit 0): npm run build",
+                                    result_data={
+                                        "exit_code": 0,
+                                        "stdout": "build ok",
+                                        "stderr": "",
+                                        "timed_out": False,
+                                    },
+                                ),
+                            )
+                        ],
+                    ],
+                ),
+            ):
+                result = await engine.run(
+                    run_id="test-run",
+                    query="Fix the chart ordering",
+                )
+
+        assert result.success is True
+        first_call_messages = provider.complete_streaming.call_args_list[0].kwargs["messages"]
+        second_call_messages = provider.complete_streaming.call_args_list[1].kwargs["messages"]
+        third_call_messages = provider.complete_streaming.call_args_list[2].kwargs["messages"]
+
+        assert not any(msg.get("role") == "tool" for msg in first_call_messages)
+        assert any(
+            msg.get("role") == "tool" and msg.get("name") == "read_file"
+            for msg in second_call_messages
+        )
+        assert any(
+            msg.get("role") == "tool" and msg.get("name") == "read_file"
+            for msg in third_call_messages
+        )
+        assert any(
+            msg.get("role") == "tool" and msg.get("name") == "bash"
+            for msg in third_call_messages
+        )
 
     @pytest.mark.asyncio
     async def test_emits_step_started_event(self):
@@ -873,6 +1155,108 @@ class TestAgentEngineToolExecution:
         tool_results = [e for e in events if e["type"] == "tool_result"]
         assert len(tool_results) == 1
         assert tool_results[0]["success"] is False
+
+    @pytest.mark.asyncio
+    async def test_forces_synthesis_after_repeated_filtered_duplicate_tool_calls(self):
+        """Repeated duplicate tool calls should not spin until max steps."""
+        call_count = 0
+
+        async def mock_streaming(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return LLMResponse(
+                    text="Let me inspect git status.",
+                    tool_calls=[
+                        {
+                            "id": "tc-1",
+                            "function": {
+                                "name": "bash",
+                                "arguments": '{"command": "git status"}',
+                            },
+                        }
+                    ],
+                )
+            if call_count in (2, 3):
+                return LLMResponse(
+                    text="",
+                    tool_calls=[
+                        {
+                            "id": f"tc-{call_count}",
+                            "function": {
+                                "name": "bash",
+                                "arguments": '{"command": "git status"}',
+                            },
+                        }
+                    ],
+                )
+            return LLMResponse(
+                text="I already checked git status. The revert is complete.",
+                tool_calls=None,
+            )
+
+        provider = MagicMock()
+        provider.complete_streaming = AsyncMock(side_effect=mock_streaming)
+
+        mock_tool = MagicMock()
+        mock_tool.execute = AsyncMock(
+            return_value=ToolResult(
+                success=True,
+                result_summary="Command succeeded (exit 0): git status",
+                result_data={
+                    "command": "git status",
+                    "exit_code": 0,
+                    "stdout": "clean",
+                    "stderr": "",
+                    "truncated": False,
+                },
+                duration_ms=50,
+            )
+        )
+
+        registry = MagicMock()
+        registry.get_openai_schemas.return_value = [
+            {"type": "function", "function": {"name": "bash"}}
+        ]
+        registry.get.return_value = mock_tool
+        registry.is_idempotent.return_value = True
+
+        mock_sm = create_mock_state_machine(
+            can_continue_sequence=[True, True, True, True, False],
+            step_sequence=[
+                {"step_number": 1, "id": "step-1"},
+                {"step_number": 2, "id": "step-2"},
+                {"step_number": 3, "id": "step-3"},
+            ],
+        )
+        mock_sm.record_tool_call = AsyncMock(return_value={"id": "tc-1"})
+
+        with patch(
+            "orchestrator.agent.agent_engine.AgentStateMachine",
+            return_value=mock_sm,
+        ):
+            engine = AgentEngine(
+                provider=provider,
+                repo=create_mock_repo(),
+                registry=registry,
+            )
+
+            result = await engine.run(
+                run_id="test-run",
+                query="Revert the previous change",
+            )
+
+        assert result.success is True
+        assert result.final_answer == "I already checked git status. The revert is complete."
+        assert result.total_steps == 3
+        assert mock_tool.execute.call_count == 1
+        assert provider.complete_streaming.call_count == 4
+
+        decisions = [
+            call.kwargs.get("decision")
+            for call in mock_sm.complete_step.await_args_list
+        ]
+        assert decisions == ["call_tool", "filtered", "filtered"]
 
 
 class TestAgentEngineCitations:
@@ -1254,6 +1638,18 @@ class TestRedundancyDetection:
 
         assert len(redundant) == 0
 
+    def test_allows_read_file_rereads(self):
+        """Same-run read_file calls are allowed so exact context can be reacquired."""
+        engine = self._make_engine()
+        engine._tool_call_log = [
+            {"tool_name": "read_file", "arguments": {"file_path": "src/chart.ts"}, "success": True, "step_number": 1},
+        ]
+
+        calls = [ParsedToolCall(id="tc-2", name="read_file", arguments={"file_path": "src/chart.ts"}, raw_arguments='{"file_path": "src/chart.ts"}')]
+        redundant = engine._detect_redundant_calls(calls)
+
+        assert len(redundant) == 0
+
     def test_detects_broad_glob_star_py(self):
         """Flags overly broad glob **/*.py."""
         engine = self._make_engine()
@@ -1357,6 +1753,134 @@ class TestParallelToolExecution:
         assert "python_execute" not in AgentEngine.PARALLEL_TOOLS
 
 
+class TestPermissionPolicies:
+    """Tests for tool approval policy handling."""
+
+    @pytest.mark.asyncio
+    async def test_relaxed_bash_read_only_command_auto_approves(self, tmp_path):
+        registry = create_mock_registry()
+        registry.get.side_effect = lambda name: BashTool(str(tmp_path)) if name == "bash" else None
+
+        approval_callback = AsyncMock(return_value=True)
+        state_machine = create_mock_state_machine()
+        state_machine.record_tool_call = AsyncMock(return_value={"id": "tc-1"})
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=create_mock_repo(),
+            registry=registry,
+            approval_callback=approval_callback,
+            permission_policy="relaxed",
+        )
+
+        events = []
+        prep = await engine._prepare_tool_call(
+            ParsedToolCall(
+                id="tc-1",
+                name="bash",
+                arguments={"command": "git status && rg permission_policy orchestrator"},
+                raw_arguments='{"command":"git status && rg permission_policy orchestrator"}',
+            ),
+            state_machine=state_machine,
+            step_number=1,
+            event_callback=lambda event: events.append(event),
+            run_id="run-1",
+        )
+
+        assert prep["tool"] is not None
+        approval_callback.assert_not_called()
+        assert not any(event["type"] == "tool_approval_required" for event in events)
+        state_machine.record_approval.assert_awaited_with(
+            tool_call_id="tc-1",
+            decision="auto",
+            policy="relaxed",
+        )
+
+    @pytest.mark.asyncio
+    async def test_relaxed_bash_mutating_command_requires_approval(self, tmp_path):
+        registry = create_mock_registry()
+        registry.get.side_effect = lambda name: BashTool(str(tmp_path)) if name == "bash" else None
+
+        approval_callback = AsyncMock(return_value=True)
+        state_machine = create_mock_state_machine()
+        state_machine.record_tool_call = AsyncMock(return_value={"id": "tc-2"})
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=create_mock_repo(),
+            registry=registry,
+            approval_callback=approval_callback,
+            permission_policy="relaxed",
+        )
+
+        events = []
+        await engine._prepare_tool_call(
+            ParsedToolCall(
+                id="tc-2",
+                name="bash",
+                arguments={"command": "mkdir -p src && touch src/new.py"},
+                raw_arguments='{"command":"mkdir -p src && touch src/new.py"}',
+            ),
+            state_machine=state_machine,
+            step_number=1,
+            event_callback=lambda event: events.append(event),
+            run_id="run-1",
+        )
+
+        approval_callback.assert_awaited_once()
+        approval_events = [event for event in events if event["type"] == "tool_approval_required"]
+        assert len(approval_events) == 1
+        assert approval_events[0]["permission_level"] == "dangerous"
+
+
+class TestAgentFactoryPermissionPolicy:
+    """Tests that the factory forwards permission policy into the engine."""
+
+    @pytest.mark.asyncio
+    async def test_factory_passes_permission_policy(self, tmp_path):
+        from orchestrator.agent.factory import create_agent_engine
+
+        with patch("orchestrator.agent.factory.get_chat_config") as mock_config, patch(
+            "orchestrator.agent.factory.get_profile"
+        ) as mock_profile, patch(
+            "orchestrator.agent.factory.get_context_strategy"
+        ) as mock_strategy, patch(
+            "orchestrator.agent.factory.get_db", AsyncMock(return_value=MagicMock())
+        ), patch(
+            "orchestrator.agent.factory.AgentRepo"
+        ), patch(
+            "orchestrator.agent.factory.TraceRepo"
+        ), patch(
+            "orchestrator.agent.factory.create_provider", return_value=MagicMock()
+        ):
+            mock_config.return_value = MagicMock(
+                model=MagicMock(
+                    name="accounts/fireworks/models/kimi-k2p6",
+                    temperature=0.7,
+                    max_tokens=32768,
+                    reasoning_effort=None,
+                ),
+                context=MagicMock(max_tokens=100000),
+                provider=MagicMock(slow_response_threshold=15.0),
+                provider_chain=None,
+                agent_planning=None,
+                query_classification=MagicMock(enabled=False),
+            )
+            mock_profile.return_value = MagicMock(
+                name="coding",
+                context_strategy="coding",
+                system_prompt_template="{date_context}\n{project_context}",
+                max_plan_steps=5,
+            )
+            mock_strategy.return_value = MagicMock(gather=AsyncMock(return_value="project context"))
+
+            engine = await create_agent_engine(
+                filesystem_enabled=True,
+                working_dir=str(tmp_path),
+                permission_policy="relaxed",
+            )
+
+        assert engine._permission_policy == "relaxed"
+
+
 # =============================================================================
 # Force Prune Filesystem Tools Tests
 # =============================================================================
@@ -1404,3 +1928,69 @@ class TestForcePruneFilesystemTools:
         result = engine._force_prune_largest(messages, {})
         assert "src/main.py" in result[0]["content"]
         assert result[0]["_force_pruned"] is True
+
+    def test_format_read_file_result_applies_budget(self):
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=create_mock_repo(),
+            registry=create_mock_registry(),
+        )
+
+        long_line = "x" * 600
+        content = "\n".join(f"{i}\t{long_line}" for i in range(500))
+        result = ToolResult(success=True, result_summary="read ok", result_data=content)
+
+        formatted = engine._format_tool_result(result, "read_file")
+
+        assert len(formatted.splitlines()) <= 400
+        assert all(len(line) <= 303 for line in formatted.splitlines() if line)
+
+    def test_format_web_search_result_caps_results(self):
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=create_mock_repo(),
+            registry=create_mock_registry(),
+        )
+
+        result = ToolResult(
+            success=True,
+            result_summary="search ok",
+            result_data={
+                "query": "test",
+                "results": [
+                    {"title": f"Title {i}", "url": f"https://example.com/{i}", "snippet": "s" * 500}
+                    for i in range(20)
+                ],
+            },
+        )
+
+        formatted = json.loads(engine._format_tool_result(result, "web_search"))
+
+        assert len(formatted["results"]) == 8
+        assert all(len(item["snippet"]) <= 300 for item in formatted["results"])
+
+    def test_compaction_replaces_old_history_with_summary_and_tail_user(self):
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=create_mock_repo(),
+            registry=create_mock_registry(),
+        )
+        engine._tool_call_log = [
+            {"tool_name": "read_file", "arguments": {"file_path": "orchestrator/app.py"}, "result_summary": "Read app.py", "step_number": 1}
+        ]
+        messages = [
+            {"role": "system", "content": "System prompt"},
+            {"role": "user", "content": "Please inspect the backend"},
+            {"role": "assistant", "content": "Inspecting now"},
+            {"role": "user", "content": "Continue with the current task"},
+        ]
+
+        compacted = engine._compact_conversation(messages, step_number=2)
+
+        assert compacted[0]["role"] == "system"
+        assert compacted[1]["role"] == "system"
+        assert compacted[1]["content"].startswith(engine.COMPACTION_PREFIX)
+        assert "Read app.py" in compacted[1]["content"]
+        assert compacted[-1]["content"] == "Continue with the current task"
+        assert engine._compaction_count == 1
+        assert engine._last_compacted_at_step == 2

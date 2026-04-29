@@ -51,7 +51,7 @@ def create_chatgpt_provider(
 
     default_model = model or (chatgpt_config.default_model if chatgpt_config else "gpt-5.2-codex")
 
-    return ChatGPTProvider(
+    provider = ChatGPTProvider(
         access_token=tokens["access_token"],
         account_id=tokens["account_id"],
         backend_url=chatgpt_config.backend_url
@@ -60,6 +60,9 @@ def create_chatgpt_provider(
         default_model=default_model,
         reasoning_effort=chatgpt_config.reasoning_effort if chatgpt_config else "medium",
     )
+    provider._reasoning_provider_family = "chatgpt"
+    provider._supports_reasoning = True
+    return provider
 
 
 def create_provider_for_model(model_string: str) -> Tuple[LLMProvider, "ResolvedModel"]:
@@ -82,6 +85,14 @@ def create_provider_for_model(model_string: str) -> Tuple[LLMProvider, "Resolved
         api_key=resolved.api_key,
         endpoint=resolved.endpoint,
     )
+    provider._reasoning_provider_family = resolved.provider_name
+    provider._reasoning_request_param = resolved.reasoning_request_param
+    provider._supports_reasoning = resolved.reasoning_effort is not None
+    provider._max_output_tokens = resolved.max_output_tokens
+    provider._context_window = resolved.context_window
+    provider._context_profile_provider_name = resolved.provider_name
+    provider._context_profile_model_id = resolved.model_id
+    provider._context_profile_display_name = resolved.display_name
     return provider, resolved
 
 

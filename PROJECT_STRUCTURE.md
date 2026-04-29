@@ -1,11 +1,11 @@
 # Project Structure
 
-This document provides a complete overview of the folder and file structure for the Reasoner project.
+This document provides a complete overview of the folder and file structure for the Fluxion project.
 
 ## Root Directory
 
 ```
-reasoner/
+fluxion/
 ├── dev.sh
 ├── justfile
 ├── Procfile

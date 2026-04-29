@@ -102,7 +102,7 @@ class GlobTool:
             ToolResult with matching file paths.
         """
         start_time = time.perf_counter()
-        max_results = 1000
+        max_results = 200
 
         try:
             search_dir = self._resolve_path(path)

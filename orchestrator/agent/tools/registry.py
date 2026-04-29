@@ -117,9 +117,7 @@ class ToolRegistry:
             try:
                 results[name] = await tool.health_check()
             except Exception as e:
-                logger.warning(
-                    "Tool health check failed", extra={"tool": name, "error": str(e)}
-                )
+                logger.warning("Tool health check failed", extra={"tool": name, "error": str(e)})
                 results[name] = False
         return results
 
@@ -130,9 +128,7 @@ class ToolRegistry:
                 await tool.close()
                 logger.debug("Tool closed", extra={"tool": name})
             except Exception as e:
-                logger.warning(
-                    "Error closing tool", extra={"tool": name, "error": str(e)}
-                )
+                logger.warning("Error closing tool", extra={"tool": name, "error": str(e)})
 
 
 def create_tool_registry(
@@ -179,10 +175,12 @@ def create_tool_registry(
 
         daytona_api_key = os.environ.get("DAYTONA_API_KEY") or os.environ.get("DAYTONA_API")
         if daytona_api_key:
-            registry.register(DaytonaPythonTool(
-                api_key=daytona_api_key,
-                timeout_seconds=timeout,
-            ))
+            registry.register(
+                DaytonaPythonTool(
+                    api_key=daytona_api_key,
+                    timeout_seconds=timeout,
+                )
+            )
             logger.info("Registered python_execute tool (Daytona sandbox)")
         else:
             # Fallback to local if no API key
@@ -287,10 +285,12 @@ def create_tool_registry_from_profile(
 
                 daytona_api_key = os.environ.get("DAYTONA_API_KEY") or os.environ.get("DAYTONA_API")
                 if daytona_api_key:
-                    registry.register(DaytonaPythonTool(
-                        api_key=daytona_api_key,
-                        timeout_seconds=timeout,
-                    ))
+                    registry.register(
+                        DaytonaPythonTool(
+                            api_key=daytona_api_key,
+                            timeout_seconds=timeout,
+                        )
+                    )
                 else:
                     registry.register(LocalPythonTool(timeout_seconds=timeout))
             else:
@@ -338,6 +338,93 @@ def create_tool_registry_from_profile(
         extra={
             "profile": profile.name,
             "tool_sets": profile.tool_sets,
+            "tools": registry.tool_names,
+        },
+    )
+    return registry
+
+
+def create_browser_agent_tool_registry(
+    config: "ChatConfig",
+    capabilities: dict,
+    working_dir: Optional[str] = None,
+    python_provider: Optional[str] = None,
+) -> ToolRegistry:
+    """Create the browser-first agent tool registry from capability flags.
+
+    This is intentionally not tied to CLI/TUI behavior or product profiles.
+    The browser decides which tool families are available for a run.
+    """
+    from .web_extract import WebExtractTool
+    from .web_search import WebSearchTool
+
+    registry = ToolRegistry()
+    parallel_config = getattr(config, "parallel", None)
+
+    if capabilities.get("web", True) and parallel_config and parallel_config.api_key:
+        registry.register(
+            WebSearchTool(
+                base_url=parallel_config.base_url,
+                api_key=parallel_config.api_key,
+                max_results=parallel_config.search.max_results,
+                timeout_ms=parallel_config.search.timeout_ms,
+            )
+        )
+        registry.register(
+            WebExtractTool(
+                base_url=parallel_config.base_url,
+                api_key=parallel_config.api_key,
+                max_urls=parallel_config.extract.max_urls_per_request,
+                timeout_ms=parallel_config.extract.timeout_ms,
+            )
+        )
+
+    if capabilities.get("python", False):
+        from .python_local import LocalPythonTool
+
+        python_config = getattr(config, "python", None)
+        timeout = getattr(python_config, "timeout_seconds", 30) if python_config else 30
+        resolved_provider = python_provider or os.environ.get("PYTHON_PROVIDER", "local")
+        if resolved_provider == "daytona":
+            from .python_daytona import DaytonaPythonTool
+
+            daytona_api_key = os.environ.get("DAYTONA_API_KEY") or os.environ.get("DAYTONA_API")
+            if daytona_api_key:
+                registry.register(
+                    DaytonaPythonTool(api_key=daytona_api_key, timeout_seconds=timeout)
+                )
+            else:
+                registry.register(LocalPythonTool(timeout_seconds=timeout))
+        else:
+            registry.register(LocalPythonTool(timeout_seconds=timeout))
+
+    if capabilities.get("filesystem", False):
+        wd = working_dir or os.getcwd()
+        from .edit_file import EditFileTool
+        from .glob_tool import GlobTool
+        from .grep_tool import GrepTool
+        from .list_directory import ListDirectoryTool
+        from .read_file import ReadFileTool
+        from .write_file import WriteFileTool
+
+        registry.register(ReadFileTool(working_dir=wd))
+        registry.register(ListDirectoryTool(working_dir=wd))
+        registry.register(GlobTool(working_dir=wd))
+        registry.register(GrepTool(working_dir=wd))
+        registry.register(WriteFileTool(working_dir=wd))
+        registry.register(EditFileTool(working_dir=wd))
+
+    if capabilities.get("bash", False):
+        wd = working_dir or os.getcwd()
+        from .bash_tool import BashTool
+
+        registry.register(BashTool(working_dir=wd))
+
+    logger.info(
+        "Browser agent tool registry created",
+        extra={
+            "capabilities": capabilities,
+            "working_dir": working_dir,
             "tools": registry.tool_names,
         },
     )

@@ -164,6 +164,21 @@ class TestRequestTranslation:
         assert payload["instructions"] == "Be helpful."
         assert len(payload["input"]) == 1  # Only user message, system extracted
 
+    def test_build_request_payload_with_reasoning_object_and_max_tokens(self):
+        """Explicit reasoning object and max_output_tokens should pass through."""
+        payload = self.provider._build_request_payload(
+            messages=[{"role": "user", "content": "Hello"}],
+            model="gpt-5.2-codex",
+            reasoning={
+                "effort": "low",
+                "summary": "auto",
+            },
+            max_output_tokens=512,
+        )
+
+        assert payload["reasoning"] == {"effort": "low", "summary": "auto"}
+        assert payload["max_output_tokens"] == 512
+
     def test_build_request_payload_with_tools(self):
         """Payload with tools should include flattened tool definitions."""
         messages = [{"role": "user", "content": "Search for cats"}]

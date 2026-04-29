@@ -1,6 +1,6 @@
 # Data Models
 
-Complete reference for all data structures in the Reasoner system.
+Complete reference for all data structures in the Fluxion system.
 
 ## Table of Contents
 
@@ -178,7 +178,7 @@ One record per user message/response exchange.
 | `status` | TEXT | `running`, `succeeded`, `failed` |
 | `last_response_id` | TEXT | For stateful mode chaining |
 | `usage_stats` | TEXT | Token usage (JSON) |
-| `agent_state` | TEXT | Agent execution state |
+| `agent_state` | TEXT | Agent prompt scaffold/debug snapshot (no longer the source of normal cross-turn continuation) |
 | `current_step` | INTEGER | Current agent step |
 | `max_steps` | INTEGER | Maximum agent steps |
 | `turn_summary` | TEXT | Compact context string for cross-turn history (Migration 9) |
@@ -186,7 +186,7 @@ One record per user message/response exchange.
 | `session_id` | TEXT | Session UUID for demo mode isolation (Migration 4) |
 | `updated_at` | TEXT | ISO 8601 timestamp |
 
-**Turn Summary**: After each run completes, a `TurnSummarizer` generates a compact context string from the user message and final answer. This `turn_summary` is used by `HistoryBuilder` for cross-turn context instead of the raw `final_answer`, providing ~10x more history within the same token budget. Format: `"User asked: <query>\nAssistant: <key points>"`. When available, the history builder uses turn_summary; otherwise falls back to raw user_message + final_answer pairs.
+**Turn Summary**: After each run completes, a `TurnSummarizer` generates a compact context string from the user message and final answer. This `turn_summary` is used by `HistoryBuilder` for compact history. Agent cross-turn continuation now uses summary-oriented scaffold/history instead of restoring raw serialized prior tool transcript from `runs.agent_state`.
 
 #### trace_events
 
@@ -211,6 +211,24 @@ Granular timeline of all events in a run.
 | `error_message` | TEXT | Error details if failed |
 
 ### Agent Tables
+
+#### terminal_sessions
+
+Persists lightweight browser-terminal metadata per conversation. The live PTY process itself stays in memory.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `session_id` | TEXT PK | Current terminal session identifier |
+| `conversation_id` | TEXT FK UNIQUE | One browser terminal per conversation |
+| `workspace_path` | TEXT | Workspace/cwd used when this shell was started |
+| `shell` | TEXT | Executable launched (`/bin/zsh`, `/bin/sh`, etc.) |
+| `status` | TEXT | `running`, `closed`, or `stale` |
+| `cols` | INTEGER | Last known terminal column count |
+| `rows` | INTEGER | Last known terminal row count |
+| `session_owner` | TEXT | Demo-mode owner/session binding |
+| `created_at` | TEXT | ISO 8601 timestamp |
+| `updated_at` | TEXT | ISO 8601 timestamp |
+| `last_activity_at` | TEXT | Last input/output timestamp |
 
 #### agent_steps
 
@@ -619,6 +637,31 @@ class ModelStatusResponse(BaseModel):
     model_name: Optional[str]  # Active model name
     base_url: Optional[str]    # Active provider URL
     local_running: bool        # Whether llama-server is running
+    context_window: int
+    max_output_tokens: int
+    effective_input_budget: int
+    supports_tools: bool
+    supports_reasoning: bool
+    source: str
+```
+
+#### Normalized Context Profile (`orchestrator/context/context_profile.py`)
+
+```python
+@dataclass
+class ModelContextProfile:
+    provider_name: str
+    model_id: str
+    display_name: str
+    context_window: int
+    max_output_tokens: int
+    supports_tools: bool
+    supports_reasoning: bool
+    pricing: dict[str, Optional[float]]
+    source: str
+
+    @property
+    def effective_input_budget(self) -> int: ...
 ```
 
 #### Tool Models
@@ -644,9 +687,9 @@ class ToolDefinition(BaseModel):
 
 ```python
 class ProviderConfig(BaseModel):
-    # Note: Class defaults shown. YAML config overrides to DeepInfra by default.
-    base_url: str = "http://127.0.0.1:1234"  # YAML default: https://api.deepinfra.com/v1/openai
-    api_key: Optional[str] = None            # YAML default: ${DEEPINFRA_API_KEY:-}
+    # Note: Class defaults shown. This repo's YAML currently defaults to Fireworks.
+    base_url: str = "http://127.0.0.1:1234"  # YAML default: ${LLM_BASE_URL:-https://api.fireworks.ai/inference/v1}
+    api_key: Optional[str] = None            # YAML default: ${LLM_API_KEY:-}
     endpoint: str = "responses"              # YAML default: chat_completions
     fallback_on_404: bool = True
     fail_on_tool_fallback: bool = True
@@ -659,10 +702,10 @@ class ProviderConfig(BaseModel):
     extra_headers: dict = {}
 
 class ChatModelConfig(BaseModel):
-    # Note: YAML config sets name to openai/gpt-oss-120b by default
-    name: str = "openai/gpt-oss-20b"  # YAML default: ${LLM_MODEL:-openai/gpt-oss-120b}
+    # Note: YAML config currently sets name to accounts/fireworks/models/kimi-k2p6 by default
+    name: str = "openai/gpt-oss-20b"  # YAML default: ${LLM_MODEL:-accounts/fireworks/models/kimi-k2p6}
     temperature: float = 0.7          # YAML override: 1.0
-    max_tokens: int = 4096
+    max_tokens: int = 4096            # YAML override: 32768
     seed: Optional[int] = None
     top_p: Optional[float] = None
     frequency_penalty: Optional[float] = None
@@ -671,8 +714,8 @@ class ChatModelConfig(BaseModel):
 
 class ChatContextConfig(BaseModel):
     max_messages: int = 50
-    max_tokens: int = 6000
-    reserve_for_response: int = 2048
+    max_tokens: int = 6000            # YAML override: 100000 fallback context budget
+    reserve_for_response: int = 2048  # YAML override: 16384 fallback reserve
     truncation_strategy: str = "sliding_window"  # sliding_window | oldest_first
 
 class ThinkingConfig(BaseModel):
@@ -798,6 +841,8 @@ class ContextBudget:
     utilization_pct: float                 # total_used / max_tokens * 100
 ```
 
+**Current Agent Usage Accounting**: live agent status/SSE now also exposes resolved model-budget fields such as `context_window`, `reserved_output_tokens`, `effective_input_budget`, `prompt_tokens_current_call`, `remaining_tokens`, `utilization_pct_effective`, `next_compaction_at_tokens`, and compaction counters.
+
 ### Turn Summary (`orchestrator/context/turn_summary.py`)
 
 ```python
@@ -813,6 +858,8 @@ class TurnSummary:
     key_findings: str                      # Most important result
     token_cost: int                        # Tokens this summary consumes
 ```
+
+`TurnSummarizer` no longer falls back to historical thinking text when generating stored cross-turn summaries.
 
 ### Agent Models (`orchestrator/agent/agent_engine.py`)
 
