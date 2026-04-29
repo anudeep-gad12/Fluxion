@@ -9,6 +9,7 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| feature/agent-context-continuity | Agent context continuity hardening — added coding-turn intent routing so praise/thanks/status follow-ups are conversational instead of forced into tool calls, expanded structured working memory with prior outcomes/files/validation/open tasks/raw evidence, changed turn summaries to foreground assistant outcomes before tool metadata, preserved durable state through compaction, and guarded length-only reasoning truncation with no-tools synthesis | done | 2026-04-29 |
 | test | Agent repeated-thinking prompt fix — changed working-memory rendering and agent prompts to frame each LLM step as a continuation of the same run, explicitly discouraging repeated “the user wants…” restarts and repeated plan re-derivation between tool calls | done | 2026-04-29 |
 | test | Fireworks multimodal system-message fix — normalized agent provider calls to merge working-memory/recovery system blocks into one leading system message so strict Fireworks vision models like Qwen3.6 Plus no longer reject image follow-up requests with “System message must be at the beginning” | done | 2026-04-29 |
 | test | Fireworks MiniMax M2.7 preset — added `accounts/fireworks/models/minimax-m2p7` with Fireworks model-card aliases, 196608 context, serverless pricing, function/tool support, vision capability metadata, and registry tests so `minimax-m2.7` is selectable from the Fireworks provider | done | 2026-04-29 |

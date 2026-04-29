@@ -2111,3 +2111,183 @@ class TestForcePruneFilesystemTools:
         assert compacted[-1]["content"] == "Continue with the current task"
         assert engine._compaction_count == 1
         assert engine._last_compacted_at_step == 2
+
+
+class TestCodingIntentRouting:
+    """Tests for coding-profile intent-aware tool routing."""
+
+    def _coding_profile(self):
+        from orchestrator.agent.profile import get_profile
+
+        return get_profile("coding")
+
+    def _registry_with_tools(self):
+        registry = create_mock_registry()
+        registry.get_openai_schemas.return_value = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "write_file",
+                    "description": "Write a file",
+                    "parameters": {"type": "object", "properties": {}},
+                },
+            }
+        ]
+        return registry
+
+    @pytest.mark.asyncio
+    async def test_praise_in_coding_workspace_does_not_force_tools(self):
+        provider = create_mock_provider(response_text="Glad you like it.")
+        mock_sm = create_mock_state_machine()
+
+        with patch(
+            "orchestrator.agent.agent_engine.AgentStateMachine",
+            return_value=mock_sm,
+        ):
+            engine = AgentEngine(
+                provider=provider,
+                repo=create_mock_repo(),
+                registry=self._registry_with_tools(),
+                profile=self._coding_profile(),
+                planning_enabled=False,
+            )
+            result = await engine.run(
+                run_id="run-praise",
+                query="woah love these changes cool stuff",
+            )
+
+        assert result.success is True
+        call_kwargs = provider.complete_streaming.call_args.kwargs
+        assert call_kwargs["tool_choice"] is None
+        assert call_kwargs["tools"] is not None
+        system_content = call_kwargs["messages"][0]["content"]
+        assert "Conversational feedback only" in system_content
+        assert "Do not call tools unless" in system_content
+
+    @pytest.mark.asyncio
+    async def test_actionable_coding_request_forces_first_tool(self):
+        provider = create_mock_provider(response_text="I'll inspect first.")
+        mock_sm = create_mock_state_machine()
+
+        with patch(
+            "orchestrator.agent.agent_engine.AgentStateMachine",
+            return_value=mock_sm,
+        ):
+            engine = AgentEngine(
+                provider=provider,
+                repo=create_mock_repo(),
+                registry=self._registry_with_tools(),
+                profile=self._coding_profile(),
+                planning_enabled=False,
+            )
+            await engine.run(run_id="run-fix", query="fix the broken UI test")
+
+        assert provider.complete_streaming.call_args.kwargs["tool_choice"] == "required"
+
+    @pytest.mark.asyncio
+    async def test_ambiguous_coding_turn_does_not_force_tools(self):
+        provider = create_mock_provider(response_text="Can you clarify what you want changed?")
+        mock_sm = create_mock_state_machine()
+
+        with patch(
+            "orchestrator.agent.agent_engine.AgentStateMachine",
+            return_value=mock_sm,
+        ):
+            engine = AgentEngine(
+                provider=provider,
+                repo=create_mock_repo(),
+                registry=self._registry_with_tools(),
+                profile=self._coding_profile(),
+                planning_enabled=False,
+            )
+            await engine.run(run_id="run-ambiguous", query="that part feels weird")
+
+        assert provider.complete_streaming.call_args.kwargs["tool_choice"] is None
+
+    @pytest.mark.asyncio
+    async def test_length_only_reasoning_forces_no_tools_synthesis(self):
+        provider = MagicMock()
+        provider.complete_streaming = AsyncMock(
+            side_effect=[
+                LLMResponse(text="", reasoning="thinking only", finish_reason="length"),
+                LLMResponse(text="", reasoning="still thinking", finish_reason="length"),
+                LLMResponse(text="Compact final answer.", finish_reason="stop"),
+            ]
+        )
+        mock_sm = create_mock_state_machine(
+            can_continue_sequence=[True, True, False],
+            step_sequence=[
+                {"step_number": 1, "id": "step-1"},
+                {"step_number": 2, "id": "step-2"},
+            ],
+        )
+
+        with patch(
+            "orchestrator.agent.agent_engine.AgentStateMachine",
+            return_value=mock_sm,
+        ):
+            engine = AgentEngine(
+                provider=provider,
+                repo=create_mock_repo(),
+                registry=self._registry_with_tools(),
+                profile=self._coding_profile(),
+                planning_enabled=False,
+            )
+            result = await engine.run(run_id="run-length", query="fix the UI")
+
+        assert result.success is True
+        assert result.final_answer == "Compact answer."
+        assert provider.complete_streaming.call_count == 3
+        assert provider.complete_streaming.call_args_list[2].kwargs["tools"] is None
+
+    @pytest.mark.asyncio
+    async def test_regression_praise_after_changes_stays_conversational(self):
+        prior_runs = [
+            {
+                "created_at": "2026-04-29T13:53:22Z",
+                "user_message": "is there any part of UI you'd improve today?",
+                "final_answer": "I found a few UI improvements worth making.",
+                "turn_summary": (
+                    "Outcome: I identified UI spacing and component polish opportunities. "
+                    "| Tools: read_file, grep | Files: ui/src/App.tsx "
+                    "| User asked: is there any part of UI you'd improve today?"
+                ),
+            },
+            {
+                "created_at": "2026-04-29T13:55:03Z",
+                "user_message": "Right use shadcn component in that case",
+                "final_answer": "Implemented the UI polish and verified the build.",
+                "turn_summary": (
+                    "Outcome: Implemented the UI polish and verified the build. "
+                    "| Tools: read_file, edit_file, bash | Files: ui/src/App.tsx "
+                    "| User asked: Right use shadcn component in that case"
+                ),
+            },
+        ]
+        provider = create_mock_provider(response_text="Glad you like the changes.")
+        mock_sm = create_mock_state_machine()
+
+        with patch(
+            "orchestrator.agent.agent_engine.AgentStateMachine",
+            return_value=mock_sm,
+        ):
+            engine = AgentEngine(
+                provider=provider,
+                repo=create_mock_repo(),
+                registry=self._registry_with_tools(),
+                trace_repo=create_mock_trace_repo(prior_runs=prior_runs),
+                profile=self._coding_profile(),
+                planning_enabled=True,
+            )
+            with patch.object(engine, "_execute_tool_calls", AsyncMock()) as execute_tools:
+                result = await engine.run(
+                    run_id="run-regression",
+                    query="woah love these changes cool stuff",
+                    conversation_id="conv-1",
+                )
+
+        assert result.success is True
+        assert "Glad" in result.final_answer
+        assert execute_tools.await_count == 0
+        assert provider.complete_streaming.call_count == 1
+        assert provider.complete_streaming.call_args.kwargs["tool_choice"] is None

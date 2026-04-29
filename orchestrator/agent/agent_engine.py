@@ -18,6 +18,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
 from orchestrator.agent.context_pruner import ContextPruner
+from orchestrator.agent.intent import (
+    AgentIntent,
+    classify_agent_intent,
+    render_intent_guidance,
+)
 from orchestrator.agent.permissions import classify_tool_call
 from orchestrator.context.budget import ContextBudget
 from orchestrator.context.context_profile import ModelContextProfile
@@ -129,11 +134,17 @@ class WorkingMemory:
     """Compact agent working memory used for prompt reconstruction."""
 
     objective: str
+    latest_user_intent: str = ""
+    tool_guidance: str = ""
+    prior_outcomes: List[str] = field(default_factory=list)
     files_inspected: Dict[str, str] = field(default_factory=dict)
     files_changed: Dict[str, str] = field(default_factory=dict)
+    validation_results: List[str] = field(default_factory=list)
     latest_diagnostics: List[str] = field(default_factory=list)
     current_hypothesis: Optional[str] = None
     recent_validation: Optional[str] = None
+    unresolved_tasks: List[str] = field(default_factory=list)
+    recent_raw_evidence: List[str] = field(default_factory=list)
     discoveries: List[str] = field(default_factory=list)
 
     def render(self) -> str:
@@ -142,6 +153,13 @@ class WorkingMemory:
             "This is continuing state for the same run, not a new user request.",
             f"Objective: {self.objective}",
         ]
+        if self.latest_user_intent:
+            sections.append(f"Latest user intent: {self.latest_user_intent}")
+        if self.prior_outcomes:
+            sections.append(
+                "Prior outcomes:\n"
+                + "\n".join(f"- {item}" for item in self.prior_outcomes[-6:])
+            )
 
         if self.files_inspected:
             inspected = "\n".join(
@@ -156,6 +174,15 @@ class WorkingMemory:
                 for path, summary in list(self.files_changed.items())[-8:]
             )
             sections.append(f"Files changed:\n{changed}")
+
+        validations = list(self.validation_results)
+        if self.recent_validation:
+            validations.append(self.recent_validation)
+        if validations:
+            sections.append(
+                "Validation:\n"
+                + "\n".join(f"- {item}" for item in validations[-6:])
+            )
 
         if self.discoveries:
             sections.append(
@@ -172,8 +199,18 @@ class WorkingMemory:
         if self.current_hypothesis:
             sections.append(f"Current hypothesis: {self.current_hypothesis}")
 
-        if self.recent_validation:
-            sections.append(f"Recent validation: {self.recent_validation}")
+        if self.unresolved_tasks:
+            sections.append(
+                "Open tasks:\n"
+                + "\n".join(f"- {item}" for item in self.unresolved_tasks[-6:])
+            )
+        if self.recent_raw_evidence:
+            sections.append(
+                "Recent raw evidence:\n"
+                + "\n".join(f"- {item}" for item in self.recent_raw_evidence[-6:])
+            )
+        if self.tool_guidance:
+            sections.append(f"Tool guidance: {self.tool_guidance}")
 
         sections.append(
             "Use this working memory as the durable state. Raw tool outputs that follow "
@@ -527,6 +564,42 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 trimmed.append(msg)
         return trimmed
 
+    def _prior_outcomes_from_scaffold(
+        self,
+        scaffold_messages: List[Dict[str, Any]],
+    ) -> List[str]:
+        """Extract compact prior outcomes from cross-turn scaffold messages."""
+        outcomes: List[str] = []
+        for msg in scaffold_messages[1:-1]:
+            if msg.get("role") != "assistant":
+                continue
+            content = str(msg.get("content") or "").strip()
+            if not content:
+                continue
+            first_line = content.splitlines()[0].strip()
+            if first_line.startswith("Outcome:"):
+                first_line = first_line.removeprefix("Outcome:").strip()
+            outcomes.append(first_line[:500])
+        return outcomes[-6:]
+
+    def _first_step_tool_choice(
+        self,
+        intent: AgentIntent,
+        tool_steps_completed: int,
+        step_number: int,
+    ) -> Optional[str]:
+        """Choose first-step tool forcing without forcing conversational turns."""
+        if (
+            self._profile
+            and self._profile.name == "coding"
+            and tool_steps_completed == 0
+            and intent in {AgentIntent.ACTIONABLE_WORKSPACE, AgentIntent.READ_ONLY_WORKSPACE}
+        ):
+            return "required"
+        if step_number == 1 and self._tool_choice:
+            return self._tool_choice
+        return None
+
     def _update_working_memory_from_tools(
         self,
         memory: WorkingMemory,
@@ -535,6 +608,9 @@ To provide your final answer, respond WITHOUT calling any tools."""
         """Fold tool results into compact structured memory."""
         for tool_call, result in tool_results:
             summary = result.result_summary.strip()
+            evidence = f"{tool_call.name}: {summary}"[:500]
+            memory.recent_raw_evidence.append(evidence)
+            memory.recent_raw_evidence = memory.recent_raw_evidence[-8:]
             if tool_call.name == "read_file":
                 file_path = str(tool_call.arguments.get("file_path", "unknown"))
                 excerpt = self._extract_read_file_excerpt(result.result_data)
@@ -549,6 +625,8 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 memory.current_hypothesis = f"Changed {file_path}"
             elif tool_call.name == "bash":
                 memory.recent_validation = summary
+                memory.validation_results.append(summary[:500])
+                memory.validation_results = memory.validation_results[-8:]
                 diagnostics = self._extract_bash_diagnostics(result.result_data, summary)
                 memory.latest_diagnostics = diagnostics
             elif tool_call.name in ("grep", "glob", "list_directory"):
@@ -774,10 +852,26 @@ To provide your final answer, respond WITHOUT calling any tools."""
             recovery_context = await state_machine.initialize()
 
             # Build initial scaffold from system prompt + turn summaries.
-            messages, self._context_budget = await self._build_initial_messages(query, conversation_id)
+            messages, self._context_budget = await self._build_initial_messages(
+                query, conversation_id
+            )
             if validated_images and messages and messages[-1].get("role") == "user":
                 messages[-1]["content"] = build_multimodal_user_content(query, validated_images)
-            working_memory = WorkingMemory(objective=query)
+            latest_intent = (
+                classify_agent_intent(query)
+                if self._profile and self._profile.name == "coding"
+                else AgentIntent.ACTIONABLE_WORKSPACE
+            )
+            working_memory = WorkingMemory(
+                objective=query,
+                latest_user_intent=render_intent_guidance(latest_intent),
+                tool_guidance=render_intent_guidance(latest_intent),
+                prior_outcomes=self._prior_outcomes_from_scaffold(messages),
+            )
+            if latest_intent == AgentIntent.CONVERSATIONAL:
+                working_memory.unresolved_tasks.append(
+                    "No new workspace task from latest user message."
+                )
 
             # Handle recovery if needed
             if recovery_context.needs_recovery:
@@ -793,7 +887,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
 
             # Planning step - create plan before execution loop
             self._current_plan = None
-            if self._planning_enabled:
+            if self._planning_enabled and latest_intent != AgentIntent.CONVERSATIONAL:
                 plan = await self._create_plan(run_id, query, event_callback)
                 if plan:
                     self._current_plan = plan
@@ -828,6 +922,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
             step_metadata: Dict[str, int] = {}
             tool_steps_completed = 0
             consecutive_filtered_steps = 0
+            length_only_continuations = 0
 
             # Main agent loop
             while state_machine.can_continue():
@@ -948,17 +1043,11 @@ To provide your final answer, respond WITHOUT calling any tools."""
 
                 llm_start_time = time.perf_counter()
                 try:
-                    # Coding profile: force tool use until model has explored
-                    if (
-                        self._profile
-                        and self._profile.name == "coding"
-                        and tool_steps_completed == 0
-                    ):
-                        step_tool_choice = "required"
-                    elif step_number == 1 and self._tool_choice:
-                        step_tool_choice = self._tool_choice
-                    else:
-                        step_tool_choice = None
+                    step_tool_choice = self._first_step_tool_choice(
+                        intent=latest_intent,
+                        tool_steps_completed=tool_steps_completed,
+                        step_number=step_number,
+                    )
                     llm_response = await self._call_llm_with_tools(
                         messages=pruned_messages,
                         event_callback=event_callback,
@@ -1062,12 +1151,48 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 # Model was truncated (hit max_tokens) — partial content
                 # is not a final answer, the model may have been mid-tool-call
                 if not tool_calls and llm_response.finish_reason == "length":
+                    length_only = not (llm_response.text or "").strip() and bool(
+                        llm_response.reasoning
+                    )
+                    if length_only and length_only_continuations >= 1:
+                        logger.warning(
+                            "Length-only reasoning repeated; forcing no-tools synthesis",
+                            extra={
+                                "run_id": run_id,
+                                "step_number": step_number,
+                                "reasoning_length": len(llm_response.reasoning or ""),
+                            },
+                        )
+                        await state_machine.complete_step(
+                            decision="length_only_force_synthesis",
+                            thinking_text=thinking_text,
+                        )
+                        final_answer = await self._force_synthesis(
+                            messages=self._build_prompt_messages(
+                                scaffold_messages=messages,
+                                working_memory=working_memory,
+                            ),
+                            event_callback=event_callback,
+                            run_id=run_id,
+                        )
+                        return await self._finalize_successful_run(
+                            final_answer=final_answer,
+                            messages=messages,
+                            state_machine=state_machine,
+                            step_number=step_number,
+                            start_time=start_time,
+                            event_callback=event_callback,
+                            run_id=run_id,
+                            query=query,
+                            forced_synthesis=True,
+                        )
                     logger.warning(
                         "Model truncated (finish_reason=length), continuing",
                         extra={
                             "run_id": run_id,
                             "step_number": step_number,
                             "text_length": len(llm_response.text) if llm_response.text else 0,
+                            "length_only": length_only,
                         },
                     )
                     if llm_response.text:
@@ -1075,9 +1200,15 @@ To provide your final answer, respond WITHOUT calling any tools."""
                             "role": "assistant",
                             "content": self._summarize_assistant_content(llm_response.text),
                         })
+                    if length_only:
+                        length_only_continuations += 1
                     messages.append({
                         "role": "user",
-                        "content": "Continue. Provide your final answer or call a tool.",
+                        "content": (
+                            "Your last response hit the length limit before producing answer text. "
+                            "Continue once from the compact working memory. "
+                            "Prefer a concise final answer; call a tool only if essential."
+                        ),
                     })
                     messages = self._trim_scaffold_messages(messages)
                     await state_machine.complete_step(
@@ -1245,6 +1376,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
 
                     tool_steps_completed += 1
                     consecutive_filtered_steps = 0
+                    length_only_continuations = 0
 
                     await state_machine.complete_step(
                         decision="call_tool",
@@ -1478,8 +1610,22 @@ To provide your final answer, respond WITHOUT calling any tools."""
         messages_to_compact: List[Dict[str, Any]],
         step_number: int,
     ) -> str:
-        user_messages = [str(m.get("content") or "").strip() for m in messages_to_compact if m.get("role") == "user" and str(m.get("content") or "").strip()]
-        assistant_messages = [str(m.get("content") or "").strip() for m in messages_to_compact if m.get("role") == "assistant" and str(m.get("content") or "").strip()]
+        user_messages = [
+            str(m.get("content") or "").strip()
+            for m in messages_to_compact
+            if m.get("role") == "user" and str(m.get("content") or "").strip()
+        ]
+        assistant_messages = [
+            str(m.get("content") or "").strip()
+            for m in messages_to_compact
+            if m.get("role") == "assistant" and str(m.get("content") or "").strip()
+        ]
+        working_memory_blocks = [
+            str(m.get("content") or "").strip()
+            for m in messages_to_compact
+            if m.get("role") == "system"
+            and str(m.get("content") or "").startswith("WORKING MEMORY")
+        ]
         tool_entries = self._tool_log_entries_up_to_step(step_number)
 
         files_inspected: List[str] = []
@@ -1527,6 +1673,11 @@ To provide your final answer, respond WITHOUT calling any tools."""
             ]
             if user_messages:
                 sections.append(f"- User goals and constraints: {' | '.join(_uniq(user_messages, 3))[:1200]}")
+            if working_memory_blocks:
+                durable_state = (
+                    working_memory_blocks[-1].replace("WORKING MEMORY", "", 1).strip()
+                )
+                sections.append(f"- Durable working state preserved:\n{durable_state[:2200]}")
             if files_inspected:
                 sections.append(f"- Files inspected: {', '.join(_uniq(files_inspected, 12))}")
             if files_changed:
@@ -1549,6 +1700,11 @@ To provide your final answer, respond WITHOUT calling any tools."""
         ]
         if user_messages:
             sections.append(f"- User intent: {' | '.join(_uniq(user_messages, 3))[:1200]}")
+        if working_memory_blocks:
+            durable_state = (
+                working_memory_blocks[-1].replace("WORKING MEMORY", "", 1).strip()
+            )
+            sections.append(f"- Durable working state preserved:\n{durable_state[:1600]}")
         if findings:
             sections.append(f"- Important facts: {'; '.join(_uniq(findings, 6))[:1200]}")
         if assistant_messages:
