@@ -60,26 +60,6 @@ import type { Run, Conversation } from '@/types';
 const MAX_INPUT_CHARS = 8000;
 const MENTION_RESULT_LIMIT = 20;
 
-/** Preset questions showcasing multi-step agent capabilities */
-const PRESET_QUESTIONS = [
-  {
-    label: "What's the total mass of all humans versus all ants?",
-    query: "What's the total mass of all humans alive today versus all ants, and which weighs more?",
-  },
-  {
-    label: 'How long to watch every Oscar Best Picture winner back to back?',
-    query: 'How long would it take to watch every movie that won Best Picture at the Oscars back to back?',
-  },
-  {
-    label: '$1,000 in Apple, Google, Amazon 10 years ago — worth today?',
-    query: 'If you invested $1,000 in Apple, Google, and Amazon 10 years ago, how much would each be worth today?',
-  },
-  {
-    label: 'How many soccer fields to cover the entire EU?',
-    query: 'How many soccer fields would it take to cover the surface area of every country in the EU?',
-  },
-];
-
 /** Mode: 'chat' for regular conversation, 'agent' for agent */
 type ChatMode = 'chat' | 'agent';
 
@@ -930,6 +910,66 @@ function MentionPicker({
   );
 }
 
+function EmptyStatePulse({
+  mode,
+  workspacePath,
+  modelStatus,
+}: {
+  mode: ChatMode;
+  workspacePath: string;
+  modelStatus: ModelStatus | null;
+}) {
+  const workspaceName = workspacePath.trim()
+    ? workspacePath.trim().split('/').filter(Boolean).pop() || workspacePath.trim()
+    : 'no workspace';
+  const provider = modelStatus?.provider || 'provider';
+  const model = modelStatus?.model_name || 'model';
+
+  return (
+    <div className="w-full max-w-xl font-mono text-center space-y-6">
+      <div className="relative mx-auto h-20 w-80 max-w-full overflow-hidden opacity-80">
+        <svg
+          viewBox="0 0 320 80"
+          aria-hidden="true"
+          className="absolute inset-0 h-full w-full text-zinc-800"
+        >
+          <path
+            d="M8 48 C 52 8, 92 72, 136 38 S 224 12, 312 42"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1"
+          />
+          <path
+            d="M8 52 C 58 26, 91 54, 140 34 S 232 62, 312 26"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1"
+            opacity="0.45"
+          />
+        </svg>
+        <div className="fluxion-trace absolute left-0 top-0 h-full w-28 bg-gradient-to-r from-transparent via-zinc-500/20 to-transparent" />
+      </div>
+
+      <div className="grid grid-cols-3 gap-px border border-zinc-900 bg-zinc-900 text-left">
+        <div className="bg-background px-3 py-2">
+          <div className="text-[10px] uppercase text-zinc-700">mode</div>
+          <div className="truncate text-xs text-zinc-500">{mode}</div>
+        </div>
+        <div className="bg-background px-3 py-2">
+          <div className="text-[10px] uppercase text-zinc-700">workspace</div>
+          <div className={cn("truncate text-xs", workspacePath.trim() ? "text-zinc-500" : "text-zinc-700")}>
+            {workspaceName}
+          </div>
+        </div>
+        <div className="bg-background px-3 py-2">
+          <div className="text-[10px] uppercase text-zinc-700">{provider}</div>
+          <div className="truncate text-xs text-zinc-500">{model}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function ConversationView() {
   const navigate = useNavigate();
   const selectedConversationId = useStore((s) => s.selectedConversationId);
@@ -1590,13 +1630,6 @@ export function ConversationView() {
     };
   }, [activeMention, clearMentionState, mode, workspacePath]);
 
-  const handlePresetClick = (query: string) => {
-    clearMentionState();
-    setMessage(query);
-    setMode('agent'); // Preset questions are designed for agent mode
-    requestAnimationFrame(resizeTextarea);
-  };
-
   if (!conversation && runs.length === 0) {
     return (
       <div className="h-full flex flex-col">
@@ -1674,35 +1707,11 @@ export function ConversationView() {
         />
 
         <div className="flex-1 flex flex-col items-center justify-center text-zinc-400 gap-4 sm:gap-6 px-3 sm:px-4 md:px-6 overflow-y-auto min-h-0">
-          <div className="font-mono text-center">
-            <p className="text-sm text-zinc-500">
-              <span className="text-zinc-700">───</span> {mode === 'agent' ? 'agent' : 'chat'} <span className="text-zinc-700">───</span>
-            </p>
-            <p className="text-xs text-zinc-600 mt-1">
-              {mode === 'agent'
-                ? 'workspace tools · bash · web search'
-                : 'reasoning-capable conversation'}
-            </p>
-          </div>
-
-          {/* Preset Questions - only show in agent mode */}
-          {mode === 'agent' && (
-            <div className="w-full max-w-xl font-mono">
-              <p className="text-xs text-zinc-700 mb-2">~ examples</p>
-              <div className="space-y-0.5 border-l border-zinc-800 ml-1">
-                {PRESET_QUESTIONS.map((preset) => (
-                  <button
-                    key={preset.label}
-                    onClick={() => handlePresetClick(preset.query)}
-                    className="block w-full px-3 py-1 text-xs text-zinc-600 hover:text-zinc-300 hover:bg-zinc-800/50 transition-colors text-left font-mono"
-                    title={preset.query}
-                  >
-                    {preset.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
+          <EmptyStatePulse
+            mode={mode}
+            workspacePath={workspacePath}
+            modelStatus={modelStatus}
+          />
         </div>
         <div className="p-3 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-4 sm:pb-[max(1rem,env(safe-area-inset-bottom))] flex-shrink-0 space-y-2">
           {/* Prompt area */}

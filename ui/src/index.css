@@ -246,3 +246,13 @@ textarea:focus {
 .agent-caret {
   animation: agent-caret 1s steps(1, end) infinite;
 }
+
+@keyframes fluxion-trace {
+  0% { transform: translateX(-120%); opacity: 0; }
+  20% { opacity: 1; }
+  100% { transform: translateX(340%); opacity: 0; }
+}
+
+.fluxion-trace {
+  animation: fluxion-trace 4.5s ease-in-out infinite;
+}
