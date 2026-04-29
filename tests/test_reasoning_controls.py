@@ -49,6 +49,51 @@ def test_fireworks_thinking_sends_budget_only():
     }
 
 
+def test_fireworks_thinking_defaults_missing_budget():
+    """Fireworks budget mode should save and send a sane default when UI budget is blank."""
+    settings = ReasoningSettings(
+        max_output_tokens=2048,
+        reasoning_effort="high",
+        fireworks_reasoning_mode="thinking",
+        fireworks_thinking_budget_tokens=None,
+    )
+
+    assert settings.fireworks_thinking_budget_tokens == 1024
+
+    kwargs = apply_reasoning_settings(
+        settings,
+        provider_family="fireworks",
+        supports_reasoning=True,
+    )
+
+    assert kwargs == {
+        "max_tokens": 2048,
+        "thinking": {"type": "enabled", "budget_tokens": 1024},
+    }
+
+
+def test_fireworks_thinking_clamps_too_small_budget():
+    """Fireworks rejects budgets below 1024, so settings normalize instead of failing to save."""
+    settings = ReasoningSettings(
+        max_output_tokens=2048,
+        fireworks_reasoning_mode="thinking",
+        fireworks_thinking_budget_tokens=500,
+    )
+
+    assert settings.fireworks_thinking_budget_tokens == 1024
+
+    kwargs = apply_reasoning_settings(
+        settings,
+        provider_family="fireworks",
+        supports_reasoning=True,
+    )
+
+    assert kwargs == {
+        "max_tokens": 2048,
+        "thinking": {"type": "enabled", "budget_tokens": 1024},
+    }
+
+
 def test_openrouter_sends_reasoning_object_with_max_tokens():
     """OpenRouter max reasoning tokens replaces effort because docs make them alternatives."""
     settings = ReasoningSettings(

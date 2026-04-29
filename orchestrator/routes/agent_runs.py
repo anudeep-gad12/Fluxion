@@ -253,6 +253,7 @@ async def _run_agent_task(
     python_provider: Optional[str] = None,
     agent_capabilities: Optional[dict] = None,
     reasoning_settings: Optional[ReasoningSettings] = None,
+    image_attachments: Optional[list[dict]] = None,
 ) -> None:
     """Background task that runs the agent.
 
@@ -407,6 +408,7 @@ async def _run_agent_task(
             pause_signal=_pause_signals.get(run_id),
             resume_signal=_resume_signals.get(run_id),
             steer_queue=_steer_queues.get(run_id),
+            image_attachments=image_attachments,
         )
 
         if abort_signal and not abort_signal.is_set():
@@ -551,6 +553,7 @@ async def create_agent_run(request: CreateAgentRunRequest, http_request: Request
             "capabilities": capabilities,
             "permission_policy": request.permission_policy,
             "reasoning_settings": reasoning_settings.model_dump(),
+            "image_attachments_count": len(request.image_attachments),
         }
 
         await trace_repo.create_run(
@@ -591,6 +594,7 @@ async def create_agent_run(request: CreateAgentRunRequest, http_request: Request
                 python_provider=request.python_provider,
                 agent_capabilities=capabilities,
                 reasoning_settings=reasoning_settings,
+                image_attachments=request.image_attachments,
             )
         )
 

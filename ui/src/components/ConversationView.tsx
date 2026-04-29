@@ -1,7 +1,7 @@
 // Conversation view - simple chat interface
 
 import { useEffect, useMemo, useRef, useState, useCallback, memo } from 'react';
-import type { KeyboardEvent, ChangeEvent } from 'react';
+import type { KeyboardEvent, ChangeEvent, ClipboardEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { AnswerMarkdown, extractAnswer } from '@/components/AnswerMarkdown';
@@ -54,11 +54,13 @@ import { useConversationRuns, useSelectedConversation, useStore, useHasActiveRun
 import { useSSE } from '@/hooks/useSSE';
 import { useAgentSSE } from '@/hooks/useAgentSSE';
 import { cn, formatRelativeTime } from '@/lib/utils';
-import type { Run, Conversation } from '@/types';
+import type { Run, Conversation, ImageAttachment } from '@/types';
 
 /** Maximum characters allowed in the input textarea (~2000 tokens) */
 const MAX_INPUT_CHARS = 8000;
 const MENTION_RESULT_LIMIT = 20;
+const MAX_IMAGE_ATTACHMENTS = 8;
+const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 
 /** Mode: 'chat' for regular conversation, 'agent' for agent */
 type ChatMode = 'chat' | 'agent';
@@ -89,6 +91,7 @@ function ModelPicker({
     max_output_tokens: 8192,
     supports_tools: true,
     supports_reasoning: false,
+    supports_vision: false,
     input_cost_per_million: null,
     cached_input_cost_per_million: null,
     output_cost_per_million: null,
@@ -214,6 +217,7 @@ function ModelPicker({
                             {model.input_cost_per_million != null && model.output_cost_per_million != null
                               ? `$${model.input_cost_per_million}/$${model.output_cost_per_million}M · `
                               : ''}
+                            {model.supports_vision ? 'vision · ' : ''}
                             {Math.round(model.context_window / 1024)}k
                           </span>
                         </div>
@@ -410,6 +414,7 @@ function ReasoningSettingsDialog({
   const showReasoningMaxTokens = providerFamily === 'openrouter' && capabilities?.reasoning_max_tokens.supported;
   const fireworksMode = draft?.fireworks_reasoning_mode ?? 'effort';
   const openRouterMode = draft?.reasoning_max_tokens == null ? 'effort' : 'budget';
+  const minFireworksThinkingBudget = 1024;
 
   const disabledReason = (supported?: boolean, reason?: string | null) =>
     supported ? undefined : (reason || 'Unsupported by active provider/model');
@@ -477,7 +482,16 @@ function ReasoningSettingsDialog({
                     <div className="text-zinc-400">control</div>
                     <select
                       value={draft.fireworks_reasoning_mode}
-                      onChange={(e) => update('fireworks_reasoning_mode', e.target.value as 'effort' | 'thinking')}
+                      onChange={(e) => {
+                        const nextMode = e.target.value as 'effort' | 'thinking';
+                        updateMany({
+                          fireworks_reasoning_mode: nextMode,
+                          fireworks_thinking_budget_tokens:
+                            nextMode === 'thinking'
+                              ? Math.max(draft.fireworks_thinking_budget_tokens ?? minFireworksThinkingBudget, minFireworksThinkingBudget)
+                              : null,
+                        });
+                      }}
                       disabled={!capabilities.fireworks_reasoning_mode.supported}
                       title={disabledReason(capabilities.fireworks_reasoning_mode.supported, capabilities.fireworks_reasoning_mode.reason)}
                       className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-zinc-200 disabled:text-zinc-600"
@@ -511,6 +525,7 @@ function ReasoningSettingsDialog({
                         min={1024}
                         value={draft.fireworks_thinking_budget_tokens ?? ''}
                         onChange={(e) => update('fireworks_thinking_budget_tokens', e.target.value === '' ? null : Number(e.target.value))}
+                        onBlur={(e) => update('fireworks_thinking_budget_tokens', Math.max(Number(e.target.value) || minFireworksThinkingBudget, minFireworksThinkingBudget))}
                         disabled={!capabilities.fireworks_thinking_budget_tokens.supported}
                         title={disabledReason(capabilities.fireworks_thinking_budget_tokens.supported, capabilities.fireworks_thinking_budget_tokens.reason)}
                         className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-zinc-200 disabled:text-zinc-600"
@@ -987,6 +1002,7 @@ export function ConversationView() {
   const hasActiveRun = useHasActiveRun();
   const updateTerminalState = useStore((s) => s.updateTerminalState);
   const [message, setMessage] = useState('');
+  const [imageAttachments, setImageAttachments] = useState<ImageAttachment[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [mode, setMode] = useState<ChatMode>('agent');
   const [workspacePath, setWorkspacePath] = useState(
@@ -1268,10 +1284,18 @@ export function ConversationView() {
   ]);
 
   const handleSubmit = async () => {
-    if (!message.trim() || isSubmitting) return;
+    if ((!message.trim() && imageAttachments.length === 0) || isSubmitting) return;
+    if (imageAttachments.length > 0 && !modelStatus?.supports_vision) {
+      toast.error('Active model does not support images. Select a vision model.');
+      return;
+    }
 
     // If an agent run is active, steer it instead of creating a new run
     if (hasActiveRun && activeRunId) {
+      if (imageAttachments.length > 0) {
+        toast.error('Image paste is only available before starting a run.');
+        return;
+      }
       const steerMsg = message.trim();
       setMessage('');
       clearMentionState();
@@ -1287,10 +1311,16 @@ export function ConversationView() {
 
     if (hasActiveRun) return; // Non-agent active run, block
 
-    const messageToSend = message.trim();
+    const attachmentsToSend = imageAttachments.map(({ name, mime_type, data_url }) => ({
+      name,
+      mime_type,
+      data_url,
+    }));
+    const messageToSend = message.trim() || 'Please analyze the attached image.';
     setIsSubmitting(true);
     setPendingMessage(messageToSend);
     setMessage('');
+    setImageAttachments([]);
     clearMentionState();
     setPendingIsAgent(mode === 'agent');
     let conversationId = selectedConversationId;
@@ -1321,6 +1351,7 @@ export function ConversationView() {
         // Agent mode: use agent API
         const response = await createAgentRun({
           query: messageToSend,
+          image_attachments: attachmentsToSend,
           conversation_id: conversationId!,
           max_steps: 25,
           workspace_path: workspacePath.trim() || undefined,
@@ -1367,6 +1398,7 @@ export function ConversationView() {
         // Chat mode: use regular conversation API
         const response = await createConversationRun(conversationId!, {
           message: messageToSend,
+          image_attachments: attachmentsToSend,
         });
 
         setPendingRunId(response.run_id);
@@ -1407,6 +1439,10 @@ export function ConversationView() {
       }
       // Restore message on error
       setMessage(messageToSend);
+      setImageAttachments(attachmentsToSend.map((attachment, index) => ({
+        ...attachment,
+        id: `${Date.now()}-${index}`,
+      })));
       clearMentionState();
       setPendingMessage('');
       setPendingRunId(null);
@@ -1583,6 +1619,54 @@ export function ConversationView() {
     requestAnimationFrame(resizeTextarea);
   }, [resizeTextarea, syncMentionState]);
 
+  const removeImageAttachment = useCallback((id?: string) => {
+    setImageAttachments((prev) => prev.filter((attachment) => attachment.id !== id));
+  }, []);
+
+  const handlePaste = useCallback((e: ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = Array.from(e.clipboardData.files).filter((file) => (
+      file.type === 'image/png' || file.type === 'image/jpeg' || file.type === 'image/webp'
+    ));
+    if (!files.length) return;
+
+    e.preventDefault();
+    if (hasActiveRun) {
+      toast.error('Image paste is only available before starting a run.');
+      return;
+    }
+    if (!modelStatus?.supports_vision) {
+      toast.error('Active model does not support images. Select a vision model.');
+      return;
+    }
+
+    const remaining = MAX_IMAGE_ATTACHMENTS - imageAttachments.length;
+    if (remaining <= 0) {
+      toast.error(`You can attach up to ${MAX_IMAGE_ATTACHMENTS} images.`);
+      return;
+    }
+
+    files.slice(0, remaining).forEach((file) => {
+      if (file.size > MAX_IMAGE_BYTES) {
+        toast.error(`${file.name || 'image'} is larger than 20MB.`);
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = String(reader.result || '');
+        setImageAttachments((prev) => [
+          ...prev,
+          {
+            id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+            name: file.name || `screenshot-${prev.length + 1}.${file.type.split('/')[1] || 'png'}`,
+            mime_type: file.type,
+            data_url: dataUrl,
+          },
+        ].slice(0, MAX_IMAGE_ATTACHMENTS));
+      };
+      reader.readAsDataURL(file);
+    });
+  }, [hasActiveRun, imageAttachments.length, modelStatus?.supports_vision]);
+
   const handleTextareaSelection = useCallback(() => {
     const textarea = textareaRef.current;
     if (!textarea) return;
@@ -1723,6 +1807,7 @@ export function ConversationView() {
                 placeholder={mode === 'agent' ? 'Ask the coding agent...' : 'Ask a question...'}
                 value={message}
                 onChange={handleMessageChange}
+                onPaste={handlePaste}
                 onKeyDown={handleKeyDown}
                 onSelect={handleTextareaSelection}
                 onClick={handleTextareaSelection}
@@ -1740,6 +1825,21 @@ export function ConversationView() {
               onSelect={handleMentionSelect}
             />
           </div>
+          {imageAttachments.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 px-1 font-mono text-[11px]">
+              {imageAttachments.map((attachment, index) => (
+                <button
+                  key={attachment.id || index}
+                  type="button"
+                  onClick={() => removeImageAttachment(attachment.id)}
+                  className="border border-zinc-800 bg-zinc-900 px-2 py-0.5 text-zinc-500 hover:text-zinc-200"
+                  title="Remove image"
+                >
+                  image {index + 1} ×
+                </button>
+              ))}
+            </div>
+          )}
           {/* Toolbar */}
           <div className="flex items-center justify-between px-1">
             <div className="flex items-center gap-3 font-mono text-xs">
@@ -1972,6 +2072,7 @@ export function ConversationView() {
               placeholder={atLimit ? 'Message limit reached' : hasActiveRun ? 'Steer the agent...' : mode === 'agent' ? 'Ask the coding agent...' : 'Ask a follow-up question...'}
               value={message}
               onChange={handleMessageChange}
+              onPaste={handlePaste}
               onKeyDown={handleKeyDown}
               onSelect={handleTextareaSelection}
               onClick={handleTextareaSelection}
@@ -1989,6 +2090,21 @@ export function ConversationView() {
             onSelect={handleMentionSelect}
           />
         </div>
+        {imageAttachments.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 px-1 font-mono text-[11px]">
+            {imageAttachments.map((attachment, index) => (
+              <button
+                key={attachment.id || index}
+                type="button"
+                onClick={() => removeImageAttachment(attachment.id)}
+                className="border border-zinc-800 bg-zinc-900 px-2 py-0.5 text-zinc-500 hover:text-zinc-200"
+                title="Remove image"
+              >
+                image {index + 1} ×
+              </button>
+            ))}
+          </div>
+        )}
         {/* Toolbar */}
         <div className="flex items-center justify-between px-1">
           <div className="flex items-center gap-3 font-mono text-xs">

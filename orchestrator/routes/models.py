@@ -182,6 +182,7 @@ async def get_model_status():
             effective_input_budget=profile.effective_input_budget,
             supports_tools=profile.supports_tools,
             supports_reasoning=profile.supports_reasoning,
+            supports_vision=profile.supports_vision,
             provider_family=provider_family,
             reasoning_capabilities=capabilities,
             source=profile.source,
@@ -208,6 +209,7 @@ async def get_model_status():
             effective_input_budget=profile.effective_input_budget,
             supports_tools=profile.supports_tools,
             supports_reasoning=profile.supports_reasoning,
+            supports_vision=profile.supports_vision,
             provider_family=provider_family,
             reasoning_capabilities=capabilities,
             source=profile.source,
@@ -231,6 +233,7 @@ async def get_model_status():
             effective_input_budget=profile.effective_input_budget,
             supports_tools=profile.supports_tools,
             supports_reasoning=profile.supports_reasoning,
+            supports_vision=profile.supports_vision,
             provider_family=provider_family,
             reasoning_capabilities=capabilities,
             source=profile.source,
@@ -256,6 +259,7 @@ async def get_model_status():
         effective_input_budget=profile.effective_input_budget,
         supports_tools=profile.supports_tools,
         supports_reasoning=profile.supports_reasoning,
+        supports_vision=profile.supports_vision,
         provider_family=provider_family,
         reasoning_capabilities=capabilities,
         source=profile.source,
@@ -325,6 +329,7 @@ async def select_model(request: SelectModelRequest):
         "effective_input_budget": profile.effective_input_budget,
         "supports_tools": resolved.supports_tools,
         "supports_reasoning": resolved.reasoning_effort is not None,
+        "supports_vision": resolved.supports_vision,
         "source": profile.source,
     }
 
@@ -349,6 +354,7 @@ async def select_custom_provider(request: CustomProviderRequest):
     provider._max_output_tokens = request.max_output_tokens
     provider._supports_tools = request.supports_tools
     provider._supports_reasoning = request.supports_reasoning
+    provider._supports_vision = request.supports_vision
     provider._reasoning_provider_family = request.name or "custom"
     provider._reasoning_request_param = request.reasoning_request_param
     provider._input_cost_per_million = request.input_cost_per_million
@@ -370,6 +376,7 @@ async def select_custom_provider(request: CustomProviderRequest):
         "max_output_tokens": request.max_output_tokens,
         "supports_tools": request.supports_tools,
         "supports_reasoning": request.supports_reasoning,
+        "supports_vision": request.supports_vision,
         "provider_family": request.name or "custom",
     }
 

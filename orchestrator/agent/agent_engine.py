@@ -36,6 +36,7 @@ from orchestrator.providers.usage import add_usage, estimate_cost, normalize_usa
 from orchestrator.reasoning_controls import ReasoningSettings, apply_reasoning_settings
 from orchestrator.schemas import AgentStepState
 from orchestrator.utils.sanitize import sanitize_harmony_tokens
+from orchestrator.vision import build_multimodal_user_content, validate_image_attachments
 
 if TYPE_CHECKING:
     from orchestrator.agent.planner import ResearchPlan
@@ -397,6 +398,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
             max_output_tokens=max_tokens,
             supports_tools=True,
             supports_reasoning=bool(reasoning_effort),
+            supports_vision=bool(getattr(provider, "_supports_vision", False)),
             pricing={
                 "input_cost_per_million": input_cost_per_million,
                 "cached_input_cost_per_million": cached_input_cost_per_million,
@@ -554,6 +556,22 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 memory.discoveries.append(f"{tool_call.name}: {summary}")
                 memory.discoveries = memory.discoveries[-12:]
 
+    def _image_parts_from_tool_result(self, result: "ToolResult") -> List[Dict[str, Any]]:
+        """Convert view_image result data into multimodal message parts."""
+        data = result.result_data if isinstance(result.result_data, dict) else {}
+        parts: List[Dict[str, Any]] = []
+        for image in (data.get("images") or [])[:8]:
+            data_url = image.get("data_url")
+            if not data_url:
+                continue
+            parts.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": data_url},
+                }
+            )
+        return parts
+
     def _extract_read_file_excerpt(self, result_data: Any) -> Optional[str]:
         """Extract a tiny code/text excerpt from read_file output."""
         if not isinstance(result_data, str):
@@ -652,6 +670,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
         pause_signal: Optional[asyncio.Event] = None,
         resume_signal: Optional[asyncio.Event] = None,
         steer_queue: Optional[List[str]] = None,
+        image_attachments: Optional[List[Dict[str, Any]]] = None,
     ) -> AgentResult:
         """Execute agent loop for a query.
 
@@ -681,6 +700,9 @@ To provide your final answer, respond WITHOUT calling any tools."""
             "total_tokens": 0,
         }
         self._tool_call_log = []
+        validated_images = validate_image_attachments(image_attachments)
+        if validated_images and not bool(getattr(self._provider, "_supports_vision", False)):
+            raise ValueError("Active model does not support image inputs. Select a vision model.")
 
         # Emit start event
         self._emit(event_callback, "agent_started", run_id=run_id, query=query)
@@ -706,6 +728,8 @@ To provide your final answer, respond WITHOUT calling any tools."""
 
             # Build initial scaffold from system prompt + turn summaries.
             messages, self._context_budget = await self._build_initial_messages(query, conversation_id)
+            if validated_images and messages and messages[-1].get("role") == "user":
+                messages[-1]["content"] = build_multimodal_user_content(query, validated_images)
             working_memory = WorkingMemory(objective=query)
 
             # Handle recovery if needed
@@ -762,6 +786,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
             while state_machine.can_continue():
                 step = await state_machine.start_step()
                 step_number = step["step_number"]
+                image_parts_for_next_call: List[Dict[str, Any]] = []
 
                 # Drain any pending steering messages before prompt assembly.
                 if steer_queue:
@@ -860,6 +885,12 @@ To provide your final answer, respond WITHOUT calling any tools."""
 
                 # Call LLM with tools
                 tool_schemas = self._registry.get_openai_schemas()
+                if not bool(getattr(self._provider, "_supports_vision", False)):
+                    tool_schemas = [
+                        schema
+                        for schema in tool_schemas
+                        if schema.get("function", {}).get("name") != "view_image"
+                    ]
 
                 # Trace: llm_request
                 llm_request_event_id = await self._add_trace_event(
@@ -1111,6 +1142,10 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         )
                     self._update_working_memory_from_tools(working_memory, tool_results)
                     for tool_call, result in tool_results:
+                        if tool_call.name == "view_image" and result.success:
+                            image_parts_for_next_call.extend(
+                                self._image_parts_from_tool_result(result)
+                            )
                         messages.append(
                             {
                                 "role": "tool",
@@ -1121,6 +1156,25 @@ To provide your final answer, respond WITHOUT calling any tools."""
                             }
                         )
                         step_metadata[tool_call.id] = step_number
+
+                    if image_parts_for_next_call:
+                        messages.append(
+                            {
+                                "role": "user",
+                                "content": [
+                                    {
+                                        "type": "text",
+                                        "text": (
+                                            "Inspect the attached workspace image(s) visually and answer the user's request. "
+                                            "Use the images directly; do not rely on OCR unless you need exact text extraction."
+                                        ),
+                                    },
+                                    *image_parts_for_next_call,
+                                ],
+                                "_vision_from_tool": True,
+                                "_step": step_number,
+                            }
+                        )
 
                     # Update plan progress based on executed tools
                     if self._current_plan:
@@ -2140,7 +2194,7 @@ When you complete each step, proceed to the next."""
 
     # Tools safe to execute in parallel (read-only, no side effects)
     PARALLEL_TOOLS = frozenset({
-        "read_file", "grep", "glob", "list_directory",
+        "read_file", "view_image", "grep", "glob", "list_directory",
         "web_search", "web_extract",
     })
 
@@ -2789,6 +2843,21 @@ When you complete each step, proceed to the next."""
         if tool_name == "list_directory":
             lines = str(data).splitlines()[:200]
             return self._truncate_text_to_tokens("\n".join(lines), 1500)
+
+        if tool_name == "view_image" and isinstance(data, dict):
+            return self._bounded_json(
+                {
+                    "attached_images": [
+                        {
+                            "name": image.get("name"),
+                            "mime_type": image.get("mime_type"),
+                        }
+                        for image in (data.get("images") or [])[:8]
+                    ],
+                    "instruction": "Images are attached to the following user message for visual inspection.",
+                },
+                1200,
+            )
 
         if tool_name == "web_search" and isinstance(data, dict):
             results = []

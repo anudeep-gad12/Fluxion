@@ -132,11 +132,26 @@ class ChatGPTProvider:
                 continue
 
             elif role == "user":
+                user_content: List[Dict[str, Any]] = []
+                if isinstance(content, list):
+                    for part in content:
+                        if not isinstance(part, dict):
+                            user_content.append({"type": "input_text", "text": str(part)})
+                        elif part.get("type") == "text":
+                            user_content.append({"type": "input_text", "text": part.get("text", "")})
+                        elif part.get("type") == "image_url":
+                            image_url = part.get("image_url") or {}
+                            user_content.append({
+                                "type": "input_image",
+                                "image_url": image_url.get("url", ""),
+                            })
+                else:
+                    user_content.append({"type": "input_text", "text": content})
                 input_items.append(
                     {
                         "type": "message",
                         "role": "user",
-                        "content": [{"type": "input_text", "text": content}],
+                        "content": user_content,
                     }
                 )
 

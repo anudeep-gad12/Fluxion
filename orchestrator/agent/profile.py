@@ -178,6 +178,7 @@ Carry the work through implementation, verification when practical, and a concis
 Use tools purposefully and economically.
 
 - Prefer `grep` and `read_file` over broad exploration.
+- Use `view_image` for workspace screenshots/images/charts/forms/diagrams when the user asks you to inspect images or visual content. Do not rely on OCR first unless exact text extraction is specifically needed.
 - Do not glob or recursively list the whole repo unless the repo is small or path discovery genuinely requires it.
 - Use `edit_file` for existing files.
 - Use `write_file` only for new files or deliberate full rewrites.

@@ -261,3 +261,12 @@ class TestResolvedModelShape:
         assert resolved.context_window > 0
         assert resolved.max_output_tokens > 0
         assert isinstance(resolved.supports_tools, bool)
+        assert isinstance(resolved.supports_vision, bool)
+
+    @patch.dict(os.environ, {"DEEPINFRA_API_KEY": "test-key"})
+    def test_vision_model_marks_supports_vision(self):
+        """Vision presets advertise image input support."""
+        resolved = ModelRegistry.resolve("qwen2.5-vl-32b")
+
+        assert resolved.supports_vision is True
+        assert resolved.provider_name == "deepinfra"

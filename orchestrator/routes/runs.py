@@ -263,6 +263,7 @@ async def create_conversation_run(
                 reasoning_effort=request.reasoning_effort,
                 reasoning_settings=reasoning_settings,
                 session_id=run_session_id,
+                image_attachments=request.image_attachments,
             )
 
             # Update conversation summary
@@ -369,6 +370,7 @@ async def create_run(request: CreateRunRequest, http_request: Request):
                 event_callback=event_callback,
                 reasoning_settings=reasoning_settings,
                 session_id=run_session_id,
+                image_attachments=request.image_attachments,
             )
 
             event_queue.put_nowait(

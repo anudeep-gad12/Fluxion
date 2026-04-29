@@ -20,6 +20,7 @@ class CreateRunRequest(BaseModel):
     prompt: str
     mode: str = "chat"
     profile: str = "chat"
+    image_attachments: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class CreateRunResponse(BaseModel):
@@ -106,6 +107,7 @@ class CreateConversationRunRequest(BaseModel):
     message: str
     thinking_mode: str = "default"  # "default" or "thinking" (maps to strategy via config)
     reasoning_effort: Optional[str] = None  # "low", "medium", "high" for native reasoning models
+    image_attachments: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class ConversationDetailResponse(BaseModel):
@@ -357,6 +359,7 @@ class CreateAgentRunRequest(BaseModel):
     python_provider: Optional[str] = (
         None  # "local" or "daytona" — overrides PYTHON_PROVIDER env var
     )
+    image_attachments: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class CreateAgentRunResponse(BaseModel):
@@ -455,6 +458,7 @@ class ModelStatusResponse(BaseModel):
     effective_input_budget: int = 24576
     supports_tools: bool = True
     supports_reasoning: bool = False
+    supports_vision: bool = False
     provider_family: str = "generic"
     reasoning_capabilities: Optional[ReasoningCapabilities] = None
     source: str = "config_fallback"
@@ -477,6 +481,7 @@ class CustomProviderRequest(BaseModel):
     max_output_tokens: int = 8192
     supports_tools: bool = True
     supports_reasoning: bool = False
+    supports_vision: bool = False
     reasoning_request_param: Optional[str] = None
     input_cost_per_million: Optional[float] = None
     cached_input_cost_per_million: Optional[float] = None

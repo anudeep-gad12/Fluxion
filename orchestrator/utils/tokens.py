@@ -4,7 +4,7 @@ Uses o200k_harmony encoding which is the tokenizer for gpt-oss models.
 This provides accurate token counting for gpt-oss-20b and gpt-oss-120b.
 """
 
-from typing import Optional
+from typing import Any, Optional
 
 import tiktoken
 
@@ -30,7 +30,7 @@ class TokenCounter:
     ROLE_OVERHEAD = 4  # Approximate tokens for role/message structure
     CHARS_PER_TOKEN_FALLBACK = 4  # Fallback if tiktoken fails
 
-    def count_tokens(self, text: str) -> int:
+    def count_tokens(self, text: Any) -> int:
         """Count tokens in a string using tiktoken.
 
         Args:
@@ -41,6 +41,21 @@ class TokenCounter:
         """
         if not text:
             return 0
+        if isinstance(text, list):
+            total = 0
+            for item in text:
+                if not isinstance(item, dict):
+                    total += self.count_tokens(str(item))
+                    continue
+                if item.get("type") == "text":
+                    total += self.count_tokens(str(item.get("text") or ""))
+                elif item.get("type") == "image_url":
+                    total += 1024
+                else:
+                    total += self.count_tokens(str(item))
+            return total
+        if not isinstance(text, str):
+            text = str(text)
         try:
             encoder = _get_encoder()
             return len(encoder.encode(text))
