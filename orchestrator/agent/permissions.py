@@ -11,6 +11,7 @@ from typing import Any
 
 READ_ONLY_TOOLS = {
     "read_file",
+    "view_image",
     "list_directory",
     "glob",
     "grep",

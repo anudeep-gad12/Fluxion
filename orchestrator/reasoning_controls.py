@@ -12,6 +12,8 @@ ReasoningSummaryValue = Literal["auto", "concise", "detailed"]
 FireworksReasoningMode = Literal["effort", "thinking"]
 FireworksThinkingType = Literal["enabled"]
 FireworksReasoningHistoryValue = Literal["discarded", "preserved"]
+FIREWORKS_MIN_THINKING_BUDGET_TOKENS = 1024
+FIREWORKS_DEFAULT_THINKING_BUDGET_TOKENS = FIREWORKS_MIN_THINKING_BUDGET_TOKENS
 
 
 class ReasoningSettings(BaseModel):
@@ -33,10 +35,15 @@ class ReasoningSettings(BaseModel):
         """Validate Fireworks-specific thinking controls."""
         if (
             self.fireworks_reasoning_mode == "thinking"
+            and self.fireworks_thinking_budget_tokens is None
+        ):
+            self.fireworks_thinking_budget_tokens = FIREWORKS_DEFAULT_THINKING_BUDGET_TOKENS
+        if (
+            self.fireworks_reasoning_mode == "thinking"
             and self.fireworks_thinking_budget_tokens is not None
             and self.fireworks_thinking_budget_tokens < 1024
         ):
-            raise ValueError("fireworks_thinking_budget_tokens must be >= 1024")
+            self.fireworks_thinking_budget_tokens = FIREWORKS_MIN_THINKING_BUDGET_TOKENS
         return self
 
 

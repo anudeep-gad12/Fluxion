@@ -128,6 +128,11 @@ export interface CreateAgentRunRequest {
     bash: boolean;
     python: boolean;
   };
+  image_attachments?: Array<{
+    name: string;
+    mime_type: string;
+    data_url: string;
+  }>;
 }
 
 /** Response from creating agent run */

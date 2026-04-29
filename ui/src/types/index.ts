@@ -52,6 +52,7 @@ export interface CreateRunRequest {
   prompt: string;
   mode?: string;
   profile?: string;
+  image_attachments?: ImageAttachment[];
 }
 
 export interface CreateRunResponse {
@@ -102,4 +103,12 @@ export interface CreateConversationRunRequest {
   message: string;
   thinking_mode?: ThinkingMode;
   reasoning_effort?: ReasoningEffort;
+  image_attachments?: ImageAttachment[];
+}
+
+export interface ImageAttachment {
+  id?: string;
+  name: string;
+  mime_type: string;
+  data_url: string;
 }

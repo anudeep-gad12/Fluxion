@@ -114,6 +114,28 @@ class TestBuildResponsesRequest:
         assert payload["input"][1]["output"] == "Sunny, 25°C"
         assert "role" not in payload["input"][1]
 
+    def test_multimodal_user_message_transformed_for_responses_api(self):
+        """Chat image parts are converted to Responses API input parts."""
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "Describe this"},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": "data:image/png;base64,AAAA"},
+                    },
+                ],
+            }
+        ]
+
+        payload = build_responses_request(messages, model="gpt-5")
+
+        assert payload["input"][0]["content"] == [
+            {"type": "input_text", "text": "Describe this"},
+            {"type": "input_image", "image_url": "data:image/png;base64,AAAA"},
+        ]
+
     def test_assistant_with_tool_calls_expanded(self):
         """Assistant message with tool_calls is expanded into function_call items."""
         messages = [
@@ -337,3 +359,22 @@ class TestBuildChatCompletionsRequest:
         )
 
         assert payload["thinking"] == {"type": "enabled", "budget_tokens": 8192}
+
+    def test_multimodal_user_message_passes_through_for_chat_completions(self):
+        """OpenAI-compatible vision providers use content arrays unchanged."""
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "Describe this"},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": "data:image/png;base64,AAAA"},
+                    },
+                ],
+            }
+        ]
+
+        payload = build_chat_completions_request(messages, model="vision-model")
+
+        assert payload["messages"] == messages

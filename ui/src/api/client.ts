@@ -472,6 +472,7 @@ export interface ModelStatus {
   effective_input_budget: number;
   supports_tools: boolean;
   supports_reasoning: boolean;
+  supports_vision: boolean;
   provider_family: string;
   reasoning_capabilities?: ReasoningCapabilities | null;
   source: string;
@@ -684,6 +685,7 @@ export interface RegistryModelPreset {
   max_output_tokens: number;
   supports_tools: boolean;
   supports_reasoning: boolean;
+  supports_vision: boolean;
   input_cost_per_million?: number | null;
   cached_input_cost_per_million?: number | null;
   output_cost_per_million?: number | null;
@@ -728,6 +730,7 @@ export interface CustomProviderRequest {
   max_output_tokens: number;
   supports_tools: boolean;
   supports_reasoning: boolean;
+  supports_vision: boolean;
   reasoning_request_param?: string | null;
   input_cost_per_million?: number | null;
   cached_input_cost_per_million?: number | null;

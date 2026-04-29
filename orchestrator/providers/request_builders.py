@@ -55,7 +55,24 @@ def _transform_messages_for_responses_api(messages: List[Dict[str, Any]]) -> Lis
 
         else:
             # User/assistant messages (without tools) stay the same
-            result.append(msg)
+            if role == "user" and isinstance(msg.get("content"), list):
+                content = []
+                for part in msg.get("content") or []:
+                    if not isinstance(part, dict):
+                        content.append({"type": "input_text", "text": str(part)})
+                    elif part.get("type") == "text":
+                        content.append({"type": "input_text", "text": part.get("text", "")})
+                    elif part.get("type") == "image_url":
+                        image_url = part.get("image_url") or {}
+                        content.append({
+                            "type": "input_image",
+                            "image_url": image_url.get("url", ""),
+                        })
+                    else:
+                        content.append(part)
+                result.append({**msg, "content": content})
+            else:
+                result.append(msg)
 
     return result
 
