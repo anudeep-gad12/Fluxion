@@ -116,16 +116,10 @@ def resolve_reasoning_capabilities(
 ) -> ReasoningCapabilities:
     """Resolve UI capabilities for the active provider family."""
     unsupported = ReasoningControlCapability(supported=False, reason="Unsupported by active provider/model")
-    generic_reasoning = supports_reasoning
-
     max_output_tokens = ReasoningControlCapability(supported=True)
-    reasoning_effort = (
-        ReasoningControlCapability(
-            supported=True,
-            options=["none", "minimal", "low", "medium", "high", "xhigh"],
-        )
-        if generic_reasoning
-        else ReasoningControlCapability(supported=False, reason="Active provider/model does not expose reasoning effort")
+    reasoning_effort = ReasoningControlCapability(
+        supported=False,
+        reason="Active provider/model does not expose reasoning effort",
     )
 
     reasoning_summary = unsupported
@@ -137,16 +131,32 @@ def resolve_reasoning_capabilities(
     fireworks_reasoning_history = unsupported
 
     if provider_family == "openrouter":
+        if supports_reasoning:
+            reasoning_effort = ReasoningControlCapability(
+                supported=True, options=["none", "minimal", "low", "medium", "high", "xhigh"]
+            )
         reasoning_enabled = ReasoningControlCapability(supported=True, options=["true", "false"])
         reasoning_max_tokens = ReasoningControlCapability(supported=True)
         reasoning_exclude = ReasoningControlCapability(supported=True, options=["true", "false"])
     elif provider_family == "deepinfra":
+        if supports_reasoning:
+            reasoning_effort = ReasoningControlCapability(
+                supported=True, options=["none", "low", "medium", "high"]
+            )
         reasoning_enabled = ReasoningControlCapability(supported=True, options=["true", "false"])
     elif provider_family in {"openai", "chatgpt"}:
+        if supports_reasoning:
+            reasoning_effort = ReasoningControlCapability(
+                supported=True, options=["minimal", "low", "medium", "high"]
+            )
         reasoning_summary = ReasoningControlCapability(
             supported=True, options=["auto", "concise", "detailed"]
         )
     elif provider_family == "fireworks":
+        if supports_reasoning:
+            reasoning_effort = ReasoningControlCapability(
+                supported=True, options=["low", "medium", "high"]
+            )
         fireworks_reasoning_mode = ReasoningControlCapability(
             supported=True, options=["effort", "thinking"]
         )
@@ -194,13 +204,12 @@ def apply_reasoning_settings(
         if settings.reasoning_summary:
             reasoning["summary"] = settings.reasoning_summary
         if reasoning:
-            kwargs["reasoning_effort"] = settings.reasoning_effort
             kwargs["reasoning"] = reasoning
         return kwargs
 
     if provider_family == "openrouter":
         reasoning = {}
-        if settings.reasoning_effort:
+        if settings.reasoning_effort and settings.reasoning_max_tokens is None:
             reasoning["effort"] = settings.reasoning_effort
         if settings.reasoning_enabled is not None:
             reasoning["enabled"] = settings.reasoning_enabled
@@ -209,7 +218,6 @@ def apply_reasoning_settings(
         if settings.reasoning_exclude is not None:
             reasoning["exclude"] = settings.reasoning_exclude
         if reasoning:
-            kwargs["reasoning_effort"] = settings.reasoning_effort
             kwargs["reasoning"] = reasoning
         return kwargs
 
@@ -232,7 +240,7 @@ def apply_reasoning_settings(
             }
             if settings.fireworks_thinking_budget_tokens is not None:
                 kwargs["thinking"]["budget_tokens"] = settings.fireworks_thinking_budget_tokens
-        elif settings.reasoning_effort:
+        elif settings.reasoning_effort in {"low", "medium", "high"}:
             kwargs["reasoning_effort"] = settings.reasoning_effort
 
         if settings.fireworks_reasoning_history:

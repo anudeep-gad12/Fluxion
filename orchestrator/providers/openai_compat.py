@@ -215,6 +215,7 @@ class OpenAICompatProvider:
                 tools=tools,
                 max_tokens=max_tokens,
                 temperature=temperature,
+                reasoning_effort=reasoning_effort,
                 stream=False,
                 **kwargs,
             )
@@ -227,7 +228,14 @@ class OpenAICompatProvider:
         if response.status_code in (404, 405) and self._fallback_on_404:
             if endpoint_type == "responses":
                 response, url = await self._handle_fallback(
-                    messages, model, tools, max_tokens, temperature, stream=False, **kwargs
+                    messages,
+                    model,
+                    tools,
+                    max_tokens,
+                    temperature,
+                    reasoning_effort=reasoning_effort,
+                    stream=False,
+                    **kwargs,
                 )
 
         response.raise_for_status()
@@ -312,6 +320,7 @@ class OpenAICompatProvider:
                 tool_choice=tool_choice,
                 max_tokens=max_tokens,
                 temperature=temperature,
+                reasoning_effort=reasoning_effort,
                 stream=True,
                 **kwargs,
             )
@@ -332,6 +341,7 @@ class OpenAICompatProvider:
                     tools=tools,
                     max_tokens=max_tokens,
                     temperature=temperature,
+                    reasoning_effort=reasoning_effort,
                     **kwargs,
                 )
             except (httpx.RemoteProtocolError, httpx.ReadError, httpx.HTTPStatusError) as e:
@@ -378,6 +388,7 @@ class OpenAICompatProvider:
         tools: Optional[List[Dict[str, Any]]],
         max_tokens: Optional[int],
         temperature: Optional[float],
+        reasoning_effort: Optional[str],
         **kwargs: Any,
     ) -> LLMResponse:
         """Execute the actual streaming request.
@@ -610,7 +621,7 @@ class OpenAICompatProvider:
                 # Fallback to chat_completions
                 return await self._streaming_fallback(
                     messages, model, on_token, on_reasoning,
-                    tools, max_tokens, temperature, **kwargs
+                    tools, max_tokens, temperature, reasoning_effort, **kwargs
                 )
             raise
 
@@ -752,6 +763,7 @@ class OpenAICompatProvider:
         tools: Optional[List[Dict[str, Any]]],
         max_tokens: Optional[int],
         temperature: Optional[float],
+        reasoning_effort: Optional[str] = None,
         stream: bool = False,
         **kwargs: Any,
     ) -> tuple[httpx.Response, str]:
@@ -794,6 +806,7 @@ class OpenAICompatProvider:
             tools=tools,
             max_tokens=max_tokens,
             temperature=temperature,
+            reasoning_effort=reasoning_effort,
             stream=stream,
             **kwargs,
         )
@@ -814,6 +827,7 @@ class OpenAICompatProvider:
         tools: Optional[List[Dict[str, Any]]],
         max_tokens: Optional[int],
         temperature: Optional[float],
+        reasoning_effort: Optional[str] = None,
         **kwargs: Any,
     ) -> LLMResponse:
         """Fallback to chat_completions for streaming.
@@ -852,6 +866,7 @@ class OpenAICompatProvider:
             tools=tools,
             max_tokens=max_tokens,
             temperature=temperature,
+            reasoning_effort=reasoning_effort,
             stream=True,
             **kwargs,
         )

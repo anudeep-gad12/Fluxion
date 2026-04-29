@@ -426,7 +426,10 @@ function ReasoningSettingsDialog({
   const providerFamily = settingsResponse?.provider_family || 'generic';
   const modelName = settingsResponse?.model_name || 'model';
   const isFireworks = providerFamily === 'fireworks';
+  const showReasoningEffort = !isFireworks && capabilities?.reasoning_effort.supported;
+  const showReasoningMaxTokens = providerFamily === 'openrouter' && capabilities?.reasoning_max_tokens.supported;
   const fireworksMode = draft?.fireworks_reasoning_mode ?? 'effort';
+  const openRouterMode = draft?.reasoning_max_tokens == null ? 'effort' : 'budget';
 
   const disabledReason = (supported?: boolean, reason?: string | null) =>
     supported ? undefined : (reason || 'Unsupported by active provider/model');
@@ -434,6 +437,11 @@ function ReasoningSettingsDialog({
   const update = <K extends keyof ReasoningSettings>(key: K, value: ReasoningSettings[K]) => {
     if (!draft) return;
     onDraftChange({ ...draft, [key]: value });
+  };
+
+  const updateMany = (patch: Partial<ReasoningSettings>) => {
+    if (!draft) return;
+    onDraftChange({ ...draft, ...patch });
   };
 
   return (
@@ -453,7 +461,7 @@ function ReasoningSettingsDialog({
 
             <div className="grid grid-cols-2 gap-3">
               <label className="space-y-1">
-                <div className="text-zinc-400">max output tokens</div>
+                <div className="text-zinc-400">max output</div>
                 <input
                   type="number"
                   min={1}
@@ -462,9 +470,9 @@ function ReasoningSettingsDialog({
                   className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-zinc-200"
                 />
               </label>
-              {!isFireworks && (
+              {showReasoningEffort && !showReasoningMaxTokens && (
                 <label className="space-y-1">
-                  <div className="text-zinc-400">reasoning effort</div>
+                  <div className="text-zinc-400">thinking effort</div>
                   <select
                     value={draft.reasoning_effort ?? ''}
                     onChange={(e) => update('reasoning_effort', e.target.value || null)}
@@ -483,13 +491,10 @@ function ReasoningSettingsDialog({
 
             {isFireworks ? (
               <div className="border-t border-zinc-800 pt-3 space-y-3">
-                <div className="text-zinc-500 uppercase text-[10px]">Fireworks reasoning</div>
-                <div className="text-[11px] text-zinc-600">
-                  Fireworks supports two alternative reasoning controls. Only the active mode below is sent in requests.
-                </div>
+                <div className="text-zinc-500 uppercase text-[10px]">Fireworks controls</div>
                 <div className="grid grid-cols-2 gap-3">
                   <label className="space-y-1">
-                    <div className="text-zinc-400">mode</div>
+                    <div className="text-zinc-400">control</div>
                     <select
                       value={draft.fireworks_reasoning_mode}
                       onChange={(e) => update('fireworks_reasoning_mode', e.target.value as 'effort' | 'thinking')}
@@ -504,7 +509,7 @@ function ReasoningSettingsDialog({
 
                   {fireworksMode === 'effort' ? (
                     <label className="space-y-1">
-                      <div className="text-zinc-400">reasoning effort</div>
+                      <div className="text-zinc-400">thinking effort</div>
                       <select
                         value={draft.reasoning_effort ?? ''}
                         onChange={(e) => update('reasoning_effort', e.target.value || null)}
@@ -520,7 +525,7 @@ function ReasoningSettingsDialog({
                     </label>
                   ) : (
                     <label className="space-y-1">
-                      <div className="text-zinc-400">thinking budget</div>
+                      <div className="text-zinc-400">max thinking tokens</div>
                       <input
                         type="number"
                         min={1024}
@@ -534,97 +539,75 @@ function ReasoningSettingsDialog({
                   )}
                 </div>
 
-                <label className="space-y-1 block">
-                  <div className="text-zinc-400">reasoning history</div>
-                  <select
-                    value={draft.fireworks_reasoning_history ?? ''}
-                    onChange={(e) => update('fireworks_reasoning_history', (e.target.value || null) as 'discarded' | 'preserved' | null)}
-                    disabled={!capabilities.fireworks_reasoning_history.supported}
-                    title={disabledReason(capabilities.fireworks_reasoning_history.supported, capabilities.fireworks_reasoning_history.reason)}
-                    className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-zinc-200 disabled:text-zinc-600"
-                  >
-                    <option value="">default</option>
-                    <option value="discarded">discarded</option>
-                    <option value="preserved">preserved</option>
-                  </select>
-                </label>
-
                 <div className="text-[11px] text-zinc-600">
                   {fireworksMode === 'effort'
-                    ? 'This sends Fireworks reasoning_effort. Thinking budget is not sent.'
-                    : 'This sends Fireworks thinking.budget_tokens. Reasoning effort is not sent.'}
+                    ? 'Sends reasoning_effort only.'
+                    : 'Sends thinking.budget_tokens only.'}
                 </div>
               </div>
             ) : (
-              <>
-                <div className="grid grid-cols-2 gap-3">
-                  <label className="space-y-1">
-                    <div className="text-zinc-400">reasoning enabled</div>
-                    <select
-                      value={draft.reasoning_enabled == null ? '' : String(draft.reasoning_enabled)}
-                      onChange={(e) => update('reasoning_enabled', e.target.value === '' ? null : e.target.value === 'true')}
-                      disabled={!capabilities.reasoning_enabled.supported}
-                      title={disabledReason(capabilities.reasoning_enabled.supported, capabilities.reasoning_enabled.reason)}
-                      className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-zinc-200 disabled:text-zinc-600"
-                    >
-                      <option value="">default</option>
-                      <option value="true">true</option>
-                      <option value="false">false</option>
-                    </select>
-                  </label>
+              showReasoningMaxTokens ? (
+                <div className="border-t border-zinc-800 pt-3 space-y-3">
+                  <div className="text-zinc-500 uppercase text-[10px]">OpenRouter controls</div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <label className="space-y-1">
+                      <div className="text-zinc-400">control</div>
+                      <select
+                        value={openRouterMode}
+                        onChange={(e) => {
+                          if (e.target.value === 'effort') {
+                            updateMany({ reasoning_max_tokens: null });
+                          } else {
+                            updateMany({ reasoning_max_tokens: draft.reasoning_max_tokens ?? 1024 });
+                          }
+                        }}
+                        className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-zinc-200"
+                      >
+                        <option value="effort">effort-based</option>
+                        <option value="budget">budget-based</option>
+                      </select>
+                    </label>
 
-                  <label className="space-y-1">
-                    <div className="text-zinc-400">reasoning summary</div>
-                    <select
-                      value={draft.reasoning_summary ?? ''}
-                      onChange={(e) => update('reasoning_summary', e.target.value || null)}
-                      disabled={!capabilities.reasoning_summary.supported}
-                      title={disabledReason(capabilities.reasoning_summary.supported, capabilities.reasoning_summary.reason)}
-                      className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-zinc-200 disabled:text-zinc-600"
-                    >
-                      <option value="">default</option>
-                      {(capabilities.reasoning_summary.options.length ? capabilities.reasoning_summary.options : ['auto', 'concise', 'detailed']).map((opt) => (
-                        <option key={opt} value={opt}>{opt}</option>
-                      ))}
-                    </select>
-                  </label>
+                    {openRouterMode === 'effort' ? (
+                      <label className="space-y-1">
+                        <div className="text-zinc-400">thinking effort</div>
+                        <select
+                          value={draft.reasoning_effort ?? ''}
+                          onChange={(e) => update('reasoning_effort', e.target.value || null)}
+                          disabled={!capabilities.reasoning_effort.supported}
+                          title={disabledReason(capabilities.reasoning_effort.supported, capabilities.reasoning_effort.reason)}
+                          className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-zinc-200 disabled:text-zinc-600"
+                        >
+                          <option value="">default</option>
+                          {(capabilities.reasoning_effort.options.length ? capabilities.reasoning_effort.options : ['low', 'medium', 'high']).map((opt) => (
+                            <option key={opt} value={opt}>{opt}</option>
+                          ))}
+                        </select>
+                      </label>
+                    ) : (
+                      <label className="space-y-1">
+                        <div className="text-zinc-400">max thinking tokens</div>
+                        <input
+                          type="number"
+                          min={1}
+                          value={draft.reasoning_max_tokens ?? ''}
+                          onChange={(e) => update('reasoning_max_tokens', e.target.value === '' ? null : Number(e.target.value))}
+                          disabled={!capabilities.reasoning_max_tokens.supported}
+                          title={disabledReason(capabilities.reasoning_max_tokens.supported, capabilities.reasoning_max_tokens.reason)}
+                          className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-zinc-200 disabled:text-zinc-600"
+                        />
+                      </label>
+                    )}
+                  </div>
                 </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <label className="space-y-1">
-                    <div className="text-zinc-400">reasoning max tokens</div>
-                    <input
-                      type="number"
-                      min={1}
-                      value={draft.reasoning_max_tokens ?? ''}
-                      onChange={(e) => update('reasoning_max_tokens', e.target.value === '' ? null : Number(e.target.value))}
-                      disabled={!capabilities.reasoning_max_tokens.supported}
-                      title={disabledReason(capabilities.reasoning_max_tokens.supported, capabilities.reasoning_max_tokens.reason)}
-                      className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-zinc-200 disabled:text-zinc-600"
-                    />
-                  </label>
-
-                  <label className="space-y-1">
-                    <div className="text-zinc-400">reasoning exclude</div>
-                    <select
-                      value={draft.reasoning_exclude == null ? '' : String(draft.reasoning_exclude)}
-                      onChange={(e) => update('reasoning_exclude', e.target.value === '' ? null : e.target.value === 'true')}
-                      disabled={!capabilities.reasoning_exclude.supported}
-                      title={disabledReason(capabilities.reasoning_exclude.supported, capabilities.reasoning_exclude.reason)}
-                      className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-zinc-200 disabled:text-zinc-600"
-                    >
-                      <option value="">default</option>
-                      <option value="true">true</option>
-                      <option value="false">false</option>
-                    </select>
-                  </label>
-                </div>
-              </>
+              ) : null
             )}
 
-            <div className="text-[11px] text-zinc-600">
-              Unsupported controls stay visible and are ignored for providers/models that do not expose them.
-            </div>
+            {!isFireworks && !showReasoningMaxTokens && (
+              <div className="text-[11px] text-zinc-600">
+                This provider has no separate max thinking token setting.
+              </div>
+            )}
 
             <div className="flex justify-end gap-2">
               <button
