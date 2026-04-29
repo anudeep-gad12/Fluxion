@@ -325,6 +325,8 @@ class TestAgentEngineHelpers:
         assert prompt[0]["role"] == "system"
         assert prompt[1]["role"] == "system"
         assert "WORKING MEMORY" in prompt[1]["content"]
+        assert "This is continuing state for the same run" in prompt[1]["content"]
+        assert "do not restart by restating the objective" in prompt[1]["content"]
         assert prompt[-1]["role"] == "tool"
         assert prompt[-1]["content"] == "raw file excerpt"
 
@@ -663,6 +665,121 @@ class TestAgentWorkingMemory:
 
 class TestAgentEngineRun:
     """Tests for AgentEngine.run() method."""
+
+    def test_view_image_schema_hidden_for_text_only_models(self):
+        """Text-only models must not see view_image because follow-up image payloads fail."""
+        provider = create_mock_provider()
+        provider._supports_vision = False
+        registry = create_mock_registry()
+        registry.get_openai_schemas.return_value = [
+            {"type": "function", "function": {"name": "read_file"}},
+            {"type": "function", "function": {"name": "view_image"}},
+        ]
+        engine = AgentEngine(
+            provider=provider,
+            repo=create_mock_repo(),
+            registry=registry,
+        )
+
+        schemas = engine._available_tool_schemas()
+
+        assert [schema["function"]["name"] for schema in schemas] == ["read_file"]
+
+    def test_view_image_instruction_hidden_for_text_only_models(self):
+        """Text-only prompts should not ask the model to use a hidden image tool."""
+        provider = create_mock_provider()
+        provider._supports_vision = False
+        engine = AgentEngine(
+            provider=provider,
+            repo=create_mock_repo(),
+            registry=create_mock_registry(),
+        )
+
+        prompt = engine._effective_system_prompt(
+            "- Prefer `grep` and `read_file` over broad exploration.\n"
+            "- Use `view_image` for workspace screenshots/images/charts/forms/diagrams when the user asks you to inspect images or visual content. Do not rely on OCR first unless exact text extraction is specifically needed.\n"
+            "- Use `bash` for verification.\n"
+        )
+
+        assert "view_image" not in prompt
+        assert "Use `bash`" in prompt
+
+    def test_normalize_system_messages_merges_into_leading_system(self):
+        """Strict providers reject system messages after the beginning."""
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=create_mock_repo(),
+            registry=create_mock_registry(),
+        )
+
+        messages = engine._normalize_system_messages(
+            [
+                {"role": "system", "content": "Base prompt"},
+                {"role": "user", "content": "Question"},
+                {"role": "system", "content": "WORKING MEMORY\nObjective: answer"},
+                {"role": "assistant", "content": "Thinking"},
+            ]
+        )
+
+        assert messages[0] == {
+            "role": "system",
+            "content": "Base prompt\n\nWORKING MEMORY\nObjective: answer",
+        }
+        assert [message["role"] for message in messages] == [
+            "system",
+            "user",
+            "assistant",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_call_llm_filters_view_image_for_text_only_models(self):
+        """The actual provider call should receive the same filtered schema list."""
+        provider = create_mock_provider()
+        provider._supports_vision = False
+        registry = create_mock_registry()
+        registry.get_openai_schemas.return_value = [
+            {"type": "function", "function": {"name": "read_file"}},
+            {"type": "function", "function": {"name": "view_image"}},
+        ]
+        engine = AgentEngine(
+            provider=provider,
+            repo=create_mock_repo(),
+            registry=registry,
+        )
+
+        await engine._call_llm_with_tools(
+            messages=[{"role": "user", "content": "inspect images"}],
+            event_callback=None,
+            run_id="run-vision-filter",
+        )
+
+        call_kwargs = provider.complete_streaming.call_args.kwargs
+        assert [schema["function"]["name"] for schema in call_kwargs["tools"]] == ["read_file"]
+
+    @pytest.mark.asyncio
+    async def test_call_llm_merges_multiple_system_messages_for_provider(self):
+        """Provider calls should never contain non-leading system messages."""
+        provider = create_mock_provider()
+        registry = create_mock_registry()
+        engine = AgentEngine(
+            provider=provider,
+            repo=create_mock_repo(),
+            registry=registry,
+        )
+
+        await engine._call_llm_with_tools(
+            messages=[
+                {"role": "system", "content": "Base prompt"},
+                {"role": "user", "content": "Question"},
+                {"role": "system", "content": "WORKING MEMORY\nObjective: answer"},
+            ],
+            event_callback=None,
+            run_id="run-system-normalize",
+        )
+
+        sent_messages = provider.complete_streaming.call_args.kwargs["messages"]
+        assert [message["role"] for message in sent_messages] == ["system", "user"]
+        assert sent_messages[0]["content"] == "Base prompt\n\nWORKING MEMORY\nObjective: answer"
 
     @pytest.mark.asyncio
     async def test_simple_query_no_tools(self):

@@ -78,9 +78,10 @@ class TestProfileSystemPrompts:
         assert "edit_file" in CODING_SYSTEM_PROMPT
         assert "grep" in CODING_SYSTEM_PROMPT
 
-    def test_coding_prompt_warns_about_remote_sandbox(self):
-        """Coding prompt should warn that python_execute is remote."""
-        assert "remote sandbox" in CODING_SYSTEM_PROMPT
+    def test_coding_prompt_mentions_browser_workspace_surface(self):
+        """Coding prompt should anchor behavior in the browser workspace."""
+        assert "browser-based coding agent" in CODING_SYSTEM_PROMPT
+        assert "selected local workspace" in CODING_SYSTEM_PROMPT
 
     def test_research_prompt_has_stopping_criteria(self):
         """Research prompt includes stopping criteria."""
@@ -94,14 +95,14 @@ class TestProfileSystemPrompts:
 
     def test_coding_prompt_has_stopping_criteria(self):
         """Coding prompt includes stopping criteria."""
-        assert "STOPPING CRITERIA" in CODING_SYSTEM_PROMPT
-        assert "FINAL ANSWER" in CODING_SYSTEM_PROMPT
+        assert "# Stopping criteria" in CODING_SYSTEM_PROMPT
+        assert "# Final answer" in CODING_SYSTEM_PROMPT
 
     def test_coding_prompt_has_rules(self):
         """Coding prompt includes rules."""
-        assert "RULES" in CODING_SYSTEM_PROMPT
-        assert "Do NOT glob or list_directory the entire project" in CODING_SYSTEM_PROMPT
-        assert "Do NOT re-read files" in CODING_SYSTEM_PROMPT
+        assert "# Tool discipline" in CODING_SYSTEM_PROMPT
+        assert "Do not glob or recursively list the whole repo" in CODING_SYSTEM_PROMPT
+        assert "Do not repeat tool calls" in CODING_SYSTEM_PROMPT
 
     # --- New sections from frontier prompt patterns ---
 
@@ -123,21 +124,31 @@ class TestProfileSystemPrompts:
         """Research prompt includes output format guidance."""
         assert "OUTPUT FORMAT" in RESEARCH_SYSTEM_PROMPT
 
+    def test_research_prompt_treats_steps_as_continuation(self):
+        """Research prompt discourages repeated restart narration between steps."""
+        assert "CONTINUE, DON'T RESTART" in RESEARCH_SYSTEM_PROMPT
+        assert "Do not begin each step by restating what the user wants" in RESEARCH_SYSTEM_PROMPT
+
     def test_research_prompt_has_tool_usage_patterns(self):
         """Research prompt has USE WHEN patterns for each tool."""
         assert "USE WHEN" in RESEARCH_SYSTEM_PROMPT
 
     def test_coding_prompt_has_autonomy(self):
         """Coding prompt includes autonomy directive."""
-        assert "AUTONOMY" in CODING_SYSTEM_PROMPT
+        assert "Make progress without asking" in CODING_SYSTEM_PROMPT
 
     def test_coding_prompt_has_self_correction(self):
         """Coding prompt includes self-correction protocol."""
-        assert "SELF-CORRECTION" in CODING_SYSTEM_PROMPT
+        assert "# Failure handling" in CODING_SYSTEM_PROMPT
 
     def test_coding_prompt_has_tool_usage_patterns(self):
         """Coding prompt has USE WHEN patterns for tools."""
-        assert "USE WHEN" in CODING_SYSTEM_PROMPT
+        assert "Use tools purposefully and economically" in CODING_SYSTEM_PROMPT
+
+    def test_coding_prompt_treats_steps_as_continuation(self):
+        """Coding prompt discourages repeated restart narration between steps."""
+        assert "Each step is a continuation of the same run" in CODING_SYSTEM_PROMPT
+        assert "Do not begin each step by saying what the user wants" in CODING_SYSTEM_PROMPT
 
 
 class TestProfilePlanStepTypes:
