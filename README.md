@@ -1,4 +1,4 @@
-# Reasoner
+# Fluxion
 
 An AI agent application with multi-step research, coding assistance, web search, Python execution, and reasoning capabilities. FastAPI backend + React/Vite frontend + Textual CLI/TUI, backed by SQLite for full traceability.
 
@@ -205,7 +205,7 @@ Supports ~25 presets across providers:
 ## Repository Layout
 
 ```
-reasoner/
+fluxion/
 ├── orchestrator/              # Backend (FastAPI)
 │   ├── app.py                 # FastAPI entrypoint, middleware, routers
 │   ├── config.py              # ChatConfig + loader for chat_config.yaml

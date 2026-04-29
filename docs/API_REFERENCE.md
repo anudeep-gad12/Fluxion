@@ -1,6 +1,6 @@
 # API Reference
 
-Complete documentation of all API endpoints in the Reasoner system.
+Complete documentation of all API endpoints in the Fluxion system.
 
 ## Table of Contents
 

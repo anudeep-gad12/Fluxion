@@ -1,4 +1,4 @@
-# Reasoner
+# Fluxion
 
 AI chat application with thinking system and agent mode.
 FastAPI backend (`orchestrator/`) + React/Vite frontend (`ui/`).

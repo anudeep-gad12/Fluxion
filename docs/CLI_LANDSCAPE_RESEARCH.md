@@ -1,7 +1,7 @@
 # CLI Coding Assistant Landscape Research
 
 **Date:** 2026-02-24
-**Purpose:** Survey of every major CLI coding tool — unique features, patterns, and what to steal for Reasoner CLI.
+**Purpose:** Survey of every major CLI coding tool — unique features, patterns, and what to steal for Fluxion CLI.
 
 ---
 
@@ -114,7 +114,7 @@ Standard approach: **git worktrees**. Claude Code, Kilo, Windsurf all use them f
 
 ---
 
-## Patterns Worth Stealing (Ranked by Impact for Reasoner)
+## Patterns Worth Stealing (Ranked by Impact for Fluxion)
 
 | # | Pattern | From | Why |
 |---|---------|------|-----|
@@ -133,7 +133,7 @@ Standard approach: **git worktrees**. Claude Code, Kilo, Windsurf all use them f
 
 ---
 
-## What Reasoner CLI Has vs Field
+## What Fluxion CLI Has vs Field
 
 **Already have:** Agentic loop, 10 tools, SSE streaming, traces/observability, permission system, TUI, thinking display
 
@@ -150,7 +150,7 @@ Standard approach: **git worktrees**. Claude Code, Kilo, Windsurf all use them f
 
 ---
 
-## Implementation Priority for Reasoner
+## Implementation Priority for Fluxion
 
 ```
 Phase 1 (Foundation):     Profile + ContextStrategy + coding prompt

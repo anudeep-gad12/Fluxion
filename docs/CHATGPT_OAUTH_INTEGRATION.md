@@ -2,7 +2,7 @@
 
 ## Goal
 
-Allow users to log in with their ChatGPT subscription (Plus/Pro/etc.) and use OpenAI models (GPT-5, Codex, etc.) as the LLM provider in the reasoner app — at no extra API cost to us or the user.
+Allow users to log in with their ChatGPT subscription (Plus/Pro/etc.) and use OpenAI models (GPT-5, Codex, etc.) as the LLM provider in the Fluxion app — at no extra API cost to us or the user.
 
 ## How It Works
 

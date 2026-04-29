@@ -137,7 +137,7 @@ async def lifespan(app: FastAPI):
         enable_file=os.environ.get("LOG_TO_FILE", "true").lower() == "true",
     )
 
-    logger.info("Starting Reasoner API server")
+    logger.info("Starting Fluxion API server")
 
     # Log config summary (redacted)
     try:
@@ -233,7 +233,7 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     await auth.stop_callback_server()
-    logger.info("Shutting down Reasoner API server")
+    logger.info("Shutting down Fluxion API server")
 
 
 # Disable OpenAPI docs in production (SERVE_STATIC=true indicates Railway/production)
@@ -241,7 +241,7 @@ _is_production = os.environ.get("SERVE_STATIC", "false").lower() == "true"
 
 # Create FastAPI app
 app = FastAPI(
-    title="Reasoner",
+    title="Fluxion",
     description="Local AI Chat",
     version="0.2.0",
     lifespan=lifespan,

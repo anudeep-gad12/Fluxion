@@ -1,6 +1,6 @@
 # Data Flow
 
-Complete documentation of request lifecycles, streaming patterns, and data flow in the Reasoner system.
+Complete documentation of request lifecycles, streaming patterns, and data flow in the Fluxion system.
 
 ## Table of Contents
 

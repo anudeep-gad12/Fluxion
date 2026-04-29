@@ -9,6 +9,7 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| feature/browser-coding-agent | Fluxion branding pass — renamed the visible browser/app branding from Reasoner to Fluxion in the UI header, FastAPI app title/logging, README, and core docs without changing internal command names, config paths, localStorage keys, or project rules directory semantics | done | 2026-04-29 |
 | feature/browser-coding-agent | Integrated browser terminal — added a per-conversation persistent PTY terminal for desktop agent mode with backend terminal session metadata + websocket I/O, a collapsible/resizable pane in the main window, xterm-based local shell UI, restart/clear/collapse controls, and route tests covering session creation, websocket command execution, and restart behavior | done | 2026-04-28 |
 | feature/browser-coding-agent | Agent prompt-history refactor — stopped normal agent cross-turn replay from restoring serialized `agent_state`, switched agent prompt assembly to use summary-based scaffold + injected structured working memory while keeping exact file/tool transcript available for the full duration of a single run, preserved full tool outputs in traces/DB, and added tests covering summary-only cross-turn history, working-memory folding, per-run raw-context retention, and allowed same-run file rereads | done | 2026-04-27 |
 | feature/browser-coding-agent | Workspace `@file` mentions — added agent-composer autocomplete backed by a new read-only workspace file-search API so typing `@` in an active workspace suggests matching relative file paths, excludes hidden/ignored directories, and inserts the selected path into the prompt without auto-attaching file contents | done | 2026-04-27 |
@@ -382,7 +383,7 @@ Restyled entire chat UI from light bubbly design to black-and-white CLI/terminal
 - `ui/src/index.css` — CSS variables to zinc dark palette, body font to IBM Plex Mono, markdown styles to zinc, scrollbar to 4px dark, KaTeX color inherit
 - `ui/tailwind.config.js` — Added fontFamily.mono with IBM Plex Mono stack
 - 5 UI primitives (`button`, `badge`, `card`, `textarea`, `dialog`) — square corners, remove shadows, dark backgrounds
-- `ui/src/App.tsx` — Remove gradients, dark sidebar, `reasoner>` title, dark Toaster
+- `ui/src/App.tsx` — Remove gradients, dark sidebar, `fluxion>` title, dark Toaster
 - `ui/src/components/ConversationView.tsx` — Chat bubbles to flat `>` prompts, dark input, remove emojis, zinc colors
 - `ui/src/components/ConversationList.tsx` — Dark cards, zinc selection colors
 - `ui/src/components/ThinkingPanel.tsx` — Dark container, `[thinking]` label, zinc colors
@@ -580,7 +581,7 @@ Visual/UX improvements, terminology updates, benchmark trace filtering, and depl
 
 **Label & Branding Updates:**
 - `ui/src/components/ConversationView.tsx` — Mode button label changed from "Research" to "Agent" (both input areas)
-- `ui/src/App.tsx` — Removed "Local AI Chat" subtitle from sidebar header (just shows "Reasoner" now)
+- `ui/src/App.tsx` — Removed "Local AI Chat" subtitle from sidebar header (just shows "Fluxion" now)
 
 **Benchmark Fixes:**
 - `ui/src/components/TracesModal.tsx` — Added filter to exclude Mistral traces from comparison modal (`!trace.model.toLowerCase().includes('mistral')`)
@@ -623,7 +624,7 @@ Ran GPT-5-mini (OpenAI) against the full GAIA benchmark validation set (127 ques
 **Status:** done
 
 **Description:**
-Made the entire Reasoner chat application mobile-friendly with progressive enhancement from 320px phones to 1920px+ desktops. Implemented responsive breakpoints, touch-optimized interfaces, and mobile-specific layouts while preserving all existing functionality.
+Made the entire Fluxion chat application mobile-friendly with progressive enhancement from 320px phones to 1920px+ desktops. Implemented responsive breakpoints, touch-optimized interfaces, and mobile-specific layouts while preserving all existing functionality.
 
 **Key Changes:**
 - **App Layout**: Hamburger menu and drawer navigation for mobile (respects demo mode restrictions)
@@ -679,7 +680,7 @@ Made the entire Reasoner chat application mobile-friendly with progressive enhan
    - Stats hidden on very small screens with `hidden sm:flex`
 
 **Mobile UX Refinements (Post-Initial Implementation):**
-- Removed duplicate "Reasoner" branding from mobile header
+- Removed duplicate "Fluxion" branding from mobile header
 - Added New Chat button to mobile header (right-aligned, disabled during active run)
 - Reduced button heights from h-11 (44px) to h-9 (36px) to maximize typing space
 - Removed text labels from mode toggle buttons on mobile (icon-only for space)
