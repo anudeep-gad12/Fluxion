@@ -1,6 +1,6 @@
-# Reasoner Architecture
+# Fluxion Architecture
 
-Comprehensive technical documentation of the Reasoner system architecture.
+Comprehensive technical documentation of the Fluxion system architecture.
 
 ## Table of Contents
 
@@ -18,7 +18,7 @@ Comprehensive technical documentation of the Reasoner system architecture.
 
 ## System Overview
 
-Reasoner is an AI chat application with multi-strategy reasoning capabilities. It consists of a FastAPI backend (orchestrator), a React/Vite frontend (ui), and a Textual-based CLI/TUI (cli), connected to OpenAI-compatible LLM providers. Default configuration uses DeepInfra cloud, but supports local providers (llama-server, vLLM, Ollama) and ChatGPT (via OAuth) as providers.
+Fluxion is an AI chat application with multi-strategy reasoning capabilities. It consists of a FastAPI backend (orchestrator), a React/Vite frontend (ui), and a Textual-based CLI/TUI (cli), connected to OpenAI-compatible LLM providers. Default configuration uses DeepInfra cloud, but supports local providers (llama-server, vLLM, Ollama) and ChatGPT (via OAuth) as providers.
 
 ### High-Level Architecture
 
@@ -203,7 +203,7 @@ The FastAPI application initializes with:
 4. **Health/Config Endpoints**: `/api/health`, `/api/config`
 
 ```python
-app = FastAPI(title="Reasoner API", lifespan=lifespan)
+app = FastAPI(title="Fluxion API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -271,7 +271,7 @@ class ChatResult:
 
 ## CLI/TUI System
 
-The CLI provides a terminal-based interface to the Reasoner agent, built with the [Textual](https://textual.textualize.io/) framework.
+The CLI provides a terminal-based interface to the Fluxion agent, built with the [Textual](https://textual.textualize.io/) framework.
 
 ### Installation & Invocation
 

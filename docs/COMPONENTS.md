@@ -1,6 +1,6 @@
 # Components
 
-Detailed documentation of every component in the Reasoner system.
+Detailed documentation of every component in the Fluxion system.
 
 ## Table of Contents
 
