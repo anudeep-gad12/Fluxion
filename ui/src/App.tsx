@@ -211,7 +211,7 @@ function AppLayout() {
         style={!isMobile && !sidebarCollapsed ? { width: sidebarWidth } : undefined}
       >
         <div className="p-4 border-b flex items-center justify-between">
-          <h1 className="text-lg font-bold text-zinc-100 font-mono">reasoner&gt;</h1>
+          <h1 className="text-lg font-bold text-zinc-100 font-mono">fluxion&gt;</h1>
           {/* Mobile: close button, Desktop: collapse button */}
           <Button
             variant="ghost"

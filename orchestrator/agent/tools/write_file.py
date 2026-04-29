@@ -42,9 +42,10 @@ class WriteFileTool:
         return ToolSchema(
             name="write_file",
             description=(
-                "Write content to a file. Creates the file if it doesn't exist, "
-                "overwrites if it does. Creates parent directories as needed. "
-                "Prefer edit_file for modifying existing files (shows targeted changes)."
+                "Create a new file, or deliberately overwrite a whole existing file. "
+                "Do NOT use this for normal edits to existing files; use edit_file instead. "
+                "Set allow_overwrite=true only when a full-file rewrite is intentional. "
+                "Creates parent directories as needed."
             ),
             parameters={
                 "type": "object",
@@ -52,13 +53,19 @@ class WriteFileTool:
                     "file_path": {
                         "type": "string",
                         "description": (
-                            "Path to the file (absolute or relative "
-                            "to working directory)"
+                            "Path to the file (absolute or relative to working directory)"
                         ),
                     },
                     "content": {
                         "type": "string",
                         "description": "Content to write to the file",
+                    },
+                    "allow_overwrite": {
+                        "type": "boolean",
+                        "description": (
+                            "Required as true to overwrite an existing file. "
+                            "Leave false/omitted when creating new files."
+                        ),
                     },
                 },
                 "required": ["file_path", "content"],
@@ -87,6 +94,7 @@ class WriteFileTool:
         self,
         file_path: str,
         content: str,
+        allow_overwrite: bool = False,
         **kwargs: Any,
     ) -> ToolResult:
         """Write content to file.
@@ -104,6 +112,18 @@ class WriteFileTool:
         try:
             path = self._resolve_path(file_path)
             existed = path.exists()
+
+            if existed and not allow_overwrite:
+                return ToolResult(
+                    success=False,
+                    result_summary=f"Refused to overwrite existing file: {file_path}",
+                    error_message=(
+                        "write_file is for creating files. Use edit_file for targeted "
+                        "changes to existing files, or pass allow_overwrite=true only "
+                        "for an intentional full-file rewrite."
+                    ),
+                    duration_ms=int((time.perf_counter() - start_time) * 1000),
+                )
 
             # Read existing content for diff generation
             old_content = ""
@@ -127,8 +147,9 @@ class WriteFileTool:
                 display_path = str(path)
             action = "Overwrote" if existed else "Created"
 
-            # Generate unified diff for overwrites
-            if existed and old_content != content:
+            # Generate unified diff for creates and overwrites so browser UI
+            # can show exactly what was written.
+            if old_content != content:
                 diff_lines = difflib.unified_diff(
                     old_content.splitlines(keepends=True),
                     content.splitlines(keepends=True),
@@ -136,7 +157,9 @@ class WriteFileTool:
                     tofile=f"b/{display_path}",
                     n=3,
                 )
-                result_data = "".join(diff_lines) or f"{action} {display_path} ({byte_count} bytes)"
+                result_data = "".join(diff_lines) or (
+                    f"{action} {display_path} ({byte_count} bytes)"
+                )
             else:
                 result_data = f"{action} {display_path} ({byte_count} bytes written)"
 

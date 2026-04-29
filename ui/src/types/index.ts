@@ -85,6 +85,19 @@ export type ThinkingMode = 'default' | 'thinking';
 
 export type ReasoningEffort = 'low' | 'medium' | 'high';
 
+export interface ReasoningSettings {
+  max_output_tokens: number | null;
+  reasoning_effort: string | null;
+  reasoning_summary: string | null;
+  reasoning_enabled: boolean | null;
+  reasoning_max_tokens: number | null;
+  reasoning_exclude: boolean | null;
+  fireworks_reasoning_mode: 'effort' | 'thinking';
+  fireworks_thinking_type: 'enabled';
+  fireworks_thinking_budget_tokens: number | null;
+  fireworks_reasoning_history: 'discarded' | 'preserved' | null;
+}
+
 export interface CreateConversationRunRequest {
   message: string;
   thinking_mode?: ThinkingMode;

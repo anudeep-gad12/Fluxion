@@ -53,7 +53,7 @@ start_api() {
     kill_port 9000
     cd "$PROJECT_DIR"
 
-    # Load main env (API keys: E2B_API_KEY, DEEPINFRA_API_KEY, PARALLEL_API_KEY)
+    # Load main env (API keys: E2B_API_KEY, FIREWORKS_API_KEY, PARALLEL_API_KEY)
     if [ -f "$PROJECT_DIR/.env" ]; then
         set -a
         source "$PROJECT_DIR/.env"
@@ -228,7 +228,7 @@ explore_trace() {
     sqlite3 "$DB_PATH" "SELECT final_answer FROM runs WHERE run_id = '$run_id';"
 }
 
-# Switch provider (local llama-server or cloud DeepInfra)
+# Switch provider (local llama-server or cloud providers)
 switch_provider() {
     local provider=$1
 
@@ -244,7 +244,18 @@ LLM_MODEL=gpt-oss-120b
 EOF
             provider="local (llama-server + gpt-oss-20b)"
             ;;
-        deepinfra|cloud|di)
+        fireworks|cloud|fw)
+            # Set for Fireworks (cloud)
+            cat > "$PROJECT_DIR/.env.provider" << 'EOF'
+# Provider: Fireworks (cloud Kimi K2.6)
+LLM_BASE_URL=https://api.fireworks.ai/inference/v1
+LLM_API_KEY=${FIREWORKS_API_KEY:-}
+LLM_ENDPOINT=chat_completions
+LLM_MODEL=accounts/fireworks/models/kimi-k2p6
+EOF
+            provider="fireworks (cloud Kimi K2.6)"
+            ;;
+        deepinfra|di)
             # Set for DeepInfra (cloud)
             cat > "$PROJECT_DIR/.env.provider" << 'EOF'
 # Provider: DeepInfra (cloud)
@@ -260,18 +271,19 @@ EOF
             if [ -f "$PROJECT_DIR/.env.provider" ]; then
                 cat "$PROJECT_DIR/.env.provider"
             else
-                echo "No provider set. Using config defaults (DeepInfra)."
+                echo "No provider set. Using config defaults (Fireworks Kimi K2.6)."
             fi
             echo ""
-            echo "Usage: ./dev.sh provider [local|deepinfra]"
+            echo "Usage: ./dev.sh provider [local|fireworks|deepinfra]"
             echo ""
             echo "  local     - llama-server @ localhost:8080 (gpt-oss-20b)"
+            echo "  fireworks - Fireworks cloud API (Kimi K2.6)"
             echo "  deepinfra - DeepInfra cloud API (gpt-oss-120b)"
             return
             ;;
         *)
             error "Unknown provider: $provider"
-            echo "Use: local, deepinfra"
+            echo "Use: local, fireworks, deepinfra"
             exit 1
             ;;
     esac
@@ -405,6 +417,6 @@ case "${1:-start}" in
         echo "  traces    View recent traces from database"
         echo "  explore   Explore a specific run: ./dev.sh explore <run_id>"
         echo "  status    Show service status"
-        echo "  provider  Switch LLM provider: ./dev.sh provider [local|deepinfra]"
+        echo "  provider  Switch LLM provider: ./dev.sh provider [local|fireworks|deepinfra]"
         ;;
 esac

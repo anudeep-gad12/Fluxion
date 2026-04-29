@@ -67,3 +67,4 @@ ui/dist/
 # GAIA benchmark results (generated, except best_runs)
 gaia_results/
 !gaia_results/best_runs/
+.codex/

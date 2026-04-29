@@ -25,6 +25,7 @@ from orchestrator.logging_config import (
     set_component,
     set_request_id,
 )
+from orchestrator.reasoning_controls import ReasoningSettings
 from orchestrator.schemas import (
     AgentCitationResponse,
     AgentRunStatusResponse,
@@ -36,6 +37,7 @@ from orchestrator.schemas import (
     RunArtifactResponse,
 )
 from orchestrator.storage.db import get_db
+from orchestrator.services.reasoning_settings import get_runtime_reasoning_settings
 from orchestrator.storage.repositories.agent_repo import AgentRepo
 from orchestrator.storage.repositories.trace_repo import TraceRepo
 
@@ -71,10 +73,7 @@ def get_session_context(request: Request) -> Tuple[Optional[str], bool]:
     Returns:
         Tuple of (session_id, is_owner).
     """
-    session_id = (
-        request.headers.get("x-cli-session")
-        or getattr(request.state, "session_id", None)
-    )
+    session_id = request.headers.get("x-cli-session") or getattr(request.state, "session_id", None)
     is_owner = getattr(request.state, "is_owner", True)
     return session_id, is_owner
 
@@ -99,6 +98,9 @@ _EVENT_TYPE_MAP = {
     "agent_resumed": "resumed",
     "steer_injected": "steer",
     "slow_response": "slow_response",
+    "usage_update": "usage_update",
+    "context_pruned": "context_pruned",
+    "conversation_compacted": "conversation_compacted",
 }
 
 
@@ -149,14 +151,49 @@ async def _persist_run_event(run_id: str, seq: int, event: Dict[str, Any]) -> No
     try:
         db = await get_db()
         repo = AgentRepo(db)
-        await repo.create_run_event(
-            run_id, seq, event.get("type", "unknown"), event
-        )
+        await repo.create_run_event(run_id, seq, event.get("type", "unknown"), event)
     except Exception as e:
         logger.warning(
             "Failed to persist run event",
             extra={"run_id": run_id, "seq": seq, "error": str(e)},
         )
+
+
+async def _restore_event_history_from_db(run_id: str) -> int:
+    """Restore persisted SSE events into memory for durable replay.
+
+    This lets browser reconnects recover a run timeline even after the
+    in-memory history has been cleaned up.
+    """
+    if _event_history.get(run_id):
+        return len(_event_history[run_id])
+
+    try:
+        db = await get_db()
+        repo = AgentRepo(db)
+        rows = await repo.get_run_events(run_id)
+    except Exception as e:
+        logger.warning(
+            "Failed to restore run events",
+            extra={"run_id": run_id, "error": str(e)},
+        )
+        return 0
+
+    restored: List[Dict[str, Any]] = []
+    for row in rows:
+        event_data = row.get("event_data") or {}
+        if isinstance(event_data, dict):
+            event = event_data.copy()
+            event.setdefault("seq", row.get("seq", 0))
+            restored.append(event)
+
+    if restored:
+        _event_history[run_id] = restored
+        logger.info(
+            "Restored run event history",
+            extra={"run_id": run_id, "events": len(restored)},
+        )
+    return len(restored)
 
 
 async def _cleanup_run(run_id: str, delay_seconds: float = 5.0) -> None:
@@ -214,6 +251,8 @@ async def _run_agent_task(
     permission_policy: str = "strict",
     profile_name: Optional[str] = None,
     python_provider: Optional[str] = None,
+    agent_capabilities: Optional[dict] = None,
+    reasoning_settings: Optional[ReasoningSettings] = None,
 ) -> None:
     """Background task that runs the agent.
 
@@ -230,6 +269,7 @@ async def _run_agent_task(
         permission_policy: Permission policy ("strict", "relaxed", "yolo").
         profile_name: Agent profile name ("research", "coding").
         python_provider: Python execution provider ("local" or "daytona").
+        agent_capabilities: Browser-owned tool capabilities for this run.
     """
     # Import here to avoid circular imports
     from orchestrator.agent.factory import create_agent_engine
@@ -265,6 +305,7 @@ async def _run_agent_task(
     try:
         # Resolve provider override — check local model first
         from orchestrator.providers.factory import get_provider_override
+
         provider_override = get_provider_override()
         if provider_override is not None:
             pass  # Local model is active, use it
@@ -341,9 +382,23 @@ async def _run_agent_task(
             filesystem_enabled=filesystem_enabled,
             working_dir=working_dir,
             approval_callback=approval_callback if permission_policy != "yolo" else None,
+            permission_policy=permission_policy,
             profile_name=profile_name,
             python_provider=python_provider,
+            agent_capabilities=agent_capabilities,
+            reasoning_settings=reasoning_settings,
         )
+        db = await get_db()
+        trace_repo = TraceRepo(db)
+        await trace_repo.update_run(
+            run_id,
+            usage_stats={
+                "context_profile": engine._context_profile_dict(),
+                "compaction_count": 0,
+                "last_compacted_at_step": None,
+            },
+        )
+
         result = await engine.run(
             run_id=run_id,
             query=query,
@@ -365,7 +420,12 @@ async def _run_agent_task(
                     "total_steps": result.total_steps,
                     "timing_ms": result.timing_ms,
                     "total_tokens": result.total_tokens,
+                    "usage": result.usage,
+                    "cost": result.cost,
                     "context_usage": result.context_usage,
+                    "context_profile": result.context_profile,
+                    "compaction_count": result.compaction_count,
+                    "last_compacted_at_step": result.last_compacted_at_step,
                 },
             }
             _event_history.setdefault(run_id, []).append(end_event)
@@ -409,6 +469,7 @@ async def create_agent_run(request: CreateAgentRunRequest, http_request: Request
     if not is_owner and session_id:
         from orchestrator.config import get_chat_config as _get_config
         from orchestrator.storage.db import get_db as _get_db
+
         _cfg = _get_config()
         if _cfg.demo and _cfg.demo.enabled:
             _limit = int(getattr(_cfg.demo, "message_limit", 10) or 10)
@@ -421,7 +482,9 @@ async def create_agent_run(request: CreateAgentRunRequest, http_request: Request
                 if (_row[0] if _row else 0) >= _limit:
                     raise HTTPException(
                         status_code=429,
-                        detail=f"Message limit reached. You can send {_limit} messages per session.",
+                        detail=(
+                            f"Message limit reached. You can send {_limit} messages per session."
+                        ),
                     )
 
     run_id = str(uuid.uuid4())
@@ -474,10 +537,20 @@ async def create_agent_run(request: CreateAgentRunRequest, http_request: Request
             if not conversation:
                 raise HTTPException(status_code=404, detail="Conversation not found")
 
+        workspace_path = request.workspace_path or request.working_dir
+        capabilities = request.capabilities.model_dump()
+        if workspace_path and request.filesystem_enabled:
+            capabilities["filesystem"] = True
+        reasoning_settings, _, _ = await get_runtime_reasoning_settings()
+
         # Create model config snapshot for agent
         model_config = {
             "mode": "agent",
             "max_steps": request.max_steps,
+            "workspace_path": workspace_path,
+            "capabilities": capabilities,
+            "permission_policy": request.permission_policy,
+            "reasoning_settings": reasoning_settings.model_dump(),
         }
 
         await trace_repo.create_run(
@@ -511,11 +584,13 @@ async def create_agent_run(request: CreateAgentRunRequest, http_request: Request
                 session_id=session_id,
                 provider_preference=provider_preference,
                 model_override=model_override,
-                filesystem_enabled=request.filesystem_enabled,
-                working_dir=request.working_dir,
+                filesystem_enabled=capabilities.get("filesystem", False),
+                working_dir=workspace_path,
                 permission_policy=request.permission_policy,
                 profile_name=request.profile,
                 python_provider=request.python_provider,
+                agent_capabilities=capabilities,
+                reasoning_settings=reasoning_settings,
             )
         )
 
@@ -585,6 +660,7 @@ async def get_agent_run_status(run_id: str, http_request: Request):
     # total_steps is the final step count when run completes
     current_step = run.get("current_step", 0)
     total_steps = current_step if status in ("succeeded", "failed") else None
+    usage_stats = run.get("usage") or {}
 
     return AgentRunStatusResponse(
         run_id=run_id,
@@ -595,6 +671,12 @@ async def get_agent_run_status(run_id: str, http_request: Request):
         max_steps=run.get("max_steps", 1000),
         final_answer=run.get("final_answer"),
         error_message=run.get("error_message"),
+        usage=usage_stats.get("usage"),
+        cost=usage_stats.get("cost"),
+        context_usage=usage_stats.get("context_usage"),
+        context_profile=usage_stats.get("context_profile"),
+        compaction_count=usage_stats.get("compaction_count", 0),
+        last_compacted_at_step=usage_stats.get("last_compacted_at_step"),
         created_at=run.get("created_at", ""),
         updated_at=run.get("updated_at"),
     )
@@ -639,6 +721,8 @@ async def stream_agent_events(
         )
         if not run:
             raise HTTPException(status_code=404, detail="Run not found")
+
+    await _restore_event_history_from_db(run_id)
 
     # Capture parent request ID for SSE context
     parent_request_id = get_request_id()
@@ -730,14 +814,22 @@ async def stream_agent_events(
                     run = await trace_repo.get_run(run_id)
                     if run:
                         status = run.get("status", "unknown")
-                        if status in ("succeeded", "failed"):
+                        if status in ("succeeded", "failed", "cancelled"):
+                            usage = run.get("usage") or {}
                             yield {
                                 "event": "complete",
                                 "data": json.dumps(
                                     {
                                         "run_id": run_id,
+                                        "success": status == "succeeded",
                                         "status": status,
                                         "final_answer": run.get("final_answer"),
+                                        "total_tokens": usage.get("total_tokens"),
+                                        "context_usage": usage.get("context_usage"),
+                                        "context_profile": usage.get("context_profile"),
+                                        "compaction_count": usage.get("compaction_count", 0),
+                                        "last_compacted_at_step": usage.get("last_compacted_at_step"),
+                                        "cost": usage.get("cost"),
                                     }
                                 ),
                             }
@@ -792,9 +884,7 @@ async def cancel_agent_run(run_id: str, http_request: Request):
             raise HTTPException(status_code=404, detail="Run not found")
 
     if run_id not in _active_runs:
-        raise HTTPException(
-            status_code=404, detail="Run not found or already completed"
-        )
+        raise HTTPException(status_code=404, detail="Run not found or already completed")
 
     # Signal abort
     if run_id in _abort_signals:
@@ -1013,6 +1103,22 @@ async def get_agent_run_trace(run_id: str, http_request: Request):
         for a in artifacts_raw
     ]
 
+    usage_stats = run.get("usage") or {}
+    run_events = await agent_repo.get_run_events(run_id)
+    system_events = [
+        {
+            "event_type": "conversation_compacted",
+            "message": (event.get("event_data") or {}).get(
+                "message", "Conversation compacted to preserve context window"
+            ),
+            "step_number": (event.get("event_data") or {}).get("step_number"),
+            "seq": event.get("seq"),
+            "created_at": event.get("created_at"),
+        }
+        for event in run_events
+        if event.get("event_type") == "conversation_compacted"
+    ]
+
     return AgentRunTraceResponse(
         run_id=run_id,
         status=run.get("status", "unknown"),
@@ -1021,7 +1127,14 @@ async def get_agent_run_trace(run_id: str, http_request: Request):
         tool_calls=tool_calls,
         citations=citations,
         artifacts=artifacts,
+        system_events=system_events,
         final_answer=run.get("final_answer"),
+        usage=usage_stats.get("usage"),
+        cost=usage_stats.get("cost"),
+        context_usage=usage_stats.get("context_usage"),
+        context_profile=usage_stats.get("context_profile"),
+        compaction_count=usage_stats.get("compaction_count", 0),
+        last_compacted_at_step=usage_stats.get("last_compacted_at_step"),
     )
 
 
@@ -1036,6 +1149,12 @@ async def approve_tool_call(run_id: str, tool_call_id: str, http_request: Reques
 
     Resolves the approval Future with True, allowing tool execution to proceed.
     """
+    session_id, is_owner = get_session_context(http_request)
+    if not is_owner and run_id in _run_sessions:
+        run_session = _run_sessions.get(run_id)
+        if run_session and run_session != session_id:
+            raise HTTPException(status_code=404, detail="Run not found")
+
     queues = _approval_queues.get(run_id, {})
     future = queues.get(tool_call_id)
 
@@ -1058,6 +1177,12 @@ async def deny_tool_call(run_id: str, tool_call_id: str, http_request: Request):
 
     Resolves the approval Future with False, blocking tool execution.
     """
+    session_id, is_owner = get_session_context(http_request)
+    if not is_owner and run_id in _run_sessions:
+        run_session = _run_sessions.get(run_id)
+        if run_session and run_session != session_id:
+            raise HTTPException(status_code=404, detail="Run not found")
+
     queues = _approval_queues.get(run_id, {})
     future = queues.get(tool_call_id)
 

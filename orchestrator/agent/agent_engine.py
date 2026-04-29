@@ -14,10 +14,13 @@ import re
 import time
 from dataclasses import dataclass, field
 from datetime import date
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
 from orchestrator.agent.context_pruner import ContextPruner
+from orchestrator.agent.permissions import classify_tool_call
 from orchestrator.context.budget import ContextBudget
+from orchestrator.context.context_profile import ModelContextProfile
 from orchestrator.context.history_builder import HistoryBuilder
 from orchestrator.agent.recovery import (
     build_recovery_messages,
@@ -29,6 +32,8 @@ from orchestrator.agent.state_machine import (
     RecoveryContext,
 )
 from orchestrator.logging_config import get_logger
+from orchestrator.providers.usage import add_usage, estimate_cost, normalize_usage
+from orchestrator.reasoning_controls import ReasoningSettings, apply_reasoning_settings
 from orchestrator.schemas import AgentStepState
 from orchestrator.utils.sanitize import sanitize_harmony_tokens
 
@@ -94,6 +99,11 @@ class AgentResult:
     timing_ms: int = 0
     total_tokens: int = 0
     context_usage: Optional[Dict[str, Any]] = None
+    context_profile: Optional[Dict[str, Any]] = None
+    compaction_count: int = 0
+    last_compacted_at_step: Optional[int] = None
+    usage: Optional[Dict[str, int]] = None
+    cost: Optional[Dict[str, Any]] = None
 
 
 @dataclass
@@ -111,6 +121,61 @@ class ParsedToolCall:
     name: str
     arguments: Dict[str, Any]
     raw_arguments: str
+
+
+@dataclass
+class WorkingMemory:
+    """Compact agent working memory used for prompt reconstruction."""
+
+    objective: str
+    files_inspected: Dict[str, str] = field(default_factory=dict)
+    files_changed: Dict[str, str] = field(default_factory=dict)
+    latest_diagnostics: List[str] = field(default_factory=list)
+    current_hypothesis: Optional[str] = None
+    recent_validation: Optional[str] = None
+    discoveries: List[str] = field(default_factory=list)
+
+    def render(self) -> str:
+        """Render compact working memory for model context."""
+        sections = [f"Objective: {self.objective}"]
+
+        if self.files_inspected:
+            inspected = "\n".join(
+                f"- {path}: {summary}"
+                for path, summary in list(self.files_inspected.items())[-8:]
+            )
+            sections.append(f"Files inspected:\n{inspected}")
+
+        if self.files_changed:
+            changed = "\n".join(
+                f"- {path}: {summary}"
+                for path, summary in list(self.files_changed.items())[-8:]
+            )
+            sections.append(f"Files changed:\n{changed}")
+
+        if self.discoveries:
+            sections.append(
+                "Recent discoveries:\n"
+                + "\n".join(f"- {item}" for item in self.discoveries[-8:])
+            )
+
+        if self.latest_diagnostics:
+            sections.append(
+                "Latest diagnostics:\n"
+                + "\n".join(f"- {item}" for item in self.latest_diagnostics[-6:])
+            )
+
+        if self.current_hypothesis:
+            sections.append(f"Current hypothesis: {self.current_hypothesis}")
+
+        if self.recent_validation:
+            sections.append(f"Recent validation: {self.recent_validation}")
+
+        sections.append(
+            "Use this working memory as the durable state. Raw tool outputs that follow "
+            "are only from the most recent tool step."
+        )
+        return "\n\n".join(sections)
 
 
 # =============================================================================
@@ -243,8 +308,10 @@ RESPONSE FORMAT:
 
 To provide your final answer, respond WITHOUT calling any tools."""
 
-    # Maximum characters for tool result content (prevents context blowout)
+    # Final emergency character floor after token-budget formatting.
     MAX_TOOL_RESULT_CHARS: int = 50000
+    COMPACTION_THRESHOLD_PCT: int = 90
+    COMPACTION_PREFIX: str = "Conversation compacted to preserve context window"
 
     def __init__(
         self,
@@ -252,9 +319,9 @@ To provide your final answer, respond WITHOUT calling any tools."""
         repo: "AgentRepo",
         registry: "ToolRegistry",
         trace_repo: Optional["TraceRepo"] = None,
-        model_name: str = "openai/gpt-oss-120b",
+        model_name: str = "accounts/fireworks/models/kimi-k2p6",
         max_steps: int = 1000,
-        max_tokens: int = 16384,
+        max_tokens: int = 32768,
         temperature: float = 0.7,
         system_prompt: Optional[str] = None,
         keep_full_steps: int = 10,
@@ -267,6 +334,13 @@ To provide your final answer, respond WITHOUT calling any tools."""
         permission_policy: str = "strict",
         profile: Optional["AgentProfile"] = None,
         reasoning_effort: Optional[str] = None,
+        reasoning_request_param: Optional[str] = None,
+        reasoning_provider_family: str = "generic",
+        reasoning_settings: Optional[ReasoningSettings] = None,
+        input_cost_per_million: Optional[float] = None,
+        cached_input_cost_per_million: Optional[float] = None,
+        output_cost_per_million: Optional[float] = None,
+        context_profile: Optional[ModelContextProfile] = None,
     ) -> None:
         """Initialize agent engine.
 
@@ -299,8 +373,14 @@ To provide your final answer, respond WITHOUT calling any tools."""
         self._repo = repo
         self._registry = registry
         self._trace_repo = trace_repo
-        # Use provider's default model if set (e.g. local MLX server)
-        self._model_name = getattr(provider, "_default_model", None) or model_name
+        # Use provider's default model if set (e.g. local MLX server).
+        # MagicMock creates attributes on demand, so only accept real strings.
+        provider_default_model = getattr(provider, "_default_model", None)
+        self._model_name = (
+            provider_default_model
+            if isinstance(provider_default_model, str) and provider_default_model
+            else model_name
+        )
         self._max_steps = max_steps
         self._max_tokens = max_tokens
         self._temperature = temperature
@@ -309,6 +389,23 @@ To provide your final answer, respond WITHOUT calling any tools."""
         self._tool_choice = tool_choice
         self._max_context_tokens = max_context_tokens
         self._slow_response_threshold = slow_response_threshold
+        self._context_profile = context_profile or ModelContextProfile(
+            provider_name="unknown",
+            model_id=self._model_name,
+            display_name=self._model_name,
+            context_window=max_context_tokens,
+            max_output_tokens=max_tokens,
+            supports_tools=True,
+            supports_reasoning=bool(reasoning_effort),
+            pricing={
+                "input_cost_per_million": input_cost_per_million,
+                "cached_input_cost_per_million": cached_input_cost_per_million,
+                "output_cost_per_million": output_cost_per_million,
+            },
+            source="config_fallback",
+        )
+        self._compaction_count = 0
+        self._last_compacted_at_step: Optional[int] = None
 
         # Agent profile
         self._profile = profile
@@ -319,6 +416,16 @@ To provide your final answer, respond WITHOUT calling any tools."""
 
         # Token accumulator for run stats
         self._total_tokens: int = 0
+        self._usage_totals: Dict[str, int] = {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "reasoning_tokens": 0,
+            "cached_tokens": 0,
+            "total_tokens": 0,
+        }
+        self._input_cost_per_million = input_cost_per_million
+        self._cached_input_cost_per_million = cached_input_cost_per_million
+        self._output_cost_per_million = output_cost_per_million
 
         # Planning configuration
         self._planning_enabled = planning_enabled
@@ -331,12 +438,210 @@ To provide your final answer, respond WITHOUT calling any tools."""
 
         # Reasoning config for providers like OpenRouter
         self._reasoning_effort = reasoning_effort
+        self._reasoning_request_param = reasoning_request_param
+        self._reasoning_provider_family = reasoning_provider_family
+        self._reasoning_settings = reasoning_settings or ReasoningSettings(
+            max_output_tokens=max_tokens,
+            reasoning_effort=reasoning_effort,
+        )
 
         # Context budget tracking
         self._context_budget: Optional[ContextBudget] = None
 
         # Run metrics accumulator
         self._tool_call_log: List[Dict[str, Any]] = []
+
+    def _reasoning_provider_kwargs(self) -> tuple[int, Dict[str, Any]]:
+        """Resolve provider-specific reasoning kwargs for the active model."""
+        kwargs = apply_reasoning_settings(
+            self._reasoning_settings,
+            provider_family=self._reasoning_provider_family,
+            supports_reasoning=bool(self._context_profile.supports_reasoning),
+        )
+        max_tokens = int(kwargs.pop("max_tokens", self._max_tokens))
+        return max_tokens, kwargs
+
+    def _build_prompt_messages(
+        self,
+        scaffold_messages: List[Dict[str, Any]],
+        working_memory: WorkingMemory,
+    ) -> List[Dict[str, Any]]:
+        """Assemble the actual prompt from run transcript and working memory."""
+        prompt_messages: List[Dict[str, Any]] = []
+        if scaffold_messages:
+            prompt_messages.append(scaffold_messages[0])
+            prompt_messages.append(
+                {
+                    "role": "system",
+                    "content": "WORKING MEMORY\n" + working_memory.render(),
+                    "_working_memory": True,
+                }
+            )
+            prompt_messages.extend(scaffold_messages[1:])
+        else:
+            prompt_messages.append(
+                {
+                    "role": "system",
+                    "content": "WORKING MEMORY\n" + working_memory.render(),
+                    "_working_memory": True,
+                }
+            )
+
+        return prompt_messages
+
+    def _summarize_assistant_content(self, content: Optional[str]) -> Optional[str]:
+        """Keep concise assistant decision text in long-lived scaffold."""
+        if not content:
+            return None
+        stripped = re.sub(r"<tool_call>.*?</tool_call>", "", content, flags=re.DOTALL).strip()
+        if not stripped:
+            return None
+        if len(stripped) > 400:
+            stripped = stripped[:397].rstrip() + "..."
+        return stripped
+
+    def _trim_scaffold_messages(
+        self,
+        scaffold_messages: List[Dict[str, Any]],
+        max_assistant_messages: int = 8,
+    ) -> List[Dict[str, Any]]:
+        """Keep system + user turns and only the most recent short assistant decisions."""
+        assistant_indices = [
+            idx
+            for idx, msg in enumerate(scaffold_messages)
+            if idx > 0 and msg.get("role") == "assistant"
+        ]
+        if len(assistant_indices) <= max_assistant_messages:
+            return scaffold_messages
+
+        keep_assistant = set(assistant_indices[-max_assistant_messages:])
+        trimmed: List[Dict[str, Any]] = []
+        for idx, msg in enumerate(scaffold_messages):
+            if idx == 0 or msg.get("role") != "assistant" or idx in keep_assistant:
+                trimmed.append(msg)
+        return trimmed
+
+    def _update_working_memory_from_tools(
+        self,
+        memory: WorkingMemory,
+        tool_results: List[tuple[ParsedToolCall, "ToolResult"]],
+    ) -> None:
+        """Fold tool results into compact structured memory."""
+        for tool_call, result in tool_results:
+            summary = result.result_summary.strip()
+            if tool_call.name == "read_file":
+                file_path = str(tool_call.arguments.get("file_path", "unknown"))
+                excerpt = self._extract_read_file_excerpt(result.result_data)
+                memory.files_inspected[file_path] = (
+                    f"{summary}. Key excerpt: {excerpt}" if excerpt else summary
+                )[:500]
+                memory.current_hypothesis = f"Latest inspected file: {file_path}"
+            elif tool_call.name in ("edit_file", "write_file"):
+                file_path = str(tool_call.arguments.get("file_path", "unknown"))
+                diff_summary = self._summarize_diff(result.result_data) or summary
+                memory.files_changed[file_path] = diff_summary[:500]
+                memory.current_hypothesis = f"Changed {file_path}"
+            elif tool_call.name == "bash":
+                memory.recent_validation = summary
+                diagnostics = self._extract_bash_diagnostics(result.result_data, summary)
+                memory.latest_diagnostics = diagnostics
+            elif tool_call.name in ("grep", "glob", "list_directory"):
+                discovery = self._summarize_discovery(tool_call, result)
+                if discovery:
+                    memory.discoveries.append(discovery)
+                    memory.discoveries = memory.discoveries[-12:]
+            else:
+                memory.discoveries.append(f"{tool_call.name}: {summary}")
+                memory.discoveries = memory.discoveries[-12:]
+
+    def _extract_read_file_excerpt(self, result_data: Any) -> Optional[str]:
+        """Extract a tiny code/text excerpt from read_file output."""
+        if not isinstance(result_data, str):
+            return None
+        cleaned_lines = []
+        for line in result_data.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            if "\t" in line:
+                line = line.split("\t", 1)[1].strip()
+            cleaned_lines.append(line)
+            if len(cleaned_lines) >= 3:
+                break
+        if not cleaned_lines:
+            return None
+        excerpt = " | ".join(cleaned_lines)
+        return excerpt[:240]
+
+    def _summarize_diff(self, result_data: Any) -> Optional[str]:
+        """Compress a diff into a short description."""
+        if not isinstance(result_data, str):
+            return None
+        additions = 0
+        removals = 0
+        preview: List[str] = []
+        for line in result_data.splitlines():
+            if line.startswith("+++ ") or line.startswith("--- ") or line.startswith("@@"):
+                continue
+            if line.startswith("+"):
+                additions += 1
+                if len(preview) < 3:
+                    preview.append(line[1:].strip())
+            elif line.startswith("-"):
+                removals += 1
+        summary = f"{additions} additions, {removals} removals"
+        if preview:
+            summary += "; examples: " + " | ".join(item[:120] for item in preview)
+        return summary
+
+    def _extract_bash_diagnostics(self, result_data: Any, fallback: str) -> List[str]:
+        """Keep only actionable bash diagnostics."""
+        if not isinstance(result_data, dict):
+            return [fallback]
+        diagnostics: List[str] = []
+        exit_code = result_data.get("exit_code")
+        if exit_code is not None:
+            diagnostics.append(f"exit_code={exit_code}")
+        if result_data.get("timed_out"):
+            diagnostics.append("command timed out")
+        combined = "\n".join(
+            part for part in [result_data.get("stderr"), result_data.get("stdout")] if part
+        )
+        for line in combined.splitlines():
+            stripped = line.strip()
+            if not stripped:
+                continue
+            lowered = stripped.lower()
+            if (
+                "error" in lowered
+                or "warning" in lowered
+                or "failed" in lowered
+                or re.search(r":[0-9]+(?::[0-9]+)?", stripped)
+            ):
+                diagnostics.append(stripped[:240])
+            if len(diagnostics) >= 6:
+                break
+        if not diagnostics:
+            diagnostics.append(fallback)
+        return diagnostics[:6]
+
+    def _summarize_discovery(
+        self,
+        tool_call: ParsedToolCall,
+        result: "ToolResult",
+    ) -> Optional[str]:
+        """Summarize grep/glob/listing results into a compact fact."""
+        if tool_call.name == "grep":
+            pattern = tool_call.arguments.get("pattern", "")
+            path = tool_call.arguments.get("path", "")
+            return f"grep '{pattern}' in {path or '.'}: {result.result_summary}"[:400]
+        if tool_call.name == "glob":
+            pattern = tool_call.arguments.get("pattern", "")
+            return f"glob '{pattern}': {result.result_summary}"[:400]
+        if tool_call.name == "list_directory":
+            path = tool_call.arguments.get("path", "")
+            return f"listed {path or '.'}: {result.result_summary}"[:400]
+        return None
 
     async def run(
         self,
@@ -368,6 +673,13 @@ To provide your final answer, respond WITHOUT calling any tools."""
         self._findings = []
         self._current_query = query
         self._total_tokens = 0
+        self._usage_totals = {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "reasoning_tokens": 0,
+            "cached_tokens": 0,
+            "total_tokens": 0,
+        }
         self._tool_call_log = []
 
         # Emit start event
@@ -392,8 +704,9 @@ To provide your final answer, respond WITHOUT calling any tools."""
         try:
             recovery_context = await state_machine.initialize()
 
-            # Build initial messages (includes conversation history if available)
+            # Build initial scaffold from system prompt + turn summaries.
             messages, self._context_budget = await self._build_initial_messages(query, conversation_id)
+            working_memory = WorkingMemory(objective=query)
 
             # Handle recovery if needed
             if recovery_context.needs_recovery:
@@ -443,18 +756,42 @@ To provide your final answer, respond WITHOUT calling any tools."""
             # Step metadata for context pruning (maps tool_call_id -> step_number)
             step_metadata: Dict[str, int] = {}
             tool_steps_completed = 0
+            consecutive_filtered_steps = 0
 
             # Main agent loop
             while state_machine.can_continue():
                 step = await state_machine.start_step()
                 step_number = step["step_number"]
 
-                # Estimate context tokens for budget tracking
-                effective_budget = self._max_context_tokens - self._max_tokens
-                estimated_tokens = self._pruner.estimate_tokens(messages)
-                context_remaining = max(0, self._max_context_tokens - estimated_tokens)
+                # Drain any pending steering messages before prompt assembly.
+                if steer_queue:
+                    while steer_queue:
+                        steer_msg = steer_queue.pop(0)
+                        messages.append({"role": "user", "content": steer_msg})
+                        self._emit(
+                            event_callback,
+                            "steer_injected",
+                            run_id=run_id,
+                            content=steer_msg,
+                            step_number=step_number,
+                        )
+                        logger.info(
+                            "Steering message injected",
+                            extra={"run_id": run_id, "step": step_number, "steer_content": steer_msg[:80]},
+                        )
 
-                # Update budget with actual per-step context usage
+                prompt_messages = self._build_prompt_messages(
+                    scaffold_messages=messages,
+                    working_memory=working_memory,
+                )
+
+                pruned_messages, context_usage_payload, compacted_now = self._enforce_prompt_budget(
+                    prompt_messages,
+                    step_number,
+                )
+                estimated_tokens = context_usage_payload["prompt_tokens_current_call"]
+                context_remaining = context_usage_payload["remaining_tokens"]
+
                 if self._context_budget:
                     fixed_tokens = (
                         self._context_budget.system_prompt_tokens
@@ -470,12 +807,15 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     step_number=step_number,
                     steps_remaining=state_machine.steps_remaining,
                     context_tokens=estimated_tokens,
-                    context_max=self._max_context_tokens,
+                    context_max=self._context_profile.context_window,
                     context_remaining=context_remaining,
                     total_tokens_used=self._total_tokens,
+                    context_usage=context_usage_payload,
+                    context_profile=self._context_profile_dict(),
+                    compaction_count=self._compaction_count,
+                    last_compacted_at_step=self._last_compacted_at_step,
                 )
 
-                # Trace: step_start
                 await self._add_trace_event(
                     run_id=run_id,
                     event_type="step_start",
@@ -483,56 +823,40 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         "step_number": step_number,
                         "steps_remaining": state_machine.steps_remaining,
                         "context_tokens": estimated_tokens,
-                        "context_max": self._max_context_tokens,
+                        "context_max": self._context_profile.context_window,
+                        "context_usage": context_usage_payload,
+                        "context_profile": self._context_profile_dict(),
                     },
                     step_number=step_number,
                 )
-                pruned_messages = messages
 
-                if estimated_tokens > effective_budget:
-                    prune_iterations = 0
-                    max_prune_iterations = 20
-
-                    while estimated_tokens > effective_budget and prune_iterations < max_prune_iterations:
-                        prune_iterations += 1
-                        logger.warning(
-                            "Context exceeds budget, force pruning",
-                            extra={
-                                "estimated_tokens": estimated_tokens,
-                                "max_context_tokens": self._max_context_tokens,
-                                "iteration": prune_iterations,
-                                "step": step_number,
-                            },
-                        )
-                        pruned_messages = self._force_prune_largest(pruned_messages, step_metadata)
-                        estimated_tokens = self._pruner.estimate_tokens(pruned_messages)
-
-                    logger.info(
-                        "Context budget enforced",
-                        extra={
-                            "prune_iterations": prune_iterations,
-                            "final_estimated_tokens": estimated_tokens,
-                            "messages_count": len(pruned_messages),
-                        },
+                if compacted_now:
+                    context_usage_payload = self._current_context_usage_payload(
+                        self._pruner.estimate_tokens(pruned_messages)
                     )
-
-                # Drain any pending steering messages before LLM call
-                if steer_queue:
-                    while steer_queue:
-                        steer_msg = steer_queue.pop(0)
-                        messages.append({"role": "user", "content": steer_msg})
-                        pruned_messages.append({"role": "user", "content": steer_msg})
-                        self._emit(
-                            event_callback,
-                            "steer_injected",
-                            run_id=run_id,
-                            content=steer_msg,
-                            step_number=step_number,
-                        )
-                        logger.info(
-                            "Steering message injected",
-                            extra={"run_id": run_id, "step": step_number, "steer_content": steer_msg[:80]},
-                        )
+                    self._emit(
+                        event_callback,
+                        "conversation_compacted",
+                        run_id=run_id,
+                        step_number=step_number,
+                        message=self.COMPACTION_PREFIX,
+                        context_usage=context_usage_payload,
+                        context_profile=self._context_profile_dict(),
+                        compaction_count=self._compaction_count,
+                    )
+                    await self._add_trace_event(
+                        run_id=run_id,
+                        event_type="conversation_compacted",
+                        content={
+                            "step_number": step_number,
+                            "message": self.COMPACTION_PREFIX,
+                            "context_usage": context_usage_payload,
+                            "context_profile": self._context_profile_dict(),
+                            "compaction_count": self._compaction_count,
+                        },
+                        actor="system",
+                        step_number=step_number,
+                    )
 
                 # Call LLM with tools
                 tool_schemas = self._registry.get_openai_schemas()
@@ -580,6 +904,11 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         total_steps=step_number,
                         timing_ms=int((time.perf_counter() - start_time) * 1000),
                         total_tokens=self._total_tokens,
+                        context_profile=self._context_profile_dict(),
+                        compaction_count=self._compaction_count,
+                        last_compacted_at_step=self._last_compacted_at_step,
+                        usage=self._usage_totals.copy(),
+                        cost=self._current_cost(),
                     )
 
                 # Extract thinking: Harmony format <think> tags OR native reasoning
@@ -640,9 +969,22 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     token_count=llm_response.usage.get("total_tokens"),
                 )
 
-                # Accumulate tokens for run stats
-                if llm_response.usage.get("total_tokens"):
-                    self._total_tokens += llm_response.usage["total_tokens"]
+                # Accumulate normalized token usage for run stats/cost display.
+                normalized_usage = self._record_usage(llm_response.usage)
+                self._emit(
+                    event_callback,
+                    "usage_update",
+                    run_id=run_id,
+                    usage=self._usage_totals,
+                    latest_usage=normalized_usage,
+                    cost=self._current_cost(),
+                    context_usage=self._current_context_usage_payload(
+                        self._pruner.estimate_tokens(pruned_messages)
+                    ),
+                    context_profile=self._context_profile_dict(),
+                    compaction_count=self._compaction_count,
+                    last_compacted_at_step=self._last_compacted_at_step,
+                )
 
                 # Model was truncated (hit max_tokens) — partial content
                 # is not a final answer, the model may have been mid-tool-call
@@ -658,16 +1000,18 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     if llm_response.text:
                         messages.append({
                             "role": "assistant",
-                            "content": llm_response.text,
+                            "content": self._summarize_assistant_content(llm_response.text),
                         })
                     messages.append({
                         "role": "user",
                         "content": "Continue. Provide your final answer or call a tool.",
                     })
+                    messages = self._trim_scaffold_messages(messages)
                     await state_machine.complete_step(
                         decision="truncated",
                         thinking_text=thinking_text,
                     )
+                    consecutive_filtered_steps = 0
                     continue
 
                 if tool_calls:
@@ -691,7 +1035,47 @@ To provide your final answer, respond WITHOUT calling any tools."""
                                 decision="filtered",
                                 thinking_text=thinking_text,
                             )
-                            continue
+                            consecutive_filtered_steps += 1
+                            if consecutive_filtered_steps >= 2:
+                                logger.warning(
+                                    "Model repeated filtered tool calls; forcing synthesis",
+                                    extra={
+                                        "run_id": run_id,
+                                        "step_number": step_number,
+                                        "consecutive_filtered_steps": consecutive_filtered_steps,
+                                        "reasons": reasons,
+                                    },
+                                )
+                                final_answer = await self._force_synthesis(
+                                    messages=self._build_prompt_messages(
+                                        scaffold_messages=messages,
+                                        working_memory=working_memory,
+                                    ),
+                                    event_callback=event_callback,
+                                    run_id=run_id,
+                                )
+                                return await self._finalize_successful_run(
+                                    final_answer=final_answer,
+                                    messages=messages,
+                                    state_machine=state_machine,
+                                    step_number=step_number,
+                                    start_time=start_time,
+                                    event_callback=event_callback,
+                                    run_id=run_id,
+                                    query=query,
+                                    forced_synthesis=True,
+                                )
+
+                        messages.append(
+                            {
+                                "role": "user",
+                                "content": (
+                                    "Do not repeat filtered or duplicate tool calls. "
+                                    "Either provide the final answer now or choose a genuinely different tool call."
+                                ),
+                            }
+                        )
+                        continue
 
                     # Tool calling step
                     await state_machine.transition_to(AgentStepState.TOOL_CALLING)
@@ -706,40 +1090,33 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         step_metadata=step_metadata,
                     )
 
-                    # Add assistant message with tool calls
-                    # Include truncated reasoning for context so model doesn't re-analyze
-                    # each step. Limit to ~500 chars to avoid 400 errors with some providers.
-                    # Strip <tool_call> XML from text so it doesn't pollute conversation history
-                    assistant_content = llm_response.text
-                    if assistant_content and "<tool_call>" in assistant_content:
-                        import re as _re
-                        assistant_content = _re.sub(
-                            r"<tool_call>.*?</tool_call>", "", assistant_content, flags=_re.DOTALL
-                        ).strip() or None
-                    if not assistant_content and llm_response.reasoning:
-                        # Use last portion of reasoning (most relevant to decision)
-                        reasoning = llm_response.reasoning.strip()
-                        if len(reasoning) > 500:
-                            # Take last 500 chars to preserve the conclusion/decision
-                            assistant_content = "..." + reasoning[-500:]
-                        else:
-                            assistant_content = reasoning
-                    messages.append(
-                        {
-                            "role": "assistant",
-                            "content": assistant_content or None,
-                            "tool_calls": tool_calls,
-                        }
-                    )
-
-                    # Add tool results as tool messages
+                    # Add assistant message with tool calls. Historical reasoning stays
+                    # in DB/UI only and is never re-injected into future prompts.
+                    assistant_content = self._summarize_assistant_content(llm_response.text)
+                    if assistant_content:
+                        messages.append(
+                            {
+                                "role": "assistant",
+                                "content": assistant_content,
+                                "tool_calls": tool_calls,
+                            }
+                        )
+                    else:
+                        messages.append(
+                            {
+                                "role": "assistant",
+                                "content": None,
+                                "tool_calls": tool_calls,
+                            }
+                        )
+                    self._update_working_memory_from_tools(working_memory, tool_results)
                     for tool_call, result in tool_results:
                         messages.append(
                             {
                                 "role": "tool",
                                 "tool_call_id": tool_call.id,
                                 "name": tool_call.name,
-                                "content": self._format_tool_result(result),
+                                "content": self._format_tool_result(result, tool_call.name),
                                 "_step": step_number,
                             }
                         )
@@ -767,6 +1144,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         self._update_plan_progress(parsed_calls, step_number)
 
                     tool_steps_completed += 1
+                    consecutive_filtered_steps = 0
 
                     await state_machine.complete_step(
                         decision="call_tool",
@@ -827,14 +1205,13 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         )
 
                     # Append assistant response to messages for cross-turn context.
-                    # Without this, _store_conversation_messages saves [system, user]
-                    # missing the answer, causing the next turn to see two consecutive
-                    # user messages with no assistant reply between them.
+                    # Keep only final answer text in long-lived scaffold.
                     if final_answer:
                         messages.append({
                             "role": "assistant",
                             "content": final_answer,
                         })
+                    messages = self._trim_scaffold_messages(messages)
 
                     # Emit answer as answer_token so UI displays it in answer panel
                     # (streaming sent it to thinking, now send cleaned version to answer)
@@ -846,135 +1223,41 @@ To provide your final answer, respond WITHOUT calling any tools."""
                             content=final_answer,
                         )
 
-                    # Extract and store citations
-                    citations = await self._extract_and_store_citations(
-                        run_id=run_id,
-                        answer=final_answer,
-                    )
-
                     await state_machine.complete_step(
                         decision="synthesize",
                         thinking_text=thinking_text,
                     )
-                    await state_machine.complete_run(final_answer)
-
-                    # Trace: agent_complete
-                    total_timing_ms = int((time.perf_counter() - start_time) * 1000)
-
-                    # Build context_usage payload
-                    _ctx = {}
-                    if self._context_budget:
-                        _ctx = {
-                            "total_tokens_used": self._context_budget.total_used,
-                            "history_tokens": self._context_budget.history_tokens,
-                            "max_tokens": self._max_context_tokens,
-                            "utilization_pct": round(self._context_budget.utilization_pct, 1),
-                        }
-
-                    self._emit(
-                        event_callback,
-                        "agent_complete",
-                        run_id=run_id,
-                        success=True,
+                    return await self._finalize_successful_run(
                         final_answer=final_answer,
-                        citations=citations,
-                        total_steps=step_number,
-                        timing_ms=total_timing_ms,
-                        context_usage=_ctx if _ctx else None,
-                    )
-                    await self._add_trace_event(
+                        messages=messages,
+                        state_machine=state_machine,
+                        step_number=step_number,
+                        start_time=start_time,
+                        event_callback=event_callback,
                         run_id=run_id,
-                        event_type="agent_complete",
-                        content={
-                            "success": True,
-                            "total_steps": step_number,
-                            "answer_length": len(final_answer) if final_answer else 0,
-                            "citations_count": len(citations),
-                        },
-                        duration_ms=total_timing_ms,
-                    )
-
-                    # Compute and store run metrics + turn summary
-                    await self._store_run_metrics(run_id, total_timing_ms)
-                    await self._store_turn_summary(run_id, query, final_answer)
-                    await self._store_conversation_messages(run_id, messages)
-
-                    return AgentResult(
-                        run_id=run_id,
-                        success=True,
-                        final_answer=final_answer,
-                        citations=citations,
-                        total_steps=step_number,
-                        timing_ms=total_timing_ms,
-                        total_tokens=self._total_tokens,
-                        context_usage=_ctx if _ctx else None,
+                        query=query,
                     )
 
             # Max steps reached - force synthesis
             final_answer = await self._force_synthesis(
-                messages=messages,
+                messages=self._build_prompt_messages(
+                    scaffold_messages=messages,
+                    working_memory=working_memory,
+                ),
                 event_callback=event_callback,
                 run_id=run_id,
             )
 
-            citations = await self._extract_and_store_citations(
-                run_id=run_id,
-                answer=final_answer,
-            )
-
-            await state_machine.complete_run(final_answer)
-
-            # Trace: agent_complete (max steps)
-            total_timing_ms = int((time.perf_counter() - start_time) * 1000)
-
-            # Build context_usage payload
-            _ctx2 = {}
-            if self._context_budget:
-                _ctx2 = {
-                    "total_tokens_used": self._context_budget.total_used,
-                    "history_tokens": self._context_budget.history_tokens,
-                    "max_tokens": self._max_context_tokens,
-                    "utilization_pct": round(self._context_budget.utilization_pct, 1),
-                }
-
-            self._emit(
-                event_callback,
-                "agent_complete",
-                run_id=run_id,
-                success=True,
+            return await self._finalize_successful_run(
                 final_answer=final_answer,
-                citations=citations,
-                total_steps=state_machine.current_step,
-                timing_ms=total_timing_ms,
-                context_usage=_ctx2 if _ctx2 else None,
-            )
-            await self._add_trace_event(
+                messages=messages,
+                state_machine=state_machine,
+                step_number=state_machine.current_step,
+                start_time=start_time,
+                event_callback=event_callback,
                 run_id=run_id,
-                event_type="agent_complete",
-                content={
-                    "success": True,
-                    "total_steps": state_machine.current_step,
-                    "answer_length": len(final_answer) if final_answer else 0,
-                    "citations_count": len(citations),
-                    "forced_synthesis": True,
-                },
-                duration_ms=total_timing_ms,
-            )
-
-            # Compute and store run metrics + turn summary
-            await self._store_run_metrics(run_id, total_timing_ms)
-            await self._store_turn_summary(run_id, query, final_answer)
-            await self._store_conversation_messages(run_id, messages)
-
-            return AgentResult(
-                run_id=run_id,
-                success=True,
-                final_answer=final_answer,
-                citations=citations,
-                total_steps=state_machine.current_step,
-                timing_ms=total_timing_ms,
-                total_tokens=self._total_tokens,
-                context_usage=_ctx2 if _ctx2 else None,
+                query=query,
+                forced_synthesis=True,
             )
 
         except MaxStepsExceededError:
@@ -987,6 +1270,8 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 total_steps=state_machine.current_step,
                 timing_ms=int((time.perf_counter() - start_time) * 1000),
                 total_tokens=self._total_tokens,
+                usage=self._usage_totals.copy(),
+                cost=self._current_cost(),
             )
         except Exception as e:
             logger.error(
@@ -1026,6 +1311,8 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 total_steps=state_machine.current_step,
                 timing_ms=total_timing_ms,
                 total_tokens=self._total_tokens,
+                usage=self._usage_totals.copy(),
+                cost=self._current_cost(),
             )
 
     # =========================================================================
@@ -1047,6 +1334,207 @@ To provide your final answer, respond WITHOUT calling any tools."""
         """
         if callback:
             callback({"type": event_type, **kwargs})
+
+    def _context_profile_dict(self) -> Dict[str, Any]:
+        return self._context_profile.to_dict()
+
+    def _current_context_usage_payload(
+        self,
+        prompt_tokens_current_call: int,
+    ) -> Dict[str, Any]:
+        effective_budget = self._context_profile.effective_input_budget
+        remaining = max(0, effective_budget - prompt_tokens_current_call)
+        utilization_pct = (prompt_tokens_current_call / effective_budget * 100) if effective_budget else 0.0
+        return {
+            "context_window": self._context_profile.context_window,
+            "reserved_output_tokens": self._context_profile.max_output_tokens,
+            "effective_input_budget": effective_budget,
+            "prompt_tokens_current_call": prompt_tokens_current_call,
+            "conversation_tokens_active_history": prompt_tokens_current_call,
+            "utilization_pct_effective": round(utilization_pct, 1),
+            "utilization_pct": round(utilization_pct, 1),
+            "compaction_threshold_pct": self.COMPACTION_THRESHOLD_PCT,
+            "next_compaction_at_tokens": int(effective_budget * self.COMPACTION_THRESHOLD_PCT / 100),
+            "remaining_tokens": remaining,
+            "compactions_so_far": self._compaction_count,
+            "compaction_count": self._compaction_count,
+            "last_compacted_at_step": self._last_compacted_at_step,
+        }
+
+    def _is_compaction_message(self, message: Dict[str, Any]) -> bool:
+        return message.get("role") == "system" and str(message.get("content") or "").startswith(self.COMPACTION_PREFIX)
+
+    def _find_latest_compaction_index(self, messages: List[Dict[str, Any]]) -> Optional[int]:
+        for idx in range(len(messages) - 1, -1, -1):
+            if self._is_compaction_message(messages[idx]):
+                return idx
+        return None
+
+    def _tool_log_entries_up_to_step(self, step_number: int) -> List[Dict[str, Any]]:
+        return [entry for entry in self._tool_call_log if entry.get("step_number", 0) <= step_number]
+
+    def _build_compaction_summary(
+        self,
+        messages_to_compact: List[Dict[str, Any]],
+        step_number: int,
+    ) -> str:
+        user_messages = [str(m.get("content") or "").strip() for m in messages_to_compact if m.get("role") == "user" and str(m.get("content") or "").strip()]
+        assistant_messages = [str(m.get("content") or "").strip() for m in messages_to_compact if m.get("role") == "assistant" and str(m.get("content") or "").strip()]
+        tool_entries = self._tool_log_entries_up_to_step(step_number)
+
+        files_inspected: List[str] = []
+        files_changed: List[str] = []
+        command_outcomes: List[str] = []
+        web_sources: List[str] = []
+        findings: List[str] = []
+
+        for entry in tool_entries:
+            tool_name = entry.get("tool_name", "")
+            arguments = entry.get("arguments", {}) or {}
+            summary = str(entry.get("result_summary") or "").strip()
+            if tool_name == "read_file" and arguments.get("file_path"):
+                files_inspected.append(str(arguments.get("file_path")))
+            elif tool_name == "grep" and arguments.get("path"):
+                files_inspected.append(str(arguments.get("path")))
+            elif tool_name in {"write_file", "edit_file"} and arguments.get("file_path"):
+                files_changed.append(str(arguments.get("file_path")))
+            elif tool_name == "bash" and summary:
+                command_outcomes.append(summary)
+            elif tool_name == "web_extract":
+                for url in arguments.get("urls", [])[:2]:
+                    web_sources.append(str(url))
+            elif tool_name == "web_search" and summary:
+                findings.append(summary)
+            if summary and tool_name in {"read_file", "grep", "python_execute", "web_extract"}:
+                findings.append(summary)
+
+        def _uniq(items: List[str], limit: int) -> List[str]:
+            seen = []
+            for item in items:
+                clean = item.strip()
+                if clean and clean not in seen:
+                    seen.append(clean)
+                if len(seen) >= limit:
+                    break
+            return seen
+
+        if self._profile and self._profile.name == "coding":
+            sections = [
+                self.COMPACTION_PREFIX,
+                "",
+                "Compacted coding context:",
+                f"- Repo/workspace: {getattr(self._profile, 'name', 'coding')} profile active.",
+            ]
+            if user_messages:
+                sections.append(f"- User goals and constraints: {' | '.join(_uniq(user_messages, 3))[:1200]}")
+            if files_inspected:
+                sections.append(f"- Files inspected: {', '.join(_uniq(files_inspected, 12))}")
+            if files_changed:
+                sections.append(f"- Files changed: {', '.join(_uniq(files_changed, 12))}")
+            if command_outcomes:
+                sections.append(f"- Command outcomes: {'; '.join(_uniq(command_outcomes, 6))[:1200]}")
+            if findings:
+                sections.append(f"- Important findings: {'; '.join(_uniq(findings, 6))[:1200]}")
+            if web_sources:
+                sections.append(f"- Sources consulted: {', '.join(_uniq(web_sources, 6))}")
+            if assistant_messages:
+                sections.append(f"- Unresolved implementation state: {assistant_messages[-1][:700]}")
+            sections.append(f"- Runtime state: model={self._context_profile.display_name}, compactions={self._compaction_count + 1}.")
+            return "\n".join(sections)
+
+        sections = [
+            self.COMPACTION_PREFIX,
+            "",
+            "Compacted conversation context:",
+        ]
+        if user_messages:
+            sections.append(f"- User intent: {' | '.join(_uniq(user_messages, 3))[:1200]}")
+        if findings:
+            sections.append(f"- Important facts: {'; '.join(_uniq(findings, 6))[:1200]}")
+        if assistant_messages:
+            sections.append(f"- Conclusions so far: {assistant_messages[-1][:900]}")
+        sections.append("- Open questions: continue from the most recent raw messages after this compaction.")
+        return "\n".join(sections)
+
+    def _compact_conversation(
+        self,
+        messages: List[Dict[str, Any]],
+        step_number: int,
+    ) -> List[Dict[str, Any]]:
+        if len(messages) <= 2:
+            return messages
+        base_system = messages[0]
+        latest_compaction_idx = self._find_latest_compaction_index(messages)
+        tail_messages: List[Dict[str, Any]] = []
+        if messages and messages[-1].get("role") == "user":
+            tail_messages = [messages[-1]]
+
+        cutoff_end = len(messages) - len(tail_messages)
+        start_idx = 1
+        if latest_compaction_idx is not None:
+            start_idx = latest_compaction_idx
+        messages_to_compact = messages[start_idx:cutoff_end]
+        if not messages_to_compact:
+            return messages
+
+        summary = self._build_compaction_summary(messages_to_compact, step_number)
+        compacted = [base_system, {"role": "system", "content": summary}] + tail_messages
+        self._compaction_count += 1
+        self._last_compacted_at_step = step_number
+        return compacted
+
+    def _enforce_prompt_budget(
+        self,
+        messages: List[Dict[str, Any]],
+        step_number: int,
+    ) -> tuple[List[Dict[str, Any]], Dict[str, Any], bool]:
+        effective_budget = self._context_profile.effective_input_budget
+        threshold_tokens = int(effective_budget * self.COMPACTION_THRESHOLD_PCT / 100)
+        prompt_tokens = self._pruner.estimate_tokens(messages)
+        compacted_now = False
+
+        if prompt_tokens >= threshold_tokens:
+            compacted_messages = self._compact_conversation(messages, step_number)
+            if compacted_messages is not messages:
+                messages = compacted_messages
+                prompt_tokens = self._pruner.estimate_tokens(messages)
+                compacted_now = True
+
+        if prompt_tokens > effective_budget:
+            prune_iterations = 0
+            while prompt_tokens > effective_budget and prune_iterations < 20:
+                prune_iterations += 1
+                messages = self._force_prune_largest(messages, {})
+                prompt_tokens = self._pruner.estimate_tokens(messages)
+            if prune_iterations:
+                logger.warning(
+                    "Emergency prompt truncation applied after compaction",
+                    extra={
+                        "step_number": step_number,
+                        "prune_iterations": prune_iterations,
+                        "prompt_tokens": prompt_tokens,
+                        "effective_budget": effective_budget,
+                    },
+                )
+
+        usage_payload = self._current_context_usage_payload(prompt_tokens)
+        return messages, usage_payload, compacted_now
+
+    def _record_usage(self, raw_usage: dict[str, Any] | None) -> dict[str, int]:
+        """Normalize and accumulate LLM token usage."""
+        usage = normalize_usage(raw_usage)
+        add_usage(self._usage_totals, usage)
+        self._total_tokens = self._usage_totals.get("total_tokens", 0)
+        return usage
+
+    def _current_cost(self) -> Optional[dict[str, Any]]:
+        """Return estimated cost for accumulated usage, if pricing is known."""
+        return estimate_cost(
+            self._usage_totals,
+            self._input_cost_per_million,
+            self._output_cost_per_million,
+            self._cached_input_cost_per_million,
+        )
 
     async def _add_trace_event(
         self,
@@ -1280,12 +1768,8 @@ When you complete each step, proceed to the next."""
     ) -> tuple[List[Dict[str, Any]], ContextBudget]:
         """Build initial message list with system prompt, history, and query.
 
-        First checks for stored full message context from a prior run in the
-        same conversation. If found, appends the new query to preserve tool
-        call results and file contents across turns.
-
-        Falls back to HistoryBuilder (turn summaries) for first messages or
-        when no prior context is available.
+        Uses HistoryBuilder turn summaries for cross-turn continuity. Agent
+        prompt replay no longer resumes from prior serialized tool transcripts.
 
         Args:
             query: User's research query.
@@ -1295,41 +1779,6 @@ When you complete each step, proceed to the next."""
             Tuple of (message list, ContextBudget accounting).
         """
         from orchestrator.utils.tokens import get_token_counter
-
-        # Try loading full message context from prior run
-        if conversation_id and self._trace_repo:
-            prior_messages = await self._load_prior_messages(conversation_id)
-            if prior_messages:
-                # Append the new user query to the existing context
-                prior_messages.append({"role": "user", "content": query})
-
-                # Build a budget estimate from loaded messages
-                token_counter = get_token_counter()
-                total_msg_tokens = sum(
-                    token_counter.count_tokens(msg.get("content") or "")
-                    for msg in prior_messages
-                )
-                budget = ContextBudget(
-                    max_tokens=self._max_context_tokens,
-                    reserve_for_response=self._max_tokens,
-                    system_prompt_tokens=token_counter.count_tokens(
-                        prior_messages[0].get("content", "")
-                    )
-                    if prior_messages
-                    else 0,
-                    history_tokens=total_msg_tokens,
-                )
-
-                logger.info(
-                    "Loaded prior conversation context",
-                    extra={
-                        "messages_count": len(prior_messages),
-                        "estimated_tokens": total_msg_tokens,
-                        "utilization_pct": round(budget.utilization_pct, 1),
-                    },
-                )
-
-                return prior_messages, budget
 
         # Fallback: build from scratch (first message or no prior context)
 
@@ -1460,11 +1909,7 @@ When you complete each step, proceed to the next."""
         monitor_task = asyncio.create_task(slow_response_monitor())
 
         try:
-            # Build extra kwargs for providers that support reasoning config
-            # (e.g., OpenRouter uses {"effort": "medium"} to separate thinking/content)
-            extra_kwargs: Dict[str, Any] = {}
-            if self._reasoning_effort:
-                extra_kwargs["reasoning"] = {"effort": self._reasoning_effort}
+            effective_max_tokens, extra_kwargs = self._reasoning_provider_kwargs()
 
             response = await self._provider.complete_streaming(
                 messages=messages,
@@ -1473,7 +1918,7 @@ When you complete each step, proceed to the next."""
                 on_reasoning=on_reasoning,
                 tools=tool_schemas if tool_schemas else None,
                 tool_choice=tool_choice,
-                max_tokens=self._max_tokens,
+                max_tokens=effective_max_tokens,
                 temperature=self._temperature,
                 **extra_kwargs,
             )
@@ -1836,6 +2281,7 @@ When you complete each step, proceed to the next."""
                 "tool_name": tool_call.name,
                 "arguments": tool_call.arguments,
                 "success": result.success,
+                "result_summary": result.result_summary,
                 "step_number": step_number,
             })
 
@@ -1965,9 +2411,17 @@ When you complete each step, proceed to the next."""
 
         # Permission gate
         permission_level = getattr(tool.schema, "permission_level", "auto")
+        workspace_path = self._get_workspace_path()
+        permission_decision = classify_tool_call(
+            policy=self._permission_policy,
+            tool_name=tool_call.name,
+            arguments=tool_call.arguments,
+            base_permission_level=permission_level,
+            workspace_path=workspace_path,
+        )
+        permission_level = permission_decision.permission_level
         needs_approval = (
-            self._permission_policy != "yolo"
-            and permission_level != "auto"
+            permission_decision.needs_approval
             and self._approval_callback is not None
         )
 
@@ -2049,6 +2503,15 @@ When you complete each step, proceed to the next."""
         prep["tool"] = tool
         return prep
 
+    def _get_workspace_path(self) -> Optional[str]:
+        """Return the browser agent workspace path, if available."""
+        for tool_name in ("bash", "read_file", "write_file", "edit_file"):
+            tool = self._registry.get(tool_name)
+            working_dir = getattr(tool, "_working_dir", None)
+            if isinstance(working_dir, Path):
+                return str(working_dir)
+        return None
+
     async def _finalize_tool_call(
         self,
         tool_call: "ParsedToolCall",
@@ -2076,7 +2539,7 @@ When you complete each step, proceed to the next."""
         """
         # Capture full result_detail for write tools
         result_detail = None
-        if tool_call.name in ("write_file", "edit_file", "bash_tool") and result.result_data:
+        if tool_call.name in ("write_file", "edit_file", "bash") and result.result_data:
             result_detail = json.dumps(result.result_data, ensure_ascii=False)[:10000]
 
         # Record completion
@@ -2090,11 +2553,11 @@ When you complete each step, proceed to the next."""
         )
 
         # Record file change artifact for write tools
-        if result.success and tool_call.name in ("write_file", "edit_file", "bash_tool"):
+        if result.success and tool_call.name in ("write_file", "edit_file", "bash"):
             artifact_type = {
                 "write_file": "file_write",
                 "edit_file": "file_edit",
-                "bash_tool": "command_run",
+                "bash": "command_run",
             }.get(tool_call.name, tool_call.name)
             file_path = tool_call.arguments.get(
                 "file_path", tool_call.arguments.get("command", "")
@@ -2138,7 +2601,7 @@ When you complete each step, proceed to the next."""
                     extra={"step": step_number, "tool": tool_call.name},
                 )
 
-        # Emit tool result event (include diff data for write/edit tools)
+        # Emit tool result event (include diff data and command output details)
         emit_kwargs: Dict[str, Any] = {
             "run_id": run_id,
             "tool_call_id": tool_call.id,
@@ -2149,6 +2612,13 @@ When you complete each step, proceed to the next."""
         }
         if tool_call.name in ("write_file", "edit_file") and result.result_data:
             emit_kwargs["result_data"] = str(result.result_data)[:10000]
+        if tool_call.name == "bash" and isinstance(result.result_data, dict):
+            emit_kwargs["bash_output"] = {
+                "stdout": str(result.result_data.get("stdout", ""))[:10000],
+                "stderr": str(result.result_data.get("stderr", ""))[:10000],
+                "exit_code": result.result_data.get("exit_code"),
+                "truncated": bool(result.result_data.get("truncated")),
+            }
         self._emit(event_callback, "tool_result", **emit_kwargs)
 
         # Trace: tool_result
@@ -2198,18 +2668,25 @@ When you complete each step, proceed to the next."""
                     path = tool._working_dir / path
                 path = path.resolve()
 
-            if not path.exists():
-                return None  # New file, no diff to show
-
-            old_content = path.read_text(encoding="utf-8")
+            old_content = ""
+            if path.exists():
+                old_content = path.read_text(encoding="utf-8")
             if old_content == new_content:
                 return None  # No changes
+
+            display_name = path.name
+            try:
+                tool = self._registry.get("write_file")
+                if tool and hasattr(tool, "_working_dir"):
+                    display_name = str(path.relative_to(tool._working_dir))
+            except Exception:
+                display_name = path.name
 
             diff_lines = difflib.unified_diff(
                 old_content.splitlines(keepends=True),
                 new_content.splitlines(keepends=True),
-                fromfile=f"a/{path.name}",
-                tofile=f"b/{path.name}",
+                fromfile=f"a/{display_name}",
+                tofile=f"b/{display_name}",
                 n=3,
             )
             diff_text = "".join(diff_lines)
@@ -2252,41 +2729,127 @@ When you complete each step, proceed to the next."""
             diff_text = diff_text[:5000] + "\n... (diff truncated)"
         return diff_text or None
 
-    def _format_tool_result(self, result: "ToolResult") -> str:
-        """Format tool result for message content.
+    def _truncate_text_to_tokens(self, text: str, max_tokens: int, preserve_tail: bool = False) -> str:
+        if not text:
+            return text
+        counter = self._pruner  # estimate_tokens delegates to shared token counter
+        if counter.estimate_tokens([{"content": text}]) <= max_tokens:
+            return text
+        if not preserve_tail:
+            estimated_chars = max_tokens * 4
+            return text[:estimated_chars] + "\n... [truncated for prompt budget]"
+        half = max(200, (max_tokens * 4) // 2)
+        return (
+            text[:half]
+            + "\n... [middle truncated for prompt budget] ...\n"
+            + text[-half:]
+        )
 
-        Args:
-            result: ToolResult from execution.
+    def _bounded_json(self, payload: Dict[str, Any], max_tokens: int) -> str:
+        text = json.dumps(payload, ensure_ascii=False)
+        if self._pruner.estimate_tokens([{"content": text}]) <= max_tokens:
+            return text
+        return self._truncate_text_to_tokens(text, max_tokens, preserve_tail=True)
 
-        Returns:
-            JSON string for tool message content, truncated if too large.
-        """
-        if result.success:
-            # Use full result_data if available, otherwise summary
-            if result.result_data:
-                content = json.dumps(result.result_data, ensure_ascii=False)
-            else:
-                content = result.result_summary
-        else:
-            content = json.dumps(
+    def _format_tool_result(self, result: "ToolResult", tool_name: Optional[str] = None) -> str:
+        """Format tool result for prompt history with per-tool token budgets."""
+        if not result.success:
+            return self._bounded_json(
                 {
                     "error": result.error_message or "Unknown error",
                     "summary": result.result_summary,
-                }
+                },
+                800,
             )
 
-        # Truncate if too large to prevent context blowout
+        if not result.result_data:
+            return result.result_summary
+
+        tool_name = tool_name or "unknown"
+        data = result.result_data
+
+        if tool_name == "read_file":
+            content = str(data)
+            lines = []
+            for raw_line in content.splitlines()[:400]:
+                if len(raw_line) > 300:
+                    lines.append(raw_line[:300] + "...")
+                else:
+                    lines.append(raw_line)
+            return self._truncate_text_to_tokens("\n".join(lines), 6000)
+
+        if tool_name == "grep":
+            lines = str(data).splitlines()[:75]
+            return self._truncate_text_to_tokens("\n".join(lines), 3000)
+
+        if tool_name == "glob":
+            lines = str(data).splitlines()[:200]
+            return self._truncate_text_to_tokens("\n".join(lines), 1500)
+
+        if tool_name == "list_directory":
+            lines = str(data).splitlines()[:200]
+            return self._truncate_text_to_tokens("\n".join(lines), 1500)
+
+        if tool_name == "web_search" and isinstance(data, dict):
+            results = []
+            for entry in (data.get("results") or [])[:8]:
+                results.append({
+                    "title": str(entry.get("title", ""))[:160],
+                    "url": entry.get("url", ""),
+                    "snippet": str(entry.get("snippet", ""))[:300],
+                })
+            return self._bounded_json({"query": data.get("query", ""), "results": results}, 2000)
+
+        if tool_name == "web_extract" and isinstance(data, dict):
+            extractions = []
+            for entry in (data.get("extractions") or [])[:2]:
+                extractions.append({
+                    "url": entry.get("url", ""),
+                    "title": str(entry.get("title", ""))[:160],
+                    "excerpt": self._truncate_text_to_tokens(str(entry.get("content", "")), 1500),
+                    "success": entry.get("success", True),
+                })
+            return self._bounded_json({"extractions": extractions}, 4000)
+
+        if tool_name == "bash" and isinstance(data, dict):
+            return self._bounded_json(
+                {
+                    "command": data.get("command", ""),
+                    "exit_code": data.get("exit_code"),
+                    "timed_out": data.get("timed_out", False),
+                    "stdout": self._truncate_text_to_tokens(str(data.get("stdout", "")), 1500, preserve_tail=True),
+                    "stderr": self._truncate_text_to_tokens(str(data.get("stderr", "")), 1500, preserve_tail=True),
+                    "truncated": data.get("truncated", False),
+                },
+                4000,
+            )
+
+        if tool_name == "python_execute" and isinstance(data, dict):
+            code = data.get("code") or data.get("command") or ""
+            output = data.get("output") or data.get("stdout") or ""
+            return self._bounded_json(
+                {
+                    "code": self._truncate_text_to_tokens(str(code), 600),
+                    "stdout": self._truncate_text_to_tokens(str(output), 1800, preserve_tail=True),
+                    "stderr": self._truncate_text_to_tokens(str(data.get("stderr", "")), 600, preserve_tail=True),
+                    "exit_code": data.get("exit_code"),
+                },
+                3000,
+            )
+
+        if tool_name in {"write_file", "edit_file"}:
+            payload = data if isinstance(data, dict) else {"result": str(data)}
+            bounded = {
+                "file_path": payload.get("file_path"),
+                "summary": result.result_summary,
+                "diff": self._truncate_text_to_tokens(str(payload.get("diff") or payload.get("preview") or payload), 2000, preserve_tail=True),
+            }
+            return self._bounded_json(bounded, 2500)
+
+        content = json.dumps(data, ensure_ascii=False) if not isinstance(data, str) else data
         if len(content) > self.MAX_TOOL_RESULT_CHARS:
             truncated = content[: self.MAX_TOOL_RESULT_CHARS - 100]
             content = truncated + f"\n\n[... truncated {len(content) - len(truncated)} chars ...]"
-            logger.warning(
-                "Truncated large tool result",
-                extra={
-                    "original_chars": len(content),
-                    "truncated_to": self.MAX_TOOL_RESULT_CHARS,
-                },
-            )
-
         return content
 
     def _force_prune_largest(
@@ -2629,11 +3192,12 @@ When you complete each step, proceed to the next."""
                 continue
 
             # Exact duplicate check against history
-            for prev in self._tool_call_log:
-                if prev["tool_name"] == tc.name and prev["arguments"] == tc.arguments:
-                    redundant.append((tc, f"Duplicate: already called {tc.name} with same arguments"))
-                    is_dup = True
-                    break
+            if tc.name != "read_file":
+                for prev in self._tool_call_log:
+                    if prev["tool_name"] == tc.name and prev["arguments"] == tc.arguments:
+                        redundant.append((tc, f"Duplicate: already called {tc.name} with same arguments"))
+                        is_dup = True
+                        break
             if is_dup:
                 continue
 
@@ -2742,6 +3306,14 @@ When you complete each step, proceed to the next."""
             metrics = self._compute_run_metrics()
             metrics["timing_ms"] = timing_ms
             metrics["total_tokens"] = self._total_tokens
+            metrics["usage"] = self._usage_totals.copy()
+            metrics["cost"] = self._current_cost()
+            metrics["context_usage"] = self._current_context_usage_payload(
+                self._pruner.estimate_tokens([{"role": "system", "content": self._system_prompt}])
+            )
+            metrics["context_profile"] = self._context_profile_dict()
+            metrics["compaction_count"] = self._compaction_count
+            metrics["last_compacted_at_step"] = self._last_compacted_at_step
 
             # Store via trace_repo usage_stats (accepts dict, serializes to JSON)
             if self._trace_repo:
@@ -2764,6 +3336,92 @@ When you complete each step, proceed to the next."""
                 "Failed to store run metrics",
                 extra={"run_id": run_id, "error": str(e)},
             )
+
+    async def _finalize_successful_run(
+        self,
+        *,
+        final_answer: str,
+        messages: list[dict[str, Any]],
+        state_machine: Any,
+        step_number: int,
+        start_time: float,
+        event_callback: Optional[Callable[[Dict[str, Any]], None]],
+        run_id: str,
+        query: str,
+        forced_synthesis: bool = False,
+    ) -> AgentResult:
+        """Finalize a successful run and persist artifacts/metrics."""
+        if final_answer and (
+            not messages
+            or messages[-1].get("role") != "assistant"
+            or (messages[-1].get("content") or "") != final_answer
+        ):
+            messages.append(
+                {
+                    "role": "assistant",
+                    "content": final_answer,
+                }
+            )
+
+        citations = await self._extract_and_store_citations(
+            run_id=run_id,
+            answer=final_answer,
+        )
+
+        await state_machine.complete_run(final_answer)
+
+        total_timing_ms = int((time.perf_counter() - start_time) * 1000)
+        context_usage = self._current_context_usage_payload(self._pruner.estimate_tokens(messages))
+
+        self._emit(
+            event_callback,
+            "agent_complete",
+            run_id=run_id,
+            success=True,
+            final_answer=final_answer,
+            citations=citations,
+            total_steps=step_number,
+            timing_ms=total_timing_ms,
+            context_usage=context_usage,
+            context_profile=self._context_profile_dict(),
+            compaction_count=self._compaction_count,
+            last_compacted_at_step=self._last_compacted_at_step,
+            total_tokens=self._total_tokens,
+            usage=self._usage_totals,
+            cost=self._current_cost(),
+        )
+        await self._add_trace_event(
+            run_id=run_id,
+            event_type="agent_complete",
+            content={
+                "success": True,
+                "total_steps": step_number,
+                "answer_length": len(final_answer) if final_answer else 0,
+                "citations_count": len(citations),
+                "forced_synthesis": forced_synthesis,
+            },
+            duration_ms=total_timing_ms,
+        )
+
+        await self._store_run_metrics(run_id, total_timing_ms)
+        await self._store_turn_summary(run_id, query, final_answer)
+        await self._store_conversation_messages(run_id, messages)
+
+        return AgentResult(
+            run_id=run_id,
+            success=True,
+            final_answer=final_answer,
+            citations=citations,
+            total_steps=step_number,
+            timing_ms=total_timing_ms,
+            total_tokens=self._total_tokens,
+            context_usage=context_usage,
+            context_profile=self._context_profile_dict(),
+            compaction_count=self._compaction_count,
+            last_compacted_at_step=self._last_compacted_at_step,
+            usage=self._usage_totals.copy(),
+            cost=self._current_cost(),
+        )
 
     async def _store_turn_summary(
         self, run_id: str, query: str, final_answer: str
@@ -2815,25 +3473,28 @@ When you complete each step, proceed to the next."""
     async def _store_conversation_messages(
         self, run_id: str, messages: list
     ) -> None:
-        """Store pruned message list for cross-turn context.
-
-        Saves the current message history so the next run in the same
-        conversation can resume with full context instead of just turn summaries.
+        """Store a compact scaffold snapshot for debugging only.
 
         Args:
             run_id: Run ID.
-            messages: Current message list from the agent loop.
+            messages: Current scaffold message list from the agent loop.
         """
         if not self._trace_repo:
             return
         try:
-            # Strip internal metadata keys before serializing
-            clean = []
+            clean_messages = []
             for msg in messages:
-                m = {k: v for k, v in msg.items() if not k.startswith("_")}
-                clean.append(m)
-            serialized = json.dumps(clean, ensure_ascii=False)
-            # Cap at 500KB to prevent DB bloat
+                clean_messages.append(
+                    {k: v for k, v in msg.items() if not k.startswith("_")}
+                )
+            serialized = json.dumps(
+                {
+                    "mode": "scaffold_only",
+                    "messages": clean_messages,
+                    "message_count": len(clean_messages),
+                },
+                ensure_ascii=False,
+            )
             if len(serialized) > 500_000:
                 return
             await self._trace_repo.update_run(run_id, agent_state=serialized)
@@ -2846,41 +3507,15 @@ When you complete each step, proceed to the next."""
     async def _load_prior_messages(
         self, conversation_id: str
     ) -> list | None:
-        """Load message list from the most recent completed run in this conversation.
+        """Deprecated: normal cross-turn continuation no longer reloads agent_state.
 
         Args:
             conversation_id: Conversation ID to look up.
 
         Returns:
-            List of messages if found, None otherwise.
+            Always None.
         """
-        try:
-            prior_runs = await self._trace_repo.list_runs_for_conversation(
-                conversation_id
-            )
-            # Find most recent succeeded run with stored messages
-            for run in sorted(
-                prior_runs,
-                key=lambda r: r.get("created_at", ""),
-                reverse=True,
-            ):
-                if run.get("status") != "succeeded":
-                    continue
-                agent_state = run.get("agent_state")
-                if agent_state and agent_state.startswith("["):
-                    try:
-                        messages = json.loads(agent_state)
-                        if isinstance(messages, list) and len(messages) > 1:
-                            return messages
-                    except json.JSONDecodeError:
-                        continue
-            return None
-        except Exception as e:
-            logger.warning(
-                "Failed to load prior messages",
-                extra={"error": str(e)},
-            )
-            return None
+        return None
 
     async def _store_citations_from_tool(
         self,
@@ -3072,7 +3707,6 @@ When you complete each step, proceed to the next."""
 
         # Call LLM without tools to force text response
         # Use higher token limit for reasoning models that need extra tokens for chain-of-thought
-        synthesis_max_tokens = max(self._max_tokens, 8192)
         answer_tokens: List[str] = []
         reasoning_tokens: List[str] = []
 
@@ -3091,10 +3725,8 @@ When you complete each step, proceed to the next."""
         def on_reasoning(token: str) -> None:
             reasoning_tokens.append(token)
 
-        # Build extra kwargs for reasoning config
-        extra_kwargs: Dict[str, Any] = {}
-        if self._reasoning_effort:
-            extra_kwargs["reasoning"] = {"effort": self._reasoning_effort}
+        synthesis_max_tokens, extra_kwargs = self._reasoning_provider_kwargs()
+        synthesis_max_tokens = max(synthesis_max_tokens, 8192)
 
         response = await self._provider.complete_streaming(
             messages=messages,
@@ -3131,9 +3763,16 @@ When you complete each step, proceed to the next."""
             token_count=response.usage.get("total_tokens"),
         )
 
-        # Accumulate tokens from forced synthesis
-        if response.usage.get("total_tokens"):
-            self._total_tokens += response.usage["total_tokens"]
+        # Accumulate normalized token usage from forced synthesis.
+        normalized_usage = self._record_usage(response.usage)
+        self._emit(
+            event_callback,
+            "usage_update",
+            run_id=run_id,
+            usage=self._usage_totals,
+            latest_usage=normalized_usage,
+            cost=self._current_cost(),
+        )
 
         # If text is empty but we got reasoning, use reasoning as the answer
         # This can happen with reasoning models where the "thinking" IS the answer

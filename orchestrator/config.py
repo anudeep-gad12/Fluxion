@@ -13,7 +13,7 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 
 # =============================================================================
 # Base Paths
@@ -133,6 +133,22 @@ class ProviderConfig(BaseModel):
         if v == "" or v is None:
             return None
         return v
+
+    @model_validator(mode="after")
+    def fill_provider_api_key_from_env(self) -> "ProviderConfig":
+        """Fill API key from provider-specific env vars when omitted."""
+        if self.api_key:
+            return self
+
+        base_url = self.base_url.lower()
+        if "fireworks.ai" in base_url:
+            self.api_key = os.environ.get("FIREWORKS_API_KEY") or None
+        elif "deepinfra.com" in base_url:
+            self.api_key = os.environ.get("DEEPINFRA_API_KEY") or None
+        else:
+            self.api_key = os.environ.get("LLM_API_KEY") or None
+
+        return self
 
 
 # =============================================================================
@@ -297,9 +313,9 @@ class ChatGPTConfig(BaseModel):
 class ChatModelConfig(BaseModel):
     """Model generation parameters."""
 
-    name: str = "openai/gpt-oss-120b"
+    name: str = "accounts/fireworks/models/kimi-k2p6"
     temperature: float = 0.7
-    max_tokens: int = 16384
+    max_tokens: int = 32768
     seed: Optional[int] = None
     top_p: Optional[float] = None
     frequency_penalty: Optional[float] = None
@@ -350,6 +366,20 @@ class ThinkingConfig(BaseModel):
     mode_mapping: Dict[str, str] = {"default": "direct", "thinking": "direct"}
     tracing: ThinkingTracingConfig = ThinkingTracingConfig()
     ui: ThinkingUIConfig = ThinkingUIConfig()
+
+
+class ReasoningControlConfig(BaseModel):
+    """Default unified reasoning controls for runtime settings initialization."""
+
+    max_output_tokens: Optional[int] = None
+    reasoning_effort: Optional[str] = "medium"
+    reasoning_summary: Optional[str] = None
+    reasoning_enabled: Optional[bool] = None
+    reasoning_max_tokens: Optional[int] = None
+    reasoning_exclude: Optional[bool] = None
+    fireworks_reasoning_mode: Literal["effort", "thinking"] = "effort"
+    fireworks_thinking_budget_tokens: Optional[int] = None
+    fireworks_reasoning_history: Optional[str] = None
 
 
 class QueryClassificationConfig(BaseModel):
@@ -417,6 +447,7 @@ class ChatConfig(BaseModel):
     system_prompt: str = "You are a helpful AI assistant. Answer directly and clearly."
     tracing: ChatTracingConfig = ChatTracingConfig()
     thinking: ThinkingConfig = ThinkingConfig()
+    reasoning_controls: ReasoningControlConfig = ReasoningControlConfig()
 
     # Tool configurations
     parallel: Optional[ParallelConfig] = None  # Parallel.ai for web search/extract
@@ -450,6 +481,7 @@ class ChatConfig(BaseModel):
             "system_prompt_hash": prompt_hash,
             "tracing": self.tracing.model_dump(),
             "thinking": self.thinking.model_dump(),
+            "reasoning_controls": self.reasoning_controls.model_dump(),
         }
         if self.provider_chain:
             snapshot["provider_chain"] = self.provider_chain.model_dump()

@@ -246,10 +246,14 @@ import type {
   AgentRunTrace,
   AgentSSEEvent,
   AgentCitation,
+  ContextUsage,
+  TokenUsage,
+  CostUsage,
+  ModelContextProfile,
 } from '@/types/agent';
 
 /**
- * Create a new agent research run.
+ * Create a new agent run.
  */
 export async function createAgentRun(
   request: CreateAgentRunRequest,
@@ -311,6 +315,24 @@ export async function steerAgentRun(
   });
 }
 
+export async function approveAgentToolCall(
+  runId: string,
+  toolCallId: string,
+): Promise<{ status: string; run_id: string; tool_call_id: string }> {
+  return fetchJson(`${API_BASE}/agent/runs/${runId}/approve/${toolCallId}`, {
+    method: 'POST',
+  });
+}
+
+export async function denyAgentToolCall(
+  runId: string,
+  toolCallId: string,
+): Promise<{ status: string; run_id: string; tool_call_id: string }> {
+  return fetchJson(`${API_BASE}/agent/runs/${runId}/deny/${toolCallId}`, {
+    method: 'POST',
+  });
+}
+
 /**
  * Subscribe to agent run SSE stream with resumption support.
  *
@@ -333,10 +355,18 @@ export function subscribeToAgentRun(
     citations?: AgentCitation[];
     total_steps: number;
     timing_ms: number;
+    total_tokens?: number;
+    usage?: TokenUsage;
+    cost?: CostUsage | null;
+    context_usage?: ContextUsage;
+    context_profile?: ModelContextProfile;
+    compaction_count?: number;
+    last_compacted_at_step?: number;
   }) => void,
   onError: (error: string) => void,
   onCancelled?: () => void,
   streamToken?: string,
+  onDisconnect?: () => void,
 ): () => void {
   const params = new URLSearchParams();
   if (sinceSeq > 0) params.set('since_seq', String(sinceSeq));
@@ -353,11 +383,14 @@ export function subscribeToAgentRun(
     'step_start',
     'thinking',
     'tool_start',
+    'tool_approval_required',
     'tool_result',
     'answer',
     'paused',
     'resumed',
     'steer',
+    'usage_update',
+    'conversation_compacted',
   ];
 
   eventTypes.forEach((eventType) => {
@@ -407,8 +440,11 @@ export function subscribeToAgentRun(
   });
 
   eventSource.onerror = () => {
-    // Connection closed or error
+    // Browser EventSource otherwise gets stuck closed after a transient
+    // disconnect. The hook reconnects with the latest seen seq so replay
+    // resumes without duplicating the full run.
     eventSource.close();
+    onDisconnect?.();
   };
 
   return () => eventSource.close();
@@ -427,10 +463,59 @@ export interface LocalModel {
 }
 
 export interface ModelStatus {
-  provider: 'local' | 'cloud';
+  provider: string;
   model_name: string | null;
   base_url: string | null;
   local_running: boolean;
+  context_window: number;
+  max_output_tokens: number;
+  effective_input_budget: number;
+  supports_tools: boolean;
+  supports_reasoning: boolean;
+  provider_family: string;
+  reasoning_capabilities?: ReasoningCapabilities | null;
+  source: string;
+}
+
+export interface ReasoningControlCapability {
+  supported: boolean;
+  reason?: string | null;
+  options: string[];
+}
+
+export interface ReasoningCapabilities {
+  provider_family: string;
+  max_output_tokens: ReasoningControlCapability;
+  reasoning_effort: ReasoningControlCapability;
+  reasoning_summary: ReasoningControlCapability;
+  reasoning_enabled: ReasoningControlCapability;
+  reasoning_max_tokens: ReasoningControlCapability;
+  reasoning_exclude: ReasoningControlCapability;
+  fireworks_reasoning_mode: ReasoningControlCapability;
+  fireworks_thinking_budget_tokens: ReasoningControlCapability;
+  fireworks_reasoning_history: ReasoningControlCapability;
+}
+
+export interface ReasoningSettings {
+  max_output_tokens: number | null;
+  reasoning_effort: string | null;
+  reasoning_summary: string | null;
+  reasoning_enabled: boolean | null;
+  reasoning_max_tokens: number | null;
+  reasoning_exclude: boolean | null;
+  fireworks_reasoning_mode: 'effort' | 'thinking';
+  fireworks_thinking_type: 'enabled';
+  fireworks_thinking_budget_tokens: number | null;
+  fireworks_reasoning_history: 'discarded' | 'preserved' | null;
+}
+
+export interface ReasoningSettingsResponse {
+  settings: ReasoningSettings;
+  capabilities: ReasoningCapabilities;
+  provider_family: string;
+  model_name: string | null;
+  updated_at?: string | null;
+  source: string;
 }
 
 export async function listLocalModels(): Promise<LocalModel[]> {
@@ -454,6 +539,133 @@ export async function getModelStatus(): Promise<ModelStatus> {
   return fetchJson<ModelStatus>(`${API_BASE}/models/status`);
 }
 
+export async function getReasoningSettings(): Promise<ReasoningSettingsResponse> {
+  return fetchJson<ReasoningSettingsResponse>(`${API_BASE}/models/reasoning-settings`);
+}
+
+export async function updateReasoningSettings(
+  settings: ReasoningSettings,
+): Promise<ReasoningSettingsResponse> {
+  return fetchJson<ReasoningSettingsResponse>(`${API_BASE}/models/reasoning-settings`, {
+    method: 'PUT',
+    body: JSON.stringify({ settings }),
+  });
+}
+
+export interface WorkspaceDirectoryEntry {
+  name: string;
+  path: string;
+  hidden: boolean;
+}
+
+export interface WorkspaceFileEntry {
+  name: string;
+  path: string;
+}
+
+export interface WorkspaceBrowseResponse {
+  path: string;
+  parent: string | null;
+  entries: WorkspaceDirectoryEntry[];
+}
+
+export interface WorkspaceFileSearchResponse {
+  workspace_path: string;
+  query: string;
+  entries: WorkspaceFileEntry[];
+}
+
+export interface TerminalSessionRequest {
+  workspace_path?: string;
+  cols?: number;
+  rows?: number;
+}
+
+export interface TerminalSessionResponse {
+  session_id: string;
+  conversation_id: string;
+  workspace_path?: string | null;
+  shell: string;
+  status: string;
+  cols: number;
+  rows: number;
+  created_at: string;
+  updated_at: string;
+  last_activity_at: string;
+  reconnect_supported: boolean;
+  replay_buffer: string;
+}
+
+export async function browseWorkspaceDirectories(
+  path?: string,
+): Promise<WorkspaceBrowseResponse> {
+  const params = new URLSearchParams();
+  if (path) params.set('path', path);
+  const query = params.toString() ? `?${params}` : '';
+  return fetchJson<WorkspaceBrowseResponse>(`${API_BASE}/workspaces/browse${query}`);
+}
+
+export async function searchWorkspaceFiles(
+  workspacePath: string,
+  query: string,
+  limit = 20,
+): Promise<WorkspaceFileSearchResponse> {
+  const params = new URLSearchParams();
+  params.set('workspace_path', workspacePath);
+  params.set('q', query);
+  params.set('limit', String(limit));
+  return fetchJson<WorkspaceFileSearchResponse>(`${API_BASE}/workspaces/search-files?${params}`);
+}
+
+export async function getTerminalSession(
+  conversationId: string,
+): Promise<TerminalSessionResponse> {
+  return fetchJson<TerminalSessionResponse>(`${API_BASE}/terminal/conversations/${conversationId}/session`);
+}
+
+export async function createTerminalSession(
+  conversationId: string,
+  request: TerminalSessionRequest,
+): Promise<TerminalSessionResponse> {
+  return fetchJson<TerminalSessionResponse>(`${API_BASE}/terminal/conversations/${conversationId}/session`, {
+    method: 'POST',
+    body: JSON.stringify(request),
+  });
+}
+
+export async function restartTerminalSession(
+  conversationId: string,
+  request: TerminalSessionRequest,
+): Promise<TerminalSessionResponse> {
+  return fetchJson<TerminalSessionResponse>(`${API_BASE}/terminal/conversations/${conversationId}/session/restart`, {
+    method: 'POST',
+    body: JSON.stringify(request),
+  });
+}
+
+export async function closeTerminalSession(
+  conversationId: string,
+): Promise<{ status: string; conversation_id: string }> {
+  return fetchJson(`${API_BASE}/terminal/conversations/${conversationId}/session/close`, {
+    method: 'POST',
+  });
+}
+
+export function createTerminalWebSocket(
+  conversationId: string,
+  sessionId: string,
+): WebSocket {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const ownerToken = getOwnerToken();
+  const params = new URLSearchParams({ session_id: sessionId });
+  if (ownerToken) {
+    params.set('owner', ownerToken);
+  }
+  return new WebSocket(
+    `${protocol}//${window.location.host}${API_BASE}/terminal/conversations/${conversationId}/ws?${params.toString()}`
+  );
+}
+
 export interface UsageInfo {
   limit: number;   // -1 = unlimited (owner or no demo mode)
   used: number;
@@ -472,6 +684,9 @@ export interface RegistryModelPreset {
   max_output_tokens: number;
   supports_tools: boolean;
   supports_reasoning: boolean;
+  input_cost_per_million?: number | null;
+  cached_input_cost_per_million?: number | null;
+  output_cost_per_million?: number | null;
 }
 
 export interface RegistryModelsResponse {
@@ -494,9 +709,36 @@ export async function selectModel(model: string): Promise<{
   display_name: string;
   provider: string;
   context_window: number;
+  max_output_tokens: number;
+  effective_input_budget: number;
+  source: string;
 }> {
   return fetchJson(`${API_BASE}/models/select`, {
     method: 'POST',
     body: JSON.stringify({ model }),
+  });
+}
+
+export interface CustomProviderRequest {
+  name: string;
+  base_url: string;
+  api_key?: string;
+  model: string;
+  context_window: number;
+  max_output_tokens: number;
+  supports_tools: boolean;
+  supports_reasoning: boolean;
+  reasoning_request_param?: string | null;
+  input_cost_per_million?: number | null;
+  cached_input_cost_per_million?: number | null;
+  output_cost_per_million?: number | null;
+}
+
+export async function selectCustomProvider(
+  request: CustomProviderRequest
+ ): Promise<{ status: string; name: string; model: string; base_url: string; effective_input_budget: number; source: string }> {
+  return fetchJson(`${API_BASE}/models/custom/select`, {
+    method: 'POST',
+    body: JSON.stringify(request),
   });
 }

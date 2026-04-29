@@ -10,6 +10,7 @@ import { AgentRunMessage } from '@/components/AgentRunMessage';
 import { MessageActions } from '@/components/MessageActions';
 import { ShimmerSkeleton, ThinkingTimer } from '@/components/StreamingIndicator';
 import { ScrollToBottom } from '@/components/ScrollToBottom';
+import { IntegratedTerminal } from '@/components/IntegratedTerminal';
 import {
   createConversation,
   createConversationRun,
@@ -21,28 +22,45 @@ import {
   startLocalModel,
   stopLocalModel,
   getModelStatus,
+  getReasoningSettings,
   listRegistryModels,
   selectModel,
+  selectCustomProvider,
+  updateReasoningSettings,
   getUsage,
   steerAgentRun,
+  browseWorkspaceDirectories,
+  searchWorkspaceFiles,
 } from '@/api/client';
-import type { LocalModel, ModelStatus, RegistryModelPreset, RegistryModelsResponse, UsageInfo } from '@/api/client';
+import type {
+  LocalModel,
+  ModelStatus,
+  RegistryModelPreset,
+  RegistryModelsResponse,
+  CustomProviderRequest,
+  UsageInfo,
+  WorkspaceBrowseResponse,
+  WorkspaceFileEntry,
+  ReasoningSettingsResponse,
+  ReasoningSettings,
+} from '@/api/client';
 import {
   Dialog,
   DialogHeader,
   DialogTitle,
   DialogContent,
 } from '@/components/ui/dialog';
-import { useConversationRuns, useSelectedConversation, useStore, useHasActiveRun } from '@/hooks/useStore';
+import { useConversationRuns, useSelectedConversation, useStore, useHasActiveRun, useConversationTerminal } from '@/hooks/useStore';
 import { useSSE } from '@/hooks/useSSE';
 import { useAgentSSE } from '@/hooks/useAgentSSE';
 import { cn, formatRelativeTime } from '@/lib/utils';
-import type { Run, Conversation, ReasoningEffort } from '@/types';
+import type { Run, Conversation } from '@/types';
 
 /** Maximum characters allowed in the input textarea (~2000 tokens) */
 const MAX_INPUT_CHARS = 8000;
+const MENTION_RESULT_LIMIT = 20;
 
-/** Preset questions showcasing multi-step agentic research capabilities */
+/** Preset questions showcasing multi-step agent capabilities */
 const PRESET_QUESTIONS = [
   {
     label: "What's the total mass of all humans versus all ants?",
@@ -62,8 +80,8 @@ const PRESET_QUESTIONS = [
   },
 ];
 
-/** Mode: 'chat' for regular conversation, 'research' for agent */
-type ChatMode = 'chat' | 'research';
+/** Mode: 'chat' for regular conversation, 'agent' for agent */
+type ChatMode = 'chat' | 'agent';
 
 /** Model picker component shown in the status bar */
 function ModelPicker({
@@ -82,6 +100,19 @@ function ModelPicker({
   const [loading, setLoading] = useState(false);
   const [switching, setSwitching] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [customProvider, setCustomProvider] = useState<CustomProviderRequest>({
+    name: 'custom',
+    base_url: 'http://localhost:1234/v1',
+    api_key: '',
+    model: '',
+    context_window: 32768,
+    max_output_tokens: 8192,
+    supports_tools: true,
+    supports_reasoning: false,
+    input_cost_per_million: null,
+    cached_input_cost_per_million: null,
+    output_cost_per_million: null,
+  });
 
   useEffect(() => {
     if (!open) return;
@@ -125,6 +156,30 @@ function ModelPicker({
       onOpenChange(false);
     } catch {
       setError(`Failed to start model. Check logs/${model.model_type === 'mlx' ? 'mlx' : 'llama'}.log`);
+    } finally {
+      setSwitching(null);
+    }
+  };
+
+  const handleSelectCustom = async () => {
+    if (!customProvider.base_url.trim() || !customProvider.model.trim()) {
+      setError('Custom provider needs base URL and model slug');
+      return;
+    }
+    setSwitching('custom');
+    setError(null);
+    try {
+      await selectCustomProvider({
+        ...customProvider,
+        base_url: customProvider.base_url.trim(),
+        api_key: customProvider.api_key?.trim() || undefined,
+        model: customProvider.model.trim(),
+      });
+      const status = await getModelStatus();
+      onModelStatusChange(status);
+      onOpenChange(false);
+    } catch {
+      setError('Failed to switch custom provider');
     } finally {
       setSwitching(null);
     }
@@ -176,6 +231,9 @@ function ModelPicker({
                         <div className="flex justify-between items-center">
                           <span className="truncate mr-2">{model.display_name}</span>
                           <span className="text-zinc-600 flex-shrink-0">
+                            {model.input_cost_per_million != null && model.output_cost_per_million != null
+                              ? `$${model.input_cost_per_million}/$${model.output_cost_per_million}M · `
+                              : ''}
                             {Math.round(model.context_window / 1024)}k
                           </span>
                         </div>
@@ -252,8 +310,449 @@ function ModelPicker({
                   })}
                 </>
               )}
+
+              <div className="border-t border-zinc-800 my-2" />
+              <div className="px-3 py-2 space-y-2">
+                <p className="text-[10px] text-zinc-600 font-mono uppercase">
+                  custom openai-compatible
+                </p>
+                <input
+                  value={customProvider.base_url}
+                  onChange={(e) => setCustomProvider((p) => ({ ...p, base_url: e.target.value }))}
+                  placeholder="http://localhost:1234/v1"
+                  className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-xs font-mono text-zinc-300"
+                />
+                <input
+                  value={customProvider.model}
+                  onChange={(e) => setCustomProvider((p) => ({ ...p, model: e.target.value }))}
+                  placeholder="model slug"
+                  className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-xs font-mono text-zinc-300"
+                />
+                <input
+                  value={customProvider.api_key || ''}
+                  onChange={(e) => setCustomProvider((p) => ({ ...p, api_key: e.target.value }))}
+                  placeholder="api key (optional for local)"
+                  type="password"
+                  className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-xs font-mono text-zinc-300"
+                />
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    value={customProvider.context_window}
+                    onChange={(e) => setCustomProvider((p) => ({ ...p, context_window: Number(e.target.value) || 32768 }))}
+                    type="number"
+                    min={4096}
+                    className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-xs font-mono text-zinc-300"
+                  />
+                  <input
+                    value={customProvider.max_output_tokens}
+                    onChange={(e) => setCustomProvider((p) => ({ ...p, max_output_tokens: Number(e.target.value) || 8192 }))}
+                    type="number"
+                    min={1024}
+                    className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-xs font-mono text-zinc-300"
+                  />
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <input
+                    value={customProvider.input_cost_per_million ?? ''}
+                    onChange={(e) => setCustomProvider((p) => ({
+                      ...p,
+                      input_cost_per_million: e.target.value === '' ? null : Number(e.target.value),
+                    }))}
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    placeholder="$ input/M"
+                    className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-xs font-mono text-zinc-300"
+                  />
+                  <input
+                    value={customProvider.cached_input_cost_per_million ?? ''}
+                    onChange={(e) => setCustomProvider((p) => ({
+                      ...p,
+                      cached_input_cost_per_million: e.target.value === '' ? null : Number(e.target.value),
+                    }))}
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    placeholder="$ cache/M"
+                    className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-xs font-mono text-zinc-300"
+                  />
+                  <input
+                    value={customProvider.output_cost_per_million ?? ''}
+                    onChange={(e) => setCustomProvider((p) => ({
+                      ...p,
+                      output_cost_per_million: e.target.value === '' ? null : Number(e.target.value),
+                    }))}
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    placeholder="$ output/M"
+                    className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-xs font-mono text-zinc-300"
+                  />
+                </div>
+                <button
+                  onClick={handleSelectCustom}
+                  disabled={!!switching}
+                  className="text-xs font-mono text-cyan-400 hover:text-cyan-300 disabled:text-zinc-600"
+                >
+                  {switching === 'custom' ? '[connecting...]' : '[use custom provider]'}
+                </button>
+              </div>
             </>
           )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ReasoningSettingsDialog({
+  open,
+  onOpenChange,
+  settingsResponse,
+  draft,
+  onDraftChange,
+  onSave,
+  saving,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  settingsResponse: ReasoningSettingsResponse | null;
+  draft: ReasoningSettings | null;
+  onDraftChange: (next: ReasoningSettings) => void;
+  onSave: () => void;
+  saving: boolean;
+}) {
+  const capabilities = settingsResponse?.capabilities;
+  const providerFamily = settingsResponse?.provider_family || 'generic';
+  const modelName = settingsResponse?.model_name || 'model';
+  const isFireworks = providerFamily === 'fireworks';
+  const fireworksMode = draft?.fireworks_reasoning_mode ?? 'effort';
+
+  const disabledReason = (supported?: boolean, reason?: string | null) =>
+    supported ? undefined : (reason || 'Unsupported by active provider/model');
+
+  const update = <K extends keyof ReasoningSettings>(key: K, value: ReasoningSettings[K]) => {
+    if (!draft) return;
+    onDraftChange({ ...draft, [key]: value });
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogHeader>
+        <DialogTitle className="font-mono text-sm">Reasoning Settings</DialogTitle>
+      </DialogHeader>
+      <DialogContent>
+        {!draft || !capabilities ? (
+          <p className="text-xs text-zinc-500 font-mono">Loading reasoning settings...</p>
+        ) : (
+          <div className="space-y-4 font-mono text-xs">
+            <div className="text-zinc-500">
+              <div>{modelName}</div>
+              <div className="uppercase text-[10px] mt-1">{providerFamily}</div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <label className="space-y-1">
+                <div className="text-zinc-400">max output tokens</div>
+                <input
+                  type="number"
+                  min={1}
+                  value={draft.max_output_tokens ?? ''}
+                  onChange={(e) => update('max_output_tokens', e.target.value === '' ? null : Number(e.target.value))}
+                  className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-zinc-200"
+                />
+              </label>
+              {!isFireworks && (
+                <label className="space-y-1">
+                  <div className="text-zinc-400">reasoning effort</div>
+                  <select
+                    value={draft.reasoning_effort ?? ''}
+                    onChange={(e) => update('reasoning_effort', e.target.value || null)}
+                    disabled={!capabilities.reasoning_effort.supported}
+                    title={disabledReason(capabilities.reasoning_effort.supported, capabilities.reasoning_effort.reason)}
+                    className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-zinc-200 disabled:text-zinc-600"
+                  >
+                    <option value="">default</option>
+                    {(capabilities.reasoning_effort.options.length ? capabilities.reasoning_effort.options : ['low', 'medium', 'high']).map((opt) => (
+                      <option key={opt} value={opt}>{opt}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
+            </div>
+
+            {isFireworks ? (
+              <div className="border-t border-zinc-800 pt-3 space-y-3">
+                <div className="text-zinc-500 uppercase text-[10px]">Fireworks reasoning</div>
+                <div className="text-[11px] text-zinc-600">
+                  Fireworks supports two alternative reasoning controls. Only the active mode below is sent in requests.
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="space-y-1">
+                    <div className="text-zinc-400">mode</div>
+                    <select
+                      value={draft.fireworks_reasoning_mode}
+                      onChange={(e) => update('fireworks_reasoning_mode', e.target.value as 'effort' | 'thinking')}
+                      disabled={!capabilities.fireworks_reasoning_mode.supported}
+                      title={disabledReason(capabilities.fireworks_reasoning_mode.supported, capabilities.fireworks_reasoning_mode.reason)}
+                      className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-zinc-200 disabled:text-zinc-600"
+                    >
+                      <option value="effort">effort-based</option>
+                      <option value="thinking">budget-based</option>
+                    </select>
+                  </label>
+
+                  {fireworksMode === 'effort' ? (
+                    <label className="space-y-1">
+                      <div className="text-zinc-400">reasoning effort</div>
+                      <select
+                        value={draft.reasoning_effort ?? ''}
+                        onChange={(e) => update('reasoning_effort', e.target.value || null)}
+                        disabled={!capabilities.reasoning_effort.supported}
+                        title={disabledReason(capabilities.reasoning_effort.supported, capabilities.reasoning_effort.reason)}
+                        className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-zinc-200 disabled:text-zinc-600"
+                      >
+                        <option value="">default</option>
+                        {(capabilities.reasoning_effort.options.length ? capabilities.reasoning_effort.options : ['low', 'medium', 'high']).map((opt) => (
+                          <option key={opt} value={opt}>{opt}</option>
+                        ))}
+                      </select>
+                    </label>
+                  ) : (
+                    <label className="space-y-1">
+                      <div className="text-zinc-400">thinking budget</div>
+                      <input
+                        type="number"
+                        min={1024}
+                        value={draft.fireworks_thinking_budget_tokens ?? ''}
+                        onChange={(e) => update('fireworks_thinking_budget_tokens', e.target.value === '' ? null : Number(e.target.value))}
+                        disabled={!capabilities.fireworks_thinking_budget_tokens.supported}
+                        title={disabledReason(capabilities.fireworks_thinking_budget_tokens.supported, capabilities.fireworks_thinking_budget_tokens.reason)}
+                        className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-zinc-200 disabled:text-zinc-600"
+                      />
+                    </label>
+                  )}
+                </div>
+
+                <label className="space-y-1 block">
+                  <div className="text-zinc-400">reasoning history</div>
+                  <select
+                    value={draft.fireworks_reasoning_history ?? ''}
+                    onChange={(e) => update('fireworks_reasoning_history', (e.target.value || null) as 'discarded' | 'preserved' | null)}
+                    disabled={!capabilities.fireworks_reasoning_history.supported}
+                    title={disabledReason(capabilities.fireworks_reasoning_history.supported, capabilities.fireworks_reasoning_history.reason)}
+                    className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-zinc-200 disabled:text-zinc-600"
+                  >
+                    <option value="">default</option>
+                    <option value="discarded">discarded</option>
+                    <option value="preserved">preserved</option>
+                  </select>
+                </label>
+
+                <div className="text-[11px] text-zinc-600">
+                  {fireworksMode === 'effort'
+                    ? 'This sends Fireworks reasoning_effort. Thinking budget is not sent.'
+                    : 'This sends Fireworks thinking.budget_tokens. Reasoning effort is not sent.'}
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="space-y-1">
+                    <div className="text-zinc-400">reasoning enabled</div>
+                    <select
+                      value={draft.reasoning_enabled == null ? '' : String(draft.reasoning_enabled)}
+                      onChange={(e) => update('reasoning_enabled', e.target.value === '' ? null : e.target.value === 'true')}
+                      disabled={!capabilities.reasoning_enabled.supported}
+                      title={disabledReason(capabilities.reasoning_enabled.supported, capabilities.reasoning_enabled.reason)}
+                      className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-zinc-200 disabled:text-zinc-600"
+                    >
+                      <option value="">default</option>
+                      <option value="true">true</option>
+                      <option value="false">false</option>
+                    </select>
+                  </label>
+
+                  <label className="space-y-1">
+                    <div className="text-zinc-400">reasoning summary</div>
+                    <select
+                      value={draft.reasoning_summary ?? ''}
+                      onChange={(e) => update('reasoning_summary', e.target.value || null)}
+                      disabled={!capabilities.reasoning_summary.supported}
+                      title={disabledReason(capabilities.reasoning_summary.supported, capabilities.reasoning_summary.reason)}
+                      className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-zinc-200 disabled:text-zinc-600"
+                    >
+                      <option value="">default</option>
+                      {(capabilities.reasoning_summary.options.length ? capabilities.reasoning_summary.options : ['auto', 'concise', 'detailed']).map((opt) => (
+                        <option key={opt} value={opt}>{opt}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="space-y-1">
+                    <div className="text-zinc-400">reasoning max tokens</div>
+                    <input
+                      type="number"
+                      min={1}
+                      value={draft.reasoning_max_tokens ?? ''}
+                      onChange={(e) => update('reasoning_max_tokens', e.target.value === '' ? null : Number(e.target.value))}
+                      disabled={!capabilities.reasoning_max_tokens.supported}
+                      title={disabledReason(capabilities.reasoning_max_tokens.supported, capabilities.reasoning_max_tokens.reason)}
+                      className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-zinc-200 disabled:text-zinc-600"
+                    />
+                  </label>
+
+                  <label className="space-y-1">
+                    <div className="text-zinc-400">reasoning exclude</div>
+                    <select
+                      value={draft.reasoning_exclude == null ? '' : String(draft.reasoning_exclude)}
+                      onChange={(e) => update('reasoning_exclude', e.target.value === '' ? null : e.target.value === 'true')}
+                      disabled={!capabilities.reasoning_exclude.supported}
+                      title={disabledReason(capabilities.reasoning_exclude.supported, capabilities.reasoning_exclude.reason)}
+                      className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-zinc-200 disabled:text-zinc-600"
+                    >
+                      <option value="">default</option>
+                      <option value="true">true</option>
+                      <option value="false">false</option>
+                    </select>
+                  </label>
+                </div>
+              </>
+            )}
+
+            <div className="text-[11px] text-zinc-600">
+              Unsupported controls stay visible and are ignored for providers/models that do not expose them.
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => onOpenChange(false)}
+                className="px-3 py-1 text-zinc-500 hover:text-zinc-300"
+              >
+                cancel
+              </button>
+              <button
+                onClick={onSave}
+                disabled={saving}
+                className="px-3 py-1 bg-zinc-200 text-zinc-900 disabled:opacity-60"
+              >
+                {saving ? 'saving...' : 'save'}
+              </button>
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function WorkspacePicker({
+  open,
+  onOpenChange,
+  value,
+  onSelect,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  value: string;
+  onSelect: (path: string) => void;
+}) {
+  const [data, setData] = useState<WorkspaceBrowseResponse | null>(null);
+  const [pathInput, setPathInput] = useState(value);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadPath = useCallback((path?: string) => {
+    setLoading(true);
+    setError(null);
+    browseWorkspaceDirectories(path || undefined)
+      .then((next) => {
+        setData(next);
+        setPathInput(next.path);
+      })
+      .catch((err: { message?: string }) => setError(err.message || 'Failed to browse path'))
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    loadPath(value || undefined);
+  }, [open, value, loadPath]);
+
+  const chooseCurrent = () => {
+    if (!data?.path) return;
+    onSelect(data.path);
+    onOpenChange(false);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogHeader>
+        <DialogTitle className="font-mono text-sm">Choose workspace</DialogTitle>
+      </DialogHeader>
+      <DialogContent>
+        <div className="space-y-3 font-mono text-xs">
+          <div className="flex gap-2">
+            <input
+              value={pathInput}
+              onChange={(e) => setPathInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') loadPath(pathInput);
+              }}
+              className="flex-1 bg-zinc-950 border border-zinc-800 px-2 py-1.5 text-zinc-300 outline-none"
+              placeholder="/path/to/repo"
+            />
+            <button
+              onClick={() => loadPath(pathInput)}
+              className="px-2 py-1.5 text-zinc-400 hover:text-zinc-200 border border-zinc-800"
+            >
+              open
+            </button>
+          </div>
+
+          {error && <p className="text-red-400">{error}</p>}
+
+          <div className="border border-zinc-800 max-h-72 overflow-y-auto">
+            {loading ? (
+              <p className="px-3 py-2 text-zinc-600">Loading...</p>
+            ) : (
+              <>
+                {data?.parent && (
+                  <button
+                    onClick={() => loadPath(data.parent!)}
+                    className="block w-full text-left px-3 py-1.5 text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800/50"
+                  >
+                    ../
+                  </button>
+                )}
+                {data?.entries.map((entry) => (
+                  <button
+                    key={entry.path}
+                    onClick={() => loadPath(entry.path)}
+                    className={cn(
+                      'block w-full text-left px-3 py-1.5 hover:text-zinc-200 hover:bg-zinc-800/50',
+                      entry.hidden ? 'text-zinc-700' : 'text-zinc-400'
+                    )}
+                  >
+                    {entry.name}/
+                  </button>
+                ))}
+              </>
+            )}
+          </div>
+
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-zinc-600 truncate">{data?.path || pathInput}</span>
+            <button
+              onClick={chooseCurrent}
+              disabled={!data?.path}
+              className="text-emerald-500/80 hover:text-emerald-400 disabled:text-zinc-700"
+            >
+              [use this folder]
+            </button>
+          </div>
         </div>
       </DialogContent>
     </Dialog>
@@ -373,6 +872,81 @@ const RunMessage = memo(function RunMessage({
   );
 });
 
+function extractActiveMention(value: string, cursor: number): { start: number; end: number; query: string } | null {
+  const safeCursor = Math.max(0, Math.min(cursor, value.length));
+  const beforeCursor = value.slice(0, safeCursor);
+  const tokenStart = Math.max(
+    beforeCursor.lastIndexOf(" "),
+    beforeCursor.lastIndexOf("\n"),
+    beforeCursor.lastIndexOf("\t"),
+  ) + 1;
+  const token = beforeCursor.slice(tokenStart);
+  if (!token.startsWith("@")) return null;
+  if (token.length > 1 && token.includes("@", 1)) return null;
+  return {
+    start: tokenStart,
+    end: safeCursor,
+    query: token.slice(1),
+  };
+}
+
+function MentionPicker({
+  open,
+  loading,
+  entries,
+  selectedIndex,
+  onSelect,
+}: {
+  open: boolean;
+  loading: boolean;
+  entries: WorkspaceFileEntry[];
+  selectedIndex: number;
+  onSelect: (entry: WorkspaceFileEntry) => void;
+}) {
+  const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
+
+  useEffect(() => {
+    if (!open) return;
+    const activeItem = itemRefs.current[selectedIndex];
+    activeItem?.scrollIntoView({ block: 'nearest' });
+  }, [open, selectedIndex, entries]);
+
+  if (!open) return null;
+
+  return (
+    <div className="absolute left-0 right-0 bottom-full mb-2 border border-zinc-800 bg-zinc-950 shadow-2xl z-20 max-h-64 overflow-y-auto">
+      {loading ? (
+        <div className="px-3 py-2 text-xs font-mono text-zinc-500">searching files...</div>
+      ) : entries.length === 0 ? (
+        <div className="px-3 py-2 text-xs font-mono text-zinc-500">no matching files</div>
+      ) : (
+        entries.map((entry, index) => (
+          <button
+            key={entry.path}
+            type="button"
+            ref={(node) => {
+              itemRefs.current[index] = node;
+            }}
+            onMouseDown={(e) => {
+              e.preventDefault();
+              onSelect(entry);
+            }}
+            className={cn(
+              "block w-full px-3 py-2 text-left font-mono text-xs transition-colors",
+              index === selectedIndex
+                ? "bg-zinc-800 text-zinc-100"
+                : "text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200"
+            )}
+          >
+            <div className="truncate">{entry.path}</div>
+            <div className="truncate text-[10px] text-zinc-600">{entry.name}</div>
+          </button>
+        ))
+      )}
+    </div>
+  );
+}
+
 export function ConversationView() {
   const navigate = useNavigate();
   const selectedConversationId = useStore((s) => s.selectedConversationId);
@@ -386,11 +960,27 @@ export function ConversationView() {
   const setDetailPanelOpen = useStore((s) => s.setDetailPanelOpen);
   const conversation = useSelectedConversation();
   const runs = useConversationRuns(selectedConversationId);
+  const terminalState = useConversationTerminal(selectedConversationId);
   const hasActiveRun = useHasActiveRun();
+  const updateTerminalState = useStore((s) => s.updateTerminalState);
   const [message, setMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>('medium');
-  const [mode, setMode] = useState<ChatMode>('research');
+  const [mode, setMode] = useState<ChatMode>('agent');
+  const [workspacePath, setWorkspacePath] = useState(
+    () => localStorage.getItem('reasoner_workspace_path') || ''
+  );
+  const [workspacePickerOpen, setWorkspacePickerOpen] = useState(false);
+  const [mentionResults, setMentionResults] = useState<WorkspaceFileEntry[]>([]);
+  const [mentionOpen, setMentionOpen] = useState(false);
+  const [mentionLoading, setMentionLoading] = useState(false);
+  const [mentionSelectedIndex, setMentionSelectedIndex] = useState(0);
+  const [activeMention, setActiveMention] = useState<{ start: number; end: number; query: string } | null>(null);
+  const [permissionPolicy, setPermissionPolicy] = useState<'strict' | 'relaxed' | 'yolo'>(
+    () => (localStorage.getItem('reasoner_permission_policy') as 'strict' | 'relaxed' | 'yolo') || 'strict'
+  );
+  const [isDesktop, setIsDesktop] = useState(
+    () => typeof window !== 'undefined' && window.innerWidth >= 768
+  );
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -398,6 +988,10 @@ export function ConversationView() {
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [modelStatus, setModelStatus] = useState<ModelStatus | null>(null);
   const [modelSelectEnabled, setModelSelectEnabled] = useState(false);
+  const [reasoningSettingsOpen, setReasoningSettingsOpen] = useState(false);
+  const [reasoningSettings, setReasoningSettings] = useState<ReasoningSettingsResponse | null>(null);
+  const [reasoningDraft, setReasoningDraft] = useState<ReasoningSettings | null>(null);
+  const [reasoningSaving, setReasoningSaving] = useState(false);
 
   // Usage limits state
   const [usage, setUsage] = useState<UsageInfo>({ limit: -1, used: 0, remaining: -1 });
@@ -408,6 +1002,37 @@ export function ConversationView() {
     getUsage().then(setUsage).catch(() => {});
   }, []);
 
+  const refreshReasoningSettings = useCallback(() => {
+    getReasoningSettings()
+      .then((data) => {
+        setReasoningSettings(data);
+        setReasoningDraft(data.settings);
+      })
+      .catch(() => {});
+  }, []);
+
+  const clearMentionState = useCallback(() => {
+    setActiveMention(null);
+    setMentionOpen(false);
+    setMentionLoading(false);
+    setMentionResults([]);
+    setMentionSelectedIndex(0);
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem('reasoner_workspace_path', workspacePath);
+  }, [workspacePath]);
+
+  useEffect(() => {
+    localStorage.setItem('reasoner_permission_policy', permissionPolicy);
+  }, [permissionPolicy]);
+
+  useEffect(() => {
+    const handleResize = () => setIsDesktop(window.innerWidth >= 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   // Fetch model status, config, and usage on mount
   useEffect(() => {
     getModelStatus().then(setModelStatus).catch(() => {});
@@ -416,7 +1041,13 @@ export function ConversationView() {
       .then((data) => setModelSelectEnabled(data.local_models_enabled ?? false))
       .catch(() => {});
     refreshUsage();
-  }, [refreshUsage]);
+    refreshReasoningSettings();
+  }, [refreshUsage, refreshReasoningSettings]);
+
+  useEffect(() => {
+    if (!modelStatus) return;
+    refreshReasoningSettings();
+  }, [modelStatus?.provider, modelStatus?.model_name, refreshReasoningSettings]);
 
   // Stop generation state
   const [pendingMessage, setPendingMessage] = useState('');
@@ -462,7 +1093,7 @@ export function ConversationView() {
   // Get subscribe/unsubscribe functions from useSSE (chat mode)
   const { subscribe, unsubscribe } = useSSE(activeChatRunId);
 
-  // Get subscribe/unsubscribe functions from useAgentSSE (research mode)
+  // Get subscribe/unsubscribe functions from useAgentSSE (agent mode)
   const {
     subscribe: subscribeAgent,
     unsubscribe: unsubscribeAgent,
@@ -517,6 +1148,19 @@ export function ConversationView() {
     const thinking = s.streamingThinking[activeRunId] ?? '';
     return text.length + thinking.length;
   });
+  const activeAgentScrollSignal = useStore((s) => {
+    if (!activeRunId) return '';
+    const agentState = s.agentRunState[activeRunId];
+    if (!agentState) return '';
+    return [
+      agentState.currentStep,
+      agentState.steps.length,
+      agentState.toolCalls.length,
+      agentState.thinkingBuffer.length,
+      agentState.answerBuffer.length,
+      agentState.agentState,
+    ].join(':');
+  });
 
   useEffect(() => {
     if (!scrollRef.current || !activeRunId) return;
@@ -524,9 +1168,11 @@ export function ConversationView() {
     // Only auto-scroll if user is near the bottom (within 150px)
     const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 150;
     if (isNearBottom) {
-      el.scrollTop = el.scrollHeight;
+      requestAnimationFrame(() => {
+        el.scrollTop = el.scrollHeight;
+      });
     }
-  }, [lastStreamLen, activeRunId]);
+  }, [lastStreamLen, activeAgentScrollSignal, activeRunId]);
 
   const handleShowTrace = useCallback((runId: string) => {
     selectRun(runId);
@@ -536,10 +1182,67 @@ export function ConversationView() {
   /** Retry a message: pre-fill the input with the original user message */
   const handleRetry = useCallback((userMessage: string) => {
     if (hasActiveRun) return;
+    clearMentionState();
     setMessage(userMessage);
     // Focus the textarea so user can edit before sending
     requestAnimationFrame(() => textareaRef.current?.focus());
-  }, [hasActiveRun]);
+  }, [clearMentionState, hasActiveRun]);
+
+  const handleSaveReasoningSettings = useCallback(async () => {
+    if (!reasoningDraft) return;
+    setReasoningSaving(true);
+    try {
+      const updated = await updateReasoningSettings(reasoningDraft);
+      setReasoningSettings(updated);
+      setReasoningDraft(updated.settings);
+      setReasoningSettingsOpen(false);
+      const status = await getModelStatus();
+      setModelStatus(status);
+      toast.success('Reasoning settings updated');
+    } catch (error: unknown) {
+      const message = (error as { message?: string })?.message || 'Failed to update reasoning settings';
+      toast.error(message);
+    } finally {
+      setReasoningSaving(false);
+    }
+  }, [reasoningDraft]);
+
+  const handleOpenTerminal = useCallback(async () => {
+    if (mode !== 'agent' || !isDesktop) return;
+    if (!workspacePath.trim()) {
+      toast.error('Select a workspace first');
+      setWorkspacePickerOpen(true);
+      return;
+    }
+
+    let conversationId = selectedConversationId;
+    if (!conversationId) {
+      const response = await createConversation({ title: 'Terminal' });
+      conversationId = response.conversation_id;
+      const newConversation: Conversation = {
+        conversation_id: conversationId,
+        created_at: new Date().toISOString(),
+        title: 'Terminal',
+        summary: '',
+        status: 'active',
+        metadata: {},
+      };
+      addConversation(newConversation);
+      setRuns(conversationId, []);
+      navigate(`/conversations/${conversationId}`);
+    }
+
+    updateTerminalState(conversationId, { isOpen: true });
+  }, [
+    addConversation,
+    isDesktop,
+    mode,
+    navigate,
+    selectedConversationId,
+    setRuns,
+    workspacePath,
+    updateTerminalState,
+  ]);
 
   const handleSubmit = async () => {
     if (!message.trim() || isSubmitting) return;
@@ -548,6 +1251,7 @@ export function ConversationView() {
     if (hasActiveRun && activeRunId) {
       const steerMsg = message.trim();
       setMessage('');
+      clearMentionState();
       try {
         await steerAgentRun(activeRunId, steerMsg);
         setQueuedSteers((prev) => [...prev, steerMsg]);
@@ -564,7 +1268,8 @@ export function ConversationView() {
     setIsSubmitting(true);
     setPendingMessage(messageToSend);
     setMessage('');
-    setPendingIsAgent(mode === 'research');
+    clearMentionState();
+    setPendingIsAgent(mode === 'agent');
     let conversationId = selectedConversationId;
 
     // Track whether we need to navigate after setup (deferred to prevent
@@ -589,12 +1294,21 @@ export function ConversationView() {
         needsNavigate = true;
       }
 
-      if (mode === 'research') {
-        // Research mode: use agent API
+      if (mode === 'agent') {
+        // Agent mode: use agent API
         const response = await createAgentRun({
           query: messageToSend,
           conversation_id: conversationId!,
           max_steps: 25,
+          workspace_path: workspacePath.trim() || undefined,
+          filesystem_enabled: !!workspacePath.trim(),
+          permission_policy: permissionPolicy,
+          capabilities: {
+            web: true,
+            filesystem: !!workspacePath.trim(),
+            bash: !!workspacePath.trim(),
+            python: false,
+          },
         });
 
         setPendingRunId(response.run_id);
@@ -630,7 +1344,6 @@ export function ConversationView() {
         // Chat mode: use regular conversation API
         const response = await createConversationRun(conversationId!, {
           message: messageToSend,
-          reasoning_effort: reasoningEffort,
         });
 
         setPendingRunId(response.run_id);
@@ -671,6 +1384,7 @@ export function ConversationView() {
       }
       // Restore message on error
       setMessage(messageToSend);
+      clearMentionState();
       setPendingMessage('');
       setPendingRunId(null);
       setPendingIsAgent(false);
@@ -694,10 +1408,11 @@ export function ConversationView() {
       setPendingRunId(null);
       setPendingIsAgent(false);
       setIsSubmitting(false);
+      clearMentionState();
       setQueuedSteers([]);
       subscribedRunRef.current = null;
     }
-  }, [selectedConversationId, activeRunId, pendingRunId]);
+  }, [clearMentionState, selectedConversationId, activeRunId, pendingRunId]);
 
   const handleStop = async () => {
     if (!pendingRunId) return;
@@ -722,6 +1437,7 @@ export function ConversationView() {
 
       // 4. Restore user message
       setMessage(pendingMessage);
+      clearMentionState();
 
       // 5. Reset state
       setPendingRunId(null);
@@ -740,6 +1456,36 @@ export function ConversationView() {
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (mentionOpen) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setMentionSelectedIndex((prev) => (
+          mentionResults.length ? (prev + 1) % mentionResults.length : 0
+        ));
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setMentionSelectedIndex((prev) => (
+          mentionResults.length ? (prev - 1 + mentionResults.length) % mentionResults.length : 0
+        ));
+        return;
+      }
+      if (e.key === 'Enter' && !e.metaKey && !e.ctrlKey) {
+        const entry = mentionResults[mentionSelectedIndex];
+        if (entry) {
+          e.preventDefault();
+          handleMentionSelect(entry);
+          return;
+        }
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setMentionOpen(false);
+        return;
+      }
+    }
+
     // Cmd/Ctrl + Enter to send
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
@@ -749,7 +1495,7 @@ export function ConversationView() {
     // Cmd/Ctrl + 1 for Agent mode
     if (e.key === '1' && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
-      setMode('research');
+      setMode('agent');
       return;
     }
     // Cmd/Ctrl + 2 for Chat mode
@@ -762,6 +1508,7 @@ export function ConversationView() {
 
   // Determine if we should show Stop button (active run we started)
   const isGenerating = !!pendingRunId;
+  const terminalAvailable = !!selectedConversationId && mode === 'agent' && isDesktop;
 
   // Auto-resize textarea
   const resizeTextarea = useCallback(() => {
@@ -771,15 +1518,53 @@ export function ConversationView() {
     ta.style.height = Math.min(ta.scrollHeight, 200) + 'px';
   }, []);
 
+  const handleMentionSelect = useCallback((entry: WorkspaceFileEntry) => {
+    const mention = activeMention;
+    if (!mention) return;
+    const nextMessage = `${message.slice(0, mention.start)}${entry.path}${message.slice(mention.end)}`;
+    const nextCursor = mention.start + entry.path.length;
+    setMessage(nextMessage);
+    setMentionOpen(false);
+    setMentionResults([]);
+    setActiveMention(null);
+    requestAnimationFrame(() => {
+      resizeTextarea();
+      const textarea = textareaRef.current;
+      if (!textarea) return;
+      textarea.focus();
+      textarea.setSelectionRange(nextCursor, nextCursor);
+    });
+  }, [activeMention, message, resizeTextarea]);
+
+  const syncMentionState = useCallback((value: string, selectionStart: number | null) => {
+    if (mode !== 'agent' || !workspacePath.trim()) {
+      setActiveMention(null);
+      setMentionOpen(false);
+      return;
+    }
+    const mention = extractActiveMention(value, selectionStart ?? value.length);
+    setActiveMention(mention);
+    if (!mention) {
+      setMentionOpen(false);
+    }
+  }, [mode, workspacePath]);
+
   const handleMessageChange = useCallback((e: ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value;
     // Enforce character limit
     if (value.length <= MAX_INPUT_CHARS) {
       setMessage(value);
+      syncMentionState(value, e.target.selectionStart);
     }
     // Resize on next frame after state update
     requestAnimationFrame(resizeTextarea);
-  }, [resizeTextarea]);
+  }, [resizeTextarea, syncMentionState]);
+
+  const handleTextareaSelection = useCallback(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    syncMentionState(textarea.value, textarea.selectionStart);
+  }, [syncMentionState]);
 
   // Reset textarea height when message is cleared (after submit)
   useEffect(() => {
@@ -788,9 +1573,44 @@ export function ConversationView() {
     }
   }, [message]);
 
+  useEffect(() => {
+    if (mode !== 'agent' || !workspacePath.trim() || !activeMention) {
+      clearMentionState();
+      return;
+    }
+
+    let cancelled = false;
+    setMentionLoading(true);
+    const timer = window.setTimeout(() => {
+      searchWorkspaceFiles(workspacePath.trim(), activeMention.query, MENTION_RESULT_LIMIT)
+        .then((response) => {
+          if (cancelled) return;
+          setMentionResults(response.entries);
+          setMentionSelectedIndex(0);
+          setMentionOpen(true);
+        })
+        .catch(() => {
+          if (cancelled) return;
+          setMentionResults([]);
+          setMentionOpen(false);
+        })
+        .finally(() => {
+          if (!cancelled) {
+            setMentionLoading(false);
+          }
+        });
+    }, 120);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [activeMention, clearMentionState, mode, workspacePath]);
+
   const handlePresetClick = (query: string) => {
+    clearMentionState();
     setMessage(query);
-    setMode('research'); // Preset questions are designed for research mode
+    setMode('agent'); // Preset questions are designed for agent mode
     requestAnimationFrame(resizeTextarea);
   };
 
@@ -807,12 +1627,35 @@ export function ConversationView() {
                 title="Switch model"
               >
                 {modelStatus?.model_name || 'model'}
+                {modelStatus?.context_window ? (
+                  <span className="text-zinc-700 ml-1">({Math.round(modelStatus.context_window / 1024)}k)</span>
+                ) : null}
                 {modelStatus?.provider === 'local' && (
                   <span className="text-zinc-700 ml-1">(local)</span>
                 )}
               </button>
             ) : (
-              <span className="text-zinc-600">{modelStatus?.model_name || 'model'}</span>
+              <span className="text-zinc-600">{modelStatus?.model_name || 'model'}{modelStatus?.context_window ? ` (${Math.round(modelStatus.context_window / 1024)}k)` : ''}</span>
+            )}
+            <span className="text-zinc-700">|</span>
+            <button
+              onClick={() => setReasoningSettingsOpen(true)}
+              className="text-zinc-600 hover:text-zinc-400 transition-colors"
+              title="Open reasoning settings"
+            >
+              reasoning
+            </button>
+            {mode === 'agent' && isDesktop && (
+              <>
+                <span className="text-zinc-700">|</span>
+                <button
+                  onClick={() => void handleOpenTerminal()}
+                  className="text-zinc-600 hover:text-zinc-400 transition-colors"
+                  title={workspacePath.trim() ? 'Open integrated terminal' : 'Select a workspace first'}
+                >
+                  terminal
+                </button>
+              </>
             )}
           </div>
           <button
@@ -831,21 +1674,36 @@ export function ConversationView() {
             onModelStatusChange={setModelStatus}
           />
         )}
+        <ReasoningSettingsDialog
+          open={reasoningSettingsOpen}
+          onOpenChange={setReasoningSettingsOpen}
+          settingsResponse={reasoningSettings}
+          draft={reasoningDraft}
+          onDraftChange={setReasoningDraft}
+          onSave={handleSaveReasoningSettings}
+          saving={reasoningSaving}
+        />
+        <WorkspacePicker
+          open={workspacePickerOpen}
+          onOpenChange={setWorkspacePickerOpen}
+          value={workspacePath}
+          onSelect={setWorkspacePath}
+        />
 
         <div className="flex-1 flex flex-col items-center justify-center text-zinc-400 gap-4 sm:gap-6 px-3 sm:px-4 md:px-6 overflow-y-auto min-h-0">
           <div className="font-mono text-center">
             <p className="text-sm text-zinc-500">
-              <span className="text-zinc-700">───</span> {mode === 'research' ? 'agent' : 'chat'} <span className="text-zinc-700">───</span>
+              <span className="text-zinc-700">───</span> {mode === 'agent' ? 'agent' : 'chat'} <span className="text-zinc-700">───</span>
             </p>
             <p className="text-xs text-zinc-600 mt-1">
-              {mode === 'research'
-                ? 'web search · content extraction · code execution'
+              {mode === 'agent'
+                ? 'workspace tools · bash · web search'
                 : 'reasoning-capable conversation'}
             </p>
           </div>
 
           {/* Preset Questions - only show in agent mode */}
-          {mode === 'research' && (
+          {mode === 'agent' && (
             <div className="w-full max-w-xl font-mono">
               <p className="text-xs text-zinc-700 mb-2">~ examples</p>
               <div className="space-y-0.5 border-l border-zinc-800 ml-1">
@@ -865,30 +1723,39 @@ export function ConversationView() {
         </div>
         <div className="p-3 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-4 sm:pb-[max(1rem,env(safe-area-inset-bottom))] flex-shrink-0 space-y-2">
           {/* Prompt area */}
-          <div className="border border-zinc-700 bg-zinc-900 focus-within:border-zinc-500 transition-colors">
+          <div className="relative border border-zinc-700 bg-zinc-900 focus-within:border-zinc-500 transition-colors">
             <div className="flex items-start p-3 gap-2">
               <span className="text-zinc-500 font-mono text-sm mt-0.5 select-none">&gt;</span>
               <textarea
                 ref={textareaRef}
-                placeholder={mode === 'research' ? 'Ask agent to research...' : 'Ask a question...'}
+                placeholder={mode === 'agent' ? 'Ask the coding agent...' : 'Ask a question...'}
                 value={message}
                 onChange={handleMessageChange}
                 onKeyDown={handleKeyDown}
+                onSelect={handleTextareaSelection}
+                onClick={handleTextareaSelection}
                 rows={2}
                 className="flex-1 bg-transparent border-none outline-none resize-none text-sm font-mono text-zinc-100 placeholder:text-zinc-600"
                 disabled={isSubmitting || hasActiveRun}
                 style={{ maxHeight: '200px' }}
               />
             </div>
+            <MentionPicker
+              open={mentionOpen}
+              loading={mentionLoading}
+              entries={mentionResults}
+              selectedIndex={mentionSelectedIndex}
+              onSelect={handleMentionSelect}
+            />
           </div>
           {/* Toolbar */}
           <div className="flex items-center justify-between px-1">
             <div className="flex items-center gap-3 font-mono text-xs">
               <button
-                onClick={() => setMode('research')}
+                onClick={() => setMode('agent')}
                 className={cn(
                   'transition-colors',
-                  mode === 'research' ? 'text-zinc-200' : 'text-zinc-600 hover:text-zinc-400'
+                  mode === 'agent' ? 'text-zinc-200' : 'text-zinc-600 hover:text-zinc-400'
                 )}
               >
                 agent
@@ -902,19 +1769,45 @@ export function ConversationView() {
               >
                 chat
               </button>
-              {mode === 'chat' && (
-                <select
-                  value={reasoningEffort}
-                  onChange={(e) => setReasoningEffort(e.target.value as ReasoningEffort)}
-                  className="bg-transparent border-none outline-none text-xs font-mono text-zinc-500 cursor-pointer"
-                  title="Reasoning effort"
-                >
-                  <option value="low">fast</option>
-                  <option value="medium">balanced</option>
-                  <option value="high">deep</option>
-                </select>
+              {mode === 'agent' && (
+                <>
+                  <input
+                    value={workspacePath}
+                    onChange={(e) => setWorkspacePath(e.target.value)}
+                    placeholder="/path/to/repo"
+                    className="w-40 sm:w-56 bg-transparent border-none outline-none text-xs font-mono text-zinc-400 placeholder:text-zinc-700"
+                    title="Workspace path for filesystem and bash tools"
+                  />
+                  <button
+                    onClick={() => setWorkspacePickerOpen(true)}
+                    className="text-zinc-600 hover:text-zinc-300 transition-colors"
+                    title="Browse local folders"
+                  >
+                    browse
+                  </button>
+                  <select
+                    value={permissionPolicy}
+                    onChange={(e) => setPermissionPolicy(e.target.value as 'strict' | 'relaxed' | 'yolo')}
+                    className="bg-transparent border-none outline-none text-xs font-mono text-zinc-500 cursor-pointer"
+                    title="Tool permission policy"
+                  >
+                    <option value="strict">strict</option>
+                    <option value="relaxed">relaxed</option>
+                    <option value="yolo">yolo</option>
+                  </select>
+                </>
               )}
               <span className="text-zinc-700">|</span>
+              {mode === 'agent' && isDesktop && (
+                <button
+                  onClick={() => void handleOpenTerminal()}
+                  className="text-zinc-500 hover:text-zinc-300 transition-colors"
+                  title={workspacePath.trim() ? 'Open integrated terminal' : 'Select a workspace first'}
+                >
+                  terminal
+                </button>
+              )}
+              {mode === 'agent' && isDesktop && <span className="text-zinc-700">|</span>}
               {isGenerating ? (
                 <button onClick={handleStop} className="text-red-400 hover:text-red-300 transition-colors">
                   stop
@@ -959,6 +1852,9 @@ export function ConversationView() {
                 title="Switch model"
               >
                 {modelStatus?.model_name || 'model'}
+                {modelStatus?.context_window ? (
+                  <span className="text-zinc-700 ml-1">({Math.round(modelStatus.context_window / 1024)}k)</span>
+                ) : null}
                 {modelStatus?.provider === 'local' && (
                   <span className="text-zinc-700 ml-1">(local)</span>
                 )}
@@ -967,10 +1863,18 @@ export function ConversationView() {
             </>
           ) : (
             <>
-              <span className="text-zinc-600 flex-shrink-0">{modelStatus?.model_name || 'model'}</span>
+              <span className="text-zinc-600 flex-shrink-0">{modelStatus?.model_name || 'model'}{modelStatus?.context_window ? ` (${Math.round(modelStatus.context_window / 1024)}k)` : ''}</span>
               <span className="text-zinc-700">|</span>
             </>
           )}
+          <button
+            onClick={() => setReasoningSettingsOpen(true)}
+            className="text-zinc-600 hover:text-zinc-400 transition-colors flex-shrink-0"
+            title="Open reasoning settings"
+          >
+            reasoning
+          </button>
+          <span className="text-zinc-700">|</span>
           <span className="text-zinc-600 truncate">
             {conversation?.title || 'conversation'}
           </span>
@@ -991,6 +1895,21 @@ export function ConversationView() {
           onModelStatusChange={setModelStatus}
         />
       )}
+      <ReasoningSettingsDialog
+        open={reasoningSettingsOpen}
+        onOpenChange={setReasoningSettingsOpen}
+        settingsResponse={reasoningSettings}
+        draft={reasoningDraft}
+        onDraftChange={setReasoningDraft}
+        onSave={handleSaveReasoningSettings}
+        saving={reasoningSaving}
+      />
+      <WorkspacePicker
+        open={workspacePickerOpen}
+        onOpenChange={setWorkspacePickerOpen}
+        value={workspacePath}
+        onSelect={setWorkspacePath}
+      />
 
       <div className="flex-1 overflow-y-auto px-3 sm:px-4 md:px-6 py-4 sm:py-5 md:py-6" ref={scrollRef}>
         <div className="space-y-8">
@@ -1020,8 +1939,23 @@ export function ConversationView() {
       <ScrollToBottom
         scrollRef={scrollRef}
         isStreaming={!!activeRunId}
-        className="left-1/2 -translate-x-1/2 bottom-28"
+        className={cn(
+          "left-1/2 -translate-x-1/2",
+          terminalAvailable && terminalState?.isOpen
+            ? "bottom-[calc(1.5rem+var(--terminal-height,260px))]"
+            : "bottom-28"
+        )}
       />
+
+      {terminalAvailable && selectedConversationId && (
+        <div style={{ ['--terminal-height' as string]: `${terminalState?.height ?? 260}px` }}>
+          <IntegratedTerminal
+            conversationId={selectedConversationId}
+            workspacePath={workspacePath}
+            active={terminalAvailable}
+          />
+        </div>
+      )}
 
       <div className="p-3 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-4 sm:pb-[max(1rem,env(safe-area-inset-bottom))] flex-shrink-0 space-y-2">
         {/* Queued steering messages */}
@@ -1038,30 +1972,39 @@ export function ConversationView() {
           </div>
         )}
         {/* Prompt area */}
-        <div className="border border-zinc-700 bg-zinc-900 focus-within:border-zinc-500 transition-colors">
+        <div className="relative border border-zinc-700 bg-zinc-900 focus-within:border-zinc-500 transition-colors">
           <div className="flex items-start p-3 gap-2">
             <span className="text-zinc-500 font-mono text-sm mt-0.5 select-none">&gt;</span>
             <textarea
               ref={textareaRef}
-              placeholder={atLimit ? 'Message limit reached' : hasActiveRun ? 'Steer the agent...' : mode === 'research' ? 'Ask agent to research...' : 'Ask a follow-up question...'}
+              placeholder={atLimit ? 'Message limit reached' : hasActiveRun ? 'Steer the agent...' : mode === 'agent' ? 'Ask the coding agent...' : 'Ask a follow-up question...'}
               value={message}
               onChange={handleMessageChange}
               onKeyDown={handleKeyDown}
+              onSelect={handleTextareaSelection}
+              onClick={handleTextareaSelection}
               rows={2}
               className="flex-1 bg-transparent border-none outline-none resize-none text-sm font-mono text-zinc-100 placeholder:text-zinc-600"
               disabled={isSubmitting || atLimit}
               style={{ maxHeight: '200px' }}
             />
           </div>
+          <MentionPicker
+            open={mentionOpen}
+            loading={mentionLoading}
+            entries={mentionResults}
+            selectedIndex={mentionSelectedIndex}
+            onSelect={handleMentionSelect}
+          />
         </div>
         {/* Toolbar */}
         <div className="flex items-center justify-between px-1">
           <div className="flex items-center gap-3 font-mono text-xs">
             <button
-              onClick={() => setMode('research')}
+              onClick={() => setMode('agent')}
               className={cn(
                 'transition-colors',
-                mode === 'research' ? 'text-zinc-200' : 'text-zinc-600 hover:text-zinc-400'
+                mode === 'agent' ? 'text-zinc-200' : 'text-zinc-600 hover:text-zinc-400'
               )}
             >
               agent
@@ -1075,23 +2018,66 @@ export function ConversationView() {
             >
               chat
             </button>
-            {mode === 'chat' && (
-              <select
-                value={reasoningEffort}
-                onChange={(e) => setReasoningEffort(e.target.value as ReasoningEffort)}
-                className="bg-transparent border-none outline-none text-xs font-mono text-zinc-500 cursor-pointer"
-                title="Reasoning effort"
+            {mode === 'agent' && (
+              <>
+                <input
+                  value={workspacePath}
+                  onChange={(e) => setWorkspacePath(e.target.value)}
+                  placeholder="/path/to/repo"
+                  className="w-40 sm:w-56 bg-transparent border-none outline-none text-xs font-mono text-zinc-400 placeholder:text-zinc-700"
+                  title="Workspace path for filesystem and bash tools"
+                />
+                <button
+                  onClick={() => setWorkspacePickerOpen(true)}
+                  className="text-zinc-600 hover:text-zinc-300 transition-colors"
+                  title="Browse local folders"
+                >
+                  browse
+                </button>
+                <select
+                  value={permissionPolicy}
+                  onChange={(e) => setPermissionPolicy(e.target.value as 'strict' | 'relaxed' | 'yolo')}
+                  className="bg-transparent border-none outline-none text-xs font-mono text-zinc-500 cursor-pointer"
+                  title="Tool permission policy"
+                >
+                  <option value="strict">strict</option>
+                  <option value="relaxed">relaxed</option>
+                  <option value="yolo">yolo</option>
+                  </select>
+                </>
+              )}
+              <button
+                onClick={() => setReasoningSettingsOpen(true)}
+                className="text-zinc-500 hover:text-zinc-300 transition-colors"
+                title="Configure reasoning settings"
               >
-                <option value="low">fast</option>
-                <option value="medium">balanced</option>
-                <option value="high">deep</option>
-              </select>
-            )}
-            <span className="text-zinc-700">|</span>
-            {isGenerating ? (
-              <button onClick={handleStop} className="text-red-400 hover:text-red-300 transition-colors">
-                stop
+                reasoning
               </button>
+              {terminalAvailable && selectedConversationId && (
+                <button
+                  onClick={() => {
+                    if (!workspacePath.trim()) {
+                      toast.error('Select a workspace first');
+                      setWorkspacePickerOpen(true);
+                      return;
+                    }
+                    updateTerminalState(selectedConversationId, { isOpen: !terminalState?.isOpen });
+                  }}
+                  className="text-zinc-500 hover:text-zinc-300 transition-colors"
+                  title={
+                    workspacePath.trim()
+                      ? (terminalState?.isOpen ? 'Collapse terminal' : 'Open terminal')
+                      : 'Select a workspace first'
+                  }
+                >
+                  {terminalState?.isOpen ? 'terminal−' : 'terminal+'}
+                </button>
+              )}
+              <span className="text-zinc-700">|</span>
+              {isGenerating ? (
+                <button onClick={handleStop} className="text-red-400 hover:text-red-300 transition-colors">
+                  stop
+                </button>
             ) : (
               <button
                 onClick={handleSubmit}

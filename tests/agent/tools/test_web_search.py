@@ -46,7 +46,7 @@ class TestWebSearchToolProperties:
         tool = WebSearchTool(api_key="test")
         params = tool.schema.parameters
 
-        assert params["properties"]["num_results"]["maximum"] == 10
+        assert params["properties"]["num_results"]["maximum"] == 8
 
 
 class TestWebSearchToolExecution:
@@ -139,7 +139,7 @@ class TestWebSearchToolExecution:
 
             # Check the actual call (Parallel.ai API uses 'max_results' not 'num_results')
             call_args = mock_post.call_args
-            assert call_args[1]["json"]["max_results"] == 10  # Capped to max
+            assert call_args[1]["json"]["max_results"] == 8  # Capped to max
 
         await tool.close()
 

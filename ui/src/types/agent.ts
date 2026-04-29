@@ -1,5 +1,5 @@
 /**
- * Agent Types - TypeScript definitions for web research agent.
+ * Agent Types - TypeScript definitions for browser coding agent.
  * Mirrors orchestrator/schemas.py agent types.
  */
 
@@ -57,6 +57,17 @@ export interface AgentToolCall {
   completed_at?: string;
   idempotency_key: string;
   execution_attempt: number;
+  result_data?: string;
+  bash_output?: {
+    stdout: string;
+    stderr: string;
+    exit_code?: number;
+    truncated?: boolean;
+  };
+  approval_required?: boolean;
+  approval_decision?: 'approved' | 'denied' | 'auto' | 'timeout';
+  permission_level?: string;
+  diff_preview?: string | null;
 }
 
 /** Agent citation response - from AgentCitationResponse schema */
@@ -75,11 +86,48 @@ export interface AgentCitation {
 // API Request/Response Types
 // =============================================================================
 
+export interface ModelPricing {
+  input_cost_per_million?: number | null;
+  cached_input_cost_per_million?: number | null;
+  output_cost_per_million?: number | null;
+}
+
+export interface ModelContextProfile {
+  provider_name: string;
+  model_id: string;
+  display_name: string;
+  context_window: number;
+  max_output_tokens: number;
+  effective_input_budget: number;
+  supports_tools: boolean;
+  supports_reasoning: boolean;
+  pricing?: ModelPricing;
+  source: string;
+}
+
+export interface AgentSystemEvent {
+  event_type: string;
+  message: string;
+  step_number?: number;
+  seq?: number;
+  created_at?: string;
+}
+
 /** Request to create agent run */
 export interface CreateAgentRunRequest {
   query: string;
   conversation_id?: string;
   max_steps?: number;
+  workspace_path?: string;
+  filesystem_enabled?: boolean;
+  permission_policy?: 'strict' | 'relaxed' | 'yolo';
+  profile?: string;
+  capabilities?: {
+    web: boolean;
+    filesystem: boolean;
+    bash: boolean;
+    python: boolean;
+  };
 }
 
 /** Response from creating agent run */
@@ -88,6 +136,7 @@ export interface CreateAgentRunResponse {
   status: string;
   stream_url: string;
   stream_token: string;
+  conversation_id?: string;
 }
 
 /** Agent run status response */
@@ -99,6 +148,12 @@ export interface AgentRunStatus {
   max_steps: number;
   final_answer?: string;
   error_message?: string;
+  usage?: TokenUsage;
+  cost?: CostUsage | null;
+  context_usage?: ContextUsage;
+  context_profile?: ModelContextProfile;
+  compaction_count: number;
+  last_compacted_at_step?: number;
   created_at: string;
   updated_at?: string;
 }
@@ -111,7 +166,14 @@ export interface AgentRunTrace {
   steps: AgentStep[];
   tool_calls: AgentToolCall[];
   citations: AgentCitation[];
+  system_events?: AgentSystemEvent[];
   final_answer?: string;
+  usage?: TokenUsage;
+  cost?: CostUsage | null;
+  context_usage?: ContextUsage;
+  context_profile?: ModelContextProfile;
+  compaction_count: number;
+  last_compacted_at_step?: number;
 }
 
 // =============================================================================
@@ -124,6 +186,7 @@ export type AgentSSEEventType =
   | 'step_start' // step_started
   | 'thinking' // thinking text tokens
   | 'tool_start' // tool beginning execution
+  | 'tool_approval_required' // tool waiting for browser approval
   | 'tool_result' // tool finished
   | 'answer' // streaming answer tokens
   | 'complete' // run finished
@@ -132,6 +195,8 @@ export type AgentSSEEventType =
   | 'paused' // run paused between steps
   | 'resumed' // run resumed after pause
   | 'steer' // steering message injected
+  | 'usage_update' // token/cost usage update
+  | 'conversation_compacted'
   | 'heartbeat'; // keep-alive
 
 /** Base SSE event structure */
@@ -156,6 +221,10 @@ export interface StepStartEvent extends AgentSSEEventBase {
   steps_remaining: number;
   context_tokens?: number;
   context_remaining?: number;
+  context_usage?: ContextUsage;
+  context_profile?: ModelContextProfile;
+  compaction_count?: number;
+  last_compacted_at_step?: number;
 }
 
 /** Thinking content event */
@@ -172,6 +241,16 @@ export interface ToolStartEvent extends AgentSSEEventBase {
   arguments: Record<string, unknown>;
 }
 
+/** Tool approval required event */
+export interface ToolApprovalRequiredEvent extends AgentSSEEventBase {
+  type: 'tool_approval_required';
+  tool_call_id: string;
+  tool_name: string;
+  arguments: Record<string, unknown>;
+  permission_level: string;
+  diff_preview?: string | null;
+}
+
 /** Tool result event */
 export interface ToolResultEvent extends AgentSSEEventBase {
   type: 'tool_result';
@@ -179,6 +258,13 @@ export interface ToolResultEvent extends AgentSSEEventBase {
   tool_name: string;
   success: boolean;
   result_summary: string;
+  result_data?: string;
+  bash_output?: {
+    stdout: string;
+    stderr: string;
+    exit_code?: number;
+    truncated?: boolean;
+  };
   duration_ms?: number;
 }
 
@@ -190,10 +276,53 @@ export interface AnswerEvent extends AgentSSEEventBase {
 
 /** Context usage from budget tracker */
 export interface ContextUsage {
-  total_tokens_used: number;
-  history_tokens: number;
-  max_tokens: number;
+  context_window: number;
+  reserved_output_tokens: number;
+  effective_input_budget: number;
+  prompt_tokens_current_call: number;
+  conversation_tokens_active_history: number;
+  utilization_pct_effective: number;
   utilization_pct: number;
+  compaction_threshold_pct: number;
+  next_compaction_at_tokens: number;
+  remaining_tokens: number;
+  compactions_so_far: number;
+  compaction_count?: number;
+  last_compacted_at_step?: number;
+}
+
+/** Normalized token usage. */
+export interface TokenUsage {
+  input_tokens: number;
+  output_tokens: number;
+  reasoning_tokens: number;
+  cached_tokens: number;
+  total_tokens: number;
+}
+
+/** Estimated run cost. */
+export interface CostUsage {
+  estimated: boolean;
+  currency: string;
+  input_cost: number;
+  cached_input_cost?: number;
+  output_cost: number;
+  total_cost: number;
+  input_cost_per_million: number;
+  cached_input_cost_per_million?: number;
+  output_cost_per_million: number;
+}
+
+/** Token/cost usage update event */
+export interface UsageUpdateEvent extends AgentSSEEventBase {
+  type: 'usage_update';
+  usage: TokenUsage;
+  latest_usage?: TokenUsage;
+  cost?: CostUsage | null;
+  context_usage?: ContextUsage;
+  context_profile?: ModelContextProfile;
+  compaction_count?: number;
+  last_compacted_at_step?: number;
 }
 
 /** Complete event */
@@ -205,7 +334,12 @@ export interface CompleteEvent extends AgentSSEEventBase {
   total_steps: number;
   timing_ms: number;
   total_tokens?: number;
+  usage?: TokenUsage;
+  cost?: CostUsage | null;
   context_usage?: ContextUsage;
+  context_profile?: ModelContextProfile;
+  compaction_count?: number;
+  last_compacted_at_step?: number;
 }
 
 /** Error event */
@@ -226,18 +360,31 @@ export interface ResumedEvent extends AgentSSEEventBase {
   step_number: number;
 }
 
+/** Conversation compaction event */
+export interface ConversationCompactedEvent extends AgentSSEEventBase {
+  type: 'conversation_compacted';
+  message: string;
+  step_number?: number;
+  context_usage?: ContextUsage;
+  context_profile?: ModelContextProfile;
+  compaction_count?: number;
+}
+
 /** Union type for all agent SSE events */
 export type AgentSSEEvent =
   | AgentStateEvent
   | StepStartEvent
   | ThinkingEvent
   | ToolStartEvent
+  | ToolApprovalRequiredEvent
   | ToolResultEvent
   | AnswerEvent
   | CompleteEvent
   | ErrorEvent
   | PausedEvent
-  | ResumedEvent;
+  | ResumedEvent
+  | UsageUpdateEvent
+  | ConversationCompactedEvent;
 
 // =============================================================================
 // UI State Types
@@ -258,7 +405,13 @@ export interface AgentUIState {
   timing_ms?: number;
   total_tokens?: number;
   context_usage?: ContextUsage;
+  usage?: TokenUsage;
+  cost?: CostUsage | null;
   context_tokens?: number;
   context_remaining?: number;
+  context_profile?: ModelContextProfile;
+  compaction_count?: number;
+  last_compacted_at_step?: number;
+  systemEvents?: AgentSystemEvent[];
   injectedSteers: Array<{ content: string; step_number: number }>;
 }

@@ -2,7 +2,7 @@
 
 ## Goal
 
-Allow users to log in with their ChatGPT subscription (Plus/Pro/etc.) and use OpenAI models (GPT-5, Codex, etc.) as the LLM provider in the reasoner app — at no extra API cost to us or the user.
+Allow users to log in with their ChatGPT subscription (Plus/Pro/etc.) and use OpenAI models (GPT-5, Codex, etc.) as the LLM provider in the Fluxion app — at no extra API cost to us or the user.
 
 ## How It Works
 
@@ -37,13 +37,13 @@ User sends a query
 - **New**: Token storage and refresh logic
 - **New**: Provider option for "ChatGPT subscription" alongside DeepInfra
 - **New**: Request/response translation layer (ChatGPT backend format differs slightly from standard OpenAI API)
-- **Unchanged**: Agent engine, tools, planning, context pruning, citations, SSE streaming, frontend UI
+- **Unchanged**: Agent engine, tools, planning structure, citations, SSE streaming, frontend UI
 
 ### What Does NOT Change
 
 - `agent_engine.py` — agent loop stays exactly the same
 - `planner.py` — research planning stays the same
-- `context_pruner.py` — context management stays the same
+- context handling remains backend-owned and provider-agnostic, but the current implementation now uses normalized model context profiles, bounded tool-result history, and 90%-threshold conversation compaction
 - Tool execution (web_search, web_extract, python_execute) — all the same
 - SSE streaming and frontend — all the same
 - Citations, step tracking, forced synthesis — all the same
@@ -109,6 +109,14 @@ For our integration, the flow would be:
 - Rate limits tied to ChatGPT subscription tier (Plus: 30-150 msgs/5hr, Pro: 300-1500 msgs/5hr)
 - ChatGPT backend API format may change without notice (it's not a stable public API)
 - Token refresh edge cases
+
+## Current Codebase Reality
+
+This integration now coexists with the newer context system:
+- active model metadata is normalized through the shared context-profile abstraction
+- effective input budget is tracked as `context_window - max_output_tokens`
+- historical reasoning is not rehydrated into future prompt history
+- agent conversations compact visibly at 90% of effective input budget regardless of provider source
 
 ## Next Steps
 
