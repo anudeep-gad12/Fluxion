@@ -10,11 +10,12 @@ Complete documentation of all API endpoints in the Reasoner system.
 4. [Agent Runs](#agent-runs)
 5. [ChatGPT Auth](#chatgpt-auth-cli)
 6. [Models](#models)
-7. [Benchmarks](#benchmarks)
-8. [System](#system)
-9. [Rate Limiting](#rate-limiting)
-10. [SSE Streaming](#sse-streaming)
-11. [Error Handling](#error-handling)
+7. [Browser Terminal](#browser-terminal)
+8. [Benchmarks](#benchmarks)
+9. [System](#system)
+10. [Rate Limiting](#rate-limiting)
+11. [SSE Streaming](#sse-streaming)
+12. [Error Handling](#error-handling)
 
 ---
 
@@ -1347,6 +1348,108 @@ POST /api/models/local/stop
   "provider": "cloud"
 }
 ```
+
+---
+
+## Browser Terminal
+
+Desktop agent mode exposes a per-conversation persistent terminal session backed by a PTY shell. The browser terminal is separate from the agent `bash` tool: it is user-driven, interactive, and long-lived until restarted or closed.
+
+### Create or Reattach Terminal Session
+
+**Request**:
+```
+POST /api/terminal/conversations/{conversation_id}/session
+```
+
+**Body**:
+```json
+{
+  "workspace_path": "/Users/me/project",
+  "cols": 120,
+  "rows": 30
+}
+```
+
+**Response** (200 OK):
+```json
+{
+  "session_id": "6f1d...",
+  "conversation_id": "abc123",
+  "workspace_path": "/Users/me/project",
+  "shell": "/bin/zsh",
+  "status": "running",
+  "cols": 120,
+  "rows": 30,
+  "created_at": "2026-04-28T12:00:00+00:00",
+  "updated_at": "2026-04-28T12:00:00+00:00",
+  "last_activity_at": "2026-04-28T12:00:00+00:00",
+  "reconnect_supported": true,
+  "replay_buffer": ""
+}
+```
+
+If the conversation already has a live terminal session, this endpoint returns the existing session metadata instead of creating a new shell.
+
+### Get Terminal Session Metadata
+
+**Request**:
+```
+GET /api/terminal/conversations/{conversation_id}/session
+```
+
+Returns the persisted session metadata plus:
+- `reconnect_supported=true` when the live PTY still exists in memory
+- `status="stale"` when metadata exists but the server restart/loss killed the live shell
+- `replay_buffer` containing bounded recent output for reconnect/reopen
+
+### Restart Terminal Session
+
+**Request**:
+```
+POST /api/terminal/conversations/{conversation_id}/session/restart
+```
+
+Same request body as create. This kills the old shell, starts a new PTY, and updates the session metadata to the current workspace path and terminal size.
+
+### Close Terminal Session
+
+**Request**:
+```
+POST /api/terminal/conversations/{conversation_id}/session/close
+```
+
+**Response**:
+```json
+{
+  "status": "closed",
+  "conversation_id": "abc123"
+}
+```
+
+### WebSocket Attach Endpoint
+
+**Request**:
+```
+GET /api/terminal/conversations/{conversation_id}/ws?session_id={session_id}
+```
+
+Protocol:
+- browser → server:
+  - `{"type":"input","data":"ls\r"}`
+  - `{"type":"resize","cols":132,"rows":36}`
+  - `{"type":"ping"}`
+- server → browser:
+  - `{"type":"status","status":"running"}`
+  - `{"type":"replay","data":"..."}`
+  - `{"type":"output","data":"..."}`
+  - `{"type":"exit","exit_code":0}`
+  - `{"type":"pong"}`
+
+Notes:
+- The terminal session is scoped per conversation, not per browser tab.
+- Changing the conversation workspace path later does not automatically reset the running shell.
+- WebSocket access follows the same owner/session isolation rules as the rest of the browser app.
 
 ---
 

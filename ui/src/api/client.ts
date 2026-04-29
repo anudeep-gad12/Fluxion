@@ -575,6 +575,27 @@ export interface WorkspaceFileSearchResponse {
   entries: WorkspaceFileEntry[];
 }
 
+export interface TerminalSessionRequest {
+  workspace_path?: string;
+  cols?: number;
+  rows?: number;
+}
+
+export interface TerminalSessionResponse {
+  session_id: string;
+  conversation_id: string;
+  workspace_path?: string | null;
+  shell: string;
+  status: string;
+  cols: number;
+  rows: number;
+  created_at: string;
+  updated_at: string;
+  last_activity_at: string;
+  reconnect_supported: boolean;
+  replay_buffer: string;
+}
+
 export async function browseWorkspaceDirectories(
   path?: string,
 ): Promise<WorkspaceBrowseResponse> {
@@ -594,6 +615,55 @@ export async function searchWorkspaceFiles(
   params.set('q', query);
   params.set('limit', String(limit));
   return fetchJson<WorkspaceFileSearchResponse>(`${API_BASE}/workspaces/search-files?${params}`);
+}
+
+export async function getTerminalSession(
+  conversationId: string,
+): Promise<TerminalSessionResponse> {
+  return fetchJson<TerminalSessionResponse>(`${API_BASE}/terminal/conversations/${conversationId}/session`);
+}
+
+export async function createTerminalSession(
+  conversationId: string,
+  request: TerminalSessionRequest,
+): Promise<TerminalSessionResponse> {
+  return fetchJson<TerminalSessionResponse>(`${API_BASE}/terminal/conversations/${conversationId}/session`, {
+    method: 'POST',
+    body: JSON.stringify(request),
+  });
+}
+
+export async function restartTerminalSession(
+  conversationId: string,
+  request: TerminalSessionRequest,
+): Promise<TerminalSessionResponse> {
+  return fetchJson<TerminalSessionResponse>(`${API_BASE}/terminal/conversations/${conversationId}/session/restart`, {
+    method: 'POST',
+    body: JSON.stringify(request),
+  });
+}
+
+export async function closeTerminalSession(
+  conversationId: string,
+): Promise<{ status: string; conversation_id: string }> {
+  return fetchJson(`${API_BASE}/terminal/conversations/${conversationId}/session/close`, {
+    method: 'POST',
+  });
+}
+
+export function createTerminalWebSocket(
+  conversationId: string,
+  sessionId: string,
+): WebSocket {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const ownerToken = getOwnerToken();
+  const params = new URLSearchParams({ session_id: sessionId });
+  if (ownerToken) {
+    params.set('owner', ownerToken);
+  }
+  return new WebSocket(
+    `${protocol}//${window.location.host}${API_BASE}/terminal/conversations/${conversationId}/ws?${params.toString()}`
+  );
 }
 
 export interface UsageInfo {

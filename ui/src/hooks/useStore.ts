@@ -3,6 +3,16 @@
 import { create } from 'zustand';
 import type { Run, Event, Conversation } from '@/types';
 import type { AgentUIState, AgentStep, AgentToolCall, AgentCitation } from '@/types/agent';
+import type { TerminalSessionResponse } from '@/api/client';
+
+export interface TerminalUIState {
+  isOpen: boolean;
+  height: number;
+  session: TerminalSessionResponse | null;
+  buffer: string;
+  connected: boolean;
+  status: 'idle' | 'connecting' | 'running' | 'closed' | 'stale' | 'error';
+}
 
 interface AppState {
   // Conversations
@@ -35,6 +45,7 @@ interface AppState {
 
   // Agent run state (per run_id)
   agentRunState: Record<string, AgentUIState>;
+  terminalByConversation: Record<string, TerminalUIState>;
 
   // Conversation actions
   setConversations: (conversations: Conversation[]) => void;
@@ -84,6 +95,12 @@ interface AppState {
   updateAgentStep: (runId: string, stepNumber: number, updates: Partial<AgentStep>) => void;
   setAgentCitations: (runId: string, citations: AgentCitation[]) => void;
   clearAgentRun: (runId: string) => void;
+
+  // Terminal UI actions
+  initTerminalState: (conversationId: string, defaults?: Partial<TerminalUIState>) => void;
+  updateTerminalState: (conversationId: string, updates: Partial<TerminalUIState>) => void;
+  appendTerminalBuffer: (conversationId: string, chunk: string) => void;
+  clearTerminalBuffer: (conversationId: string) => void;
 }
 
 export const useStore = create<AppState>((set, get) => ({
@@ -103,6 +120,7 @@ export const useStore = create<AppState>((set, get) => ({
   error: null,
   fetchingRuns: new Set<string>(),
   agentRunState: {},
+  terminalByConversation: {},
 
   // Conversation actions
   setConversations: (conversations) => set({ conversations }),
@@ -415,6 +433,77 @@ export const useStore = create<AppState>((set, get) => ({
       const { [runId]: _, ...rest } = state.agentRunState;
       return { agentRunState: rest };
     }),
+
+  initTerminalState: (conversationId, defaults) =>
+    set((state) => {
+      const base: TerminalUIState = {
+        isOpen: false,
+        height: 260,
+        session: null,
+        buffer: '',
+        connected: false,
+        status: 'idle',
+      };
+      return {
+        terminalByConversation: {
+          ...state.terminalByConversation,
+          [conversationId]: {
+            ...base,
+            ...(state.terminalByConversation[conversationId] ?? {}),
+            ...(defaults ?? {}),
+          },
+        },
+      };
+    }),
+
+  updateTerminalState: (conversationId, updates) =>
+    set((state) => {
+      const current = state.terminalByConversation[conversationId] ?? {
+        isOpen: false,
+        height: 260,
+        session: null,
+        buffer: '',
+        connected: false,
+        status: 'idle' as const,
+      };
+      return {
+        terminalByConversation: {
+          ...state.terminalByConversation,
+          [conversationId]: { ...current, ...updates },
+        },
+      };
+    }),
+
+  appendTerminalBuffer: (conversationId, chunk) =>
+    set((state) => {
+      const current = state.terminalByConversation[conversationId] ?? {
+        isOpen: false,
+        height: 260,
+        session: null,
+        buffer: '',
+        connected: false,
+        status: 'idle' as const,
+      };
+      const nextBuffer = (current.buffer + chunk).slice(-120000);
+      return {
+        terminalByConversation: {
+          ...state.terminalByConversation,
+          [conversationId]: { ...current, buffer: nextBuffer },
+        },
+      };
+    }),
+
+  clearTerminalBuffer: (conversationId) =>
+    set((state) => {
+      const current = state.terminalByConversation[conversationId];
+      if (!current) return state;
+      return {
+        terminalByConversation: {
+          ...state.terminalByConversation,
+          [conversationId]: { ...current, buffer: '' },
+        },
+      };
+    }),
 }));
 
 // Selectors
@@ -448,6 +537,11 @@ export const useRunEvents = (runId: string | null) => {
 export const useAgentRunState = (runId: string | null) => {
   const agentRunState = useStore((s) => s.agentRunState);
   return runId ? agentRunState[runId] : undefined;
+};
+
+export const useConversationTerminal = (conversationId: string | null) => {
+  const terminalByConversation = useStore((s) => s.terminalByConversation);
+  return conversationId ? terminalByConversation[conversationId] : undefined;
 };
 
 /** Check if any run is currently active (agent or chat streaming) */

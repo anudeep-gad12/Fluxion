@@ -10,6 +10,7 @@ import { AgentRunMessage } from '@/components/AgentRunMessage';
 import { MessageActions } from '@/components/MessageActions';
 import { ShimmerSkeleton, ThinkingTimer } from '@/components/StreamingIndicator';
 import { ScrollToBottom } from '@/components/ScrollToBottom';
+import { IntegratedTerminal } from '@/components/IntegratedTerminal';
 import {
   createConversation,
   createConversationRun,
@@ -49,7 +50,7 @@ import {
   DialogTitle,
   DialogContent,
 } from '@/components/ui/dialog';
-import { useConversationRuns, useSelectedConversation, useStore, useHasActiveRun } from '@/hooks/useStore';
+import { useConversationRuns, useSelectedConversation, useStore, useHasActiveRun, useConversationTerminal } from '@/hooks/useStore';
 import { useSSE } from '@/hooks/useSSE';
 import { useAgentSSE } from '@/hooks/useAgentSSE';
 import { cn, formatRelativeTime } from '@/lib/utils';
@@ -959,7 +960,9 @@ export function ConversationView() {
   const setDetailPanelOpen = useStore((s) => s.setDetailPanelOpen);
   const conversation = useSelectedConversation();
   const runs = useConversationRuns(selectedConversationId);
+  const terminalState = useConversationTerminal(selectedConversationId);
   const hasActiveRun = useHasActiveRun();
+  const updateTerminalState = useStore((s) => s.updateTerminalState);
   const [message, setMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [mode, setMode] = useState<ChatMode>('agent');
@@ -974,6 +977,9 @@ export function ConversationView() {
   const [activeMention, setActiveMention] = useState<{ start: number; end: number; query: string } | null>(null);
   const [permissionPolicy, setPermissionPolicy] = useState<'strict' | 'relaxed' | 'yolo'>(
     () => (localStorage.getItem('reasoner_permission_policy') as 'strict' | 'relaxed' | 'yolo') || 'strict'
+  );
+  const [isDesktop, setIsDesktop] = useState(
+    () => typeof window !== 'undefined' && window.innerWidth >= 768
   );
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -1020,6 +1026,12 @@ export function ConversationView() {
   useEffect(() => {
     localStorage.setItem('reasoner_permission_policy', permissionPolicy);
   }, [permissionPolicy]);
+
+  useEffect(() => {
+    const handleResize = () => setIsDesktop(window.innerWidth >= 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   // Fetch model status, config, and usage on mount
   useEffect(() => {
@@ -1194,6 +1206,43 @@ export function ConversationView() {
       setReasoningSaving(false);
     }
   }, [reasoningDraft]);
+
+  const handleOpenTerminal = useCallback(async () => {
+    if (mode !== 'agent' || !isDesktop) return;
+    if (!workspacePath.trim()) {
+      toast.error('Select a workspace first');
+      setWorkspacePickerOpen(true);
+      return;
+    }
+
+    let conversationId = selectedConversationId;
+    if (!conversationId) {
+      const response = await createConversation({ title: 'Terminal' });
+      conversationId = response.conversation_id;
+      const newConversation: Conversation = {
+        conversation_id: conversationId,
+        created_at: new Date().toISOString(),
+        title: 'Terminal',
+        summary: '',
+        status: 'active',
+        metadata: {},
+      };
+      addConversation(newConversation);
+      setRuns(conversationId, []);
+      navigate(`/conversations/${conversationId}`);
+    }
+
+    updateTerminalState(conversationId, { isOpen: true });
+  }, [
+    addConversation,
+    isDesktop,
+    mode,
+    navigate,
+    selectedConversationId,
+    setRuns,
+    workspacePath,
+    updateTerminalState,
+  ]);
 
   const handleSubmit = async () => {
     if (!message.trim() || isSubmitting) return;
@@ -1459,6 +1508,7 @@ export function ConversationView() {
 
   // Determine if we should show Stop button (active run we started)
   const isGenerating = !!pendingRunId;
+  const terminalAvailable = !!selectedConversationId && mode === 'agent' && isDesktop;
 
   // Auto-resize textarea
   const resizeTextarea = useCallback(() => {
@@ -1595,6 +1645,18 @@ export function ConversationView() {
             >
               reasoning
             </button>
+            {mode === 'agent' && isDesktop && (
+              <>
+                <span className="text-zinc-700">|</span>
+                <button
+                  onClick={() => void handleOpenTerminal()}
+                  className="text-zinc-600 hover:text-zinc-400 transition-colors"
+                  title={workspacePath.trim() ? 'Open integrated terminal' : 'Select a workspace first'}
+                >
+                  terminal
+                </button>
+              </>
+            )}
           </div>
           <button
             onClick={() => navigate('/benchmarks')}
@@ -1736,6 +1798,16 @@ export function ConversationView() {
                 </>
               )}
               <span className="text-zinc-700">|</span>
+              {mode === 'agent' && isDesktop && (
+                <button
+                  onClick={() => void handleOpenTerminal()}
+                  className="text-zinc-500 hover:text-zinc-300 transition-colors"
+                  title={workspacePath.trim() ? 'Open integrated terminal' : 'Select a workspace first'}
+                >
+                  terminal
+                </button>
+              )}
+              {mode === 'agent' && isDesktop && <span className="text-zinc-700">|</span>}
               {isGenerating ? (
                 <button onClick={handleStop} className="text-red-400 hover:text-red-300 transition-colors">
                   stop
@@ -1867,8 +1939,23 @@ export function ConversationView() {
       <ScrollToBottom
         scrollRef={scrollRef}
         isStreaming={!!activeRunId}
-        className="left-1/2 -translate-x-1/2 bottom-28"
+        className={cn(
+          "left-1/2 -translate-x-1/2",
+          terminalAvailable && terminalState?.isOpen
+            ? "bottom-[calc(1.5rem+var(--terminal-height,260px))]"
+            : "bottom-28"
+        )}
       />
+
+      {terminalAvailable && selectedConversationId && (
+        <div style={{ ['--terminal-height' as string]: `${terminalState?.height ?? 260}px` }}>
+          <IntegratedTerminal
+            conversationId={selectedConversationId}
+            workspacePath={workspacePath}
+            active={terminalAvailable}
+          />
+        </div>
+      )}
 
       <div className="p-3 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-4 sm:pb-[max(1rem,env(safe-area-inset-bottom))] flex-shrink-0 space-y-2">
         {/* Queued steering messages */}
@@ -1966,6 +2053,26 @@ export function ConversationView() {
               >
                 reasoning
               </button>
+              {terminalAvailable && selectedConversationId && (
+                <button
+                  onClick={() => {
+                    if (!workspacePath.trim()) {
+                      toast.error('Select a workspace first');
+                      setWorkspacePickerOpen(true);
+                      return;
+                    }
+                    updateTerminalState(selectedConversationId, { isOpen: !terminalState?.isOpen });
+                  }}
+                  className="text-zinc-500 hover:text-zinc-300 transition-colors"
+                  title={
+                    workspacePath.trim()
+                      ? (terminalState?.isOpen ? 'Collapse terminal' : 'Open terminal')
+                      : 'Select a workspace first'
+                  }
+                >
+                  {terminalState?.isOpen ? 'terminal−' : 'terminal+'}
+                </button>
+              )}
               <span className="text-zinc-700">|</span>
               {isGenerating ? (
                 <button onClick={handleStop} className="text-red-400 hover:text-red-300 transition-colors">
