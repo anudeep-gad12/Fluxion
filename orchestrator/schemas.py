@@ -232,6 +232,31 @@ class AgentCapabilities(BaseModel):
     python: bool = False
 
 
+class TerminalSessionRequest(BaseModel):
+    """Create/restart browser terminal session request."""
+
+    workspace_path: Optional[str] = None
+    cols: int = 120
+    rows: int = 30
+
+
+class TerminalSessionResponse(BaseModel):
+    """Browser terminal session metadata."""
+
+    session_id: str
+    conversation_id: str
+    workspace_path: Optional[str] = None
+    shell: str
+    status: str
+    cols: int
+    rows: int
+    created_at: str
+    updated_at: str
+    last_activity_at: str
+    reconnect_supported: bool = False
+    replay_buffer: str = ""
+
+
 class AgentStepResponse(BaseModel):
     """Agent step details."""
 

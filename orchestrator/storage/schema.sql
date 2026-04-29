@@ -218,6 +218,28 @@ CREATE TABLE IF NOT EXISTS agent_citations (
 -- Agent indexes
 CREATE INDEX IF NOT EXISTS idx_agent_steps_run ON agent_steps(run_id);
 CREATE INDEX IF NOT EXISTS idx_agent_steps_state ON agent_steps(state);
+
+-- =============================================================================
+-- Browser Terminal Sessions
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS terminal_sessions (
+    session_id TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL UNIQUE,
+    workspace_path TEXT,
+    shell TEXT NOT NULL,
+    status TEXT NOT NULL,              -- running | closed | stale
+    cols INTEGER NOT NULL,
+    rows INTEGER NOT NULL,
+    session_owner TEXT,                -- demo session_id when applicable
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    last_activity_at TEXT NOT NULL,
+    FOREIGN KEY(conversation_id) REFERENCES conversations(conversation_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_terminal_sessions_conversation_id
+    ON terminal_sessions(conversation_id);
 CREATE INDEX IF NOT EXISTS idx_agent_tool_calls_run ON agent_tool_calls(run_id);
 CREATE INDEX IF NOT EXISTS idx_agent_tool_calls_step ON agent_tool_calls(step_id);
 CREATE INDEX IF NOT EXISTS idx_agent_tool_calls_status ON agent_tool_calls(status);

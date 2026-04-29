@@ -178,7 +178,7 @@ One record per user message/response exchange.
 | `status` | TEXT | `running`, `succeeded`, `failed` |
 | `last_response_id` | TEXT | For stateful mode chaining |
 | `usage_stats` | TEXT | Token usage (JSON) |
-| `agent_state` | TEXT | Serialized agent conversation message history for cross-turn continuation |
+| `agent_state` | TEXT | Agent prompt scaffold/debug snapshot (no longer the source of normal cross-turn continuation) |
 | `current_step` | INTEGER | Current agent step |
 | `max_steps` | INTEGER | Maximum agent steps |
 | `turn_summary` | TEXT | Compact context string for cross-turn history (Migration 9) |
@@ -186,7 +186,7 @@ One record per user message/response exchange.
 | `session_id` | TEXT | Session UUID for demo mode isolation (Migration 4) |
 | `updated_at` | TEXT | ISO 8601 timestamp |
 
-**Turn Summary**: After each run completes, a `TurnSummarizer` generates a compact context string from the user message and final answer. This `turn_summary` is used by `HistoryBuilder` for compact history, especially in chat flows. Agent cross-turn continuation now primarily relies on persisted `runs.agent_state`, which stores the serialized message list for the next turn. Historical reasoning is not rehydrated into that future prompt history.
+**Turn Summary**: After each run completes, a `TurnSummarizer` generates a compact context string from the user message and final answer. This `turn_summary` is used by `HistoryBuilder` for compact history. Agent cross-turn continuation now uses summary-oriented scaffold/history instead of restoring raw serialized prior tool transcript from `runs.agent_state`.
 
 #### trace_events
 
@@ -211,6 +211,24 @@ Granular timeline of all events in a run.
 | `error_message` | TEXT | Error details if failed |
 
 ### Agent Tables
+
+#### terminal_sessions
+
+Persists lightweight browser-terminal metadata per conversation. The live PTY process itself stays in memory.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `session_id` | TEXT PK | Current terminal session identifier |
+| `conversation_id` | TEXT FK UNIQUE | One browser terminal per conversation |
+| `workspace_path` | TEXT | Workspace/cwd used when this shell was started |
+| `shell` | TEXT | Executable launched (`/bin/zsh`, `/bin/sh`, etc.) |
+| `status` | TEXT | `running`, `closed`, or `stale` |
+| `cols` | INTEGER | Last known terminal column count |
+| `rows` | INTEGER | Last known terminal row count |
+| `session_owner` | TEXT | Demo-mode owner/session binding |
+| `created_at` | TEXT | ISO 8601 timestamp |
+| `updated_at` | TEXT | ISO 8601 timestamp |
+| `last_activity_at` | TEXT | Last input/output timestamp |
 
 #### agent_steps
 

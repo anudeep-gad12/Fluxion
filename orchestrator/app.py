@@ -32,6 +32,7 @@ from orchestrator.routes import (
     conversations,
     models,
     runs,
+    terminal,
     workspaces,
 )
 from orchestrator.middleware.rate_limit import RateLimitMiddleware
@@ -279,6 +280,7 @@ app.include_router(benchmarks.router)
 app.include_router(auth.router)
 app.include_router(models.router)
 app.include_router(workspaces.router)
+app.include_router(terminal.router)
 
 
 @app.get("/api/health")
