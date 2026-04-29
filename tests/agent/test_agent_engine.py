@@ -326,7 +326,8 @@ class TestAgentEngineHelpers:
         assert prompt[1]["role"] == "system"
         assert "WORKING MEMORY" in prompt[1]["content"]
         assert "This is continuing state for the same run" in prompt[1]["content"]
-        assert "do not restart by restating the objective" in prompt[1]["content"]
+        assert "do not restate the plan" in prompt[1]["content"]
+        assert "answer directly when no tool is needed" in prompt[1]["content"]
         assert prompt[-1]["role"] == "tool"
         assert prompt[-1]["content"] == "raw file excerpt"
 
@@ -653,9 +654,12 @@ class TestAgentWorkingMemory:
 
         assert "src/chart.ts" in memory.files_inspected
         assert "src/chart.ts" in memory.files_changed
-        assert memory.recent_validation == "Command failed (exit 2): npm run build"
-        assert any("TS2322" in item for item in memory.latest_diagnostics)
-        assert any("grep 'sort'" in item for item in memory.discoveries)
+        assert any(
+            item == "Command failed (exit 2): npm run build"
+            for item in memory.validation_results
+        )
+        assert any("TS2322" in item for item in memory.validation_results)
+        assert any("grep 'sort'" in item for item in memory.recent_raw_evidence)
 
 
 # =============================================================================
@@ -2113,8 +2117,8 @@ class TestForcePruneFilesystemTools:
         assert engine._last_compacted_at_step == 2
 
 
-class TestCodingIntentRouting:
-    """Tests for coding-profile intent-aware tool routing."""
+class TestCodingContinuationBehavior:
+    """Tests for coding-profile continuation behavior without intent routing."""
 
     def _coding_profile(self):
         from orchestrator.agent.profile import get_profile
@@ -2161,11 +2165,11 @@ class TestCodingIntentRouting:
         assert call_kwargs["tool_choice"] is None
         assert call_kwargs["tools"] is not None
         system_content = call_kwargs["messages"][0]["content"]
-        assert "Conversational feedback only" in system_content
-        assert "Do not call tools unless" in system_content
+        assert "Latest user intent" not in system_content
+        assert "Tool guidance" not in system_content
 
     @pytest.mark.asyncio
-    async def test_actionable_coding_request_forces_first_tool(self):
+    async def test_coding_run_first_step_does_not_force_tool_choice(self):
         provider = create_mock_provider(response_text="I'll inspect first.")
         mock_sm = create_mock_state_machine()
 
@@ -2181,26 +2185,6 @@ class TestCodingIntentRouting:
                 planning_enabled=False,
             )
             await engine.run(run_id="run-fix", query="fix the broken UI test")
-
-        assert provider.complete_streaming.call_args.kwargs["tool_choice"] == "required"
-
-    @pytest.mark.asyncio
-    async def test_ambiguous_coding_turn_does_not_force_tools(self):
-        provider = create_mock_provider(response_text="Can you clarify what you want changed?")
-        mock_sm = create_mock_state_machine()
-
-        with patch(
-            "orchestrator.agent.agent_engine.AgentStateMachine",
-            return_value=mock_sm,
-        ):
-            engine = AgentEngine(
-                provider=provider,
-                repo=create_mock_repo(),
-                registry=self._registry_with_tools(),
-                profile=self._coding_profile(),
-                planning_enabled=False,
-            )
-            await engine.run(run_id="run-ambiguous", query="that part feels weird")
 
         assert provider.complete_streaming.call_args.kwargs["tool_choice"] is None
 
@@ -2291,3 +2275,219 @@ class TestCodingIntentRouting:
         assert execute_tools.await_count == 0
         assert provider.complete_streaming.call_count == 1
         assert provider.complete_streaming.call_args.kwargs["tool_choice"] is None
+
+    @pytest.mark.asyncio
+    async def test_planning_is_not_gated_by_removed_intent_routing(self):
+        provider = create_mock_provider(response_text="Can you clarify what you want changed?")
+        mock_sm = create_mock_state_machine()
+
+        with patch(
+            "orchestrator.agent.agent_engine.AgentStateMachine",
+            return_value=mock_sm,
+        ):
+            engine = AgentEngine(
+                provider=provider,
+                repo=create_mock_repo(),
+                registry=self._registry_with_tools(),
+                profile=self._coding_profile(),
+                planning_enabled=True,
+            )
+            with patch.object(engine, "_create_plan", AsyncMock(return_value=None)) as create_plan:
+                await engine.run(run_id="run-ambiguous", query="that part feels weird")
+
+        create_plan.assert_awaited_once()
+
+    def test_canonical_replay_tool_calls_serializes_parsed_args(self):
+        registry = create_mock_registry()
+        list_directory_tool = MagicMock()
+        list_directory_tool.schema.parameters = {"required": []}
+        registry.get.return_value = list_directory_tool
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=create_mock_repo(),
+            registry=registry,
+        )
+
+        replay, recovery_notes = engine._canonical_replay_tool_calls(
+            [
+                (
+                    ParsedToolCall(
+                        id="tc-1",
+                        name="list_directory",
+                        arguments={"path": "src", "recursive": False},
+                        raw_arguments='{"recursive":false,"path":"src"}',
+                    ),
+                    ToolResult(success=True, result_summary="ok"),
+                )
+            ]
+        )
+
+        assert recovery_notes == []
+        assert replay == [
+            {
+                "id": "tc-1",
+                "type": "function",
+                "function": {
+                    "name": "list_directory",
+                    "arguments": '{"path":"src","recursive":false}',
+                },
+            }
+        ]
+
+    def test_malformed_tool_call_replay_is_dropped_and_recovery_noted(self):
+        registry = create_mock_registry()
+        edit_tool = MagicMock()
+        edit_tool.schema.parameters = {
+            "required": ["file_path", "old_string", "new_string"]
+        }
+        registry.get.return_value = edit_tool
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=create_mock_repo(),
+            registry=registry,
+        )
+        memory = WorkingMemory(objective="Fix UI")
+
+        replay, recovery_notes = engine._canonical_replay_tool_calls(
+            [
+                (
+                    ParsedToolCall(
+                        id="tc-bad",
+                        name="edit_file",
+                        arguments={},
+                        raw_arguments='{"file_path"',
+                    ),
+                    ToolResult(
+                        success=False,
+                        result_summary="Missing required args: 'file_path', 'old_string', 'new_string'",
+                    ),
+                )
+            ]
+        )
+        engine._record_tool_call_recovery(memory, recovery_notes)
+
+        assert replay == []
+        assert len(recovery_notes) == 1
+        assert "invalid" in recovery_notes[0]
+        assert any("edit_file" in item for item in memory.unresolved_tasks)
+
+    @pytest.mark.asyncio
+    async def test_invalid_edit_file_call_does_not_poison_next_provider_payload(self):
+        provider = MagicMock()
+        provider.complete_streaming = AsyncMock(
+            side_effect=[
+                LLMResponse(
+                    text="Applying the change.",
+                    tool_calls=[
+                        {
+                            "id": "tc-bad",
+                            "type": "function",
+                            "function": {
+                                "name": "edit_file",
+                                "arguments": '{"file_path"',
+                            },
+                        }
+                    ],
+                ),
+                LLMResponse(text="I need valid edit arguments before changing that file."),
+            ]
+        )
+        repo = create_mock_repo()
+        registry = create_mock_registry()
+        edit_tool = MagicMock()
+        edit_tool.schema.parameters = {
+            "required": ["file_path", "old_string", "new_string"]
+        }
+        registry.get.side_effect = lambda name: edit_tool if name == "edit_file" else None
+        registry.get_openai_schemas.return_value = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "edit_file",
+                    "description": "Edit a file",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "file_path": {"type": "string"},
+                            "old_string": {"type": "string"},
+                            "new_string": {"type": "string"},
+                        },
+                        "required": ["file_path", "old_string", "new_string"],
+                    },
+                },
+            }
+        ]
+        mock_sm = create_mock_state_machine(
+            can_continue_sequence=[True, True, False],
+            step_sequence=[
+                {"step_number": 1, "id": "step-1"},
+                {"step_number": 2, "id": "step-2"},
+            ],
+        )
+        mock_sm.record_tool_call = AsyncMock(return_value={"id": "tc-bad"})
+
+        with patch(
+            "orchestrator.agent.agent_engine.AgentStateMachine",
+            return_value=mock_sm,
+        ):
+            engine = AgentEngine(
+                provider=provider,
+                repo=repo,
+                registry=registry,
+                profile=self._coding_profile(),
+                planning_enabled=False,
+            )
+            result = await engine.run(run_id="run-invalid", query="fix the broken UI")
+
+        assert result.success is True
+        second_messages = provider.complete_streaming.call_args_list[1].kwargs["messages"]
+        assistant_with_tool_calls = [
+            msg
+            for msg in second_messages
+            if msg.get("role") == "assistant" and msg.get("tool_calls")
+        ]
+        assert assistant_with_tool_calls == []
+        assert any(
+            msg.get("role") == "system"
+            and "Previous tool call was invalid and failed." in str(msg.get("content"))
+            for msg in second_messages
+        )
+
+    @pytest.mark.asyncio
+    async def test_regression_followup_has_no_intent_bucket_in_working_memory(self):
+        prior_runs = [
+            {
+                "created_at": "2026-04-29T13:55:03Z",
+                "user_message": "Right use shadcn component in that case",
+                "final_answer": "Implemented the UI polish and verified the build.",
+                "turn_summary": (
+                    "Outcome: Implemented the UI polish and verified the build. "
+                    "| Tools: read_file, edit_file, bash | Files: ui/src/App.tsx "
+                    "| User asked: Right use shadcn component in that case"
+                ),
+            },
+        ]
+        provider = create_mock_provider(response_text="Glad you like the changes.")
+        mock_sm = create_mock_state_machine()
+
+        with patch(
+            "orchestrator.agent.agent_engine.AgentStateMachine",
+            return_value=mock_sm,
+        ):
+            engine = AgentEngine(
+                provider=provider,
+                repo=create_mock_repo(),
+                registry=self._registry_with_tools(),
+                trace_repo=create_mock_trace_repo(prior_runs=prior_runs),
+                profile=self._coding_profile(),
+                planning_enabled=False,
+            )
+            await engine.run(
+                run_id="run-regression-memory",
+                query="woah love these changes cool stuff",
+                conversation_id="01a36ca9-390e-4c0e-a0da-0d6c470dde47",
+            )
+
+        system_content = provider.complete_streaming.call_args.kwargs["messages"][0]["content"]
+        assert "Latest user intent" not in system_content
+        assert "Tool guidance" not in system_content

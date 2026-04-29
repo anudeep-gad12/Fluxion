@@ -609,3 +609,211 @@ class TestAgentIntegrationErrors:
         tool_results = [e for e in events if e["type"] == "tool_result"]
         assert len(tool_results) == 1
         assert tool_results[0]["success"] is False
+
+
+class TestAgentIntegrationCodingContinuation:
+    """Integration regressions for coding continuation behavior."""
+
+    @pytest.mark.asyncio
+    async def test_praise_followup_answers_directly_without_forced_write_tool(self):
+        prior_runs = [
+            {
+                "created_at": "2026-04-29T13:53:22Z",
+                "user_message": "is there any part of UI you'd improve today?",
+                "final_answer": "I found a few UI improvements worth making.",
+                "turn_summary": (
+                    "Outcome: I identified UI spacing and component polish opportunities. "
+                    "| Tools: read_file, grep | Files: ui/src/App.tsx "
+                    "| User asked: is there any part of UI you'd improve today?"
+                ),
+            },
+            {
+                "created_at": "2026-04-29T13:55:03Z",
+                "user_message": "Right use shadcn component in that case",
+                "final_answer": "Implemented the UI polish and verified the build.",
+                "turn_summary": (
+                    "Outcome: Implemented the UI polish and verified the build. "
+                    "| Tools: read_file, edit_file, bash | Files: ui/src/App.tsx "
+                    "| User asked: Right use shadcn component in that case"
+                ),
+            },
+        ]
+        provider = MagicMock()
+        provider.complete_streaming = AsyncMock(
+            return_value=LLMResponse(text="Glad you like the changes.")
+        )
+
+        registry = MagicMock()
+        registry.get_openai_schemas.return_value = [
+            {"type": "function", "function": {"name": "write_file"}}
+        ]
+        registry.get.return_value = None
+        registry.is_idempotent.return_value = True
+
+        repo = MagicMock()
+        repo.create_citation = AsyncMock()
+        repo.get_citations_for_run = AsyncMock(return_value=[])
+        repo.mark_citations_used = AsyncMock()
+        repo.create_run_artifact = AsyncMock()
+
+        trace_repo = MagicMock()
+        trace_repo.list_runs_for_conversation = AsyncMock(return_value=prior_runs)
+        trace_repo.update_run = AsyncMock()
+
+        mock_sm = MagicMock()
+        mock_sm.initialize = AsyncMock(
+            return_value=RecoveryContext(
+                needs_recovery=False,
+                interrupted_tool_calls=[],
+                hints=[],
+                last_completed_step=0,
+            )
+        )
+        mock_sm.can_continue.side_effect = [True, False]
+        mock_sm.start_step = AsyncMock(return_value={"step_number": 1, "id": "step-1"})
+        mock_sm.transition_to = AsyncMock()
+        mock_sm.complete_step = AsyncMock()
+        mock_sm.complete_run = AsyncMock()
+        mock_sm.current_step = 1
+        mock_sm.steps_remaining = 9
+
+        with patch(
+            "orchestrator.agent.agent_engine.AgentStateMachine",
+            return_value=mock_sm,
+        ):
+            from orchestrator.agent.profile import get_profile
+
+            engine = AgentEngine(
+                provider=provider,
+                repo=repo,
+                registry=registry,
+                trace_repo=trace_repo,
+                profile=get_profile("coding"),
+                planning_enabled=False,
+            )
+            result = await engine.run(
+                run_id="test-praise-followup",
+                query="woah love these changes cool stuff",
+                conversation_id="conv-praise",
+            )
+
+        assert result.success is True
+        assert "Glad you like the changes." == result.final_answer
+        call_kwargs = provider.complete_streaming.call_args.kwargs
+        assert call_kwargs["tool_choice"] is None
+        assert call_kwargs["tools"] is not None
+
+    @pytest.mark.asyncio
+    async def test_invalid_tool_call_does_not_corrupt_next_request(self):
+        provider = MagicMock()
+        provider.complete_streaming = AsyncMock(
+            side_effect=[
+                LLMResponse(
+                    text="Let me inspect the UI files first.",
+                    tool_calls=[
+                        {
+                            "id": "tc-bad",
+                            "type": "function",
+                            "function": {
+                                "name": "edit_file",
+                                "arguments": '{"file_path"',
+                            },
+                        }
+                    ],
+                ),
+                LLMResponse(
+                    text="I spotted a few improvement ideas, but I need a valid edit request to change files.",
+                    tool_calls=None,
+                ),
+            ]
+        )
+
+        edit_tool = MagicMock()
+        edit_tool.schema.parameters = {
+            "required": ["file_path", "old_string", "new_string"]
+        }
+
+        registry = MagicMock()
+        registry.get_openai_schemas.return_value = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "edit_file",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "file_path": {"type": "string"},
+                            "old_string": {"type": "string"},
+                            "new_string": {"type": "string"},
+                        },
+                        "required": ["file_path", "old_string", "new_string"],
+                    },
+                },
+            }
+        ]
+        registry.get.side_effect = lambda name: edit_tool if name == "edit_file" else None
+        registry.is_idempotent.return_value = True
+
+        repo = MagicMock()
+        repo.create_citation = AsyncMock()
+        repo.get_citations_for_run = AsyncMock(return_value=[])
+        repo.mark_citations_used = AsyncMock()
+        repo.create_run_artifact = AsyncMock()
+
+        step_count = 0
+
+        def start_step():
+            nonlocal step_count
+            step_count += 1
+            return {"step_number": step_count, "id": f"step-{step_count}"}
+
+        mock_sm = MagicMock()
+        mock_sm.initialize = AsyncMock(
+            return_value=RecoveryContext(
+                needs_recovery=False,
+                interrupted_tool_calls=[],
+                hints=[],
+                last_completed_step=0,
+            )
+        )
+        mock_sm.can_continue.side_effect = lambda: step_count < 2
+        mock_sm.start_step = AsyncMock(side_effect=start_step)
+        mock_sm.transition_to = AsyncMock()
+        mock_sm.complete_step = AsyncMock()
+        mock_sm.complete_run = AsyncMock()
+        mock_sm.record_tool_call = AsyncMock(return_value={"id": "tc-bad"})
+        mock_sm.start_tool_execution = AsyncMock()
+        mock_sm.complete_tool_call = AsyncMock()
+        mock_sm.record_approval = AsyncMock()
+        mock_sm.current_step = 1
+        mock_sm.steps_remaining = 9
+
+        with patch(
+            "orchestrator.agent.agent_engine.AgentStateMachine",
+            return_value=mock_sm,
+        ):
+            from orchestrator.agent.profile import get_profile
+
+            engine = AgentEngine(
+                provider=provider,
+                repo=repo,
+                registry=registry,
+                profile=get_profile("coding"),
+                planning_enabled=False,
+            )
+            result = await engine.run(
+                run_id="test-invalid-tool-replay",
+                query="is there any part of UI you'd improve to make it cleaner?",
+            )
+
+        assert result.success is True
+        second_messages = provider.complete_streaming.call_args_list[1].kwargs["messages"]
+        assert not any(
+            msg.get("role") == "assistant" and msg.get("tool_calls")
+            for msg in second_messages
+        )
+        assert any(
+            msg.get("role") == "system"
+            and "Previous tool call was invalid and failed." in str(msg.get("content"))
+            for msg in second_messages
+        )

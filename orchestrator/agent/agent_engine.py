@@ -18,11 +18,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
 from orchestrator.agent.context_pruner import ContextPruner
-from orchestrator.agent.intent import (
-    AgentIntent,
-    classify_agent_intent,
-    render_intent_guidance,
-)
 from orchestrator.agent.permissions import classify_tool_call
 from orchestrator.context.budget import ContextBudget
 from orchestrator.context.context_profile import ModelContextProfile
@@ -134,18 +129,13 @@ class WorkingMemory:
     """Compact agent working memory used for prompt reconstruction."""
 
     objective: str
-    latest_user_intent: str = ""
-    tool_guidance: str = ""
     prior_outcomes: List[str] = field(default_factory=list)
     files_inspected: Dict[str, str] = field(default_factory=dict)
     files_changed: Dict[str, str] = field(default_factory=dict)
     validation_results: List[str] = field(default_factory=list)
-    latest_diagnostics: List[str] = field(default_factory=list)
     current_hypothesis: Optional[str] = None
-    recent_validation: Optional[str] = None
     unresolved_tasks: List[str] = field(default_factory=list)
     recent_raw_evidence: List[str] = field(default_factory=list)
-    discoveries: List[str] = field(default_factory=list)
 
     def render(self) -> str:
         """Render compact working memory for model context."""
@@ -153,8 +143,6 @@ class WorkingMemory:
             "This is continuing state for the same run, not a new user request.",
             f"Objective: {self.objective}",
         ]
-        if self.latest_user_intent:
-            sections.append(f"Latest user intent: {self.latest_user_intent}")
         if self.prior_outcomes:
             sections.append(
                 "Prior outcomes:\n"
@@ -175,25 +163,10 @@ class WorkingMemory:
             )
             sections.append(f"Files changed:\n{changed}")
 
-        validations = list(self.validation_results)
-        if self.recent_validation:
-            validations.append(self.recent_validation)
-        if validations:
+        if self.validation_results:
             sections.append(
                 "Validation:\n"
-                + "\n".join(f"- {item}" for item in validations[-6:])
-            )
-
-        if self.discoveries:
-            sections.append(
-                "Recent discoveries:\n"
-                + "\n".join(f"- {item}" for item in self.discoveries[-8:])
-            )
-
-        if self.latest_diagnostics:
-            sections.append(
-                "Latest diagnostics:\n"
-                + "\n".join(f"- {item}" for item in self.latest_diagnostics[-6:])
+                + "\n".join(f"- {item}" for item in self.validation_results[-6:])
             )
 
         if self.current_hypothesis:
@@ -209,13 +182,11 @@ class WorkingMemory:
                 "Recent raw evidence:\n"
                 + "\n".join(f"- {item}" for item in self.recent_raw_evidence[-6:])
             )
-        if self.tool_guidance:
-            sections.append(f"Tool guidance: {self.tool_guidance}")
 
         sections.append(
             "Use this working memory as the durable state. Raw tool outputs that follow "
-            "are only from the most recent tool step. Continue from the current state; "
-            "do not restart by restating the objective, your plan, or prior discoveries."
+            "are only from the most recent tool step. Continue from the current state, "
+            "do not restate the plan, and answer directly when no tool is needed."
         )
         return "\n\n".join(sections)
 
@@ -582,24 +553,6 @@ To provide your final answer, respond WITHOUT calling any tools."""
             outcomes.append(first_line[:500])
         return outcomes[-6:]
 
-    def _first_step_tool_choice(
-        self,
-        intent: AgentIntent,
-        tool_steps_completed: int,
-        step_number: int,
-    ) -> Optional[str]:
-        """Choose first-step tool forcing without forcing conversational turns."""
-        if (
-            self._profile
-            and self._profile.name == "coding"
-            and tool_steps_completed == 0
-            and intent in {AgentIntent.ACTIONABLE_WORKSPACE, AgentIntent.READ_ONLY_WORKSPACE}
-        ):
-            return "required"
-        if step_number == 1 and self._tool_choice:
-            return self._tool_choice
-        return None
-
     def _update_working_memory_from_tools(
         self,
         memory: WorkingMemory,
@@ -624,19 +577,81 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 memory.files_changed[file_path] = diff_summary[:500]
                 memory.current_hypothesis = f"Changed {file_path}"
             elif tool_call.name == "bash":
-                memory.recent_validation = summary
                 memory.validation_results.append(summary[:500])
-                memory.validation_results = memory.validation_results[-8:]
                 diagnostics = self._extract_bash_diagnostics(result.result_data, summary)
-                memory.latest_diagnostics = diagnostics
-            elif tool_call.name in ("grep", "glob", "list_directory"):
+                memory.validation_results.extend(item[:500] for item in diagnostics)
+            else:
                 discovery = self._summarize_discovery(tool_call, result)
                 if discovery:
-                    memory.discoveries.append(discovery)
-                    memory.discoveries = memory.discoveries[-12:]
-            else:
-                memory.discoveries.append(f"{tool_call.name}: {summary}")
-                memory.discoveries = memory.discoveries[-12:]
+                    memory.recent_raw_evidence.append(discovery[:500])
+        memory.validation_results = memory.validation_results[-8:]
+        memory.recent_raw_evidence = memory.recent_raw_evidence[-8:]
+
+    def _record_tool_call_recovery(
+        self,
+        memory: WorkingMemory,
+        recovery_notes: List[str],
+    ) -> None:
+        """Persist malformed tool-call recovery state in durable memory."""
+        if not recovery_notes:
+            return
+        memory.unresolved_tasks.extend(note[:500] for note in recovery_notes)
+        memory.unresolved_tasks = memory.unresolved_tasks[-6:]
+        memory.recent_raw_evidence.extend(note[:500] for note in recovery_notes)
+        memory.recent_raw_evidence = memory.recent_raw_evidence[-8:]
+
+    def _tool_call_recovery_note(self, tool_call: ParsedToolCall) -> Optional[str]:
+        """Return a recovery note when a tool call should not be replayed."""
+        tool = self._registry.get(tool_call.name)
+        if tool is None:
+            return f"Previous tool call '{tool_call.name}' failed because the tool does not exist."
+
+        raw_arguments = tool_call.raw_arguments.strip() if tool_call.raw_arguments else ""
+        if tool_call.arguments == {} and raw_arguments not in {"", "{}"}:
+            return (
+                f"Previous tool call '{tool_call.name}' was invalid because its arguments "
+                "did not parse into valid JSON."
+            )
+
+        required_args = tool.schema.parameters.get("required", [])
+        missing_args = [arg for arg in required_args if arg not in tool_call.arguments]
+        if missing_args:
+            missing = ", ".join(sorted(missing_args))
+            return (
+                f"Previous tool call '{tool_call.name}' was invalid because it was missing "
+                f"required arguments: {missing}."
+            )
+
+        return None
+
+    def _canonical_replay_tool_calls(
+        self,
+        tool_results: List[tuple[ParsedToolCall, "ToolResult"]],
+    ) -> tuple[List[Dict[str, Any]], List[str]]:
+        """Build safe assistant tool-call replay from parsed calls only."""
+        replay_tool_calls: List[Dict[str, Any]] = []
+        recovery_notes: List[str] = []
+        for tool_call, _ in tool_results:
+            recovery_note = self._tool_call_recovery_note(tool_call)
+            if recovery_note:
+                recovery_notes.append(recovery_note)
+                continue
+            replay_tool_calls.append(
+                {
+                    "id": tool_call.id,
+                    "type": "function",
+                    "function": {
+                        "name": tool_call.name,
+                        "arguments": json.dumps(
+                            tool_call.arguments,
+                            ensure_ascii=False,
+                            separators=(",", ":"),
+                            sort_keys=True,
+                        ),
+                    },
+                }
+            )
+        return replay_tool_calls, recovery_notes
 
     def _image_parts_from_tool_result(self, result: "ToolResult") -> List[Dict[str, Any]]:
         """Convert view_image result data into multimodal message parts."""
@@ -857,21 +872,10 @@ To provide your final answer, respond WITHOUT calling any tools."""
             )
             if validated_images and messages and messages[-1].get("role") == "user":
                 messages[-1]["content"] = build_multimodal_user_content(query, validated_images)
-            latest_intent = (
-                classify_agent_intent(query)
-                if self._profile and self._profile.name == "coding"
-                else AgentIntent.ACTIONABLE_WORKSPACE
-            )
             working_memory = WorkingMemory(
                 objective=query,
-                latest_user_intent=render_intent_guidance(latest_intent),
-                tool_guidance=render_intent_guidance(latest_intent),
                 prior_outcomes=self._prior_outcomes_from_scaffold(messages),
             )
-            if latest_intent == AgentIntent.CONVERSATIONAL:
-                working_memory.unresolved_tasks.append(
-                    "No new workspace task from latest user message."
-                )
 
             # Handle recovery if needed
             if recovery_context.needs_recovery:
@@ -887,7 +891,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
 
             # Planning step - create plan before execution loop
             self._current_plan = None
-            if self._planning_enabled and latest_intent != AgentIntent.CONVERSATIONAL:
+            if self._planning_enabled:
                 plan = await self._create_plan(run_id, query, event_callback)
                 if plan:
                     self._current_plan = plan
@@ -920,7 +924,6 @@ To provide your final answer, respond WITHOUT calling any tools."""
 
             # Step metadata for context pruning (maps tool_call_id -> step_number)
             step_metadata: Dict[str, int] = {}
-            tool_steps_completed = 0
             consecutive_filtered_steps = 0
             length_only_continuations = 0
 
@@ -1043,11 +1046,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
 
                 llm_start_time = time.perf_counter()
                 try:
-                    step_tool_choice = self._first_step_tool_choice(
-                        intent=latest_intent,
-                        tool_steps_completed=tool_steps_completed,
-                        step_number=step_number,
-                    )
+                    step_tool_choice = self._tool_choice if step_number == 1 else None
                     llm_response = await self._call_llm_with_tools(
                         messages=pruned_messages,
                         event_callback=event_callback,
@@ -1297,23 +1296,18 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     # Add assistant message with tool calls. Historical reasoning stays
                     # in DB/UI only and is never re-injected into future prompts.
                     assistant_content = self._summarize_assistant_content(llm_response.text)
-                    if assistant_content:
-                        messages.append(
-                            {
-                                "role": "assistant",
-                                "content": assistant_content,
-                                "tool_calls": tool_calls,
-                            }
-                        )
-                    else:
-                        messages.append(
-                            {
-                                "role": "assistant",
-                                "content": None,
-                                "tool_calls": tool_calls,
-                            }
-                        )
+                    replay_tool_calls, recovery_notes = self._canonical_replay_tool_calls(
+                        tool_results
+                    )
+                    assistant_message: Dict[str, Any] = {
+                        "role": "assistant",
+                        "content": assistant_content,
+                    }
+                    if replay_tool_calls:
+                        assistant_message["tool_calls"] = replay_tool_calls
+                    messages.append(assistant_message)
                     self._update_working_memory_from_tools(working_memory, tool_results)
+                    self._record_tool_call_recovery(working_memory, recovery_notes)
                     for tool_call, result in tool_results:
                         if (
                             tool_call.name == "view_image"
@@ -1333,6 +1327,20 @@ To provide your final answer, respond WITHOUT calling any tools."""
                             }
                         )
                         step_metadata[tool_call.id] = step_number
+
+                    if recovery_notes:
+                        messages.append(
+                            {
+                                "role": "system",
+                                "content": (
+                                    "Previous tool call was invalid and failed. "
+                                    + " ".join(recovery_notes)
+                                    + " Continue from the current state. "
+                                    "Do not repeat malformed or incomplete tool arguments. "
+                                    "If no tool is needed, answer directly."
+                                ),
+                            }
+                        )
 
                     if image_parts_for_next_call:
                         messages.append(
@@ -1355,26 +1363,11 @@ To provide your final answer, respond WITHOUT calling any tools."""
 
                     # Update plan progress based on executed tools
                     if self._current_plan:
-                        parsed_calls = []
-                        for tc in tool_calls:
-                            args = tc["function"].get("arguments", {})
-                            if isinstance(args, str):
-                                raw_args = args
-                                try:
-                                    args = json.loads(args)
-                                except json.JSONDecodeError:
-                                    args = {}
-                            else:
-                                raw_args = json.dumps(args)
-                            parsed_calls.append(ParsedToolCall(
-                                id=tc["id"],
-                                name=tc["function"]["name"],
-                                arguments=args,
-                                raw_arguments=raw_args,
-                            ))
-                        self._update_plan_progress(parsed_calls, step_number)
+                        self._update_plan_progress(
+                            [tool_call for tool_call, _ in tool_results],
+                            step_number,
+                        )
 
-                    tool_steps_completed += 1
                     consecutive_filtered_steps = 0
                     length_only_continuations = 0
 
