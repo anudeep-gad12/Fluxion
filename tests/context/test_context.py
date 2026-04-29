@@ -67,8 +67,8 @@ class TestTurnSummary:
             answer_brief="Python is a programming language.",
         )
         result = summary.to_context_string()
-        assert "Q: What is Python?" in result
-        assert "A: Python is a programming language." in result
+        assert result.startswith("Outcome: Python is a programming language.")
+        assert "User asked: What is Python?" in result
 
     def test_to_context_string_with_tools(self):
         summary = TurnSummary(
@@ -279,6 +279,32 @@ class TestHistoryBuilder:
         # Should use turn_summary (with Q: prefix stripped), not raw final_answer
         assert messages[2]["content"] == "Short answer"
         assert len(messages[2]["content"]) < 100
+
+    def test_structured_summary_keeps_outcome_before_metadata(self):
+        counter = TokenCounter()
+        builder = HistoryBuilder(counter, max_context_tokens=100000, reserve_for_response=4096)
+
+        prior_runs = [
+            {
+                "created_at": "2024-01-01T10:00:00Z",
+                "user_message": "Fix the UI",
+                "final_answer": "Long answer",
+                "turn_summary": (
+                    "Outcome: Fixed the UI and tests passed. | Tools: read_file, edit_file, bash "
+                    "| Files: ui/src/App.tsx | User asked: Fix the UI"
+                ),
+            },
+        ]
+
+        messages, _ = builder.build_history_messages(
+            prior_runs=prior_runs,
+            system_prompt="System",
+            current_query="Follow-up",
+        )
+
+        assert messages[2]["content"].startswith("Outcome: Fixed the UI")
+        assert "Tools:" in messages[2]["content"]
+        assert "User asked:" not in messages[2]["content"]
 
     def test_newest_first_priority(self):
         """Most recent turns are included first when budget is tight."""

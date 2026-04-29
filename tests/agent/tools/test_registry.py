@@ -248,6 +248,7 @@ class TestBrowserAgentToolRegistry:
 
         assert set(registry.tool_names) == {
             "read_file",
+            "view_image",
             "list_directory",
             "glob",
             "grep",
