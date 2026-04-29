@@ -304,3 +304,36 @@ class TestBuildChatCompletionsRequest:
             "content": "file excerpt",
             "tool_call_id": "tc-1",
         }
+
+    def test_provider_reasoning_object_passes_through(self):
+        """Provider reasoning object is sent on chat/completions payloads."""
+        messages = [{"role": "user", "content": "Hello"}]
+        payload = build_chat_completions_request(
+            messages,
+            model="openrouter/reasoning-model",
+            reasoning={"effort": "medium", "max_tokens": 4096},
+        )
+
+        assert payload["reasoning"] == {"effort": "medium", "max_tokens": 4096}
+
+    def test_top_level_reasoning_effort_passes_through(self):
+        """DeepInfra and Fireworks top-level reasoning_effort is not dropped."""
+        messages = [{"role": "user", "content": "Hello"}]
+        payload = build_chat_completions_request(
+            messages,
+            model="accounts/fireworks/models/kimi-k2-thinking",
+            reasoning_effort="high",
+        )
+
+        assert payload["reasoning_effort"] == "high"
+
+    def test_fireworks_thinking_passes_through(self):
+        """Fireworks thinking budget controls are not dropped."""
+        messages = [{"role": "user", "content": "Hello"}]
+        payload = build_chat_completions_request(
+            messages,
+            model="accounts/fireworks/models/kimi-k2-thinking",
+            thinking={"type": "enabled", "budget_tokens": 8192},
+        )
+
+        assert payload["thinking"] == {"type": "enabled", "budget_tokens": 8192}

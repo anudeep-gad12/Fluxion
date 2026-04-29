@@ -676,7 +676,7 @@ class ChatEngine:
             ),
         )
         effective_max_tokens = provider_kwargs.pop("max_tokens", self.config.model.max_tokens)
-        effort = provider_kwargs.get("reasoning_effort")
+        effort = provider_kwargs.pop("reasoning_effort", None)
 
         response = await self._provider.complete_streaming(
             messages=messages,

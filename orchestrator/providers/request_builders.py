@@ -155,6 +155,7 @@ def build_chat_completions_request(
     tool_choice: Optional[str] = None,
     max_tokens: Optional[int] = None,
     temperature: Optional[float] = None,
+    reasoning_effort: Optional[str] = None,
     stream: bool = True,
     **kwargs: Any,
 ) -> Dict[str, Any]:
@@ -177,7 +178,8 @@ def build_chat_completions_request(
         Request payload dict for /v1/chat/completions.
 
     Note:
-        reasoning_effort is NOT supported by chat/completions and is ignored.
+        Reasoning parameters are provider-specific for chat/completions-compatible
+        APIs. Only explicitly wired provider fields are passed through.
     """
     # Strip internal metadata fields that strict APIs reject. Keep only
     # user/provider-visible message keys.
@@ -231,5 +233,14 @@ def build_chat_completions_request(
     # OpenRouter reasoning control (passed through from caller)
     if "reasoning" in kwargs and kwargs["reasoning"] is not None:
         payload["reasoning"] = kwargs["reasoning"]
+
+    # DeepInfra and Fireworks expose top-level reasoning_effort on their
+    # chat/completions-compatible endpoints.
+    if reasoning_effort is not None:
+        payload["reasoning_effort"] = reasoning_effort
+
+    # Fireworks exposes Anthropic-style thinking controls on some models.
+    if "thinking" in kwargs and kwargs["thinking"] is not None:
+        payload["thinking"] = kwargs["thinking"]
 
     return payload
