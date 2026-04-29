@@ -138,7 +138,10 @@ class WorkingMemory:
 
     def render(self) -> str:
         """Render compact working memory for model context."""
-        sections = [f"Objective: {self.objective}"]
+        sections = [
+            "This is continuing state for the same run, not a new user request.",
+            f"Objective: {self.objective}",
+        ]
 
         if self.files_inspected:
             inspected = "\n".join(
@@ -174,7 +177,8 @@ class WorkingMemory:
 
         sections.append(
             "Use this working memory as the durable state. Raw tool outputs that follow "
-            "are only from the most recent tool step."
+            "are only from the most recent tool step. Continue from the current state; "
+            "do not restart by restating the objective, your plan, or prior discoveries."
         )
         return "\n\n".join(sections)
 
@@ -572,6 +576,49 @@ To provide your final answer, respond WITHOUT calling any tools."""
             )
         return parts
 
+    def _available_tool_schemas(self) -> List[Dict[str, Any]]:
+        """Return tool schemas valid for the active model/provider."""
+        tool_schemas = self._registry.get_openai_schemas()
+        if bool(getattr(self._provider, "_supports_vision", False)):
+            return tool_schemas
+        return [
+            schema
+            for schema in tool_schemas
+            if schema.get("function", {}).get("name") != "view_image"
+        ]
+
+    def _effective_system_prompt(self, system_prompt: str) -> str:
+        """Remove capability-specific instructions that the active model cannot use."""
+        if bool(getattr(self._provider, "_supports_vision", False)):
+            return system_prompt
+        return system_prompt.replace(
+            "- Use `view_image` for workspace screenshots/images/charts/forms/diagrams when the user asks you to inspect images or visual content. Do not rely on OCR first unless exact text extraction is specifically needed.\n",
+            "",
+        )
+
+    def _normalize_system_messages(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Merge all system messages into one leading system message for strict providers."""
+        system_parts: List[str] = []
+        non_system_messages: List[Dict[str, Any]] = []
+        for message in messages:
+            if message.get("role") == "system":
+                content = message.get("content")
+                if content:
+                    system_parts.append(str(content))
+            else:
+                non_system_messages.append(message)
+
+        if not system_parts:
+            return list(messages)
+
+        return [
+            {
+                "role": "system",
+                "content": "\n\n".join(system_parts),
+            },
+            *non_system_messages,
+        ]
+
     def _extract_read_file_excerpt(self, result_data: Any) -> Optional[str]:
         """Extract a tiny code/text excerpt from read_file output."""
         if not isinstance(result_data, str):
@@ -884,13 +931,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     )
 
                 # Call LLM with tools
-                tool_schemas = self._registry.get_openai_schemas()
-                if not bool(getattr(self._provider, "_supports_vision", False)):
-                    tool_schemas = [
-                        schema
-                        for schema in tool_schemas
-                        if schema.get("function", {}).get("name") != "view_image"
-                    ]
+                tool_schemas = self._available_tool_schemas()
 
                 # Trace: llm_request
                 llm_request_event_id = await self._add_trace_event(
@@ -923,6 +964,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         event_callback=event_callback,
                         run_id=run_id,
                         tool_choice=step_tool_choice,
+                        tool_schemas=tool_schemas,
                     )
                 except Exception as e:
                     logger.error("LLM call failed", extra={"error": str(e)})
@@ -1142,7 +1184,11 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         )
                     self._update_working_memory_from_tools(working_memory, tool_results)
                     for tool_call, result in tool_results:
-                        if tool_call.name == "view_image" and result.success:
+                        if (
+                            tool_call.name == "view_image"
+                            and result.success
+                            and bool(getattr(self._provider, "_supports_vision", False))
+                        ):
                             image_parts_for_next_call.extend(
                                 self._image_parts_from_tool_result(result)
                             )
@@ -1848,6 +1894,7 @@ When you complete each step, proceed to the next."""
                 f"Your knowledge cutoff: June 2024. For information after this date, use web_search."
             )
             system_prompt = self._system_prompt.format(date_context=date_context)
+        system_prompt = self._effective_system_prompt(system_prompt)
 
         # Load conversation history
         prior_runs: list[dict] = []
@@ -1886,6 +1933,7 @@ When you complete each step, proceed to the next."""
         event_callback: Optional[Callable[[Dict[str, Any]], None]],
         run_id: str,
         tool_choice: Optional[str] = None,
+        tool_schemas: Optional[List[Dict[str, Any]]] = None,
     ) -> "LLMResponse":
         """Call LLM with tool schemas via streaming.
 
@@ -1898,7 +1946,8 @@ When you complete each step, proceed to the next."""
         Returns:
             LLMResponse with text and tool_calls.
         """
-        tool_schemas = self._registry.get_openai_schemas()
+        tool_schemas = tool_schemas if tool_schemas is not None else self._available_tool_schemas()
+        messages = self._normalize_system_messages(messages)
         first_token_received = asyncio.Event()
         llm_complete = asyncio.Event()
 
@@ -3753,6 +3802,7 @@ When you complete each step, proceed to the next."""
             "content": synthesis_content,
         }
         messages = messages + [force_msg]
+        messages = self._normalize_system_messages(messages)
 
         self._emit(
             event_callback,

@@ -151,6 +151,36 @@ class TestProviderHint:
         assert resolved.output_cost_per_million == 3.20
         assert resolved.reasoning_request_param is None
 
+    @patch.dict(os.environ, {"FIREWORKS_API_KEY": "fw-key"})
+    def test_qwen36plus_fireworks_routes_with_vision_and_pricing(self):
+        """Fireworks Qwen3.6 Plus resolves with model-card vision and pricing metadata."""
+        resolved = ModelRegistry.resolve("qwen3.6plus")
+        assert resolved.provider_name == "fireworks"
+        assert resolved.model_id == "accounts/fireworks/models/qwen3p6-plus"
+        assert resolved.base_url == "https://api.fireworks.ai/inference/v1"
+        assert resolved.context_window == 131072
+        assert resolved.max_output_tokens == 16384
+        assert resolved.supports_tools is True
+        assert resolved.supports_vision is True
+        assert resolved.input_cost_per_million == 0.50
+        assert resolved.cached_input_cost_per_million == 0.10
+        assert resolved.output_cost_per_million == 3.00
+
+    @patch.dict(os.environ, {"FIREWORKS_API_KEY": "fw-key"})
+    def test_minimax_m27_fireworks_routes_with_vision_and_pricing(self):
+        """Fireworks MiniMax M2.7 resolves with model-card vision and pricing metadata."""
+        resolved = ModelRegistry.resolve("minimax-m2.7")
+        assert resolved.provider_name == "fireworks"
+        assert resolved.model_id == "accounts/fireworks/models/minimax-m2p7"
+        assert resolved.base_url == "https://api.fireworks.ai/inference/v1"
+        assert resolved.context_window == 196608
+        assert resolved.max_output_tokens == 16384
+        assert resolved.supports_tools is True
+        assert resolved.supports_vision is True
+        assert resolved.input_cost_per_million == 0.30
+        assert resolved.cached_input_cost_per_million == 0.06
+        assert resolved.output_cost_per_million == 1.20
+
     @patch.dict(os.environ, {"DEEPINFRA_API_KEY": "di-key"})
     def test_non_fireworks_reasoning_models_send_reasoning_param(self):
         """Existing non-Fireworks reasoning models keep their reasoning request field."""
@@ -243,6 +273,26 @@ class TestListModels:
         assert glm5["input_cost_per_million"] == 1.00
         assert glm5["cached_input_cost_per_million"] == 0.20
         assert glm5["output_cost_per_million"] == 3.20
+
+        qwen36 = next(
+            model
+            for model in result["fireworks"]["models"]
+            if model["model_id"] == "accounts/fireworks/models/qwen3p6-plus"
+        )
+        assert qwen36["supports_vision"] is True
+        assert qwen36["input_cost_per_million"] == 0.50
+        assert qwen36["cached_input_cost_per_million"] == 0.10
+        assert qwen36["output_cost_per_million"] == 3.00
+
+        minimax = next(
+            model
+            for model in result["fireworks"]["models"]
+            if model["model_id"] == "accounts/fireworks/models/minimax-m2p7"
+        )
+        assert minimax["supports_vision"] is True
+        assert minimax["input_cost_per_million"] == 0.30
+        assert minimax["cached_input_cost_per_million"] == 0.06
+        assert minimax["output_cost_per_million"] == 1.20
 
 
 class TestResolvedModelShape:
