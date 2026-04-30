@@ -884,7 +884,12 @@ class TestAgentIntegrationCodingContinuation:
         )
         assert any(
             msg.get("role") == "system"
-            and "Previous tool call was invalid and failed." in str(msg.get("content"))
+            and "malformed" in str(msg.get("content"))
+            for msg in second_messages
+        )
+        assert any(
+            msg.get("role") == "user"
+            and "Retry the intended tool call now." in str(msg.get("content"))
             for msg in second_messages
         )
 
