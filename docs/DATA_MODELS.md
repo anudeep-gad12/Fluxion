@@ -186,7 +186,7 @@ One record per user message/response exchange.
 | `session_id` | TEXT | Session UUID for demo mode isolation (Migration 4) |
 | `updated_at` | TEXT | ISO 8601 timestamp |
 
-**Turn Summary**: After each run completes, a `TurnSummarizer` generates a compact context string from the user message and final answer. This `turn_summary` is still used by `HistoryBuilder` for compact background history. Coding-profile continuation now prefers the persisted `coding_sessions` state plus fresh same-run tool evidence, while non-coding runs continue to rely on summary-oriented history.
+**Turn Summary**: After each run completes, a `TurnSummarizer` generates a compact context string from the user message and final answer. This `turn_summary` is still used by `HistoryBuilder` for compact background history. Coding-profile continuation now prefers persisted `coding_session_entries` transcript replay plus lightweight `coding_sessions` metadata, while non-coding runs continue to rely on summary-oriented history.
 
 #### trace_events
 
@@ -237,16 +237,16 @@ Persists durable coding-session state per conversation for coding-profile contin
 | Column | Type | Description |
 |--------|------|-------------|
 | `conversation_id` | TEXT PK/FK | Conversation this coding session belongs to |
-| `state_json` | TEXT | Structured coding-session state (objective, files, validation, open tasks, file evidence) |
+| `state_json` | TEXT | Structured coding-session bookkeeping state (objective, files, file evidence, recent commands) |
 | `last_run_id` | TEXT | Most recent run that updated this session |
 | `created_at` | TEXT | ISO 8601 timestamp |
 | `updated_at` | TEXT | ISO 8601 timestamp |
 
-**Coding Session State**: The JSON payload stores durable coding context for follow-up turns: accepted objective/plan, read files, modified files, validation results, open tasks, recent commands, checkpoint summary metadata, and per-file evidence with multiple stored line spans plus freshness hashes. `AgentEngine` restores this state for coding-profile conversations before the next LLM call so “inspect → implement → commit” flows do not restart from `turn_summary` alone.
+**Coding Session State**: The JSON payload is metadata-only bookkeeping. It stores neutral fields such as `objective`, `read_files`, `modified_files`, `recent_commands`, and per-file evidence with stored line spans and freshness hashes. It does **not** act as a natural-language truth layer for “what was fixed”, “root cause”, “next steps”, or checkpoint summaries. `AgentEngine` may use it to decide whether rereads are needed and to render a tiny neutral metadata block, but coding prompt continuity comes from transcript replay.
 
 #### coding_session_entries
 
-Replayable coding-session transcript entries for coding-profile conversations. These rows preserve the recent raw tail that is replayed after the checkpoint summary.
+Replayable coding-session transcript entries for coding-profile conversations. These rows are the canonical natural-language continuity source for future coding prompts.
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -255,14 +255,20 @@ Replayable coding-session transcript entries for coding-profile conversations. T
 | `seq` | INTEGER | Monotonic per-conversation sequence number |
 | `run_id` | TEXT | Run that produced the entry |
 | `step_number` | INTEGER | Agent step that produced the entry, if any |
-| `entry_type` | TEXT | `user`, `assistant`, `assistant_tool_calls`, `tool_result`, or `checkpoint` |
-| `role` | TEXT | Prompt role to reconstruct (`user`, `assistant`, `tool`, `system`) |
+| `entry_type` | TEXT | `user`, `assistant`, `assistant_tool_calls`, or `tool_result` |
+| `role` | TEXT | Prompt role to reconstruct (`user`, `assistant`, `tool`) |
 | `content_json` | TEXT | Canonical replay payload (JSON) |
 | `token_estimate` | INTEGER | Estimated token cost of the stored entry |
-| `compacted_at` | TEXT | ISO 8601 timestamp when this entry was compacted into a checkpoint |
+| `compacted_at` | TEXT | ISO 8601 timestamp when this entry was compacted out of active replay |
 | `created_at` | TEXT | ISO 8601 timestamp |
 
-**Coding Session Replay**: `CodingSessionContextBuilder` rebuilds coding prompts as `system prompt + checkpoint summary + uncompacted raw tail`. Older entries can be compacted, but the recent raw tail remains replayable with canonical assistant/tool message structure.
+**Coding Session Replay**:
+- `CodingSessionContextBuilder` rebuilds coding prompts as `system prompt + optional neutral metadata + replayable transcript`
+- transcript entries are replayed in persisted `seq` order
+- only replay-eligible entries are included
+- entries marked compacted are excluded from active replay
+- assistant/tool replay stays canonicalized from parsed tool-call arguments and stable tool-result payloads
+- structurally bad assistant fallback turns can remain stored with `replay_eligible=false` for debugging while being excluded from continuation prompts
 
 #### agent_steps
 
@@ -420,7 +426,7 @@ Indexes are created for performance optimization on frequently queried columns:
 | `conversations` | `idx_conversations_created_at` | `created_at` | Sort by creation date |
 | `coding_sessions` | `idx_coding_sessions_updated_at` | `updated_at` | Find latest persisted coding sessions |
 | `coding_session_entries` | `idx_coding_session_entries_conversation_seq` | `conversation_id, seq` | Replay coding-session history in order |
-| `coding_session_entries` | `idx_coding_session_entries_compacted` | `conversation_id, compacted_at, seq` | Find uncompacted raw-tail entries efficiently |
+| `coding_session_entries` | `idx_coding_session_entries_compacted` | `conversation_id, compacted_at, seq` | Find active replay entries efficiently |
 | `runs` | `idx_runs_conversation_id` | `conversation_id` | Filter runs by conversation |
 | `eval_runs` | `idx_eval_runs_created_at` | `created_at` | Sort by creation date |
 | `eval_runs` | `idx_eval_runs_benchmark` | `benchmark_name` | Filter by benchmark |
@@ -448,7 +454,7 @@ The schema uses `ON DELETE CASCADE` for automatic cleanup when parent records ar
 | `trace_events` | `runs` | `run_id` | Delete events when run deleted |
 | `trace_events` | `trace_events` | `parent_event_id` | Delete children when parent deleted |
 | `coding_sessions` | `conversations` | `conversation_id` | Delete coding continuity state when conversation deleted |
-| `coding_session_entries` | `conversations` | `conversation_id` | Delete coding raw-tail history when conversation deleted |
+| `coding_session_entries` | `conversations` | `conversation_id` | Delete coding transcript replay history when conversation deleted |
 | `agent_steps` | `runs` | `run_id` | Delete steps when run deleted |
 | `agent_tool_calls` | `runs` | `run_id` | Delete calls when run deleted |
 | `agent_tool_calls` | `agent_steps` | `step_id` | Delete calls when step deleted |
@@ -880,7 +886,10 @@ class ContextBudget:
     utilization_pct: float                 # total_used / max_tokens * 100
 ```
 
-**Current Agent Usage Accounting**: live agent status/SSE now also exposes resolved model-budget fields such as `context_window`, `reserved_output_tokens`, `effective_input_budget`, `prompt_tokens_current_call`, `remaining_tokens`, `utilization_pct_effective`, `next_compaction_at_tokens`, and compaction counters.
+**Current Agent Usage Accounting**:
+- `context_usage` reports current-call prompt accounting: `context_window`, `reserved_output_tokens`, `effective_input_budget`, `prompt_tokens_current_call`, `remaining_tokens`, utilization, and compaction counters
+- `stored_context` reports replayable stored coding context: `stored_tokens`, `context_window`, `utilization_pct`, and `replayable_entry_count`
+- browser footer `raw` is derived by summing normalized provider `usage.total_tokens` across runs in the conversation
 
 ### Turn Summary (`orchestrator/context/turn_summary.py`)
 
