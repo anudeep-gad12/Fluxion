@@ -138,6 +138,24 @@ class Database:
             )
             """,
         )
+        # Migration 13: Persistent coding-session state
+        await self._create_table_if_not_exists(
+            "coding_sessions",
+            """
+            CREATE TABLE IF NOT EXISTS coding_sessions (
+                conversation_id TEXT PRIMARY KEY,
+                state_json TEXT NOT NULL,
+                last_run_id TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY(conversation_id) REFERENCES conversations(conversation_id) ON DELETE CASCADE,
+                FOREIGN KEY(last_run_id) REFERENCES runs(run_id) ON DELETE SET NULL
+            )
+            """,
+        )
+        await self._connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_coding_sessions_updated_at ON coding_sessions(updated_at)"
+        )
 
     async def _create_table_if_not_exists(
         self, table: str, create_sql: str

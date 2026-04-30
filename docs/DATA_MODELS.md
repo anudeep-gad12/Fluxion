@@ -178,7 +178,7 @@ One record per user message/response exchange.
 | `status` | TEXT | `running`, `succeeded`, `failed` |
 | `last_response_id` | TEXT | For stateful mode chaining |
 | `usage_stats` | TEXT | Token usage (JSON) |
-| `agent_state` | TEXT | Agent prompt scaffold/debug snapshot (no longer the source of normal cross-turn continuation) |
+| `agent_state` | TEXT | Agent prompt scaffold/debug snapshot for tracing/debugging; not the primary cross-turn continuation source |
 | `current_step` | INTEGER | Current agent step |
 | `max_steps` | INTEGER | Maximum agent steps |
 | `turn_summary` | TEXT | Compact context string for cross-turn history (Migration 9) |
@@ -186,7 +186,7 @@ One record per user message/response exchange.
 | `session_id` | TEXT | Session UUID for demo mode isolation (Migration 4) |
 | `updated_at` | TEXT | ISO 8601 timestamp |
 
-**Turn Summary**: After each run completes, a `TurnSummarizer` generates a compact context string from the user message and final answer. This `turn_summary` is used by `HistoryBuilder` for compact history. Agent cross-turn continuation now uses summary-oriented scaffold/history instead of restoring raw serialized prior tool transcript from `runs.agent_state`.
+**Turn Summary**: After each run completes, a `TurnSummarizer` generates a compact context string from the user message and final answer. This `turn_summary` is still used by `HistoryBuilder` for compact background history. Coding-profile continuation now prefers the persisted `coding_sessions` state plus fresh same-run tool evidence, while non-coding runs continue to rely on summary-oriented history.
 
 #### trace_events
 
@@ -229,6 +229,20 @@ Persists lightweight browser-terminal metadata per conversation. The live PTY pr
 | `created_at` | TEXT | ISO 8601 timestamp |
 | `updated_at` | TEXT | ISO 8601 timestamp |
 | `last_activity_at` | TEXT | Last input/output timestamp |
+
+#### coding_sessions
+
+Persists durable coding-session state per conversation for coding-profile continuity across turns.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `conversation_id` | TEXT PK/FK | Conversation this coding session belongs to |
+| `state_json` | TEXT | Structured coding-session state (objective, files, validation, open tasks, file evidence) |
+| `last_run_id` | TEXT | Most recent run that updated this session |
+| `created_at` | TEXT | ISO 8601 timestamp |
+| `updated_at` | TEXT | ISO 8601 timestamp |
+
+**Coding Session State**: The JSON payload stores durable coding context for follow-up turns: accepted objective, prior outcomes, inspected files, changed files, validation results, unresolved tasks, recent evidence, and per-file excerpts with freshness markers. `AgentEngine` restores this state for coding-profile conversations before the next LLM call so “inspect → implement → commit” flows do not restart from `turn_summary` alone.
 
 #### agent_steps
 
@@ -384,6 +398,7 @@ Indexes are created for performance optimization on frequently queried columns:
 | Table | Index Name | Columns | Purpose |
 |-------|------------|---------|---------|
 | `conversations` | `idx_conversations_created_at` | `created_at` | Sort by creation date |
+| `coding_sessions` | `idx_coding_sessions_updated_at` | `updated_at` | Find latest persisted coding sessions |
 | `runs` | `idx_runs_conversation_id` | `conversation_id` | Filter runs by conversation |
 | `eval_runs` | `idx_eval_runs_created_at` | `created_at` | Sort by creation date |
 | `eval_runs` | `idx_eval_runs_benchmark` | `benchmark_name` | Filter by benchmark |
@@ -410,6 +425,7 @@ The schema uses `ON DELETE CASCADE` for automatic cleanup when parent records ar
 |-------------|--------------|-----------|----------|
 | `trace_events` | `runs` | `run_id` | Delete events when run deleted |
 | `trace_events` | `trace_events` | `parent_event_id` | Delete children when parent deleted |
+| `coding_sessions` | `conversations` | `conversation_id` | Delete coding continuity state when conversation deleted |
 | `agent_steps` | `runs` | `run_id` | Delete steps when run deleted |
 | `agent_tool_calls` | `runs` | `run_id` | Delete calls when run deleted |
 | `agent_tool_calls` | `agent_steps` | `step_id` | Delete calls when step deleted |
@@ -421,7 +437,7 @@ The schema uses `ON DELETE CASCADE` for automatic cleanup when parent records ar
 | `run_artifacts` | `runs` | `run_id` | Delete artifacts when run deleted |
 | `run_artifacts` | `agent_tool_calls` | `tool_call_id` | Delete artifacts when call deleted |
 
-**Note**: Deleting a `runs` record will automatically cascade to remove all related `trace_events`, `agent_steps`, `agent_tool_calls`, `agent_citations`, `run_events`, and `run_artifacts`.
+**Note**: Deleting a `conversation` record will automatically cascade to remove its persisted `coding_sessions` row. Deleting a `runs` record will automatically cascade to remove all related `trace_events`, `agent_steps`, `agent_tool_calls`, `agent_citations`, `run_events`, and `run_artifacts`.
 
 ---
 

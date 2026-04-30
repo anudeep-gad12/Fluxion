@@ -147,7 +147,7 @@ class TestProfileSystemPrompts:
 
     def test_coding_prompt_treats_steps_as_continuation(self):
         """Coding prompt discourages repeated restart narration between steps."""
-        assert "Each step is a continuation of the same run" in CODING_SYSTEM_PROMPT
+        assert "Each step is a continuation of the same coding session" in CODING_SYSTEM_PROMPT
         assert "Do not begin each step by saying what the user wants" in CODING_SYSTEM_PROMPT
 
 

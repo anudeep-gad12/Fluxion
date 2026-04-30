@@ -1296,7 +1296,8 @@ class BaseTool(Protocol):
 
 **Current Agent Context Note**:
 - chat history still uses `HistoryBuilder` / `turn_summary`
-- agent cross-turn continuation now primarily uses persisted `runs.agent_state`
+- coding-profile continuation now primarily uses persisted `coding_sessions` state plus same-run tool evidence
+- `runs.agent_state` remains a trace/debug scaffold snapshot, not the durable coding continuity source
 - agent prompt assembly uses bounded tool-result formatting plus threshold-based compaction in `AgentEngine`
 
 ---
@@ -1327,6 +1328,7 @@ class BaseTool(Protocol):
 - `conversations` - Conversation metadata
 - `runs` - Chat/agent runs
 - `trace_events` - Granular event timeline
+- `coding_sessions` - Persistent coding-profile continuation state per conversation
 - `agent_steps` - Agent step tracking
 - `agent_tool_calls` - Tool execution records (includes approval fields)
 - `agent_citations` - Evidence sources
@@ -1383,6 +1385,7 @@ async with self._seq_lock:
 - `create_step()`, `update_step()` - Step lifecycle
 - `add_tool_call()`, `update_tool_call()` - Tool tracking
 - `add_citation()`, `get_citations()` - Evidence management
+- `get_coding_session_state()`, `upsert_coding_session_state()` - Per-conversation coding continuity state
 - `get_agent_trace()` - Full trace assembly
 
 ### `orchestrator/storage/repositories/terminal_repo.py`

@@ -2,7 +2,9 @@
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+import hashlib
 import json
+from pathlib import Path
 
 from orchestrator.agent.agent_engine import (
     AgentEngine,
@@ -10,6 +12,8 @@ from orchestrator.agent.agent_engine import (
     ParsedToolCall,
     WorkingMemory,
 )
+from orchestrator.agent.coding_session import CodingFileState, CodingSessionState
+from orchestrator.agent.tools.read_file import ReadFileTool
 from orchestrator.agent.tools.bash_tool import BashTool
 from orchestrator.agent.tools.base import ToolResult
 from orchestrator.agent.state_machine import RecoveryContext
@@ -41,6 +45,8 @@ def create_mock_repo():
     repo.mark_citations_used = AsyncMock()
     repo.create_citation = AsyncMock()
     repo.create_run_artifact = AsyncMock()
+    repo.get_coding_session_state = AsyncMock(return_value=None)
+    repo.upsert_coding_session_state = AsyncMock()
     return repo
 
 
@@ -325,7 +331,7 @@ class TestAgentEngineHelpers:
         assert prompt[0]["role"] == "system"
         assert prompt[1]["role"] == "system"
         assert "WORKING MEMORY" in prompt[1]["content"]
-        assert "This is continuing state for the same run" in prompt[1]["content"]
+        assert "durable state for the current agent conversation" in prompt[1]["content"]
         assert "do not restate the plan" in prompt[1]["content"]
         assert "answer directly when no tool is needed" in prompt[1]["content"]
         assert prompt[-1]["role"] == "tool"
@@ -660,6 +666,164 @@ class TestAgentWorkingMemory:
         )
         assert any("TS2322" in item for item in memory.validation_results)
         assert any("grep 'sort'" in item for item in memory.recent_raw_evidence)
+
+
+class TestCodingSessionPersistence:
+    """Tests for persistent coding-session continuity."""
+
+    @pytest.mark.asyncio
+    async def test_restore_coding_session_reuses_fresh_file_evidence(self, tmp_path: Path):
+        src_dir = tmp_path / "src"
+        src_dir.mkdir()
+        chart_file = src_dir / "chart.ts"
+        chart_file.write_text("const data = sortDesc(items)\nreturn data\n", encoding="utf-8")
+
+        registry = create_mock_registry()
+        read_tool = ReadFileTool(str(tmp_path))
+        registry.get.side_effect = lambda name: read_tool if name == "read_file" else None
+
+        repo = create_mock_repo()
+        repo.get_coding_session_state.return_value = {
+            "conversation_id": "conv-1",
+            "state": CodingSessionState(
+                objective="Review the chart sorting",
+                prior_outcomes=["Identified a sort-direction issue."],
+                files_inspected={"src/chart.ts": "Read 2 lines from src/chart.ts"},
+                file_evidence={
+                    "src/chart.ts": CodingFileState(
+                        path="src/chart.ts",
+                        summary="Read 2 lines from src/chart.ts",
+                        excerpt="const data = sortDesc(items) | return data",
+                        line_start=1,
+                        line_end=2,
+                        content_hash=hashlib.sha256(
+                            chart_file.read_text(encoding="utf-8").encode("utf-8")
+                        ).hexdigest(),
+                    )
+                },
+            ).to_dict(),
+            "updated_at": "2026-04-29T12:00:00Z",
+        }
+
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=repo,
+            registry=registry,
+        )
+        memory = WorkingMemory(objective="Do all of it")
+
+        state = await engine._restore_coding_session_state("conv-1", memory, "run-restore")
+
+        assert state is not None
+        assert memory.restored_session is True
+        assert "src/chart.ts" in memory.files_inspected
+        assert "[stored, fresh]" in memory.files_inspected["src/chart.ts"]
+        assert "Stored excerpt" in memory.files_inspected["src/chart.ts"]
+        assert memory.stale_file_summaries == {}
+
+    @pytest.mark.asyncio
+    async def test_restore_coding_session_marks_changed_files_stale(self, tmp_path: Path):
+        src_dir = tmp_path / "src"
+        src_dir.mkdir()
+        chart_file = src_dir / "chart.ts"
+        chart_file.write_text("const data = sortDesc(items)\nreturn data\n", encoding="utf-8")
+        original_hash = hashlib.sha256(
+            chart_file.read_text(encoding="utf-8").encode("utf-8")
+        ).hexdigest()
+        chart_file.write_text("const data = sortAsc(items)\nreturn data\n", encoding="utf-8")
+
+        registry = create_mock_registry()
+        read_tool = ReadFileTool(str(tmp_path))
+        registry.get.side_effect = lambda name: read_tool if name == "read_file" else None
+
+        repo = create_mock_repo()
+        repo.get_coding_session_state.return_value = {
+            "conversation_id": "conv-1",
+            "state": CodingSessionState(
+                objective="Review the chart sorting",
+                files_inspected={"src/chart.ts": "Read 2 lines from src/chart.ts"},
+                file_evidence={
+                    "src/chart.ts": CodingFileState(
+                        path="src/chart.ts",
+                        summary="Read 2 lines from src/chart.ts",
+                        excerpt="const data = sortDesc(items) | return data",
+                        line_start=1,
+                        line_end=2,
+                        content_hash=original_hash,
+                    )
+                },
+            ).to_dict(),
+            "updated_at": "2026-04-29T12:00:00Z",
+        }
+
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=repo,
+            registry=registry,
+        )
+        memory = WorkingMemory(objective="Do all of it")
+
+        state = await engine._restore_coding_session_state("conv-1", memory, "run-restore")
+
+        assert state is not None
+        assert "src/chart.ts" not in memory.files_inspected
+        assert "src/chart.ts" in memory.stale_file_summaries
+        assert "changed" in memory.stale_file_summaries["src/chart.ts"]
+
+    @pytest.mark.asyncio
+    async def test_persist_coding_session_captures_file_evidence(self, tmp_path: Path):
+        src_dir = tmp_path / "src"
+        src_dir.mkdir()
+        chart_file = src_dir / "chart.ts"
+        chart_file.write_text("const data = sortDesc(items)\nreturn data\n", encoding="utf-8")
+
+        registry = create_mock_registry()
+        read_tool = ReadFileTool(str(tmp_path))
+        registry.get.side_effect = lambda name: read_tool if name == "read_file" else None
+        repo = create_mock_repo()
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=repo,
+            registry=registry,
+        )
+        memory = WorkingMemory(objective="Implement the sort fix")
+        tool_results = [
+            (
+                ParsedToolCall(
+                    id="tc-read",
+                    name="read_file",
+                    arguments={"file_path": "src/chart.ts", "offset": 1, "limit": 20},
+                    raw_arguments='{"file_path":"src/chart.ts","offset":1,"limit":20}',
+                ),
+                ToolResult(
+                    success=True,
+                    result_summary="Read 2 lines from src/chart.ts",
+                    result_data="     1\tconst data = sortDesc(items)\n     2\treturn data",
+                    metadata={"lines_read": 2},
+                ),
+            ),
+        ]
+
+        engine._update_working_memory_from_tools(memory, tool_results)
+        session_state = CodingSessionState(objective="Implement the sort fix")
+        await engine._persist_coding_session_state(
+            conversation_id="conv-1",
+            run_id="run-1",
+            working_memory=memory,
+            session_state=session_state,
+            tool_results=tool_results,
+            reason="tool_progress",
+            step_number=1,
+        )
+
+        persisted_state = repo.upsert_coding_session_state.await_args.args[1]
+        stored_file = persisted_state["file_evidence"]["src/chart.ts"]
+        assert persisted_state["files_inspected"]["src/chart.ts"].startswith(
+            "Read 2 lines from src/chart.ts"
+        )
+        assert stored_file["line_start"] == 1
+        assert stored_file["line_end"] == 2
+        assert stored_file["content_hash"]
 
 
 # =============================================================================
@@ -2255,9 +2419,19 @@ class TestCodingContinuationBehavior:
             "orchestrator.agent.agent_engine.AgentStateMachine",
             return_value=mock_sm,
         ):
+            repo = create_mock_repo()
+            repo.get_coding_session_state.return_value = {
+                "conversation_id": "conv-1",
+                "state": CodingSessionState(
+                    objective="Use shadcn components",
+                    prior_outcomes=["Implemented the UI polish and verified the build."],
+                    files_changed={"ui/src/App.tsx": "Updated spacing and button components."},
+                ).to_dict(),
+                "updated_at": "2026-04-29T13:55:03Z",
+            }
             engine = AgentEngine(
                 provider=provider,
-                repo=create_mock_repo(),
+                repo=repo,
                 registry=self._registry_with_tools(),
                 trace_repo=create_mock_trace_repo(prior_runs=prior_runs),
                 profile=self._coding_profile(),
@@ -2275,6 +2449,7 @@ class TestCodingContinuationBehavior:
         assert execute_tools.await_count == 0
         assert provider.complete_streaming.call_count == 1
         assert provider.complete_streaming.call_args.kwargs["tool_choice"] is None
+        repo.upsert_coding_session_state.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_planning_is_not_gated_by_removed_intent_routing(self):
