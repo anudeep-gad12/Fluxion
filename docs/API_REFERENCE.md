@@ -721,17 +721,31 @@ GET /api/agent/runs/{run_id}
   "current_step": 2,
   "max_steps": 10,
   "final_answer": null,
+  "usage": {
+    "input_tokens": 18420,
+    "output_tokens": 2687,
+    "reasoning_tokens": 0,
+    "cached_tokens": 0,
+    "total_tokens": 21107
+  },
   "context_usage": {
     "context_window": 262144,
     "reserved_output_tokens": 32768,
     "effective_input_budget": 229376,
     "prompt_tokens_current_call": 21107,
+    "conversation_tokens_active_history": 21107,
     "remaining_tokens": 208269,
     "utilization_pct_effective": 9.2,
     "compaction_threshold_pct": 90,
     "next_compaction_at_tokens": 206438,
     "compaction_count": 0,
     "last_compacted_at_step": null
+  },
+  "stored_context": {
+    "context_window": 262144,
+    "stored_tokens": 6123,
+    "utilization_pct": 2.3,
+    "replayable_entry_count": 14
   },
   "context_profile": {
     "provider_name": "fireworks",
@@ -756,10 +770,12 @@ GET /api/agent/runs/{run_id}
 }
 ```
 
+`context_usage` is the current assembled provider prompt for the active call. `stored_context` is the replayable conversation context currently persisted for future coding turns.
+
 **Status Values**:
 - `running` - Agent is executing
-- `complete` - Agent finished successfully
-- `error` - Agent encountered an error
+- `succeeded` - Agent finished successfully
+- `failed` - Agent encountered an error
 - `cancelled` - User cancelled
 
 **Agent State Values**:
@@ -879,12 +895,19 @@ GET /api/agent/runs/{run_id}/trace
     "reserved_output_tokens": 32768,
     "effective_input_budget": 229376,
     "prompt_tokens_current_call": 21107,
+    "conversation_tokens_active_history": 21107,
     "remaining_tokens": 208269,
     "utilization_pct_effective": 9.2,
     "compaction_threshold_pct": 90,
     "next_compaction_at_tokens": 206438,
     "compaction_count": 0,
     "last_compacted_at_step": null
+  },
+  "stored_context": {
+    "context_window": 262144,
+    "stored_tokens": 6123,
+    "utilization_pct": 2.3,
+    "replayable_entry_count": 14
   },
   "compaction_count": 0,
   "last_compacted_at_step": null,
@@ -1706,9 +1729,9 @@ data: {"error": "Connection failed", "code": "PROVIDER_ERROR"}
 | `tool_approval_required` | Approval needed | `{tool_call_id, tool_name, arguments}` |
 | `tool_result` | Tool finished | `{tool_call_id, success, result_summary, duration_ms}` |
 | `answer` | Answer token | `{content}` |
-| `usage_update` | Live usage/context budget update | `{context_usage, context_profile, compaction_count, last_compacted_at_step}` |
-| `conversation_compacted` | Visible conversation compaction event | `{message, step_number, context_usage, context_profile}` |
-| `complete` | Agent done | `{success, final_answer, citations, total_steps, timing_ms, total_tokens}` |
+| `usage_update` | Live usage/context budget update | `{usage, cost, context_usage, stored_context, context_profile, compaction_count, last_compacted_at_step}` |
+| `conversation_compacted` | Visible conversation compaction event | `{message, step_number, context_usage, stored_context, context_profile}` |
+| `complete` | Agent done | `{success, final_answer, citations, total_steps, timing_ms, total_tokens, usage, cost, context_usage, stored_context, context_profile}` |
 | `error` | Error | `{error, step}` |
 | `paused` | Agent paused | `{step}` |
 | `resumed` | Agent resumed | `{step}` |
@@ -1721,7 +1744,7 @@ data: {"error": "Connection failed", "code": "PROVIDER_ERROR"}
 ```
 data: {"seq": 1, "type": "agent_state", "state": "planning", "current_step": 1, "max_steps": 10}
 
-data: {"seq": 2, "type": "step_start", "step_number": 1, "steps_remaining": 9}
+data: {"seq": 2, "type": "step_start", "step_number": 1, "steps_remaining": 9, "context_usage": {"context_window": 262144, "reserved_output_tokens": 32768, "effective_input_budget": 229376, "prompt_tokens_current_call": 21107, "conversation_tokens_active_history": 21107, "remaining_tokens": 208269, "utilization_pct_effective": 9.2, "compaction_threshold_pct": 90, "next_compaction_at_tokens": 206438, "compaction_count": 0}, "stored_context": {"context_window": 262144, "stored_tokens": 6123, "utilization_pct": 2.3, "replayable_entry_count": 14}}
 
 data: {"seq": 3, "type": "thinking", "content": "I need to search for..."}
 
@@ -1731,13 +1754,13 @@ data: {"seq": 4, "type": "tool_approval_required", "tool_call_id": "tc_002", "to
 
 data: {"seq": 5, "type": "tool_result", "tool_call_id": "tc_001", "success": true, "result_summary": "Found 5 results...", "duration_ms": 2500}
 
-data: {"seq": 6, "type": "usage_update", "context_usage": {"context_window": 262144, "reserved_output_tokens": 32768, "effective_input_budget": 229376, "prompt_tokens_current_call": 21107, "remaining_tokens": 208269, "utilization_pct_effective": 9.2, "compaction_threshold_pct": 90, "next_compaction_at_tokens": 206438, "compaction_count": 0}, "context_profile": {"provider_name": "fireworks", "model_id": "accounts/fireworks/models/kimi-k2p6", "display_name": "Kimi K2.6", "context_window": 262144, "max_output_tokens": 32768, "effective_input_budget": 229376, "supports_tools": true, "supports_reasoning": false, "pricing": {"input_cost_per_million": null, "cached_input_cost_per_million": null, "output_cost_per_million": null}, "source": "registry"}}
+data: {"seq": 6, "type": "usage_update", "usage": {"input_tokens": 18420, "output_tokens": 2687, "reasoning_tokens": 0, "cached_tokens": 0, "total_tokens": 21107}, "context_usage": {"context_window": 262144, "reserved_output_tokens": 32768, "effective_input_budget": 229376, "prompt_tokens_current_call": 21107, "conversation_tokens_active_history": 21107, "remaining_tokens": 208269, "utilization_pct_effective": 9.2, "compaction_threshold_pct": 90, "next_compaction_at_tokens": 206438, "compaction_count": 0}, "stored_context": {"context_window": 262144, "stored_tokens": 6123, "utilization_pct": 2.3, "replayable_entry_count": 14}, "context_profile": {"provider_name": "fireworks", "model_id": "accounts/fireworks/models/kimi-k2p6", "display_name": "Kimi K2.6", "context_window": 262144, "max_output_tokens": 32768, "effective_input_budget": 229376, "supports_tools": true, "supports_reasoning": false, "pricing": {"input_cost_per_million": null, "cached_input_cost_per_million": null, "output_cost_per_million": null}, "source": "registry"}}
 
 data: {"seq": 7, "type": "agent_state", "state": "synthesizing", "current_step": 2}
 
 data: {"seq": 8, "type": "answer", "content": "Based on my research"}
 
-data: {"seq": 9, "type": "complete", "success": true, "final_answer": "Based on my research...", "citations": [...], "total_steps": 2, "timing_ms": 15000, "total_tokens": 4250}
+data: {"seq": 9, "type": "complete", "success": true, "final_answer": "Based on my research...", "citations": [...], "total_steps": 2, "timing_ms": 15000, "total_tokens": 4250, "usage": {"input_tokens": 18420, "output_tokens": 2687, "reasoning_tokens": 0, "cached_tokens": 0, "total_tokens": 21107}, "stored_context": {"context_window": 262144, "stored_tokens": 6123, "utilization_pct": 2.3, "replayable_entry_count": 14}}
 
 ```
 

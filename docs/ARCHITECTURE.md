@@ -73,7 +73,7 @@ Fluxion is an AI chat application with multi-strategy reasoning capabilities. It
 - **Tool Approval Flow**: Permission-gated tool execution (strict/relaxed/yolo policies)
 - **Multi-Provider Support**: DeepInfra, ChatGPT (OAuth), llama-server, vLLM, Ollama
 - **Streaming-First**: Real-time token streaming via Server-Sent Events (SSE)
-- **Context Management**: Model-aware context profiles, threshold-based conversation compaction, bounded tool-result history, turn summaries, persistent coding-session state for coding-profile follow-ups, and project context injection
+- **Context Management**: Model-aware context profiles, threshold-based conversation compaction, bounded tool-result history, turn summaries, transcript-first coding-session replay for coding-profile follow-ups, metadata-only coding session state, stored-context telemetry, and project context injection
 - **Full Traceability**: Every LLM call, tool execution, approval, and file change is recorded
 - **Provider Failover**: Circuit breaker pattern with automatic provider switching
 - **Pause/Resume/Steer**: Pause agent between steps, resume later, or inject steering messages mid-run
@@ -952,7 +952,11 @@ The context system prevents token blowout while maintaining relevant information
 └─────────────────────────────────────────────────────────┘
 ```
 
-**Live Context Accounting**: Agent SSE/status payloads now expose `context_window`, `reserved_output_tokens`, `effective_input_budget`, current prompt usage, remaining tokens, utilization percentage, and compaction counters so the UI can render the real active budget.
+**Live Context Accounting**: Agent SSE/status payloads now expose two separate context views:
+- `context_usage` = current assembled provider prompt for the active call (`prompt_tokens_current_call`, `remaining_tokens`, effective-budget percentages, compaction counters)
+- `stored_context` = replayable conversation context currently persisted for future coding turns (`stored_tokens`, `context_window`, `utilization_pct`, `replayable_entry_count`)
+
+The browser composer footer uses `stored_context` for `ctx` and sums conversation-lifetime provider `usage.total_tokens` for `raw`.
 
 ### Crash Recovery
 

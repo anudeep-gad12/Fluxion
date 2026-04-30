@@ -627,7 +627,9 @@ Step 2+: MAIN LOOP (while not synthesis and step < max_steps)
     │   ├── Chat flows use turn_summary when available (~10x more history)
     │   │   └── Turn summaries include key_findings from tool results
     │   │       for richer cross-turn context
-    │   ├── Coding agent flows rebuild from coding checkpoint + raw-tail replay
+    │   ├── Coding agent flows rebuild from replayable coding_session_entries
+    │   │   in transcript order plus a tiny neutral metadata block
+    │   ├── coding_sessions.state_json is bookkeeping-only, not narrative prompt authority
     │   ├── Non-coding agent flows fall back to runs.agent_state / summary history
     │   ├── Else use raw user_message + final_answer pairs
     │   └── Apply token budget with sliding window
@@ -921,8 +923,8 @@ Connection opened
 | `tool_start` | Tool starting | `{tool_call_id, tool_name, arguments}` |
 | `tool_approval_required` | Approval needed | `{tool_call_id, tool_name, arguments}` |
 | `tool_result` | Tool finished | `{tool_call_id, success, result_summary}` |
-| `usage_update` | Live context/accounting update | `{context_usage, context_profile, compaction_count, last_compacted_at_step}` |
-| `conversation_compacted` | Visible compaction system event | `{message, step_number, context_usage, context_profile}` |
+| `usage_update` | Live context/accounting update | `{usage, cost, context_usage, stored_context, context_profile, compaction_count, last_compacted_at_step}` |
+| `conversation_compacted` | Visible compaction system event | `{message, step_number, context_usage, stored_context, context_profile}` |
 | `answer` | Answer token | `{content: "..."}` |
 | `complete` | Agent done | `{final_answer, citations, total_steps, timing_ms}` |
 | `error` | Error occurred | `{error: "...", step: N}` |
