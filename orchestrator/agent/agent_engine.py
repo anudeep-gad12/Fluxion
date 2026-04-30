@@ -124,12 +124,14 @@ class ParsedToolCall:
         name: Tool name.
         arguments: Parsed arguments dict.
         raw_arguments: Original JSON string (for hashing).
+        parse_error: Validation error when arguments are malformed.
     """
 
     id: str
     name: str
     arguments: Dict[str, Any]
     raw_arguments: str
+    parse_error: Optional[str] = None
 
 
 @dataclass
@@ -650,11 +652,9 @@ To provide your final answer, respond WITHOUT calling any tools."""
         if tool is None:
             return f"Previous tool call '{tool_call.name}' failed because the tool does not exist."
 
-        raw_arguments = tool_call.raw_arguments.strip() if tool_call.raw_arguments else ""
-        if tool_call.arguments == {} and raw_arguments not in {"", "{}"}:
+        if tool_call.parse_error:
             return (
-                f"Previous tool call '{tool_call.name}' was invalid because its arguments "
-                "did not parse into valid JSON."
+                f"Previous tool call '{tool_call.name}' was invalid because {tool_call.parse_error}"
             )
 
         required_args = tool.schema.parameters.get("required", [])
@@ -2341,6 +2341,73 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 if tool_calls:
                     # Check for redundant tool calls before execution
                     parsed_for_check = self._parse_tool_calls(tool_calls)
+                    malformed_calls = [
+                        tc for tc in parsed_for_check if tc.parse_error is not None
+                    ]
+                    if malformed_calls:
+                        valid_ids = {
+                            tc.id for tc in parsed_for_check if tc.parse_error is None
+                        }
+                        malformed_descriptions = "; ".join(
+                            f"{tc.name}: {tc.parse_error}" for tc in malformed_calls
+                        )
+                        logger.warning(
+                            "Filtered malformed tool calls",
+                            extra={
+                                "run_id": run_id,
+                                "step_number": step_number,
+                                "malformed_count": len(malformed_calls),
+                                "valid_count": len(valid_ids),
+                                "finish_reason": llm_response.finish_reason,
+                            },
+                        )
+                        if valid_ids:
+                            tool_calls = [
+                                tc for tc in tool_calls if tc.get("id") in valid_ids
+                            ]
+                            parsed_for_check = [
+                                tc for tc in parsed_for_check if tc.parse_error is None
+                            ]
+                            malformed_notice = {
+                                "role": "system",
+                                "content": (
+                                    "[Malformed tool calls were dropped because their arguments "
+                                    f"were incomplete or invalid JSON: {malformed_descriptions}]"
+                                ),
+                            }
+                            messages.append(malformed_notice)
+                            if self._is_coding_profile():
+                                ephemeral_messages.append(malformed_notice)
+                        else:
+                            malformed_notice = {
+                                "role": "system",
+                                "content": (
+                                    "[Your last tool call was malformed because its arguments "
+                                    f"were incomplete or invalid JSON: {malformed_descriptions}]"
+                                ),
+                            }
+                            retry_prompt = {
+                                "role": "user",
+                                "content": (
+                                    "Retry the intended tool call now. "
+                                    "Return only a valid tool call with complete JSON arguments "
+                                    "for every required field. Do not explain the plan in prose."
+                                ),
+                            }
+                            messages.append(malformed_notice)
+                            messages.append(retry_prompt)
+                            if self._is_coding_profile():
+                                ephemeral_messages.append(malformed_notice)
+                                ephemeral_messages.append(retry_prompt)
+                            else:
+                                messages = self._trim_scaffold_messages(messages)
+                            await state_machine.complete_step(
+                                decision="malformed_tool_call",
+                                thinking_text=thinking_text,
+                            )
+                            consecutive_filtered_steps = 0
+                            continue
+
                     redundant = self._detect_redundant_calls(parsed_for_check)
                     if redundant:
                         redundant_ids = {tc.id for tc, _ in redundant}
@@ -3555,12 +3622,27 @@ When you complete each step, proceed to the next."""
                 tc_id = tc.get("id", str(uuid.uuid4()))
                 func = tc.get("function", {})
                 name = func.get("name", "")
-                args_str = func.get("arguments", "{}")
+                raw_arguments_value = func.get("arguments", "{}")
+                parse_error: Optional[str] = None
 
-                # Parse JSON arguments
-                try:
-                    arguments = json.loads(args_str)
-                except json.JSONDecodeError:
+                if isinstance(raw_arguments_value, dict):
+                    arguments = raw_arguments_value
+                    args_str = json.dumps(raw_arguments_value, ensure_ascii=False)
+                else:
+                    args_str = str(raw_arguments_value)
+                    try:
+                        arguments = json.loads(args_str)
+                    except json.JSONDecodeError as exc:
+                        arguments = {}
+                        parse_error = (
+                            "its arguments did not parse into valid JSON "
+                            f"({exc.msg})."
+                        )
+
+                if not parse_error and not isinstance(arguments, dict):
+                    parse_error = (
+                        "its arguments did not parse into a JSON object with named fields."
+                    )
                     arguments = {}
 
                 parsed.append(
@@ -3569,6 +3651,7 @@ When you complete each step, proceed to the next."""
                         name=name,
                         arguments=arguments,
                         raw_arguments=args_str,
+                        parse_error=parse_error,
                     )
                 )
             except Exception as e:

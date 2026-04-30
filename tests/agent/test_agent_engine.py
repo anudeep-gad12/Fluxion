@@ -474,7 +474,9 @@ class TestAgentEngineToolParsing:
         parsed = engine._parse_tool_calls(tool_calls)
 
         assert len(parsed) == 1
-        assert parsed[0].arguments == {}  # Falls back to empty dict
+        assert parsed[0].arguments == {}
+        assert parsed[0].parse_error is not None
+        assert "valid JSON" in parsed[0].parse_error
 
     def test_parse_tool_calls_missing_id(self):
         """Parse tool calls with missing ID generates UUID."""
@@ -533,6 +535,31 @@ class TestAgentEngineToolParsing:
         assert len(parsed) == 2
         assert parsed[0].name == "web_search"
         assert parsed[1].name == "web_extract"
+
+    def test_parse_tool_calls_non_object_json_marks_parse_error(self):
+        """Parse tool calls with JSON that is not an object."""
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=create_mock_repo(),
+            registry=create_mock_registry(),
+        )
+
+        tool_calls = [
+            {
+                "id": "tc-1",
+                "function": {
+                    "name": "write_file",
+                    "arguments": '["not", "an", "object"]',
+                },
+            }
+        ]
+
+        parsed = engine._parse_tool_calls(tool_calls)
+
+        assert len(parsed) == 1
+        assert parsed[0].arguments == {}
+        assert parsed[0].parse_error is not None
+        assert "JSON object" in parsed[0].parse_error
 
 
 class TestAgentEngineFormatResult:
@@ -2886,8 +2913,119 @@ class TestCodingContinuationBehavior:
         assert assistant_with_tool_calls == []
         assert any(
             msg.get("role") == "system"
-            and "Previous tool call was invalid and failed." in str(msg.get("content"))
+            and "malformed" in str(msg.get("content"))
             for msg in second_messages
+        )
+        assert any(
+            msg.get("role") == "user"
+            and "Retry the intended tool call now." in str(msg.get("content"))
+            for msg in second_messages
+        )
+
+    @pytest.mark.asyncio
+    async def test_malformed_tool_call_retries_instead_of_executing_empty_args(self):
+        provider = MagicMock()
+        provider.complete_streaming = AsyncMock(
+            side_effect=[
+                LLMResponse(
+                    text="",
+                    tool_calls=[
+                        {
+                            "id": "tc-bad",
+                            "type": "function",
+                            "function": {
+                                "name": "write_file",
+                                "arguments": '{"file_path"',
+                            },
+                        }
+                    ],
+                    finish_reason="length",
+                ),
+                LLMResponse(
+                    text="",
+                    tool_calls=[
+                        {
+                            "id": "tc-good",
+                            "type": "function",
+                            "function": {
+                                "name": "write_file",
+                                "arguments": json.dumps(
+                                    {
+                                        "file_path": "src/WeeklyHistory.tsx",
+                                        "content": "export const x = 1;\n",
+                                    }
+                                ),
+                            },
+                        }
+                    ],
+                    finish_reason="tool_calls",
+                ),
+                LLMResponse(text="Done.", finish_reason="stop"),
+            ]
+        )
+        repo = create_mock_repo()
+        registry = create_mock_registry()
+        write_tool = MagicMock()
+        write_tool.schema.parameters = {"required": ["file_path", "content"]}
+        write_tool.schema.permission_level = "auto"
+        write_tool.execute = AsyncMock(
+            return_value=ToolResult(success=True, result_summary="Wrote file")
+        )
+        registry.get.side_effect = lambda name: write_tool if name == "write_file" else None
+        registry.get_openai_schemas.return_value = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "write_file",
+                    "description": "Write a file",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "file_path": {"type": "string"},
+                            "content": {"type": "string"},
+                        },
+                        "required": ["file_path", "content"],
+                    },
+                },
+            }
+        ]
+        mock_sm = create_mock_state_machine(
+            can_continue_sequence=[True, True, True, False],
+            step_sequence=[
+                {"step_number": 1, "id": "step-1"},
+                {"step_number": 2, "id": "step-2"},
+                {"step_number": 3, "id": "step-3"},
+            ],
+        )
+        mock_sm.record_tool_call = AsyncMock(
+            side_effect=[
+                {"id": "tc-good"},
+            ]
+        )
+
+        with patch(
+            "orchestrator.agent.agent_engine.AgentStateMachine",
+            return_value=mock_sm,
+        ):
+            engine = AgentEngine(
+                provider=provider,
+                repo=repo,
+                registry=registry,
+                profile=self._coding_profile(),
+                planning_enabled=False,
+            )
+            result = await engine.run(run_id="run-retry", query="make the edits")
+
+        assert result.success is True
+        write_tool.execute.assert_awaited_once_with(
+            file_path="src/WeeklyHistory.tsx",
+            content="export const x = 1;\n",
+        )
+        first_retry_messages = provider.complete_streaming.call_args_list[1].kwargs["messages"]
+        assert any(
+            msg.get("role") == "user"
+            and "Retry the intended tool call now." in str(msg.get("content"))
+            for msg in first_retry_messages
         )
 
     @pytest.mark.asyncio
