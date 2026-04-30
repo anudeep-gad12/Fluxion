@@ -9,14 +9,16 @@ This module provides:
 
 import asyncio
 import hashlib
+import inspect
 import json
 import re
 import time
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
+from orchestrator.agent.coding_session import CodingFileState, CodingSessionState
 from orchestrator.agent.context_pruner import ContextPruner
 from orchestrator.agent.permissions import classify_tool_call
 from orchestrator.context.budget import ContextBudget
@@ -129,9 +131,12 @@ class WorkingMemory:
     """Compact agent working memory used for prompt reconstruction."""
 
     objective: str
+    restored_session: bool = False
+    restored_session_updated_at: Optional[str] = None
     prior_outcomes: List[str] = field(default_factory=list)
     files_inspected: Dict[str, str] = field(default_factory=dict)
     files_changed: Dict[str, str] = field(default_factory=dict)
+    stale_file_summaries: Dict[str, str] = field(default_factory=dict)
     validation_results: List[str] = field(default_factory=list)
     current_hypothesis: Optional[str] = None
     unresolved_tasks: List[str] = field(default_factory=list)
@@ -140,9 +145,14 @@ class WorkingMemory:
     def render(self) -> str:
         """Render compact working memory for model context."""
         sections = [
-            "This is continuing state for the same run, not a new user request.",
-            f"Objective: {self.objective}",
+            "This is durable state for the current agent conversation. Continue from it instead of restarting from scratch.",
+            f"Current user request: {self.objective}",
         ]
+        if self.restored_session:
+            restored = "Persisted coding session state from earlier turns was restored for this conversation."
+            if self.restored_session_updated_at:
+                restored += f" Last updated: {self.restored_session_updated_at}."
+            sections.append(restored)
         if self.prior_outcomes:
             sections.append(
                 "Prior outcomes:\n"
@@ -162,6 +172,13 @@ class WorkingMemory:
                 for path, summary in list(self.files_changed.items())[-8:]
             )
             sections.append(f"Files changed:\n{changed}")
+
+        if self.stale_file_summaries:
+            stale = "\n".join(
+                f"- {path}: {reason}"
+                for path, reason in list(self.stale_file_summaries.items())[-8:]
+            )
+            sections.append(f"Stale stored file evidence:\n{stale}")
 
         if self.validation_results:
             sections.append(
@@ -186,7 +203,9 @@ class WorkingMemory:
         sections.append(
             "Use this working memory as the durable state. Raw tool outputs that follow "
             "are only from the most recent tool step. Continue from the current state, "
-            "do not restate the plan, and answer directly when no tool is needed."
+            "do not restate the plan, and answer directly when no tool is needed. "
+            "If stored file evidence is present, reuse it before rereading files. "
+            "Only reread when the stored evidence is stale, insufficient, or you need exact new context."
         )
         return "\n\n".join(sections)
 
@@ -565,14 +584,18 @@ To provide your final answer, respond WITHOUT calling any tools."""
             memory.recent_raw_evidence.append(evidence)
             memory.recent_raw_evidence = memory.recent_raw_evidence[-8:]
             if tool_call.name == "read_file":
-                file_path = str(tool_call.arguments.get("file_path", "unknown"))
+                file_path = self._canonical_workspace_path(
+                    str(tool_call.arguments.get("file_path", "unknown"))
+                )
                 excerpt = self._extract_read_file_excerpt(result.result_data)
                 memory.files_inspected[file_path] = (
                     f"{summary}. Key excerpt: {excerpt}" if excerpt else summary
                 )[:500]
                 memory.current_hypothesis = f"Latest inspected file: {file_path}"
             elif tool_call.name in ("edit_file", "write_file"):
-                file_path = str(tool_call.arguments.get("file_path", "unknown"))
+                file_path = self._canonical_workspace_path(
+                    str(tool_call.arguments.get("file_path", "unknown"))
+                )
                 diff_summary = self._summarize_diff(result.result_data) or summary
                 memory.files_changed[file_path] = diff_summary[:500]
                 memory.current_hypothesis = f"Changed {file_path}"
@@ -801,6 +824,422 @@ To provide your final answer, respond WITHOUT calling any tools."""
             return f"listed {path or '.'}: {result.result_summary}"[:400]
         return None
 
+    def _is_coding_profile(self) -> bool:
+        """Return whether the current agent profile is the coding profile."""
+        return bool(self._profile and self._profile.name == "coding")
+
+    async def _call_repo_async_method(
+        self,
+        method_name: str,
+        *args: Any,
+        **kwargs: Any,
+    ) -> Any:
+        """Call an optional async repo method when available."""
+        method = getattr(self._repo, method_name, None)
+        if method is None or not inspect.iscoroutinefunction(method):
+            return None
+        return await method(*args, **kwargs)
+
+    def _dedupe_tail(self, items: List[str], limit: int) -> List[str]:
+        """Keep only the most recent unique items."""
+        seen: set[str] = set()
+        deduped: List[str] = []
+        for item in reversed([str(item).strip() for item in items if str(item).strip()]):
+            if item in seen:
+                continue
+            seen.add(item)
+            deduped.append(item[:500])
+        deduped.reverse()
+        return deduped[-limit:]
+
+    def _merge_string_maps(
+        self,
+        base: Dict[str, str],
+        incoming: Dict[str, str],
+        limit: int = 8,
+    ) -> Dict[str, str]:
+        """Merge ordered string maps and keep the newest entries."""
+        merged = dict(base)
+        for key, value in incoming.items():
+            clean_key = str(key).strip()
+            clean_value = str(value).strip()
+            if not clean_key or not clean_value:
+                continue
+            if clean_key in merged:
+                merged.pop(clean_key)
+            merged[clean_key] = clean_value[:500]
+        if len(merged) <= limit:
+            return merged
+        return dict(list(merged.items())[-limit:])
+
+    def _strip_session_render_markers(self, summary: str) -> str:
+        """Remove restore-only prefixes before persisting summaries again."""
+        for prefix in ("[stored, fresh] ", "[stored summary] "):
+            if summary.startswith(prefix):
+                return summary[len(prefix) :]
+        return summary
+
+    def _canonical_workspace_path(self, file_path: str) -> str:
+        """Normalize a workspace file path to a stable relative path when possible."""
+        resolved = self._resolve_workspace_file(file_path)
+        workspace_path = self._get_workspace_path()
+        if resolved is None or workspace_path is None:
+            return str(file_path)
+        try:
+            return str(resolved.relative_to(Path(workspace_path).resolve()))
+        except ValueError:
+            return str(file_path)
+
+    def _resolve_workspace_file(self, file_path: str) -> Optional[Path]:
+        """Resolve a workspace file using tool resolvers when available."""
+        for tool_name in ("read_file", "write_file", "edit_file", "view_image"):
+            tool = self._registry.get(tool_name)
+            resolver = getattr(tool, "_resolve_path", None)
+            if callable(resolver):
+                try:
+                    resolved = resolver(file_path)
+                except Exception:
+                    continue
+                if resolved is not None:
+                    return Path(resolved)
+        workspace_path = self._get_workspace_path()
+        if not workspace_path:
+            return None
+        try:
+            base = Path(workspace_path).resolve()
+            path = Path(file_path)
+            if not path.is_absolute():
+                path = base / path
+            resolved = path.resolve()
+            if resolved.is_relative_to(base):
+                return resolved
+        except Exception:
+            return None
+        return None
+
+    def _hash_file_contents(self, path: Path) -> Optional[str]:
+        """Compute a stable hash for a workspace file."""
+        try:
+            content = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return None
+        return hashlib.sha256(content.encode("utf-8", errors="replace")).hexdigest()
+
+    def _excerpt_from_file(
+        self,
+        path: Path,
+        line_start: Optional[int] = None,
+        line_end: Optional[int] = None,
+    ) -> Optional[str]:
+        """Extract a compact excerpt from a file on disk."""
+        try:
+            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            return None
+        if line_start and line_end and line_start > 0:
+            selected = lines[line_start - 1 : line_end]
+        else:
+            selected = lines
+        cleaned: List[str] = []
+        for line in selected:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            cleaned.append(stripped)
+            if len(cleaned) >= 3:
+                break
+        if not cleaned:
+            return None
+        return " | ".join(cleaned)[:240]
+
+    def _read_file_line_span(
+        self,
+        tool_call: ParsedToolCall,
+        result: "ToolResult",
+    ) -> tuple[Optional[int], Optional[int]]:
+        """Derive the stored line span for a read_file result."""
+        offset = tool_call.arguments.get("offset", 1)
+        try:
+            line_start = max(1, int(offset))
+        except (TypeError, ValueError):
+            line_start = 1
+        lines_read = result.metadata.get("lines_read") if isinstance(result.metadata, dict) else None
+        if isinstance(lines_read, int) and lines_read > 0:
+            return line_start, line_start + lines_read - 1
+        return line_start, None
+
+    def _build_file_state_from_read(
+        self,
+        tool_call: ParsedToolCall,
+        result: "ToolResult",
+    ) -> Optional[CodingFileState]:
+        """Create persisted file evidence from a successful read_file call."""
+        if not result.success:
+            return None
+        file_path = self._canonical_workspace_path(
+            str(tool_call.arguments.get("file_path", "unknown"))
+        )
+        line_start, line_end = self._read_file_line_span(tool_call, result)
+        resolved = self._resolve_workspace_file(file_path)
+        excerpt = self._extract_read_file_excerpt(result.result_data)
+        if excerpt is None and resolved is not None:
+            excerpt = self._excerpt_from_file(resolved, line_start, line_end)
+        return CodingFileState(
+            path=file_path,
+            summary=result.result_summary[:500],
+            excerpt=excerpt,
+            line_start=line_start,
+            line_end=line_end,
+            content_hash=self._hash_file_contents(resolved) if resolved else None,
+            source="read_file",
+            captured_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+    def _build_file_state_from_write(
+        self,
+        tool_call: ParsedToolCall,
+        result: "ToolResult",
+    ) -> Optional[CodingFileState]:
+        """Create persisted file evidence from a successful edit/write call."""
+        if not result.success:
+            return None
+        file_path = self._canonical_workspace_path(
+            str(tool_call.arguments.get("file_path", "unknown"))
+        )
+        resolved = self._resolve_workspace_file(file_path)
+        excerpt = self._excerpt_from_file(resolved) if resolved else None
+        summary = self._summarize_diff(result.result_data) or result.result_summary
+        return CodingFileState(
+            path=file_path,
+            summary=summary[:500],
+            excerpt=excerpt,
+            content_hash=self._hash_file_contents(resolved) if resolved else None,
+            source=tool_call.name,
+            captured_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+    def _merge_working_memory_into_coding_session(
+        self,
+        session_state: CodingSessionState,
+        working_memory: WorkingMemory,
+    ) -> None:
+        """Fold current working memory into durable coding-session state."""
+        session_state.objective = working_memory.objective
+        session_state.prior_outcomes = self._dedupe_tail(
+            session_state.prior_outcomes + working_memory.prior_outcomes,
+            6,
+        )
+        session_state.files_inspected = self._merge_string_maps(
+            session_state.files_inspected,
+            {
+                path: self._strip_session_render_markers(summary)
+                for path, summary in working_memory.files_inspected.items()
+            },
+        )
+        session_state.files_changed = self._merge_string_maps(
+            session_state.files_changed,
+            {
+                path: self._strip_session_render_markers(summary)
+                for path, summary in working_memory.files_changed.items()
+            },
+        )
+        session_state.validation_results = self._dedupe_tail(
+            session_state.validation_results + working_memory.validation_results,
+            8,
+        )
+        session_state.current_hypothesis = working_memory.current_hypothesis
+        session_state.unresolved_tasks = self._dedupe_tail(
+            session_state.unresolved_tasks + working_memory.unresolved_tasks,
+            6,
+        )
+        session_state.recent_raw_evidence = self._dedupe_tail(
+            session_state.recent_raw_evidence + working_memory.recent_raw_evidence,
+            8,
+        )
+        session_state.normalize()
+
+    def _merge_tool_results_into_coding_session(
+        self,
+        session_state: CodingSessionState,
+        tool_results: List[tuple[ParsedToolCall, "ToolResult"]],
+    ) -> None:
+        """Persist concrete file evidence from the current tool step."""
+        for tool_call, result in tool_results:
+            file_state: Optional[CodingFileState] = None
+            if tool_call.name == "read_file":
+                file_state = self._build_file_state_from_read(tool_call, result)
+            elif tool_call.name in ("edit_file", "write_file"):
+                file_state = self._build_file_state_from_write(tool_call, result)
+            if file_state is None:
+                continue
+            session_state.file_evidence[file_state.path] = file_state
+        session_state.normalize()
+
+    def _stored_file_summary(
+        self,
+        file_state: CodingFileState,
+        fallback_summary: Optional[str] = None,
+    ) -> str:
+        """Format stored file evidence for working-memory rendering."""
+        parts = [fallback_summary or file_state.summary]
+        if file_state.line_start and file_state.line_end:
+            parts.append(f"lines {file_state.line_start}-{file_state.line_end}")
+        if file_state.excerpt:
+            parts.append(f"Stored excerpt: {file_state.excerpt}")
+        return ". ".join(part for part in parts if part)[:500]
+
+    def _assess_file_freshness(
+        self,
+        file_state: CodingFileState,
+    ) -> tuple[bool, Optional[str]]:
+        """Check whether persisted file evidence can be reused as-is."""
+        resolved = self._resolve_workspace_file(file_state.path)
+        if resolved is None:
+            return True, "freshness not revalidated; workspace file resolver unavailable"
+        if not resolved.exists():
+            return False, "file is missing from the workspace"
+        if file_state.content_hash is None:
+            return True, "freshness not revalidated; no stored file hash"
+        current_hash = self._hash_file_contents(resolved)
+        if current_hash != file_state.content_hash:
+            return False, "file content changed since the stored evidence was captured"
+        return True, None
+
+    async def _restore_coding_session_state(
+        self,
+        conversation_id: str,
+        working_memory: WorkingMemory,
+        run_id: str,
+    ) -> Optional[CodingSessionState]:
+        """Restore persisted coding-session state into working memory."""
+        record = await self._call_repo_async_method(
+            "get_coding_session_state", conversation_id
+        )
+        if not isinstance(record, dict):
+            return None
+
+        session_state = CodingSessionState.from_dict(record.get("state") or {})
+        working_memory.restored_session = True
+        updated_at = record.get("updated_at")
+        if updated_at:
+            working_memory.restored_session_updated_at = str(updated_at)
+        working_memory.prior_outcomes = self._dedupe_tail(
+            session_state.prior_outcomes + working_memory.prior_outcomes,
+            6,
+        )
+        working_memory.validation_results = self._dedupe_tail(
+            session_state.validation_results + working_memory.validation_results,
+            8,
+        )
+        if session_state.current_hypothesis:
+            working_memory.current_hypothesis = session_state.current_hypothesis
+        working_memory.unresolved_tasks = self._dedupe_tail(
+            session_state.unresolved_tasks + working_memory.unresolved_tasks,
+            6,
+        )
+        working_memory.recent_raw_evidence = self._dedupe_tail(
+            session_state.recent_raw_evidence + working_memory.recent_raw_evidence,
+            8,
+        )
+
+        reused_files: List[str] = []
+        stale_files: Dict[str, str] = {}
+        for path, summary in session_state.files_inspected.items():
+            file_state = session_state.file_evidence.get(path)
+            if file_state is None:
+                working_memory.files_inspected[path] = (
+                    f"[stored summary] {summary}"
+                )[:500]
+                reused_files.append(path)
+                continue
+            is_fresh, reason = self._assess_file_freshness(file_state)
+            if is_fresh:
+                working_memory.files_inspected[path] = (
+                    f"[stored, fresh] {self._stored_file_summary(file_state, summary)}"
+                )[:500]
+                reused_files.append(path)
+            elif reason:
+                stale_files[path] = reason[:500]
+
+        for path, summary in session_state.files_changed.items():
+            file_state = session_state.file_evidence.get(path)
+            if file_state is None:
+                working_memory.files_changed[path] = f"[stored summary] {summary}"[:500]
+                continue
+            is_fresh, reason = self._assess_file_freshness(file_state)
+            if is_fresh:
+                working_memory.files_changed[path] = (
+                    f"[stored, fresh] {self._stored_file_summary(file_state, summary)}"
+                )[:500]
+            elif reason:
+                stale_files[path] = reason[:500]
+
+        working_memory.stale_file_summaries = self._merge_string_maps(
+            working_memory.stale_file_summaries,
+            stale_files,
+        )
+
+        await self._add_trace_event(
+            run_id=run_id,
+            event_type="coding_session_restore",
+            content={
+                "conversation_id": conversation_id,
+                "restored": True,
+                "updated_at": working_memory.restored_session_updated_at,
+                "reused_files": reused_files,
+                "stale_files": stale_files,
+                "files_inspected": list(session_state.files_inspected.keys()),
+                "files_changed": list(session_state.files_changed.keys()),
+            },
+            actor="system",
+        )
+        return session_state
+
+    async def _persist_coding_session_state(
+        self,
+        *,
+        conversation_id: str,
+        run_id: str,
+        working_memory: WorkingMemory,
+        session_state: CodingSessionState,
+        tool_results: Optional[List[tuple[ParsedToolCall, "ToolResult"]]] = None,
+        final_answer: Optional[str] = None,
+        reason: str,
+        step_number: Optional[int] = None,
+    ) -> None:
+        """Persist durable coding-session state for the current conversation."""
+        self._merge_working_memory_into_coding_session(session_state, working_memory)
+        if tool_results:
+            self._merge_tool_results_into_coding_session(session_state, tool_results)
+        if final_answer:
+            session_state.prior_outcomes = self._dedupe_tail(
+                session_state.prior_outcomes + [final_answer[:500]],
+                6,
+            )
+        session_state.normalize()
+
+        await self._call_repo_async_method(
+            "upsert_coding_session_state",
+            conversation_id,
+            session_state.to_dict(),
+            last_run_id=run_id,
+        )
+        await self._add_trace_event(
+            run_id=run_id,
+            event_type="coding_session_snapshot",
+            content={
+                "conversation_id": conversation_id,
+                "reason": reason,
+                "files_inspected": list(session_state.files_inspected.keys()),
+                "files_changed": list(session_state.files_changed.keys()),
+                "validation_count": len(session_state.validation_results),
+                "open_tasks_count": len(session_state.unresolved_tasks),
+                "file_evidence_count": len(session_state.file_evidence),
+            },
+            actor="system",
+            step_number=step_number,
+        )
+
     async def run(
         self,
         run_id: str,
@@ -827,6 +1266,8 @@ To provide your final answer, respond WITHOUT calling any tools."""
             AgentResult with answer and citations.
         """
         start_time = time.perf_counter()
+        coding_session_state: Optional[CodingSessionState] = None
+        coding_session_dirty = False
 
         # Initialize findings for this run
         self._findings = []
@@ -876,6 +1317,14 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 objective=query,
                 prior_outcomes=self._prior_outcomes_from_scaffold(messages),
             )
+            if self._is_coding_profile() and conversation_id:
+                coding_session_state = await self._restore_coding_session_state(
+                    conversation_id=conversation_id,
+                    working_memory=working_memory,
+                    run_id=run_id,
+                )
+                if coding_session_state is None:
+                    coding_session_state = CodingSessionState(objective=query)
 
             # Handle recovery if needed
             if recovery_context.needs_recovery:
@@ -1183,6 +1632,10 @@ To provide your final answer, respond WITHOUT calling any tools."""
                             event_callback=event_callback,
                             run_id=run_id,
                             query=query,
+                            conversation_id=conversation_id,
+                            working_memory=working_memory,
+                            coding_session_state=coding_session_state,
+                            coding_session_dirty=coding_session_dirty,
                             forced_synthesis=True,
                         )
                     logger.warning(
@@ -1266,6 +1719,10 @@ To provide your final answer, respond WITHOUT calling any tools."""
                                     event_callback=event_callback,
                                     run_id=run_id,
                                     query=query,
+                                    conversation_id=conversation_id,
+                                    working_memory=working_memory,
+                                    coding_session_state=coding_session_state,
+                                    coding_session_dirty=coding_session_dirty,
                                     forced_synthesis=True,
                                 )
 
@@ -1308,6 +1765,17 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     messages.append(assistant_message)
                     self._update_working_memory_from_tools(working_memory, tool_results)
                     self._record_tool_call_recovery(working_memory, recovery_notes)
+                    if coding_session_state is not None and conversation_id:
+                        coding_session_dirty = True
+                        await self._persist_coding_session_state(
+                            conversation_id=conversation_id,
+                            run_id=run_id,
+                            working_memory=working_memory,
+                            session_state=coding_session_state,
+                            tool_results=tool_results,
+                            reason="tool_progress",
+                            step_number=step_number,
+                        )
                     for tool_call, result in tool_results:
                         if (
                             tool_call.name == "view_image"
@@ -1461,6 +1929,10 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         event_callback=event_callback,
                         run_id=run_id,
                         query=query,
+                        conversation_id=conversation_id,
+                        working_memory=working_memory,
+                        coding_session_state=coding_session_state,
+                        coding_session_dirty=coding_session_dirty,
                     )
 
             # Max steps reached - force synthesis
@@ -1482,6 +1954,10 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 event_callback=event_callback,
                 run_id=run_id,
                 query=query,
+                conversation_id=conversation_id,
+                working_memory=working_memory,
+                coding_session_state=coding_session_state,
+                coding_session_dirty=coding_session_dirty,
                 forced_synthesis=True,
             )
 
@@ -2017,8 +2493,9 @@ When you complete each step, proceed to the next."""
     ) -> tuple[List[Dict[str, Any]], ContextBudget]:
         """Build initial message list with system prompt, history, and query.
 
-        Uses HistoryBuilder turn summaries for cross-turn continuity. Agent
-        prompt replay no longer resumes from prior serialized tool transcripts.
+        Uses HistoryBuilder turn summaries for background history. Coding-profile
+        continuity is restored separately through persisted coding-session state,
+        not prior serialized tool transcripts.
 
         Args:
             query: User's research query.
@@ -3615,6 +4092,10 @@ When you complete each step, proceed to the next."""
         event_callback: Optional[Callable[[Dict[str, Any]], None]],
         run_id: str,
         query: str,
+        conversation_id: Optional[str] = None,
+        working_memory: Optional[WorkingMemory] = None,
+        coding_session_state: Optional[CodingSessionState] = None,
+        coding_session_dirty: bool = False,
         forced_synthesis: bool = False,
     ) -> AgentResult:
         """Finalize a successful run and persist artifacts/metrics."""
@@ -3673,6 +4154,20 @@ When you complete each step, proceed to the next."""
         await self._store_run_metrics(run_id, total_timing_ms)
         await self._store_turn_summary(run_id, query, final_answer)
         await self._store_conversation_messages(run_id, messages)
+        if (
+            coding_session_dirty
+            and conversation_id
+            and working_memory is not None
+            and coding_session_state is not None
+        ):
+            await self._persist_coding_session_state(
+                conversation_id=conversation_id,
+                run_id=run_id,
+                working_memory=working_memory,
+                session_state=coding_session_state,
+                final_answer=final_answer,
+                reason="run_complete",
+            )
 
         return AgentResult(
             run_id=run_id,

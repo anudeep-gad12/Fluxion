@@ -758,3 +758,81 @@ class TestJSONArguments:
         assert retrieved["arguments"]["unicode_test"] == "こんにちは世界"
 
         await db.close()
+
+
+class TestCodingSessionStateRepo:
+    """Tests for persisted coding-session state storage."""
+
+    @pytest.mark.asyncio
+    async def test_upsert_and_get_coding_session_state(self):
+        db = Database(":memory:")
+        await db.connect()
+        repo = AgentRepo(db)
+        trace_repo = TraceRepo(db)
+
+        await db.conn.execute(
+            "INSERT INTO conversations (conversation_id, title, created_at, status) VALUES (?, ?, ?, ?)",
+            ("conv-1", "Test", "2024-01-01T10:00:00Z", "active"),
+        )
+        await db.conn.commit()
+
+        run_id = str(uuid.uuid4())
+        await trace_repo.create_run(run_id, "conv-1", "coding", "agent", {})
+
+        state = {
+            "objective": "Implement the UI cleanup",
+            "prior_outcomes": ["Reviewed the component tree."],
+            "files_inspected": {"ui/src/App.tsx": "Read 80 lines from ui/src/App.tsx"},
+            "file_evidence": {
+                "ui/src/App.tsx": {
+                    "path": "ui/src/App.tsx",
+                    "summary": "Read 80 lines from ui/src/App.tsx",
+                    "excerpt": "return <AppShell /> | className='space-y-6'",
+                    "line_start": 1,
+                    "line_end": 80,
+                    "content_hash": "abc123",
+                }
+            },
+        }
+
+        await repo.upsert_coding_session_state("conv-1", state, last_run_id=run_id)
+        stored = await repo.get_coding_session_state("conv-1")
+
+        assert stored is not None
+        assert stored["conversation_id"] == "conv-1"
+        assert stored["last_run_id"] == run_id
+        assert stored["state"]["objective"] == "Implement the UI cleanup"
+        assert (
+            stored["state"]["file_evidence"]["ui/src/App.tsx"]["excerpt"]
+            == "return <AppShell /> | className='space-y-6'"
+        )
+
+        await db.close()
+
+    @pytest.mark.asyncio
+    async def test_coding_session_state_cascades_on_conversation_delete(self):
+        db = Database(":memory:")
+        await db.connect()
+        repo = AgentRepo(db)
+
+        await db.conn.execute(
+            "INSERT INTO conversations (conversation_id, title, created_at, status) VALUES (?, ?, ?, ?)",
+            ("conv-1", "Test", "2024-01-01T10:00:00Z", "active"),
+        )
+        await db.conn.commit()
+
+        await repo.upsert_coding_session_state(
+            "conv-1",
+            {"objective": "Implement follow-up", "prior_outcomes": ["Reviewed UI"]},
+        )
+
+        await db.conn.execute(
+            "DELETE FROM conversations WHERE conversation_id = ?",
+            ("conv-1",),
+        )
+        await db.conn.commit()
+
+        stored = await repo.get_coding_session_state("conv-1")
+        assert stored is None
+
+        await db.close()

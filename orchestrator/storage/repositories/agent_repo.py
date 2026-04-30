@@ -710,6 +710,61 @@ class AgentRepo:
             rows = await cursor.fetchall()
             return [dict(row) for row in rows]
 
+    # --- Persistent Coding Session State ---
+
+    async def get_coding_session_state(
+        self,
+        conversation_id: str,
+    ) -> Optional[dict[str, Any]]:
+        """Get persisted coding-session state for a conversation."""
+        async with self.db.conn.execute(
+            "SELECT * FROM coding_sessions WHERE conversation_id = ?",
+            (conversation_id,),
+        ) as cursor:
+            row = await cursor.fetchone()
+            if not row:
+                return None
+            record = dict(row)
+            record["state"] = json.loads(record.pop("state_json"))
+            return record
+
+    async def upsert_coding_session_state(
+        self,
+        conversation_id: str,
+        state: dict[str, Any],
+        *,
+        last_run_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Create or replace persisted coding-session state."""
+        now = datetime.now(timezone.utc).isoformat()
+        await self.db.conn.execute(
+            """
+            INSERT INTO coding_sessions (
+                conversation_id, state_json, last_run_id, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(conversation_id) DO UPDATE SET
+                state_json = excluded.state_json,
+                last_run_id = excluded.last_run_id,
+                updated_at = excluded.updated_at
+            """,
+            (
+                conversation_id,
+                json.dumps(state, ensure_ascii=False),
+                last_run_id,
+                now,
+                now,
+            ),
+        )
+        await self.db.conn.commit()
+        return {
+            "conversation_id": conversation_id,
+            "state": state,
+            "last_run_id": last_run_id,
+            "created_at": now,
+            "updated_at": now,
+        }
+
     # --- Run Agent State (updates to runs table) ---
 
     async def update_run_agent_state(

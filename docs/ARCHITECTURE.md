@@ -57,9 +57,10 @@ Fluxion is an AI chat application with multi-strategy reasoning capabilities. It
 ┌──────────────────────────────────────────┐  ┌────────────────────────────────────┐
 │   LLM Provider                           │  │   SQLite (var/traces.sqlite)       │
 │   - DeepInfra / llama-server / vLLM      │  │ conversations | runs | trace_events│
-│   - ChatGPT (OAuth + Codex API)          │  │ agent_steps | agent_tool_calls     │
-│   - /v1/chat/completions (default)       │  │ run_events | run_artifacts         │
-│   - /v1/responses (gpt-oss native)       │  └────────────────────────────────────┘
+│   - ChatGPT (OAuth + Codex API)          │  │ coding_sessions | agent_steps      │
+│   - /v1/chat/completions (default)       │  │ agent_tool_calls | run_events      │
+│   - /v1/responses (gpt-oss native)       │  │ run_artifacts                      │
+│                                           │  └────────────────────────────────────┘
 └──────────────────────────────────────────┘
 ```
 
@@ -71,7 +72,7 @@ Fluxion is an AI chat application with multi-strategy reasoning capabilities. It
 - **Tool Approval Flow**: Permission-gated tool execution (strict/relaxed/yolo policies)
 - **Multi-Provider Support**: DeepInfra, ChatGPT (OAuth), llama-server, vLLM, Ollama
 - **Streaming-First**: Real-time token streaming via Server-Sent Events (SSE)
-- **Context Management**: Model-aware context profiles, threshold-based conversation compaction, bounded tool-result history, turn summaries, and project context injection
+- **Context Management**: Model-aware context profiles, threshold-based conversation compaction, bounded tool-result history, turn summaries, persistent coding-session state for coding-profile follow-ups, and project context injection
 - **Full Traceability**: Every LLM call, tool execution, approval, and file change is recorded
 - **Provider Failover**: Circuit breaker pattern with automatic provider switching
 - **Pause/Resume/Steer**: Pause agent between steps, resume later, or inject steering messages mid-run

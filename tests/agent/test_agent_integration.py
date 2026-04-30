@@ -359,6 +359,48 @@ class TestAgentIntegrationMultiStep:
         repo.get_citations_for_run = AsyncMock(return_value=[])
         repo.mark_citations_used = AsyncMock()
         repo.create_run_artifact = AsyncMock()
+        repo.get_coding_session_state = AsyncMock(
+            return_value={
+                "conversation_id": "conv-praise",
+                "state": {
+                    "objective": "Right use shadcn component in that case",
+                    "prior_outcomes": ["Implemented the UI polish and verified the build."],
+                    "files_changed": {
+                        "ui/src/App.tsx": "Updated spacing and button components."
+                    },
+                },
+                "updated_at": "2026-04-29T13:55:03Z",
+            }
+        )
+        repo.upsert_coding_session_state = AsyncMock()
+        repo.get_coding_session_state = AsyncMock(
+            return_value={
+                "conversation_id": "conv-praise",
+                "state": {
+                    "objective": "Right use shadcn component in that case",
+                    "prior_outcomes": ["Implemented the UI polish and verified the build."],
+                    "files_changed": {
+                        "ui/src/App.tsx": "Updated spacing and button components."
+                    },
+                },
+                "updated_at": "2026-04-29T13:55:03Z",
+            }
+        )
+        repo.upsert_coding_session_state = AsyncMock()
+        repo.get_coding_session_state = AsyncMock(
+            return_value={
+                "conversation_id": "conv-praise",
+                "state": {
+                    "objective": "Use shadcn component in that case",
+                    "prior_outcomes": ["Implemented the UI polish and verified the build."],
+                    "files_changed": {
+                        "ui/src/App.tsx": "Updated spacing and button components."
+                    },
+                },
+                "updated_at": "2026-04-29T13:55:03Z",
+            }
+        )
+        repo.upsert_coding_session_state = AsyncMock()
 
         # Mock state machine for 3 steps
         step_count = 0
@@ -556,6 +598,8 @@ class TestAgentIntegrationErrors:
         repo.get_citations_for_run = AsyncMock(return_value=[])
         repo.mark_citations_used = AsyncMock()
         repo.create_run_artifact = AsyncMock()
+        repo.get_coding_session_state = AsyncMock(return_value=None)
+        repo.upsert_coding_session_state = AsyncMock()
 
         step_count = 0
 
@@ -655,6 +699,20 @@ class TestAgentIntegrationCodingContinuation:
         repo.get_citations_for_run = AsyncMock(return_value=[])
         repo.mark_citations_used = AsyncMock()
         repo.create_run_artifact = AsyncMock()
+        repo.get_coding_session_state = AsyncMock(
+            return_value={
+                "conversation_id": "conv-praise",
+                "state": {
+                    "objective": "Right use shadcn component in that case",
+                    "prior_outcomes": ["Implemented the UI polish and verified the build."],
+                    "files_changed": {
+                        "ui/src/App.tsx": "Updated spacing and button components."
+                    },
+                },
+                "updated_at": "2026-04-29T13:55:03Z",
+            }
+        )
+        repo.upsert_coding_session_state = AsyncMock()
 
         trace_repo = MagicMock()
         trace_repo.list_runs_for_conversation = AsyncMock(return_value=prior_runs)
@@ -702,6 +760,7 @@ class TestAgentIntegrationCodingContinuation:
         call_kwargs = provider.complete_streaming.call_args.kwargs
         assert call_kwargs["tool_choice"] is None
         assert call_kwargs["tools"] is not None
+        repo.upsert_coding_session_state.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_invalid_tool_call_does_not_corrupt_next_request(self):
@@ -759,6 +818,8 @@ class TestAgentIntegrationCodingContinuation:
         repo.get_citations_for_run = AsyncMock(return_value=[])
         repo.mark_citations_used = AsyncMock()
         repo.create_run_artifact = AsyncMock()
+        repo.get_coding_session_state = AsyncMock(return_value=None)
+        repo.upsert_coding_session_state = AsyncMock()
 
         step_count = 0
 
@@ -817,3 +878,123 @@ class TestAgentIntegrationCodingContinuation:
             and "Previous tool call was invalid and failed." in str(msg.get("content"))
             for msg in second_messages
         )
+
+    @pytest.mark.asyncio
+    async def test_followup_restores_persisted_file_evidence_before_first_llm_call(
+        self,
+        tmp_path,
+    ):
+        provider = MagicMock()
+        provider.complete_streaming = AsyncMock(
+            return_value=LLMResponse(text="I can implement that from the saved context.")
+        )
+
+        component_dir = tmp_path / "ui" / "src" / "components"
+        component_dir.mkdir(parents=True)
+        component_file = component_dir / "SummaryCards.tsx"
+        component_file.write_text(
+            "return <MetricCard />\nclassName='grid gap-4'\n",
+            encoding="utf-8",
+        )
+        from orchestrator.agent.tools.read_file import ReadFileTool
+
+        read_tool = ReadFileTool(str(tmp_path))
+
+        registry = MagicMock()
+        registry.get_openai_schemas.return_value = [
+            {"type": "function", "function": {"name": "edit_file"}}
+        ]
+        registry.get.side_effect = lambda name: read_tool if name == "read_file" else None
+        registry.is_idempotent.return_value = True
+
+        repo = MagicMock()
+        repo.create_citation = AsyncMock()
+        repo.get_citations_for_run = AsyncMock(return_value=[])
+        repo.mark_citations_used = AsyncMock()
+        repo.create_run_artifact = AsyncMock()
+        repo.get_coding_session_state = AsyncMock(
+            return_value={
+                "conversation_id": "conv-followup",
+                "state": {
+                    "objective": "Review the UI",
+                    "prior_outcomes": [
+                        "Identified spacing and metric-card polish improvements."
+                    ],
+                    "files_inspected": {
+                        "ui/src/components/SummaryCards.tsx": (
+                            "Read 40 lines from ui/src/components/SummaryCards.tsx"
+                        )
+                    },
+                    "file_evidence": {
+                        "ui/src/components/SummaryCards.tsx": {
+                            "path": "ui/src/components/SummaryCards.tsx",
+                            "summary": "Read 40 lines from ui/src/components/SummaryCards.tsx",
+                            "excerpt": "return <MetricCard /> | className='grid gap-4'",
+                            "line_start": 1,
+                            "line_end": 40,
+                        }
+                    },
+                },
+                "updated_at": "2026-04-29T13:55:03Z",
+            }
+        )
+        repo.upsert_coding_session_state = AsyncMock()
+
+        trace_repo = MagicMock()
+        trace_repo.list_runs_for_conversation = AsyncMock(
+            return_value=[
+                {
+                    "created_at": "2026-04-29T13:53:22Z",
+                    "user_message": "is there any part of UI you'd improve today?",
+                    "final_answer": "I found a few UI improvements worth making.",
+                    "turn_summary": (
+                        "Outcome: I identified UI spacing and component polish opportunities. "
+                        "| Tools: read_file, grep | Files: ui/src/components/SummaryCards.tsx "
+                        "| User asked: is there any part of UI you'd improve today?"
+                    ),
+                }
+            ]
+        )
+        trace_repo.update_run = AsyncMock()
+
+        mock_sm = MagicMock()
+        mock_sm.initialize = AsyncMock(
+            return_value=RecoveryContext(
+                needs_recovery=False,
+                interrupted_tool_calls=[],
+                hints=[],
+                last_completed_step=0,
+            )
+        )
+        mock_sm.can_continue.side_effect = [True, False]
+        mock_sm.start_step = AsyncMock(return_value={"step_number": 1, "id": "step-1"})
+        mock_sm.transition_to = AsyncMock()
+        mock_sm.complete_step = AsyncMock()
+        mock_sm.complete_run = AsyncMock()
+        mock_sm.current_step = 1
+        mock_sm.steps_remaining = 9
+
+        with patch(
+            "orchestrator.agent.agent_engine.AgentStateMachine",
+            return_value=mock_sm,
+        ):
+            from orchestrator.agent.profile import get_profile
+
+            engine = AgentEngine(
+                provider=provider,
+                repo=repo,
+                registry=registry,
+                trace_repo=trace_repo,
+                profile=get_profile("coding"),
+                planning_enabled=False,
+            )
+            result = await engine.run(
+                run_id="test-restored-file-evidence",
+                query="yeah do all of it",
+                conversation_id="conv-followup",
+            )
+
+        assert result.success is True
+        first_system = provider.complete_streaming.call_args.kwargs["messages"][0]["content"]
+        assert "Persisted coding session state from earlier turns was restored" in first_system
+        assert "Stored excerpt: return <MetricCard /> | className='grid gap-4'" in first_system

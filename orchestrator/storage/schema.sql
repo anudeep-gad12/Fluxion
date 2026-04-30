@@ -283,4 +283,16 @@ CREATE TABLE IF NOT EXISTS app_settings (
     updated_at TEXT NOT NULL
 );
 
+-- Persistent coding-session state for cross-turn coding continuity
+CREATE TABLE IF NOT EXISTS coding_sessions (
+    conversation_id TEXT PRIMARY KEY,
+    state_json TEXT NOT NULL,
+    last_run_id TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(conversation_id) REFERENCES conversations(conversation_id) ON DELETE CASCADE,
+    FOREIGN KEY(last_run_id) REFERENCES runs(run_id) ON DELETE SET NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_run_artifacts_run ON run_artifacts(run_id);
+CREATE INDEX IF NOT EXISTS idx_coding_sessions_updated_at ON coding_sessions(updated_at);
