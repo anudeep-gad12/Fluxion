@@ -76,11 +76,15 @@ class TestRunResponse:
             conversation_id="conv-123",
             final_answer="Hi there!",
             thinking_summary="I thought about it...",
+            usage={"total_tokens": 123},
+            stored_context={"stored_tokens": 45},
         )
 
         assert response.final_answer == "Hi there!"
         assert response.thinking_summary == "I thought about it..."
         assert response.conversation_id == "conv-123"
+        assert response.usage == {"total_tokens": 123}
+        assert response.stored_context == {"stored_tokens": 45}
 
 
 class TestConversationResponse:
@@ -216,6 +220,11 @@ class TestTraceToRun:
             "final_answer": "Hi!",
             "thinking_summary": "Thinking...",
             "error_message": None,
+            "usage": {
+                "usage": {"total_tokens": 123},
+                "stored_context": {"stored_tokens": 45},
+                "context_profile": {"context_window": 200000},
+            },
         }
 
         run = trace_to_run(trace)
@@ -224,6 +233,8 @@ class TestTraceToRun:
         assert run.user_message == "Hello"
         assert run.final_answer == "Hi!"
         assert run.thinking_summary == "Thinking..."
+        assert run.usage == {"total_tokens": 123}
+        assert run.stored_context == {"stored_tokens": 45}
 
     def test_missing_fields_use_defaults(self):
         """Missing fields use defaults."""
@@ -234,3 +245,27 @@ class TestTraceToRun:
         assert run.run_id == ""
         assert run.status == "unknown"
         assert run.mode == "chat"
+
+    def test_chat_usage_stats_are_normalized_for_run_response(self):
+        """Chat-style usage stats still expose total_tokens on runs."""
+        trace = {
+            "run_id": "run-123",
+            "created_at": "2024-01-01T00:00:00Z",
+            "status": "succeeded",
+            "usage": {
+                "prompt_tokens": 20,
+                "completion_tokens": 10,
+                "thinking_tokens": 4,
+                "total_tokens": 30,
+            },
+        }
+
+        run = trace_to_run(trace)
+
+        assert run.usage == {
+            "input_tokens": 20,
+            "output_tokens": 10,
+            "reasoning_tokens": 4,
+            "cached_tokens": 0,
+            "total_tokens": 30,
+        }

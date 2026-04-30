@@ -23,7 +23,6 @@ from orchestrator.agent.coding_session import (
     CodingFileState,
     CodingSessionEntry,
     CodingSessionState,
-    render_checkpoint_summary,
 )
 from orchestrator.agent.context_pruner import ContextPruner
 from orchestrator.agent.permissions import classify_tool_call
@@ -108,6 +107,7 @@ class AgentResult:
     timing_ms: int = 0
     total_tokens: int = 0
     context_usage: Optional[Dict[str, Any]] = None
+    stored_context: Optional[Dict[str, Any]] = None
     context_profile: Optional[Dict[str, Any]] = None
     compaction_count: int = 0
     last_compacted_at_step: Optional[int] = None
@@ -141,7 +141,6 @@ class WorkingMemory:
     objective: str
     restored_session: bool = False
     restored_session_updated_at: Optional[str] = None
-    checkpoint_summary: Optional[str] = None
     prior_outcomes: List[str] = field(default_factory=list)
     files_inspected: Dict[str, str] = field(default_factory=dict)
     files_changed: Dict[str, str] = field(default_factory=dict)
@@ -163,8 +162,6 @@ class WorkingMemory:
             if self.restored_session_updated_at:
                 restored += f" Last updated: {self.restored_session_updated_at}."
             sections.append(restored)
-        if self.checkpoint_summary:
-            sections.append(self.checkpoint_summary)
         if self.prior_outcomes:
             sections.append(
                 "Prior outcomes:\n"
@@ -225,6 +222,29 @@ class WorkingMemory:
             "Only reread when the stored evidence is stale, insufficient, or you need exact new context."
         )
         return "\n\n".join(sections)
+
+    def render_coding_metadata(self) -> Optional[str]:
+        """Render neutral transcript-supporting metadata for coding prompts."""
+        lines: List[str] = []
+        if self.files_changed:
+            lines.append(
+                "- touched_files: "
+                + ", ".join(list(self.files_changed.keys())[-8:])
+            )
+        if self.files_inspected:
+            lines.append(
+                "- referenced_files: "
+                + ", ".join(list(self.files_inspected.keys())[-8:])
+            )
+        if self.stale_file_summaries:
+            stale = " | ".join(
+                f"{path}: {reason}"
+                for path, reason in list(self.stale_file_summaries.items())[-6:]
+            )
+            lines.append(f"- stale_files: {stale}")
+        if not lines:
+            return None
+        return "CODING SESSION METADATA\n" + "\n".join(lines)
 
 
 # =============================================================================
@@ -500,6 +520,10 @@ To provide your final answer, respond WITHOUT calling any tools."""
 
         # Run metrics accumulator
         self._tool_call_log: List[Dict[str, Any]] = []
+        self._tool_state_version = 0
+        self._coding_last_step_structural_failure = False
+        self._last_context_usage: Optional[Dict[str, Any]] = None
+        self._last_stored_context: Optional[Dict[str, Any]] = None
         self._active_conversation_id: Optional[str] = None
         self._active_coding_session_state: Optional[CodingSessionState] = None
 
@@ -520,24 +544,22 @@ To provide your final answer, respond WITHOUT calling any tools."""
     ) -> List[Dict[str, Any]]:
         """Assemble the actual prompt from run transcript and working memory."""
         prompt_messages: List[Dict[str, Any]] = []
+        working_memory_message = (
+            {
+                "role": "system",
+                "content": "WORKING MEMORY\n" + working_memory.render(),
+                "_working_memory": True,
+            }
+            if not self._is_coding_profile()
+            else None
+        )
         if scaffold_messages:
             prompt_messages.append(scaffold_messages[0])
-            prompt_messages.append(
-                {
-                    "role": "system",
-                    "content": "WORKING MEMORY\n" + working_memory.render(),
-                    "_working_memory": True,
-                }
-            )
+            if working_memory_message is not None:
+                prompt_messages.append(working_memory_message)
             prompt_messages.extend(scaffold_messages[1:])
-        else:
-            prompt_messages.append(
-                {
-                    "role": "system",
-                    "content": "WORKING MEMORY\n" + working_memory.render(),
-                    "_working_memory": True,
-                }
-            )
+        elif working_memory_message is not None:
+            prompt_messages.append(working_memory_message)
 
         return prompt_messages
 
@@ -667,6 +689,17 @@ To provide your final answer, respond WITHOUT calling any tools."""
             )
 
         return None
+
+    def _should_suppress_assistant_transcript_entry(
+        self,
+        *,
+        tool_results: List[tuple[ParsedToolCall, "ToolResult"]],
+        recovery_notes: List[str],
+    ) -> bool:
+        """Return whether assistant prose for a tool step is structurally unsafe to replay."""
+        if recovery_notes:
+            return True
+        return bool(tool_results) and all(not result.success for _, result in tool_results)
 
     def _canonical_replay_tool_calls(
         self,
@@ -1058,33 +1091,11 @@ To provide your final answer, respond WITHOUT calling any tools."""
         session_state: CodingSessionState,
         working_memory: WorkingMemory,
     ) -> None:
-        """Fold current working memory into durable coding-session state."""
+        """Fold neutral coding metadata into durable coding-session state."""
         if working_memory.objective:
             session_state.objective = working_memory.objective
-        session_state.prior_outcomes = list(
-            dict.fromkeys(session_state.prior_outcomes + working_memory.prior_outcomes)
-        )
-        session_state.validation_results = list(
-            dict.fromkeys(
-                session_state.validation_results + working_memory.validation_results
-            )
-        )
         session_state.recent_commands = list(
             dict.fromkeys(session_state.recent_commands + working_memory.recent_commands)
-        )
-        if working_memory.current_hypothesis:
-            session_state.current_hypothesis = working_memory.current_hypothesis
-        session_state.open_tasks = list(
-            dict.fromkeys(session_state.open_tasks + working_memory.unresolved_tasks)
-        )
-        if self._current_plan and getattr(self._current_plan, "steps", None):
-            session_state.accepted_plan = [
-                f"{step.step_number}. {step.description}"
-                for step in self._current_plan.steps
-            ]
-        session_state.checkpoint_summary = render_checkpoint_summary(
-            session_state,
-            stale_file_notes=working_memory.stale_file_summaries,
         )
         session_state.normalize()
 
@@ -1199,22 +1210,8 @@ To provide your final answer, respond WITHOUT calling any tools."""
         working_memory.restored_session = True
         if updated_at:
             working_memory.restored_session_updated_at = str(updated_at)
-        working_memory.prior_outcomes = self._dedupe_tail(
-            session_state.prior_outcomes + working_memory.prior_outcomes,
-            12,
-        )
-        working_memory.validation_results = self._dedupe_tail(
-            session_state.validation_results + working_memory.validation_results,
-            12,
-        )
         working_memory.recent_commands = self._dedupe_tail(
             session_state.recent_commands + working_memory.recent_commands,
-            12,
-        )
-        if session_state.current_hypothesis:
-            working_memory.current_hypothesis = session_state.current_hypothesis
-        working_memory.unresolved_tasks = self._dedupe_tail(
-            session_state.open_tasks + working_memory.unresolved_tasks,
             12,
         )
 
@@ -1332,10 +1329,6 @@ To provide your final answer, respond WITHOUT calling any tools."""
             stale_files,
             limit=64,
         )
-        working_memory.checkpoint_summary = render_checkpoint_summary(
-            session_state,
-            stale_file_notes=stale_files,
-        )
 
     def _coding_context_builder(self) -> CodingSessionContextBuilder:
         """Return the coding-session prompt builder."""
@@ -1353,16 +1346,10 @@ To provide your final answer, respond WITHOUT calling any tools."""
             return False
         return bool(
             session_state.objective
-            or session_state.accepted_plan
-            or session_state.prior_outcomes
             or session_state.read_files
             or session_state.modified_files
             or session_state.file_evidence
-            or session_state.validation_results
-            or session_state.open_tasks
             or session_state.recent_commands
-            or session_state.current_hypothesis
-            or session_state.checkpoint_summary
         )
 
     def _message_token_estimate(
@@ -1435,8 +1422,6 @@ To provide your final answer, respond WITHOUT calling any tools."""
             entries=[entry],
             step_number=0,
         )
-        if appended and session_state.raw_tail_start_seq <= session_state.checkpoint_through_seq:
-            session_state.raw_tail_start_seq = appended[0].seq
         session_state.normalize()
 
     async def _persist_coding_session_step_entries(
@@ -1451,6 +1436,12 @@ To provide your final answer, respond WITHOUT calling any tools."""
         """Persist normalized assistant/tool history for a coding step."""
         entries: List[dict[str, Any]] = []
         clean_content = assistant_content.strip() if assistant_content else ""
+        replay_tool_calls, recovery_notes = self._canonical_replay_tool_calls(tool_results)
+        suppress_assistant_replay = self._should_suppress_assistant_transcript_entry(
+            tool_results=tool_results,
+            recovery_notes=recovery_notes,
+        )
+        self._coding_last_step_structural_failure = suppress_assistant_replay
         if clean_content:
             entries.append(
                 {
@@ -1458,7 +1449,10 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     "step_number": step_number,
                     "entry_type": "assistant",
                     "role": "assistant",
-                    "content_json": {"content": clean_content},
+                    "content_json": {
+                        "content": clean_content,
+                        "replay_eligible": not suppress_assistant_replay,
+                    },
                     "token_estimate": self._message_token_estimate(
                         "assistant",
                         {"content": clean_content},
@@ -1466,9 +1460,12 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 }
             )
 
-        replay_tool_calls, _ = self._canonical_replay_tool_calls(tool_results)
         if replay_tool_calls:
-            content_json = {"content": clean_content, "tool_calls": replay_tool_calls}
+            content_json = {
+                "content": clean_content,
+                "tool_calls": replay_tool_calls,
+                "replay_eligible": True,
+            }
             entries.append(
                 {
                     "run_id": run_id,
@@ -1487,6 +1484,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 "name": tool_call.name,
                 "content": self._format_tool_result(result, tool_call.name),
                 "success": result.success,
+                "replay_eligible": True,
             }
             if recovery_note:
                 content_json["recovery_note"] = (
@@ -1520,6 +1518,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
         run_id: str,
         step_number: int,
         final_answer: str,
+        replay_eligible: bool = True,
     ) -> None:
         """Persist the final assistant answer as a replayable session entry."""
         clean_answer = final_answer.strip()
@@ -1534,7 +1533,10 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     "step_number": step_number,
                     "entry_type": "assistant",
                     "role": "assistant",
-                    "content_json": {"content": clean_answer},
+                    "content_json": {
+                        "content": clean_answer,
+                        "replay_eligible": replay_eligible,
+                    },
                     "token_estimate": self._message_token_estimate(
                         "assistant",
                         {"content": clean_answer},
@@ -1542,18 +1544,6 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 }
             ],
             step_number=step_number,
-        )
-
-    def _build_state_fallback_summary(
-        self,
-        session_state: CodingSessionState,
-        working_memory: Optional[WorkingMemory] = None,
-    ) -> str:
-        """Render a one-time fallback checkpoint when no raw session entries exist yet."""
-        stale_file_notes = working_memory.stale_file_summaries if working_memory else None
-        return render_checkpoint_summary(
-            session_state,
-            stale_file_notes=stale_file_notes,
         )
 
     async def _load_coding_session_messages(
@@ -1566,50 +1556,53 @@ To provide your final answer, respond WITHOUT calling any tools."""
         session_state: CodingSessionState,
         working_memory: Optional[WorkingMemory] = None,
         use_session_entries: bool = True,
-        allow_state_fallback: bool = False,
     ) -> tuple[List[Dict[str, Any]], ContextBudget]:
-        """Build coding prompt context from checkpoint + raw session entries."""
-        raw_entries: List[CodingSessionEntry] = []
+        """Build coding prompt context from transcript entries plus neutral metadata."""
+        transcript_entries: List[CodingSessionEntry] = []
         if use_session_entries:
             entry_records = await self._call_repo_async_method(
                 "list_coding_session_entries",
                 conversation_id,
-                start_seq=max(1, session_state.raw_tail_start_seq),
+                include_compacted=False,
             )
-            raw_entries = [
+            transcript_entries = [
                 CodingSessionEntry.from_dict(entry)
                 for entry in (entry_records or [])
             ]
         builder = self._coding_context_builder()
-        state_fallback_message: Optional[str] = None
-        if (
-            allow_state_fallback
-            and not raw_entries
-            and self._has_coding_session_state(session_state)
-        ):
-            state_fallback_message = self._build_state_fallback_summary(
-                session_state,
-                working_memory,
-            )
+        metadata_message = (
+            working_memory.render_coding_metadata()
+            if working_memory is not None
+            else None
+        )
         context = builder.build(
             system_prompt=system_prompt,
             session_state=session_state,
-            raw_entries=raw_entries,
+            transcript_entries=transcript_entries,
             current_query=query,
-            state_fallback_message=state_fallback_message,
+            metadata_message=metadata_message,
+        )
+        stored_context = builder.build_stored_context(
+            session_state=session_state,
+            transcript_entries=transcript_entries,
+            metadata_message=metadata_message,
+        )
+        self._last_stored_context = self._stored_context_usage_payload(
+            stored_tokens=stored_context.token_count,
+            replayable_entry_count=stored_context.replayable_entry_count,
         )
         await self._add_trace_event(
             run_id=run_id,
             event_type="coding_session_context_load",
             content={
                 "conversation_id": conversation_id,
+                "transcript_source": "coding_session_entries",
                 "used_session_entries": context.used_session_entries,
-                "used_state_fallback": context.used_state_fallback,
-                "raw_tail_start_seq": context.raw_tail_start_seq,
-                "checkpoint_through_seq": context.checkpoint_through_seq,
+                "metadata_included": context.metadata_included,
                 "replayed_entry_count": context.replayed_entry_count,
                 "message_count": len(context.messages),
                 "prompt_tokens": builder.estimate_tokens(context.messages),
+                "stored_context_tokens": stored_context.token_count,
             },
             actor="system",
         )
@@ -1645,35 +1638,6 @@ To provide your final answer, respond WITHOUT calling any tools."""
         effective_budget = self._context_profile.effective_input_budget
         return min(20_000, max(2_000, int(effective_budget * 0.25)))
 
-    def _build_coding_checkpoint_summary(
-        self,
-        session_state: CodingSessionState,
-        compacted_entries: List[CodingSessionEntry],
-        working_memory: Optional[WorkingMemory] = None,
-    ) -> str:
-        """Build a deterministic checkpoint summary after compaction."""
-        next_actions: List[str] = []
-        for entry in reversed(compacted_entries):
-            if entry.entry_type == "tool_result":
-                recovery_note = entry.content_json.get("recovery_note")
-                if recovery_note:
-                    next_actions.append(str(recovery_note))
-            elif entry.entry_type == "assistant":
-                content = str(entry.content_json.get("content") or "").strip()
-                if content:
-                    next_actions.append(content.splitlines()[0][:240])
-            if len(next_actions) >= 4:
-                break
-        if session_state.open_tasks:
-            next_actions.extend(session_state.open_tasks[-4:])
-        if session_state.current_hypothesis:
-            next_actions.append(session_state.current_hypothesis)
-        return render_checkpoint_summary(
-            session_state,
-            stale_file_notes=working_memory.stale_file_summaries if working_memory else None,
-            next_actions=next_actions,
-        )
-
     async def _compact_coding_session_history(
         self,
         *,
@@ -1687,7 +1651,6 @@ To provide your final answer, respond WITHOUT calling any tools."""
         entry_records = await self._call_repo_async_method(
             "list_coding_session_entries",
             conversation_id,
-            start_seq=max(1, session_state.raw_tail_start_seq),
         )
         raw_entries = [
             CodingSessionEntry.from_dict(entry)
@@ -1729,25 +1692,19 @@ To provide your final answer, respond WITHOUT calling any tools."""
             if candidate_seq is None and split_candidates:
                 candidate_seq = split_candidates[-1]
 
-        if candidate_seq is None or candidate_seq <= session_state.raw_tail_start_seq:
+        if candidate_seq is None or candidate_seq <= 1:
             return False
 
         compacted_entries = [entry for entry in raw_entries if entry.seq < candidate_seq]
         if not compacted_entries:
             return False
 
-        session_state.checkpoint_through_seq = compacted_entries[-1].seq
-        session_state.raw_tail_start_seq = candidate_seq
-        session_state.checkpoint_summary = self._build_coding_checkpoint_summary(
-            session_state,
-            compacted_entries,
-            working_memory,
-        )
+        _ = working_memory
         session_state.normalize()
         await self._call_repo_async_method(
             "mark_coding_session_entries_compacted",
             conversation_id,
-            through_seq=session_state.checkpoint_through_seq,
+            through_seq=compacted_entries[-1].seq,
         )
         await self._call_repo_async_method(
             "upsert_coding_session_state",
@@ -1761,12 +1718,11 @@ To provide your final answer, respond WITHOUT calling any tools."""
             content={
                 "conversation_id": conversation_id,
                 "step_number": step_number,
-                "checkpoint_through_seq": session_state.checkpoint_through_seq,
-                "raw_tail_start_seq": session_state.raw_tail_start_seq,
+                "compacted_through_seq": compacted_entries[-1].seq,
                 "retained_raw_tokens": sum(
                     entry.token_estimate
                     for entry in raw_entries
-                    if entry.seq >= session_state.raw_tail_start_seq
+                    if entry.seq >= candidate_seq
                 ),
                 "tail_target_tokens": tail_target,
                 "compacted_entry_count": len(compacted_entries),
@@ -1793,15 +1749,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
         self._merge_working_memory_into_coding_session(session_state, working_memory)
         if tool_results:
             self._merge_tool_results_into_coding_session(session_state, tool_results, run_id)
-        if final_answer:
-            session_state.prior_outcomes.append(final_answer[:1500])
-        if not session_state.checkpoint_summary:
-            session_state.checkpoint_summary = render_checkpoint_summary(
-                session_state,
-                stale_file_notes=working_memory.stale_file_summaries,
-            )
         session_state.normalize()
-        working_memory.checkpoint_summary = session_state.checkpoint_summary
 
         await self._call_repo_async_method(
             "upsert_coding_session_state",
@@ -1852,6 +1800,10 @@ To provide your final answer, respond WITHOUT calling any tools."""
             "total_tokens": 0,
         }
         self._tool_call_log = []
+        self._tool_state_version = 0
+        self._coding_last_step_structural_failure = False
+        self._last_context_usage = None
+        self._last_stored_context = None
         validated_images = validate_image_attachments(image_attachments)
         if validated_images and not bool(getattr(self._provider, "_supports_vision", False)):
             raise ValueError("Active model does not support image inputs. Select a vision model.")
@@ -1933,15 +1885,10 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 coding_session_state=coding_session_state,
                 working_memory=working_memory,
                 coding_session_use_entries=coding_session_had_entries,
-                coding_session_allow_state_fallback=(
-                    coding_session_record_exists and not coding_session_had_entries
-                ),
             )
             if not self._is_coding_profile():
                 if validated_images and messages and messages[-1].get("role") == "user":
                     messages[-1]["content"] = current_user_content
-                working_memory.prior_outcomes = self._prior_outcomes_from_scaffold(messages)
-            elif not coding_session_record_exists and not coding_session_had_entries:
                 working_memory.prior_outcomes = self._prior_outcomes_from_scaffold(messages)
 
             # Handle recovery if needed
@@ -2052,7 +1999,6 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         coding_session_state=coding_session_state,
                         working_memory=working_memory,
                         coding_session_use_entries=True,
-                        coding_session_allow_state_fallback=False,
                     )
                     if self._current_plan:
                         messages = self._inject_plan_into_messages(messages, self._current_plan)
@@ -2069,6 +2015,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     step_number,
                     enable_compaction=not self._is_coding_profile(),
                 )
+                self._last_context_usage = context_usage_payload
                 estimated_tokens = context_usage_payload["prompt_tokens_current_call"]
                 context_remaining = context_usage_payload["remaining_tokens"]
 
@@ -2091,6 +2038,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     context_remaining=context_remaining,
                     total_tokens_used=self._total_tokens,
                     context_usage=context_usage_payload,
+                    stored_context=self._last_stored_context,
                     context_profile=self._context_profile_dict(),
                     compaction_count=self._compaction_count,
                     last_compacted_at_step=self._last_compacted_at_step,
@@ -2105,6 +2053,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         "context_tokens": estimated_tokens,
                         "context_max": self._context_profile.context_window,
                         "context_usage": context_usage_payload,
+                        "stored_context": self._last_stored_context,
                         "context_profile": self._context_profile_dict(),
                     },
                     step_number=step_number,
@@ -2114,6 +2063,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     context_usage_payload = self._current_context_usage_payload(
                         self._pruner.estimate_tokens(pruned_messages)
                     )
+                    self._last_context_usage = context_usage_payload
                     self._emit(
                         event_callback,
                         "conversation_compacted",
@@ -2121,6 +2071,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         step_number=step_number,
                         message=self.COMPACTION_PREFIX,
                         context_usage=context_usage_payload,
+                        stored_context=self._last_stored_context,
                         context_profile=self._context_profile_dict(),
                         compaction_count=self._compaction_count,
                     )
@@ -2131,6 +2082,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                             "step_number": step_number,
                             "message": self.COMPACTION_PREFIX,
                             "context_usage": context_usage_payload,
+                            "stored_context": self._last_stored_context,
                             "context_profile": self._context_profile_dict(),
                             "compaction_count": self._compaction_count,
                         },
@@ -2252,6 +2204,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     context_usage=self._current_context_usage_payload(
                         self._pruner.estimate_tokens(pruned_messages)
                     ),
+                    stored_context=self._last_stored_context,
                     context_profile=self._context_profile_dict(),
                     compaction_count=self._compaction_count,
                     last_compacted_at_step=self._last_compacted_at_step,
@@ -2419,7 +2372,10 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         )
                         filtered_notice = {
                             "role": "system",
-                            "content": f"[Tool calls filtered — {reasons}. Try a different query or tool.]",
+                            "content": (
+                                "[Engine notice: the previous tool call was filtered as redundant — "
+                                f"{reasons}. This is an engine constraint, not a user instruction.]"
+                            ),
                         }
                         messages.append(filtered_notice)
                         if self._is_coding_profile():
@@ -2467,8 +2423,10 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         filtered_user_prompt = {
                             "role": "user",
                             "content": (
-                                "Do not repeat filtered or duplicate tool calls. "
-                                "Either provide the final answer now or choose a genuinely different tool call."
+                                "A tool call was filtered by the engine as redundant. "
+                                "Do not attribute that constraint to the user. "
+                                "Either provide the final answer now or choose a genuinely different tool call. "
+                                "Only retry the same tool if something materially changed since the last identical call."
                             ),
                         }
                         messages.append(filtered_user_prompt)
@@ -2812,6 +2770,57 @@ To provide your final answer, respond WITHOUT calling any tools."""
             "compaction_count": self._compaction_count,
             "last_compacted_at_step": self._last_compacted_at_step,
         }
+
+    def _stored_context_usage_payload(
+        self,
+        *,
+        stored_tokens: int,
+        replayable_entry_count: int,
+    ) -> Dict[str, Any]:
+        """Build replayable stored-context usage payload."""
+        context_window = self._context_profile.context_window
+        utilization_pct = (stored_tokens / context_window * 100) if context_window else 0.0
+        return {
+            "context_window": context_window,
+            "stored_tokens": stored_tokens,
+            "utilization_pct": round(utilization_pct, 1),
+            "replayable_entry_count": replayable_entry_count,
+        }
+
+    async def _refresh_coding_stored_context(
+        self,
+        *,
+        conversation_id: str,
+        session_state: CodingSessionState,
+        working_memory: Optional[WorkingMemory] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Refresh replayable stored-context metrics for the active coding conversation."""
+        entry_records = await self._call_repo_async_method(
+            "list_coding_session_entries",
+            conversation_id,
+            include_compacted=False,
+        )
+        transcript_entries = [
+            CodingSessionEntry.from_dict(entry)
+            for entry in (entry_records or [])
+        ]
+        builder = self._coding_context_builder()
+        metadata_message = (
+            working_memory.render_coding_metadata()
+            if working_memory is not None
+            else None
+        )
+        stored_context = builder.build_stored_context(
+            session_state=session_state,
+            transcript_entries=transcript_entries,
+            metadata_message=metadata_message,
+        )
+        payload = self._stored_context_usage_payload(
+            stored_tokens=stored_context.token_count,
+            replayable_entry_count=stored_context.replayable_entry_count,
+        )
+        self._last_stored_context = payload
+        return payload
 
     def _is_compaction_message(self, message: Dict[str, Any]) -> bool:
         return message.get("role") == "system" and str(message.get("content") or "").startswith(self.COMPACTION_PREFIX)
@@ -3247,14 +3256,12 @@ When you complete each step, proceed to the next."""
         coding_session_state: Optional[CodingSessionState] = None,
         working_memory: Optional[WorkingMemory] = None,
         coding_session_use_entries: bool = True,
-        coding_session_allow_state_fallback: bool = False,
     ) -> tuple[List[Dict[str, Any]], ContextBudget]:
         """Build initial message list with system prompt, history, and query.
 
         Non-coding profiles use HistoryBuilder turn summaries. Coding-profile
-        continuity prefers coding-session checkpoint + raw entries keyed by
-        conversation_id and only falls back to summary history when no session
-        entries or durable state exist yet.
+        continuity rebuilds prompt context directly from persisted
+        coding-session transcript entries keyed by conversation_id.
 
         Args:
             query: User's research query.
@@ -3292,7 +3299,7 @@ When you complete each step, proceed to the next."""
             self._is_coding_profile()
             and conversation_id
             and coding_session_state is not None
-            and (coding_session_use_entries or coding_session_allow_state_fallback)
+            and coding_session_use_entries
         ):
             messages, budget = await self._load_coding_session_messages(
                 conversation_id=conversation_id,
@@ -3302,7 +3309,6 @@ When you complete each step, proceed to the next."""
                 session_state=coding_session_state,
                 working_memory=working_memory,
                 use_session_entries=coding_session_use_entries,
-                allow_state_fallback=coding_session_allow_state_fallback,
             )
             return messages, budget
 
@@ -3798,6 +3804,10 @@ When you complete each step, proceed to the next."""
 
             results.append((tool_call, result))
 
+            state_changed = self._did_tool_call_change_state(tool_call.name, result)
+            if state_changed:
+                self._tool_state_version += 1
+
             # Log tool call for run metrics
             self._tool_call_log.append({
                 "tool_name": tool_call.name,
@@ -3805,6 +3815,7 @@ When you complete each step, proceed to the next."""
                 "success": result.success,
                 "result_summary": result.result_summary,
                 "step_number": step_number,
+                "state_version_after": self._tool_state_version,
             })
 
         return results
@@ -4826,7 +4837,11 @@ When you complete each step, proceed to the next."""
             # Exact duplicate check against history
             if tc.name != "read_file":
                 for prev in self._tool_call_log:
-                    if prev["tool_name"] == tc.name and prev["arguments"] == tc.arguments:
+                    if (
+                        prev["tool_name"] == tc.name
+                        and prev["arguments"] == tc.arguments
+                        and prev.get("state_version_after", 0) == self._tool_state_version
+                    ):
                         redundant.append((tc, f"Duplicate: already called {tc.name} with same arguments"))
                         is_dup = True
                         break
@@ -4847,11 +4862,24 @@ When you complete each step, proceed to the next."""
                 path = tc.arguments.get("path", ".")
                 if path in (".", "./", ""):
                     for prev in self._tool_call_log:
-                        if prev["tool_name"] == "list_directory":
+                        if (
+                            prev["tool_name"] == "list_directory"
+                            and prev.get("state_version_after", 0) == self._tool_state_version
+                        ):
                             redundant.append((tc, "Duplicate: already listed directory"))
                             break
 
         return redundant
+
+    def _did_tool_call_change_state(self, tool_name: str, result: "ToolResult") -> bool:
+        """Return whether a tool call materially changed the agent's working state."""
+        if not result.success:
+            return True
+
+        if tool_name in {"write_file", "edit_file", "web_search", "web_extract"}:
+            return True
+
+        return False
 
     def _compute_run_metrics(self) -> Dict[str, Any]:
         """Compute run metrics from tool call log.
@@ -4940,9 +4968,8 @@ When you complete each step, proceed to the next."""
             metrics["total_tokens"] = self._total_tokens
             metrics["usage"] = self._usage_totals.copy()
             metrics["cost"] = self._current_cost()
-            metrics["context_usage"] = self._current_context_usage_payload(
-                self._pruner.estimate_tokens([{"role": "system", "content": self._system_prompt}])
-            )
+            metrics["context_usage"] = self._last_context_usage
+            metrics["stored_context"] = self._last_stored_context
             metrics["context_profile"] = self._context_profile_dict()
             metrics["compaction_count"] = self._compaction_count
             metrics["last_compacted_at_step"] = self._last_compacted_at_step
@@ -5006,8 +5033,38 @@ When you complete each step, proceed to the next."""
 
         await state_machine.complete_run(final_answer)
 
+        if (
+            coding_session_dirty
+            and conversation_id
+            and working_memory is not None
+            and coding_session_state is not None
+        ):
+            await self._persist_coding_session_final_answer(
+                conversation_id=conversation_id,
+                run_id=run_id,
+                step_number=step_number,
+                final_answer=final_answer,
+                replay_eligible=not (
+                    forced_synthesis or self._coding_last_step_structural_failure
+                ),
+            )
+            await self._persist_coding_session_state(
+                conversation_id=conversation_id,
+                run_id=run_id,
+                working_memory=working_memory,
+                session_state=coding_session_state,
+                final_answer=final_answer,
+                reason="run_complete",
+            )
+            await self._refresh_coding_stored_context(
+                conversation_id=conversation_id,
+                session_state=coding_session_state,
+                working_memory=working_memory,
+            )
+
         total_timing_ms = int((time.perf_counter() - start_time) * 1000)
         context_usage = self._current_context_usage_payload(self._pruner.estimate_tokens(messages))
+        self._last_context_usage = context_usage
 
         self._emit(
             event_callback,
@@ -5019,6 +5076,7 @@ When you complete each step, proceed to the next."""
             total_steps=step_number,
             timing_ms=total_timing_ms,
             context_usage=context_usage,
+            stored_context=self._last_stored_context,
             context_profile=self._context_profile_dict(),
             compaction_count=self._compaction_count,
             last_compacted_at_step=self._last_compacted_at_step,
@@ -5042,26 +5100,6 @@ When you complete each step, proceed to the next."""
         await self._store_run_metrics(run_id, total_timing_ms)
         await self._store_turn_summary(run_id, query, final_answer)
         await self._store_conversation_messages(run_id, messages)
-        if (
-            coding_session_dirty
-            and conversation_id
-            and working_memory is not None
-            and coding_session_state is not None
-        ):
-            await self._persist_coding_session_final_answer(
-                conversation_id=conversation_id,
-                run_id=run_id,
-                step_number=step_number,
-                final_answer=final_answer,
-            )
-            await self._persist_coding_session_state(
-                conversation_id=conversation_id,
-                run_id=run_id,
-                working_memory=working_memory,
-                session_state=coding_session_state,
-                final_answer=final_answer,
-                reason="run_complete",
-            )
 
         return AgentResult(
             run_id=run_id,
@@ -5072,6 +5110,7 @@ When you complete each step, proceed to the next."""
             timing_ms=total_timing_ms,
             total_tokens=self._total_tokens,
             context_usage=context_usage,
+            stored_context=self._last_stored_context,
             context_profile=self._context_profile_dict(),
             compaction_count=self._compaction_count,
             last_compacted_at_step=self._last_compacted_at_step,

@@ -1,15 +1,11 @@
-"""Coding-session prompt reconstruction from checkpoint + raw tail."""
+"""Coding-session prompt reconstruction from transcript replay."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from orchestrator.agent.coding_session import (
-    CodingSessionEntry,
-    CodingSessionState,
-    render_checkpoint_summary,
-)
+from orchestrator.agent.coding_session import CodingSessionEntry, CodingSessionState
 from orchestrator.context.budget import ContextBudget
 from orchestrator.context.history_builder import HistoryBuilder
 from orchestrator.utils.tokens import TokenCounter
@@ -22,10 +18,17 @@ class CodingSessionContext:
     messages: list[dict[str, Any]]
     budget: ContextBudget
     used_session_entries: bool
-    used_state_fallback: bool
-    raw_tail_start_seq: int
-    checkpoint_through_seq: int
+    metadata_included: bool
     replayed_entry_count: int
+
+
+@dataclass
+class CodingStoredContext:
+    """Replayable stored coding context metrics."""
+
+    messages: list[dict[str, Any]]
+    token_count: int
+    replayable_entry_count: int
 
 
 class CodingSessionContextBuilder:
@@ -46,11 +49,11 @@ class CodingSessionContextBuilder:
         *,
         system_prompt: str,
         session_state: Optional[CodingSessionState],
-        raw_entries: list[CodingSessionEntry],
+        transcript_entries: list[CodingSessionEntry],
         current_query: Optional[str] = None,
-        state_fallback_message: Optional[str] = None,
+        metadata_message: Optional[str] = None,
     ) -> CodingSessionContext:
-        """Build system + checkpoint + raw-tail messages for a coding session."""
+        """Build system + metadata + transcript messages for a coding session."""
         budget = ContextBudget(
             max_tokens=self._max_context_tokens,
             reserve_for_response=self._reserve_for_response,
@@ -60,31 +63,22 @@ class CodingSessionContextBuilder:
         )
 
         messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]
-        used_session_entries = bool(raw_entries)
-        used_state_fallback = False
-        raw_tail_start_seq = session_state.raw_tail_start_seq if session_state else 1
-        checkpoint_through_seq = session_state.checkpoint_through_seq if session_state else 0
-
-        checkpoint_message = self._checkpoint_message(
+        used_session_entries = bool(transcript_entries)
+        neutral_metadata = self._metadata_message(
             session_state=session_state,
-            explicit_summary=state_fallback_message,
+            explicit_metadata=metadata_message,
         )
-        if checkpoint_message:
-            messages.append(checkpoint_message)
+        if neutral_metadata:
+            messages.append(neutral_metadata)
 
-        if raw_entries:
-            messages.extend(self._entries_to_messages(raw_entries))
+        if transcript_entries:
+            messages.extend(self._entries_to_messages(transcript_entries))
         elif current_query is not None:
             if current_query:
                 budget.current_query_tokens = (
                     self._counter.count_tokens(current_query) + HistoryBuilder.MSG_OVERHEAD
                 )
                 messages.append({"role": "user", "content": current_query})
-            if checkpoint_message:
-                used_state_fallback = True
-
-        if not raw_entries and checkpoint_message and not current_query:
-            used_state_fallback = True
 
         total_tokens = self.estimate_tokens(messages)
         budget.history_tokens = max(0, total_tokens - budget.system_prompt_tokens)
@@ -92,10 +86,8 @@ class CodingSessionContextBuilder:
             messages=messages,
             budget=budget,
             used_session_entries=used_session_entries,
-            used_state_fallback=used_state_fallback,
-            raw_tail_start_seq=raw_tail_start_seq,
-            checkpoint_through_seq=checkpoint_through_seq,
-            replayed_entry_count=len(raw_entries),
+            metadata_included=neutral_metadata is not None,
+            replayed_entry_count=len(transcript_entries),
         )
 
     def estimate_tokens(self, messages: list[dict[str, Any]]) -> int:
@@ -106,36 +98,58 @@ class CodingSessionContextBuilder:
             total += HistoryBuilder.MSG_OVERHEAD
         return total
 
-    def _checkpoint_message(
+    def build_stored_context(
         self,
         *,
         session_state: Optional[CodingSessionState],
-        explicit_summary: Optional[str],
-    ) -> Optional[dict[str, Any]]:
-        if explicit_summary:
-            summary = explicit_summary.strip()
-        elif session_state and session_state.checkpoint_summary:
-            summary = session_state.checkpoint_summary.strip()
-        elif session_state and self._should_render_state_checkpoint(session_state):
-            summary = render_checkpoint_summary(session_state)
-        else:
-            summary = ""
-        if not summary:
-            return None
-        return {"role": "system", "content": summary}
-
-    def _should_render_state_checkpoint(self, session_state: CodingSessionState) -> bool:
-        return bool(
-            session_state.objective
-            or session_state.accepted_plan
-            or session_state.prior_outcomes
-            or session_state.read_files
-            or session_state.modified_files
-            or session_state.validation_results
-            or session_state.open_tasks
-            or session_state.recent_commands
-            or session_state.current_hypothesis
+        transcript_entries: list[CodingSessionEntry],
+        metadata_message: Optional[str] = None,
+    ) -> CodingStoredContext:
+        """Build replayable stored context without the system prompt."""
+        messages: list[dict[str, Any]] = []
+        neutral_metadata = self._metadata_message(
+            session_state=session_state,
+            explicit_metadata=metadata_message,
         )
+        if neutral_metadata:
+            messages.append(neutral_metadata)
+        messages.extend(self._entries_to_messages(transcript_entries))
+        return CodingStoredContext(
+            messages=messages,
+            token_count=self.estimate_tokens(messages),
+            replayable_entry_count=sum(
+                1 for entry in transcript_entries if self._is_replay_eligible(entry)
+            ),
+        )
+
+    def _metadata_message(
+        self,
+        *,
+        session_state: Optional[CodingSessionState],
+        explicit_metadata: Optional[str],
+    ) -> Optional[dict[str, Any]]:
+        if explicit_metadata:
+            metadata = explicit_metadata.strip()
+        elif session_state:
+            metadata = self._render_neutral_metadata(session_state)
+        else:
+            metadata = ""
+        if not metadata:
+            return None
+        return {"role": "system", "content": metadata}
+
+    def _render_neutral_metadata(self, session_state: CodingSessionState) -> str:
+        session_state.normalize()
+        lines: list[str] = []
+        if session_state.modified_files:
+            lines.append("- touched_files: " + ", ".join(session_state.modified_files[-8:]))
+        if session_state.read_files:
+            lines.append("- referenced_files: " + ", ".join(session_state.read_files[-8:]))
+        if session_state.recent_commands:
+            lines.append("- recent_commands: " + " | ".join(session_state.recent_commands[-4:]))
+        if not lines:
+            return ""
+        return "CODING SESSION METADATA\n" + "\n".join(lines)
 
     def _entries_to_messages(
         self,
@@ -145,12 +159,16 @@ class CodingSessionContextBuilder:
         index = 0
         while index < len(entries):
             entry = entries[index]
+            if not self._is_replay_eligible(entry):
+                index += 1
+                continue
             if (
                 entry.entry_type == "assistant"
                 and index + 1 < len(entries)
                 and entries[index + 1].entry_type == "assistant_tool_calls"
                 and entries[index + 1].run_id == entry.run_id
                 and entries[index + 1].step_number == entry.step_number
+                and self._is_replay_eligible(entries[index + 1])
             ):
                 tool_entry = entries[index + 1]
                 content = tool_entry.content_json.get("content")
@@ -172,12 +190,14 @@ class CodingSessionContextBuilder:
                 content = entry.content_json.get("content")
                 if content not in (None, "", []):
                     messages.append({"role": entry.role, "content": content})
-            elif entry.entry_type == "checkpoint":
-                content = entry.content_json.get("content")
-                if content:
-                    messages.append({"role": "system", "content": content})
             index += 1
         return messages
+
+    def _is_replay_eligible(self, entry: CodingSessionEntry) -> bool:
+        """Return whether a persisted entry should be replayed into prompts."""
+        if entry.entry_type not in {"user", "assistant_tool_calls", "tool_result", "assistant"}:
+            return False
+        return entry.content_json.get("replay_eligible", True) is not False
 
     def _assistant_tool_call_message(
         self,

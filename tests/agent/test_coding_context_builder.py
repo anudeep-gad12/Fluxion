@@ -13,18 +13,17 @@ def _builder() -> CodingSessionContextBuilder:
     )
 
 
-def test_builder_replays_checkpoint_and_raw_tail_in_order():
+def test_builder_replays_transcript_and_metadata_in_order():
     builder = _builder()
     session_state = CodingSessionState(
         objective="Fix sorting",
-        checkpoint_summary="CODING SESSION CHECKPOINT\n- Objective: Fix sorting",
-        checkpoint_through_seq=4,
-        raw_tail_start_seq=5,
+        modified_files=["src/chart.ts"],
+        read_files=["src/chart.ts", "src/table.ts"],
     )
     entries = [
         CodingSessionEntry(
             conversation_id="conv-1",
-            seq=5,
+            seq=1,
             run_id="run-1",
             step_number=0,
             entry_type="user",
@@ -34,7 +33,7 @@ def test_builder_replays_checkpoint_and_raw_tail_in_order():
         ),
         CodingSessionEntry(
             conversation_id="conv-1",
-            seq=6,
+            seq=2,
             run_id="run-1",
             step_number=1,
             entry_type="assistant",
@@ -47,7 +46,7 @@ def test_builder_replays_checkpoint_and_raw_tail_in_order():
     context = builder.build(
         system_prompt="System prompt",
         session_state=session_state,
-        raw_entries=entries,
+        transcript_entries=entries,
     )
 
     assert [message["role"] for message in context.messages] == [
@@ -56,9 +55,9 @@ def test_builder_replays_checkpoint_and_raw_tail_in_order():
         "user",
         "assistant",
     ]
-    assert "CHECKPOINT" in context.messages[1]["content"]
-    assert context.raw_tail_start_seq == 5
-    assert context.checkpoint_through_seq == 4
+    assert "CODING SESSION METADATA" in context.messages[1]["content"]
+    assert "touched_files: src/chart.ts" in context.messages[1]["content"]
+    assert context.metadata_included is True
 
 
 def test_builder_merges_assistant_text_with_canonical_tool_calls():
@@ -106,7 +105,7 @@ def test_builder_merges_assistant_text_with_canonical_tool_calls():
     context = builder.build(
         system_prompt="System prompt",
         session_state=CodingSessionState(),
-        raw_entries=entries,
+        transcript_entries=entries,
     )
 
     assert context.messages[1]["role"] == "assistant"
@@ -114,3 +113,42 @@ def test_builder_merges_assistant_text_with_canonical_tool_calls():
     assert context.messages[1]["tool_calls"][0]["id"] == "tc-1"
     assert context.messages[2]["role"] == "tool"
     assert context.messages[2]["tool_call_id"] == "tc-1"
+
+
+def test_builder_skips_replay_ineligible_assistant_entries():
+    builder = _builder()
+    entries = [
+        CodingSessionEntry(
+            conversation_id="conv-1",
+            seq=1,
+            run_id="run-1",
+            step_number=1,
+            entry_type="assistant",
+            role="assistant",
+            content_json={"content": "Manual patch dump", "replay_eligible": False},
+            token_estimate=10,
+        ),
+        CodingSessionEntry(
+            conversation_id="conv-1",
+            seq=2,
+            run_id="run-1",
+            step_number=1,
+            entry_type="tool_result",
+            role="tool",
+            content_json={
+                "tool_call_id": "tc-1",
+                "name": "edit_file",
+                "content": "Missing required args",
+                "replay_eligible": True,
+            },
+            token_estimate=10,
+        ),
+    ]
+
+    context = builder.build(
+        system_prompt="System prompt",
+        session_state=CodingSessionState(),
+        transcript_entries=entries,
+    )
+
+    assert [message["role"] for message in context.messages] == ["system", "tool"]

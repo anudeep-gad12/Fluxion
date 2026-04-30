@@ -94,6 +94,7 @@ export function useAgentRunDetails(
           usage: trace.usage,
           cost: trace.cost,
           context_usage: trace.context_usage,
+          stored_context: trace.stored_context,
           context_profile: trace.context_profile,
           compaction_count: trace.compaction_count,
           last_compacted_at_step: trace.last_compacted_at_step,

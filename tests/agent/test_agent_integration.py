@@ -1010,5 +1010,5 @@ class TestAgentIntegrationCodingContinuation:
 
         assert result.success is True
         first_system = provider.complete_streaming.call_args.kwargs["messages"][0]["content"]
-        assert "Persisted coding session state from earlier turns was restored" in first_system
-        assert "Stored excerpt: return <MetricCard /> | className='grid gap-4'" in first_system
+        assert "CODING SESSION METADATA" in first_system
+        assert "referenced_files: ui/src/components/SummaryCards.tsx" in first_system

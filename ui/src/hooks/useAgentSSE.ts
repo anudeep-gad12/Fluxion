@@ -11,6 +11,7 @@ import type {
   AgentStep,
   AgentCitation,
   ContextUsage,
+  StoredContextUsage,
   StepStartEvent,
   ThinkingEvent,
   ToolStartEvent,
@@ -163,6 +164,7 @@ export function useAgentSSE(runId: string | null, maxSteps: number = 10) {
               context_tokens: stepEvent.context_tokens,
               context_remaining: stepEvent.context_remaining,
               context_usage: stepEvent.context_usage,
+              stored_context: stepEvent.stored_context,
               context_profile: stepEvent.context_profile,
               compaction_count: stepEvent.compaction_count,
               last_compacted_at_step: stepEvent.last_compacted_at_step,
@@ -255,6 +257,7 @@ export function useAgentSSE(runId: string | null, maxSteps: number = 10) {
               usage?: TokenUsage;
               cost?: CostUsage | null;
               context_usage?: ContextUsage;
+              stored_context?: StoredContextUsage;
               context_profile?: import("@/types/agent").ModelContextProfile;
               compaction_count?: number;
               last_compacted_at_step?: number;
@@ -264,6 +267,7 @@ export function useAgentSSE(runId: string | null, maxSteps: number = 10) {
               total_tokens: usageEvent.usage?.total_tokens,
               cost: usageEvent.cost,
               context_usage: usageEvent.context_usage,
+              stored_context: usageEvent.stored_context,
               context_profile: usageEvent.context_profile,
               compaction_count: usageEvent.compaction_count,
               last_compacted_at_step: usageEvent.last_compacted_at_step,
@@ -276,6 +280,7 @@ export function useAgentSSE(runId: string | null, maxSteps: number = 10) {
               message: string;
               step_number?: number;
               context_usage?: ContextUsage;
+              stored_context?: StoredContextUsage;
               context_profile?: import("@/types/agent").ModelContextProfile;
               compaction_count?: number;
             };
@@ -292,6 +297,7 @@ export function useAgentSSE(runId: string | null, maxSteps: number = 10) {
                 },
               ],
               context_usage: compactedEvent.context_usage,
+              stored_context: compactedEvent.stored_context,
               context_profile: compactedEvent.context_profile,
               compaction_count: compactedEvent.compaction_count,
             });
@@ -326,6 +332,7 @@ export function useAgentSSE(runId: string | null, maxSteps: number = 10) {
         usage?: TokenUsage;
         cost?: CostUsage | null;
         context_usage?: ContextUsage;
+        stored_context?: StoredContextUsage;
         context_profile?: import("@/types/agent").ModelContextProfile;
         compaction_count?: number;
         last_compacted_at_step?: number;
@@ -349,6 +356,7 @@ export function useAgentSSE(runId: string | null, maxSteps: number = 10) {
           usage: result.usage,
           cost: result.cost,
           context_usage: result.context_usage,
+          stored_context: result.stored_context,
           context_profile: result.context_profile,
           compaction_count: result.compaction_count,
           last_compacted_at_step: result.last_compacted_at_step,
@@ -362,6 +370,11 @@ export function useAgentSSE(runId: string | null, maxSteps: number = 10) {
         updateRun(id, {
           status: result.success ? 'succeeded' : 'failed',
           final_answer: result.final_answer,
+          usage: result.usage,
+          cost: result.cost,
+          context_usage: result.context_usage,
+          stored_context: result.stored_context,
+          context_profile: result.context_profile,
         });
 
         // Clean up stored stream token

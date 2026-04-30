@@ -10,9 +10,6 @@ from typing import Any, Iterable, Optional
 _MAX_TEXT = 4_000
 _MAX_EXCERPT = 1_500
 _MAX_LIST_ITEM = 1_500
-_MAX_SUMMARY = 8_000
-
-
 def _trim_text(value: Any, max_len: int = _MAX_TEXT) -> str:
     """Normalize arbitrary values into capped strings."""
     text = str(value or "").strip()
@@ -276,29 +273,21 @@ class CodingSessionEntry:
 
 @dataclass
 class CodingSessionState:
-    """Durable coding session state restored across turns."""
+    """Durable coding session state restored across turns.
+
+    Natural-language continuity should come from ``coding_session_entries``.
+    This state object is metadata/bookkeeping only.
+    """
 
     objective: str = ""
-    accepted_plan: list[str] = field(default_factory=list)
-    prior_outcomes: list[str] = field(default_factory=list)
     read_files: list[str] = field(default_factory=list)
     modified_files: list[str] = field(default_factory=list)
     file_evidence: dict[str, CodingFileState] = field(default_factory=dict)
-    validation_results: list[str] = field(default_factory=list)
-    open_tasks: list[str] = field(default_factory=list)
     recent_commands: list[str] = field(default_factory=list)
-    current_hypothesis: Optional[str] = None
-    checkpoint_summary: str = ""
-    checkpoint_through_seq: int = 0
-    raw_tail_start_seq: int = 1
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "CodingSessionState":
         """Deserialize persisted JSON into a normalized session state."""
-        accepted_plan = data.get("accepted_plan") or []
-        if isinstance(accepted_plan, str):
-            accepted_plan = [accepted_plan]
-
         read_files = list(data.get("read_files") or [])
         modified_files = list(data.get("modified_files") or [])
 
@@ -311,8 +300,6 @@ class CodingSessionState:
 
         state = cls(
             objective=_trim_text(data.get("objective")),
-            accepted_plan=list(accepted_plan),
-            prior_outcomes=list(data.get("prior_outcomes") or []),
             read_files=read_files,
             modified_files=modified_files,
             file_evidence={
@@ -320,20 +307,7 @@ class CodingSessionState:
                 for path, file_state in (data.get("file_evidence") or {}).items()
                 if isinstance(file_state, dict) and _trim_text(path)
             },
-            validation_results=list(data.get("validation_results") or []),
-            open_tasks=list(
-                data.get("open_tasks")
-                or data.get("unresolved_tasks")
-                or []
-            ),
             recent_commands=list(data.get("recent_commands") or []),
-            current_hypothesis=_trim_text(data.get("current_hypothesis")) or None,
-            checkpoint_summary=_trim_text(
-                data.get("checkpoint_summary"),
-                max_len=_MAX_SUMMARY,
-            ),
-            checkpoint_through_seq=int(data.get("checkpoint_through_seq") or 0),
-            raw_tail_start_seq=int(data.get("raw_tail_start_seq") or 1),
         )
         state.normalize()
         return state
@@ -341,20 +315,9 @@ class CodingSessionState:
     def normalize(self) -> None:
         """Normalize persisted session state."""
         self.objective = _trim_text(self.objective)
-        self.accepted_plan = _dedupe_ordered(self.accepted_plan)
-        self.prior_outcomes = _dedupe_ordered(self.prior_outcomes)
         self.read_files = _dedupe_ordered(self.read_files, max_len=_MAX_TEXT)
         self.modified_files = _dedupe_ordered(self.modified_files, max_len=_MAX_TEXT)
-        self.validation_results = _dedupe_ordered(self.validation_results)
-        self.open_tasks = _dedupe_ordered(self.open_tasks)
         self.recent_commands = _dedupe_ordered(self.recent_commands)
-        self.current_hypothesis = _trim_text(self.current_hypothesis) or None
-        self.checkpoint_summary = _trim_text(
-            self.checkpoint_summary,
-            max_len=_MAX_SUMMARY,
-        )
-        self.checkpoint_through_seq = max(0, int(self.checkpoint_through_seq or 0))
-        self.raw_tail_start_seq = max(1, int(self.raw_tail_start_seq or 1))
         self.file_evidence = {
             path: CodingFileState.from_dict(file_state.to_dict())
             for path, file_state in self.file_evidence.items()
@@ -384,77 +347,11 @@ class CodingSessionState:
         self.normalize()
         return {
             "objective": self.objective,
-            "accepted_plan": self.accepted_plan,
-            "prior_outcomes": self.prior_outcomes,
             "read_files": self.read_files,
             "modified_files": self.modified_files,
             "file_evidence": {
                 path: file_state.to_dict()
                 for path, file_state in self.file_evidence.items()
             },
-            "validation_results": self.validation_results,
-            "open_tasks": self.open_tasks,
             "recent_commands": self.recent_commands,
-            "current_hypothesis": self.current_hypothesis,
-            "checkpoint_summary": self.checkpoint_summary,
-            "checkpoint_through_seq": self.checkpoint_through_seq,
-            "raw_tail_start_seq": self.raw_tail_start_seq,
         }
-
-
-def render_checkpoint_summary(
-    session_state: CodingSessionState,
-    *,
-    stale_file_notes: Optional[dict[str, str]] = None,
-    next_actions: Optional[list[str]] = None,
-) -> str:
-    """Render a compact deterministic checkpoint summary for prompt replay."""
-    session_state.normalize()
-    sections = ["CODING SESSION CHECKPOINT"]
-    if session_state.objective:
-        sections.append(f"- Objective: {session_state.objective}")
-    if session_state.accepted_plan:
-        sections.append(
-            "- Accepted plan: "
-            + " | ".join(_dedupe_tail(session_state.accepted_plan, 8))
-        )
-    if session_state.prior_outcomes:
-        sections.append(
-            "- Progress so far: "
-            + " | ".join(_dedupe_tail(session_state.prior_outcomes, 8))
-        )
-    if session_state.current_hypothesis:
-        sections.append(f"- Current subtask: {session_state.current_hypothesis}")
-    if session_state.open_tasks:
-        sections.append(
-            "- Unresolved issues: "
-            + " | ".join(_dedupe_tail(session_state.open_tasks, 8))
-        )
-    if session_state.validation_results:
-        sections.append(
-            "- Validation status: "
-            + " | ".join(_dedupe_tail(session_state.validation_results, 8))
-        )
-    if session_state.read_files:
-        sections.append("- Read files: " + ", ".join(session_state.read_files))
-    if session_state.modified_files:
-        sections.append("- Modified files: " + ", ".join(session_state.modified_files))
-    if stale_file_notes:
-        sections.append(
-            "- Stale file notes: "
-            + " | ".join(
-                f"{path}: {_trim_text(reason, max_len=240)}"
-                for path, reason in stale_file_notes.items()
-            )
-        )
-    if session_state.recent_commands:
-        sections.append(
-            "- Recent commands: "
-            + " | ".join(_dedupe_tail(session_state.recent_commands, 8))
-        )
-    if next_actions:
-        sections.append(
-            "- Next likely actions: "
-            + " | ".join(_dedupe_tail(next_actions, 6))
-        )
-    return _trim_text("\n".join(sections), max_len=_MAX_SUMMARY)

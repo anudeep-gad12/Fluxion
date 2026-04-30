@@ -727,7 +727,6 @@ class TestCodingSessionPersistence:
         memory = WorkingMemory(objective="Do all of it")
         session_state = CodingSessionState(
             objective="Review the chart sorting",
-            prior_outcomes=["Identified a sort-direction issue."],
             read_files=["src/chart.ts"],
             file_evidence={
                 "src/chart.ts": CodingFileState(
@@ -1048,10 +1047,7 @@ class TestCodingSessionPersistence:
             repo=repo,
             registry=create_mock_registry(),
         )
-        session_state = CodingSessionState(
-            objective="Continue coding",
-            raw_tail_start_seq=1,
-        )
+        session_state = CodingSessionState(objective="Continue coding")
 
         with patch.object(engine, "_coding_tail_target_tokens", return_value=2000):
             compacted = await engine._compact_coding_session_history(
@@ -1062,8 +1058,6 @@ class TestCodingSessionPersistence:
             )
 
         assert compacted is True
-        assert session_state.raw_tail_start_seq == 4
-        assert session_state.checkpoint_through_seq == 3
         repo.mark_coding_session_entries_compacted.assert_awaited_once()
         assert repo.mark_coding_session_entries_compacted.await_args.kwargs["through_seq"] == 3
 
@@ -1106,7 +1100,120 @@ class TestCodingSessionPersistence:
 
         persisted_entries = repo.append_coding_session_entries.await_args.args[1]
         assert [entry["entry_type"] for entry in persisted_entries] == ["assistant", "tool_result"]
+        assert persisted_entries[0]["content_json"]["replay_eligible"] is False
         assert "recovery_note" in persisted_entries[1]["content_json"]
+
+    @pytest.mark.asyncio
+    async def test_load_coding_session_messages_ignores_state_narrative_fields(self):
+        repo = create_mock_repo()
+        repo.list_coding_session_entries.return_value = [
+            CodingSessionEntry(
+                conversation_id="conv-1",
+                seq=1,
+                run_id="run-1",
+                step_number=0,
+                entry_type="user",
+                role="user",
+                content_json={"content": "please fix it"},
+                token_estimate=10,
+            ).to_dict(),
+        ]
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=repo,
+            registry=create_mock_registry(),
+        )
+        session_state = CodingSessionState.from_dict(
+            {
+                "objective": "Fix it",
+                "prior_outcomes": ["Assistant claimed it was fixed."],
+                "checkpoint_summary": "CODING SESSION CHECKPOINT\n- Progress so far: fixed",
+                "open_tasks": ["Double-check the cache path"],
+                "modified_files": ["src/App.tsx"],
+            }
+        )
+        memory = WorkingMemory(objective="Fix it")
+
+        messages, _ = await engine._load_coding_session_messages(
+            conversation_id="conv-1",
+            system_prompt="System prompt",
+            query="it still looks the same",
+            run_id="run-2",
+            session_state=session_state,
+            working_memory=memory,
+            use_session_entries=True,
+        )
+
+        flattened = "\n".join(str(message.get("content", "")) for message in messages)
+        assert "Assistant claimed it was fixed." not in flattened
+        assert "Progress so far: fixed" not in flattened
+        assert "Double-check the cache path" not in flattened
+        assert [message["role"] for message in messages] == ["system", "system", "user"]
+        assert "CODING SESSION METADATA" in messages[1]["content"]
+        assert repo.list_coding_session_entries.await_args.kwargs["include_compacted"] is False
+        assert engine._last_stored_context is not None
+        assert engine._last_stored_context["stored_tokens"] > 0
+
+    @pytest.mark.asyncio
+    async def test_persist_final_answer_can_mark_terminal_fallback_as_non_replayable(self):
+        repo = create_mock_repo()
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=repo,
+            registry=create_mock_registry(),
+        )
+
+        await engine._persist_coding_session_final_answer(
+            conversation_id="conv-1",
+            run_id="run-1",
+            step_number=4,
+            final_answer="Here is the patch to apply manually.",
+            replay_eligible=False,
+        )
+
+        persisted_entries = repo.append_coding_session_entries.await_args.args[1]
+        assert persisted_entries[0]["content_json"]["replay_eligible"] is False
+
+    @pytest.mark.asyncio
+    async def test_refresh_coding_stored_context_excludes_compacted_and_nonreplayable_entries(self):
+        repo = create_mock_repo()
+        repo.list_coding_session_entries.return_value = [
+            CodingSessionEntry(
+                conversation_id="conv-1",
+                seq=1,
+                run_id="run-1",
+                step_number=0,
+                entry_type="user",
+                role="user",
+                content_json={"content": "first"},
+                token_estimate=10,
+            ).to_dict(),
+            CodingSessionEntry(
+                conversation_id="conv-1",
+                seq=2,
+                run_id="run-1",
+                step_number=1,
+                entry_type="assistant",
+                role="assistant",
+                content_json={"content": "manual fallback", "replay_eligible": False},
+                token_estimate=10,
+            ).to_dict(),
+        ]
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=repo,
+            registry=create_mock_registry(),
+        )
+
+        payload = await engine._refresh_coding_stored_context(
+            conversation_id="conv-1",
+            session_state=CodingSessionState(objective="Fix it"),
+            working_memory=WorkingMemory(objective="Fix it"),
+        )
+
+        assert payload is not None
+        assert payload["replayable_entry_count"] == 1
+        assert repo.list_coding_session_entries.await_args.kwargs["include_compacted"] is False
 
 
 # =============================================================================
@@ -1728,10 +1835,12 @@ class TestAgentEngineToolExecution:
     async def test_forces_synthesis_after_repeated_filtered_duplicate_tool_calls(self):
         """Repeated duplicate tool calls should not spin until max steps."""
         call_count = 0
+        captured_messages = []
 
         async def mock_streaming(*args, **kwargs):
             nonlocal call_count
             call_count += 1
+            captured_messages.append(kwargs["messages"])
             if call_count == 1:
                 return LLMResponse(
                     text="Let me inspect git status.",
@@ -1825,6 +1934,20 @@ class TestAgentEngineToolExecution:
             for call in mock_sm.complete_step.await_args_list
         ]
         assert decisions == ["call_tool", "filtered", "filtered"]
+        assert any(
+            "Engine notice: the previous tool call was filtered as redundant"
+            in message["content"]
+            for batch in captured_messages[2:]
+            for message in batch
+            if message["role"] == "system"
+        )
+        assert any(
+            "Do not attribute that constraint to the user."
+            in message["content"]
+            for batch in captured_messages[2:]
+            for message in batch
+            if message["role"] == "user"
+        )
 
 
 class TestAgentEngineCitations:
@@ -2185,7 +2308,13 @@ class TestRedundancyDetection:
         """Flags tool calls that match a previous call exactly."""
         engine = self._make_engine()
         engine._tool_call_log = [
-            {"tool_name": "web_search", "arguments": {"query": "Tokyo population"}, "success": True, "step_number": 1},
+            {
+                "tool_name": "web_search",
+                "arguments": {"query": "Tokyo population"},
+                "success": True,
+                "step_number": 1,
+                "state_version_after": 0,
+            },
         ]
 
         calls = [ParsedToolCall(id="tc-2", name="web_search", arguments={"query": "Tokyo population"}, raw_arguments='{"query": "Tokyo population"}')]
@@ -2198,7 +2327,13 @@ class TestRedundancyDetection:
         """Does not flag calls with different arguments."""
         engine = self._make_engine()
         engine._tool_call_log = [
-            {"tool_name": "web_search", "arguments": {"query": "Tokyo population"}, "success": True, "step_number": 1},
+            {
+                "tool_name": "web_search",
+                "arguments": {"query": "Tokyo population"},
+                "success": True,
+                "step_number": 1,
+                "state_version_after": 0,
+            },
         ]
 
         calls = [ParsedToolCall(id="tc-2", name="web_search", arguments={"query": "Paris population"}, raw_arguments='{"query": "Paris population"}')]
@@ -2210,7 +2345,13 @@ class TestRedundancyDetection:
         """Same-run read_file calls are allowed so exact context can be reacquired."""
         engine = self._make_engine()
         engine._tool_call_log = [
-            {"tool_name": "read_file", "arguments": {"file_path": "src/chart.ts"}, "success": True, "step_number": 1},
+            {
+                "tool_name": "read_file",
+                "arguments": {"file_path": "src/chart.ts"},
+                "success": True,
+                "step_number": 1,
+                "state_version_after": 0,
+            },
         ]
 
         calls = [ParsedToolCall(id="tc-2", name="read_file", arguments={"file_path": "src/chart.ts"}, raw_arguments='{"file_path": "src/chart.ts"}')]
@@ -2248,7 +2389,13 @@ class TestRedundancyDetection:
         """Flags repeated list_directory on root."""
         engine = self._make_engine()
         engine._tool_call_log = [
-            {"tool_name": "list_directory", "arguments": {"path": "."}, "success": True, "step_number": 1},
+            {
+                "tool_name": "list_directory",
+                "arguments": {"path": "."},
+                "success": True,
+                "step_number": 1,
+                "state_version_after": 0,
+            },
         ]
 
         calls = [ParsedToolCall(id="tc-2", name="list_directory", arguments={"path": "."}, raw_arguments='{"path": "."}')]
@@ -2278,7 +2425,13 @@ class TestRedundancyDetection:
         """Correctly identifies subset of redundant calls."""
         engine = self._make_engine()
         engine._tool_call_log = [
-            {"tool_name": "web_search", "arguments": {"query": "test"}, "success": True, "step_number": 1},
+            {
+                "tool_name": "web_search",
+                "arguments": {"query": "test"},
+                "success": True,
+                "step_number": 1,
+                "state_version_after": 0,
+            },
         ]
 
         calls = [
@@ -2289,6 +2442,77 @@ class TestRedundancyDetection:
 
         assert len(redundant) == 1
         assert redundant[0][0].id == "tc-a"
+
+    def test_allows_duplicate_bash_after_edit_changes_state(self):
+        """Allows repeating verification commands after an edit changed state."""
+        engine = self._make_engine()
+        engine._tool_state_version = 1
+        engine._tool_call_log = [
+            {
+                "tool_name": "bash",
+                "arguments": {"command": "npm run build"},
+                "success": True,
+                "step_number": 1,
+                "state_version_after": 0,
+            },
+            {
+                "tool_name": "edit_file",
+                "arguments": {"file_path": "src/App.tsx"},
+                "success": True,
+                "step_number": 2,
+                "state_version_after": 1,
+            },
+        ]
+
+        calls = [ParsedToolCall(id="tc-3", name="bash", arguments={"command": "npm run build"}, raw_arguments='{"command": "npm run build"}')]
+        redundant = engine._detect_redundant_calls(calls)
+
+        assert len(redundant) == 0
+
+    def test_blocks_duplicate_edit_without_state_change(self):
+        """Still blocks identical edits when nothing changed since the last one."""
+        engine = self._make_engine()
+        engine._tool_state_version = 2
+        engine._tool_call_log = [
+            {
+                "tool_name": "edit_file",
+                "arguments": {"file_path": "src/App.tsx", "old_string": "a", "new_string": "b"},
+                "success": True,
+                "step_number": 3,
+                "state_version_after": 2,
+            },
+        ]
+
+        calls = [ParsedToolCall(id="tc-4", name="edit_file", arguments={"file_path": "src/App.tsx", "old_string": "a", "new_string": "b"}, raw_arguments='{"file_path": "src/App.tsx", "old_string": "a", "new_string": "b"}')]
+        redundant = engine._detect_redundant_calls(calls)
+
+        assert len(redundant) == 1
+
+    def test_allows_duplicate_web_search_after_state_change(self):
+        """Allows repeating a search after new evidence changed the working state."""
+        engine = self._make_engine()
+        engine._tool_state_version = 1
+        engine._tool_call_log = [
+            {
+                "tool_name": "web_search",
+                "arguments": {"query": "base-ui select collision padding"},
+                "success": True,
+                "step_number": 1,
+                "state_version_after": 0,
+            },
+            {
+                "tool_name": "web_extract",
+                "arguments": {"urls": ["https://example.com"]},
+                "success": True,
+                "step_number": 2,
+                "state_version_after": 1,
+            },
+        ]
+
+        calls = [ParsedToolCall(id="tc-5", name="web_search", arguments={"query": "base-ui select collision padding"}, raw_arguments='{"query": "base-ui select collision padding"}')]
+        redundant = engine._detect_redundant_calls(calls)
+
+        assert len(redundant) == 0
 
 
 # =============================================================================
@@ -2707,7 +2931,6 @@ class TestCodingContinuationBehavior:
                 "conversation_id": "conv-1",
                 "state": CodingSessionState(
                     objective="Use shadcn components",
-                    prior_outcomes=["Implemented the UI polish and verified the build."],
                     modified_files=["ui/src/App.tsx"],
                     file_evidence={
                         "ui/src/App.tsx": CodingFileState(

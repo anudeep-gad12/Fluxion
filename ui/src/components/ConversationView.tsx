@@ -65,6 +65,12 @@ const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 /** Mode: 'chat' for regular conversation, 'agent' for agent */
 type ChatMode = 'chat' | 'agent';
 
+function formatContextTokens(tokens: number): string {
+  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(tokens >= 10_000_000 ? 0 : 1)}m`;
+  if (tokens >= 1_000) return `${(tokens / 1_000).toFixed(tokens >= 10_000 ? 0 : 1)}k`;
+  return tokens.toLocaleString();
+}
+
 /** Model picker component shown in the status bar */
 function ModelPicker({
   open,
@@ -1110,6 +1116,38 @@ export function ConversationView() {
   // Clear queued steers when agent confirms injection via SSE.
   // Delay the clear so the chip is visible briefly before disappearing.
   const activeAgentState = useStore((s) => activeRunId ? s.agentRunState[activeRunId] : undefined);
+  const latestContextRun = useMemo(
+    () => [...runs].reverse().find((run) => run.mode === 'agent' || !!run.stored_context),
+    [runs],
+  );
+  const latestRunStoredContext = latestContextRun?.stored_context as
+    | { stored_tokens?: number; utilization_pct?: number; context_window?: number }
+    | undefined;
+  const footerStoredContext = useMemo(() => {
+    return (
+      activeAgentState?.stored_context
+      ?? latestRunStoredContext
+      ?? undefined
+    );
+  }, [activeAgentState?.stored_context, latestRunStoredContext]);
+  const conversationRawTokens = useMemo(() => {
+    return runs.reduce((total, run) => {
+      if (run.run_id === activeRunId && activeAgentState?.usage?.total_tokens !== undefined) {
+        return total + activeAgentState.usage.total_tokens;
+      }
+      const runUsage = run.usage as { total_tokens?: number } | undefined;
+      return total + (runUsage?.total_tokens ?? 0);
+    }, 0);
+  }, [runs, activeRunId, activeAgentState?.usage?.total_tokens]);
+  const composerContextWindow = (
+    footerStoredContext?.context_window
+    ?? activeAgentState?.context_profile?.context_window
+    ?? (latestContextRun?.context_profile as { context_window?: number } | undefined)?.context_window
+    ?? modelStatus?.context_window
+  );
+  const showComposerContextStats = mode === 'agent' && !!composerContextWindow && (
+    !!footerStoredContext || conversationRawTokens > 0
+  );
   const injectedSteerCount = activeAgentState?.injectedSteers?.length ?? 0;
   useEffect(() => {
     if (injectedSteerCount > 0 && queuedSteers.length > 0) {
@@ -2202,6 +2240,22 @@ export function ConversationView() {
               >
                 {isSubmitting ? 'sending...' : atLimit ? 'limit reached' : hasActiveRun ? 'steer' : 'send'}
               </button>
+            )}
+            {showComposerContextStats && (
+              <>
+                <span className="text-zinc-700">|</span>
+                <span className="text-zinc-500">
+                  ctx {footerStoredContext ? `${Math.round(footerStoredContext.utilization_pct ?? 0)}%` : '—'}
+                </span>
+                <span className="text-zinc-600">
+                  {footerStoredContext && composerContextWindow
+                    ? `${formatContextTokens(footerStoredContext.stored_tokens ?? 0)}/${formatContextTokens(composerContextWindow)}`
+                    : '—'}
+                </span>
+                <span className="text-zinc-500">
+                  raw {conversationRawTokens > 0 ? formatContextTokens(conversationRawTokens) : '—'}
+                </span>
+              </>
             )}
           </div>
           <div className="flex items-center gap-3 font-mono text-xs text-zinc-600">
