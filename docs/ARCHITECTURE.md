@@ -57,9 +57,10 @@ Fluxion is an AI chat application with multi-strategy reasoning capabilities. It
 ┌──────────────────────────────────────────┐  ┌────────────────────────────────────┐
 │   LLM Provider                           │  │   SQLite (var/traces.sqlite)       │
 │   - DeepInfra / llama-server / vLLM      │  │ conversations | runs | trace_events│
-│   - ChatGPT (OAuth + Codex API)          │  │ coding_sessions | agent_steps      │
-│   - /v1/chat/completions (default)       │  │ agent_tool_calls | run_events      │
-│   - /v1/responses (gpt-oss native)       │  │ run_artifacts                      │
+│   - ChatGPT (OAuth + Codex API)          │  │ coding_sessions | coding_session_  │
+│   - /v1/chat/completions (default)       │  │ entries | agent_steps              │
+│   - /v1/responses (gpt-oss native)       │  │ agent_tool_calls | run_events      │
+│                                           │  │ run_artifacts                      │
 │                                           │  └────────────────────────────────────┘
 └──────────────────────────────────────────┘
 ```
@@ -1056,7 +1057,7 @@ The agent tracks total tokens used across all LLM calls:
 |------------|---------|-------------|
 | `ConversationRepo` | Conversation CRUD | `create`, `get`, `list`, `update`, `delete` |
 | `TraceRepo` | Runs and trace events | `create_run`, `update_run`, `add_trace_event`, `get_run` |
-| `AgentRepo` | Agent-specific data | `create_step`, `add_tool_call`, `set_citations` |
+| `AgentRepo` | Agent-specific data | `create_step`, `add_tool_call`, `set_citations`, `get_coding_session_state`, `upsert_coding_session_state`, `append_coding_session_entries`, `list_coding_session_entries`, `mark_coding_session_entries_compacted` |
 
 ---
 

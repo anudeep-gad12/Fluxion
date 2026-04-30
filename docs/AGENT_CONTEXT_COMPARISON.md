@@ -17,21 +17,22 @@ This document compares how each agent handles context continuity, compaction, to
 
 They keep a persistent session/thread, replay real assistant/tool history into later turns, and compact that history **inside the same session** while retaining a recent raw tail.
 
-`reasoner` is still mostly **run-native**:
+`reasoner` is now **hybrid**:
 
-- each browser agent turn is a separate run
-- cross-turn history is rebuilt from `turn_summary`
-- coding continuity is supplemented by a small persisted coding scratchpad
-- prior raw tool transcript is not the primary continuation mechanism
+- each browser agent turn is still a separate run
+- generic cross-turn history is still rebuilt from `turn_summary`
+- but coding-profile continuation now persists a real replayable coding transcript via `coding_session_entries`
+- coding prompts are rebuilt from `system prompt + checkpoint summary + recent raw tail`
 
-That difference is the main reason `reasoner` rereads files more often.
+So `reasoner` is no longer just “summarize a run”.
+It now has a session-like continuation path specifically for coding work, while still keeping the broader run-based architecture.
 
 In one line:
 
-- `opencode` and `pi` compact a session
-- `reasoner` summarizes a run
+- `opencode` and `pi` compact a native session
+- `reasoner` now reconstructs a coding session from persisted checkpoint + raw-tail state
 
-Those are not equivalent for multi-turn coding work.
+That narrows the gap substantially for multi-turn coding work, even though the overall app architecture is still run-oriented.
 
 ---
 
@@ -51,65 +52,70 @@ Relevant code:
 
 This means prior assistant/tool transcript is not replayed across turns.
 
-### 1.2 New coding turns start from summary scaffold + working memory
+### 1.2 New coding turns start from summary scaffold + coding-session replay
 
-Initial prompt assembly:
+Initial coding prompt assembly now does this:
 
 - build system prompt
-- load prior runs for the conversation
-- build summary-based history
-- inject working memory
-- add current user message
+- load persisted `CodingSessionState`
+- load replayable `coding_session_entries` from `raw_tail_start_seq`
+- inject a checkpoint summary as a system message
+- replay canonical assistant/tool/raw-tail messages
+- append the current user query
 
 Relevant code:
 
-- `orchestrator/agent/agent_engine.py:2489-2554`
-- `orchestrator/agent/agent_engine.py:500-523`
+- `orchestrator/agent/agent_engine.py`
+- `orchestrator/agent/coding_context_builder.py`
 
-### 1.3 Coding continuity is a bounded scratchpad, not a session transcript
+### 1.3 Coding continuity is now checkpoint + raw-tail replay
 
-We now persist `CodingSessionState`, but it is intentionally small:
+`reasoner` now persists two layers:
 
-- prior outcomes: max 6
-- files inspected: max 8
-- files changed: max 8
-- validation results: max 8
-- unresolved tasks: max 6
-- raw evidence: max 8
+1. `CodingSessionState`
+   - objective
+   - accepted plan
+   - prior outcomes
+   - read files / modified files
+   - validation results
+   - open tasks
+   - recent commands
+   - file evidence with multiple spans and freshness hashes
+   - checkpoint summary metadata
 
-Relevant code:
+2. `coding_session_entries`
+   - user messages
+   - assistant messages
+   - canonical assistant tool calls
+   - tool results
+   - compaction markers via `compacted_at`
 
-- `orchestrator/agent/coding_session.py:9-14`
-- `orchestrator/agent/coding_session.py:127-147`
-
-Stored file evidence is also compact:
-
-- one `CodingFileState` per file
-- one short excerpt
-- excerpt is only the first 3 non-empty lines, capped to ~240 chars
-
-Relevant code:
-
-- `orchestrator/agent/agent_engine.py:738-755`
-- `orchestrator/agent/agent_engine.py:971-1019`
+This is a real replayable coding transcript, not just a scratchpad.
 
 ### 1.4 Restore behavior on later coding turns
 
-On a follow-up coding turn, `reasoner` restores:
+On a follow-up coding turn, `reasoner` now restores:
 
-- prior outcomes
-- validation
-- unresolved tasks
-- recent raw evidence
-- stored file summaries/excerpts if file hashes still match
+- durable coding-session state
+- fresh file evidence where hashes still match
+- stale-file reread hints where stored evidence is outdated
+- recent raw assistant/tool history from uncompacted `coding_session_entries`
+- a checkpoint summary for older compacted history
 
-Relevant code:
+That is materially closer to session-native continuation than the earlier summary-only model.
 
-- `orchestrator/agent/agent_engine.py:1108-1196`
+### 1.5 Coding-session compaction now preserves a recent raw tail
 
-This is better than pure summary-only history, but still much weaker than replaying a persistent session transcript.
+For coding runs, `reasoner` now compacts persisted coding history by:
 
-### 1.5 In-run compaction is aggressive
+- summarizing older entries into `checkpoint_summary`
+- marking older `coding_session_entries` as compacted
+- keeping a recent raw tail replayable from `raw_tail_start_seq`
+- preserving canonical assistant/tool structure in the retained tail
+
+This is separate from the generic visible prompt compaction used elsewhere in the app.
+
+### 1.6 Generic in-run prompt compaction is still aggressive
 
 When prompt usage crosses threshold:
 
@@ -132,7 +138,7 @@ Relevant code:
 
 - `orchestrator/agent/agent_engine.py:3599-3752`
 
-So even inside one long run, `reasoner` preserves less raw recent context than the other two systems.
+So the generic prompt layer is still more aggressive than the other two systems, but coding follow-ups now have an additional persisted replay layer that softens that loss across turns.
 
 ---
 
@@ -357,8 +363,8 @@ That is much closer to how a human coding assistant would resume work.
 |---|---|---|---|
 | Primary continuity unit | per-turn run | persistent session | persistent session tree |
 | Cross-turn source | `turn_summary` + small coding scratchpad | retained session transcript | rebuilt session path |
-| Raw prior tool transcript across turns | mostly no | yes | yes |
-| Recent raw tail after compaction | no strong retained tail; compacts to system summary + tail user | yes | yes |
+| Raw prior tool transcript across turns | yes for coding flows via `coding_session_entries`; otherwise mostly no | yes | yes |
+| Recent raw tail after compaction | yes for coding flows; weaker in generic prompt compaction | yes | yes |
 | Old history compaction style | replace big chunks with one system summary | anchored session summary | compaction checkpoint entry |
 | File-aware memory | capped scratchpad, 8 files max | relevant-files summary + recent raw history | explicit cumulative `readFiles` / `modifiedFiles` |
 | Split-turn compaction | no | partial tail-preservation logic | yes |
@@ -367,45 +373,33 @@ That is much closer to how a human coding assistant would resume work.
 
 ---
 
-## 5. Why `reasoner` still rereads files
+## 5. Why `reasoner` can still reread files
 
 This is the main causal chain.
 
-### 5.1 We do not restore a real coding session transcript
+### 5.1 The overall architecture is still run-oriented
 
-A follow-up coding turn in `reasoner` starts from:
+Coding continuity is now much stronger, but the app still does not keep one single native long-lived model session the way `opencode` and `pi` do.
 
-- summary-based prior runs
-- current query
-- a small working-memory/coding-session block
+It reconstructs the coding session from persisted state and replay entries.
 
-Not from:
+That is much better than before, but still not identical to a truly continuous provider-side thread.
 
-- prior `read_file` output
-- prior `grep` output
-- recent assistant/tool exchange
-- recent raw turns
+### 5.2 The replay tail is bounded
 
-### 5.2 Our persisted coding state is intentionally too small for strong continuation
+`reasoner` intentionally compacts older coding entries into a checkpoint summary and keeps only a bounded recent raw tail.
 
-Current limits are tight:
+That means some older raw detail still becomes summarized instead of remaining fully replayable forever.
 
-- only 8 inspected files
-- only 8 changed files
-- only one short excerpt per file
-- excerpts are tiny
+### 5.3 Freshness checks correctly force some rereads
 
-For multi-file frontend work, this is usually not enough.
+If file hashes changed, or stored spans do not cover the newly requested lines, rereads are now expected behavior, not wasted behavior.
 
-### 5.3 Our compaction model is closer to chat summarization than coding-session continuation
+That is the right tradeoff for correctness.
 
-Inside a run, once compaction triggers, `reasoner` can collapse context down to:
+### 5.4 Generic prompt compaction is still more aggressive than session-native systems
 
-- base system
-- one compaction summary
-- maybe latest user tail
-
-That drops the recent raw coding trail much more aggressively than `opencode` or `pi`.
+The non-coding/global prompt layer can still compact more aggressively than `opencode` or `pi`, especially during long heavy runs.
 
 ### 5.4 Resulting user-visible behavior
 
@@ -418,25 +412,20 @@ For a workflow like:
 
 So it rereads.
 
-That is not model stupidity.
-It is a consequence of the continuation architecture.
+So rereads are now less often caused by missing continuity, and more often caused by bounded replay, real file drift, or generic prompt-budget pressure.
 
 ---
 
 ## 6. Practical implications for `reasoner`
 
-If the goal is to behave more like `opencode` or `pi`, the major missing pieces are:
+If the goal is to behave even more like `opencode` or `pi`, the remaining gaps are:
 
-1. A real persisted coding session/thread, not just per-run summaries
-2. Retained raw recent coding history across turns
-3. Compaction that preserves a recent raw tail
-4. Stronger file-aware structured continuity:
-   - multiple file spans
-   - cumulative read/modified file tracking
-   - explicit step/progress/decision state
-5. Session-native prompt reconstruction instead of run-summary reconstruction
+1. A truly native long-lived coding session/thread instead of reconstructed continuity
+2. Even richer retained raw history under very large coding sessions
+3. Less aggressive generic prompt compaction under pressure
+4. Potentially stronger tool-result preservation beyond the current bounded tail/checkpoint model
 
-The recent `coding_sessions` work is a step in that direction, but it is still a thin overlay on a run-summary architecture.
+The recent `coding_sessions` + `coding_session_entries` work closes a large part of the original gap.
 
 ---
 
@@ -469,4 +458,3 @@ The recent `coding_sessions` work is a step in that direction, but it is still a
 - `packages/coding-agent/src/core/sdk.ts`
 - `packages/coding-agent/docs/compaction.md`
 - `packages/coding-agent/docs/session-format.md`
-
