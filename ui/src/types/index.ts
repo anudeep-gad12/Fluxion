@@ -1,5 +1,13 @@
 // API Types
 
+import type {
+  TokenUsage,
+  CostUsage,
+  ContextUsage,
+  StoredContextUsage,
+  ModelContextProfile,
+} from './agent';
+
 export interface ThinkingStep {
   seq: number;
   step_type: string;
@@ -23,6 +31,11 @@ export interface Run {
   error_detail?: string;
   // Thinking data
   thinking_summary?: string;
+  usage?: TokenUsage;
+  cost?: CostUsage | null;
+  context_usage?: ContextUsage;
+  stored_context?: StoredContextUsage;
+  context_profile?: ModelContextProfile;
 }
 
 export interface Event {
