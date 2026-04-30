@@ -97,9 +97,7 @@ uv run pytest                          # Unit + integration tests (mocks LLM, fa
 
 ```bash
 git add .
-git commit -m "feat(<scope>): <description>
-
-Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
+git commit -m "feat(<scope>): <description>"
 
 # Merge to test
 git checkout test

@@ -57,9 +57,11 @@ Fluxion is an AI chat application with multi-strategy reasoning capabilities. It
 ┌──────────────────────────────────────────┐  ┌────────────────────────────────────┐
 │   LLM Provider                           │  │   SQLite (var/traces.sqlite)       │
 │   - DeepInfra / llama-server / vLLM      │  │ conversations | runs | trace_events│
-│   - ChatGPT (OAuth + Codex API)          │  │ agent_steps | agent_tool_calls     │
-│   - /v1/chat/completions (default)       │  │ run_events | run_artifacts         │
-│   - /v1/responses (gpt-oss native)       │  └────────────────────────────────────┘
+│   - ChatGPT (OAuth + Codex API)          │  │ coding_sessions | coding_session_  │
+│   - /v1/chat/completions (default)       │  │ entries | agent_steps              │
+│   - /v1/responses (gpt-oss native)       │  │ agent_tool_calls | run_events      │
+│                                           │  │ run_artifacts                      │
+│                                           │  └────────────────────────────────────┘
 └──────────────────────────────────────────┘
 ```
 
@@ -71,7 +73,7 @@ Fluxion is an AI chat application with multi-strategy reasoning capabilities. It
 - **Tool Approval Flow**: Permission-gated tool execution (strict/relaxed/yolo policies)
 - **Multi-Provider Support**: DeepInfra, ChatGPT (OAuth), llama-server, vLLM, Ollama
 - **Streaming-First**: Real-time token streaming via Server-Sent Events (SSE)
-- **Context Management**: Model-aware context profiles, threshold-based conversation compaction, bounded tool-result history, turn summaries, and project context injection
+- **Context Management**: Model-aware context profiles, threshold-based conversation compaction, bounded tool-result history, turn summaries, persistent coding-session state for coding-profile follow-ups, and project context injection
 - **Full Traceability**: Every LLM call, tool execution, approval, and file change is recorded
 - **Provider Failover**: Circuit breaker pattern with automatic provider switching
 - **Pause/Resume/Steer**: Pause agent between steps, resume later, or inject steering messages mid-run
@@ -1055,7 +1057,7 @@ The agent tracks total tokens used across all LLM calls:
 |------------|---------|-------------|
 | `ConversationRepo` | Conversation CRUD | `create`, `get`, `list`, `update`, `delete` |
 | `TraceRepo` | Runs and trace events | `create_run`, `update_run`, `add_trace_event`, `get_run` |
-| `AgentRepo` | Agent-specific data | `create_step`, `add_tool_call`, `set_citations` |
+| `AgentRepo` | Agent-specific data | `create_step`, `add_tool_call`, `set_citations`, `get_coding_session_state`, `upsert_coding_session_state`, `append_coding_session_entries`, `list_coding_session_entries`, `mark_coding_session_entries_compacted` |
 
 ---
 

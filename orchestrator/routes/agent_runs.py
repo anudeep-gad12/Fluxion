@@ -397,6 +397,7 @@ async def _run_agent_task(
                 "context_profile": engine._context_profile_dict(),
                 "compaction_count": 0,
                 "last_compacted_at_step": None,
+                "stored_context": None,
             },
         )
 
@@ -425,6 +426,7 @@ async def _run_agent_task(
                     "usage": result.usage,
                     "cost": result.cost,
                     "context_usage": result.context_usage,
+                    "stored_context": result.stored_context,
                     "context_profile": result.context_profile,
                     "compaction_count": result.compaction_count,
                     "last_compacted_at_step": result.last_compacted_at_step,
@@ -678,6 +680,7 @@ async def get_agent_run_status(run_id: str, http_request: Request):
         usage=usage_stats.get("usage"),
         cost=usage_stats.get("cost"),
         context_usage=usage_stats.get("context_usage"),
+        stored_context=usage_stats.get("stored_context"),
         context_profile=usage_stats.get("context_profile"),
         compaction_count=usage_stats.get("compaction_count", 0),
         last_compacted_at_step=usage_stats.get("last_compacted_at_step"),
@@ -1136,6 +1139,7 @@ async def get_agent_run_trace(run_id: str, http_request: Request):
         usage=usage_stats.get("usage"),
         cost=usage_stats.get("cost"),
         context_usage=usage_stats.get("context_usage"),
+        stored_context=usage_stats.get("stored_context"),
         context_profile=usage_stats.get("context_profile"),
         compaction_count=usage_stats.get("compaction_count", 0),
         last_compacted_at_step=usage_stats.get("last_compacted_at_step"),

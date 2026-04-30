@@ -2,7 +2,9 @@
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+import hashlib
 import json
+from pathlib import Path
 
 from orchestrator.agent.agent_engine import (
     AgentEngine,
@@ -10,6 +12,13 @@ from orchestrator.agent.agent_engine import (
     ParsedToolCall,
     WorkingMemory,
 )
+from orchestrator.agent.coding_session import (
+    CodingFileSpan,
+    CodingFileState,
+    CodingSessionEntry,
+    CodingSessionState,
+)
+from orchestrator.agent.tools.read_file import ReadFileTool
 from orchestrator.agent.tools.bash_tool import BashTool
 from orchestrator.agent.tools.base import ToolResult
 from orchestrator.agent.state_machine import RecoveryContext
@@ -41,6 +50,12 @@ def create_mock_repo():
     repo.mark_citations_used = AsyncMock()
     repo.create_citation = AsyncMock()
     repo.create_run_artifact = AsyncMock()
+    repo.get_coding_session_state = AsyncMock(return_value=None)
+    repo.upsert_coding_session_state = AsyncMock()
+    repo.append_coding_session_entries = AsyncMock(return_value=[])
+    repo.list_coding_session_entries = AsyncMock(return_value=[])
+    repo.get_latest_coding_session_entry_seq = AsyncMock(return_value=0)
+    repo.mark_coding_session_entries_compacted = AsyncMock()
     return repo
 
 
@@ -325,7 +340,7 @@ class TestAgentEngineHelpers:
         assert prompt[0]["role"] == "system"
         assert prompt[1]["role"] == "system"
         assert "WORKING MEMORY" in prompt[1]["content"]
-        assert "This is continuing state for the same run" in prompt[1]["content"]
+        assert "durable state for the current agent conversation" in prompt[1]["content"]
         assert "do not restate the plan" in prompt[1]["content"]
         assert "answer directly when no tool is needed" in prompt[1]["content"]
         assert prompt[-1]["role"] == "tool"
@@ -459,7 +474,9 @@ class TestAgentEngineToolParsing:
         parsed = engine._parse_tool_calls(tool_calls)
 
         assert len(parsed) == 1
-        assert parsed[0].arguments == {}  # Falls back to empty dict
+        assert parsed[0].arguments == {}
+        assert parsed[0].parse_error is not None
+        assert "valid JSON" in parsed[0].parse_error
 
     def test_parse_tool_calls_missing_id(self):
         """Parse tool calls with missing ID generates UUID."""
@@ -518,6 +535,31 @@ class TestAgentEngineToolParsing:
         assert len(parsed) == 2
         assert parsed[0].name == "web_search"
         assert parsed[1].name == "web_extract"
+
+    def test_parse_tool_calls_non_object_json_marks_parse_error(self):
+        """Parse tool calls with JSON that is not an object."""
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=create_mock_repo(),
+            registry=create_mock_registry(),
+        )
+
+        tool_calls = [
+            {
+                "id": "tc-1",
+                "function": {
+                    "name": "write_file",
+                    "arguments": '["not", "an", "object"]',
+                },
+            }
+        ]
+
+        parsed = engine._parse_tool_calls(tool_calls)
+
+        assert len(parsed) == 1
+        assert parsed[0].arguments == {}
+        assert parsed[0].parse_error is not None
+        assert "JSON object" in parsed[0].parse_error
 
 
 class TestAgentEngineFormatResult:
@@ -660,6 +702,518 @@ class TestAgentWorkingMemory:
         )
         assert any("TS2322" in item for item in memory.validation_results)
         assert any("grep 'sort'" in item for item in memory.recent_raw_evidence)
+
+
+class TestCodingSessionPersistence:
+    """Tests for persistent coding-session continuity."""
+
+    @pytest.mark.asyncio
+    async def test_restore_coding_session_reuses_fresh_file_evidence(self, tmp_path: Path):
+        src_dir = tmp_path / "src"
+        src_dir.mkdir()
+        chart_file = src_dir / "chart.ts"
+        chart_file.write_text("const data = sortDesc(items)\nreturn data\n", encoding="utf-8")
+
+        registry = create_mock_registry()
+        read_tool = ReadFileTool(str(tmp_path))
+        registry.get.side_effect = lambda name: read_tool if name == "read_file" else None
+
+        repo = create_mock_repo()
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=repo,
+            registry=registry,
+        )
+        memory = WorkingMemory(objective="Do all of it")
+        session_state = CodingSessionState(
+            objective="Review the chart sorting",
+            read_files=["src/chart.ts"],
+            file_evidence={
+                "src/chart.ts": CodingFileState(
+                    path="src/chart.ts",
+                    summary="Read 2 lines from src/chart.ts",
+                    spans=[
+                        CodingFileSpan(
+                            line_start=1,
+                            line_end=2,
+                            excerpt="const data = sortDesc(items) | return data",
+                            reason="read",
+                        )
+                    ],
+                    content_hash=hashlib.sha256(
+                        chart_file.read_text(encoding="utf-8").encode("utf-8")
+                    ).hexdigest(),
+                )
+            },
+        )
+
+        await engine._hydrate_working_memory_from_coding_session(
+            conversation_id="conv-1",
+            session_state=session_state,
+            working_memory=memory,
+            run_id="run-restore",
+            updated_at="2026-04-29T12:00:00Z",
+        )
+
+        assert memory.restored_session is True
+        assert "src/chart.ts" in memory.files_inspected
+        assert "[stored, fresh]" in memory.files_inspected["src/chart.ts"]
+        assert "Stored excerpt" in memory.files_inspected["src/chart.ts"]
+        assert memory.stale_file_summaries == {}
+
+    @pytest.mark.asyncio
+    async def test_restore_coding_session_marks_changed_files_stale(self, tmp_path: Path):
+        src_dir = tmp_path / "src"
+        src_dir.mkdir()
+        chart_file = src_dir / "chart.ts"
+        chart_file.write_text("const data = sortDesc(items)\nreturn data\n", encoding="utf-8")
+        original_hash = hashlib.sha256(
+            chart_file.read_text(encoding="utf-8").encode("utf-8")
+        ).hexdigest()
+        chart_file.write_text("const data = sortAsc(items)\nreturn data\n", encoding="utf-8")
+
+        registry = create_mock_registry()
+        read_tool = ReadFileTool(str(tmp_path))
+        registry.get.side_effect = lambda name: read_tool if name == "read_file" else None
+
+        repo = create_mock_repo()
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=repo,
+            registry=registry,
+        )
+        memory = WorkingMemory(objective="Do all of it")
+        session_state = CodingSessionState(
+            objective="Review the chart sorting",
+            read_files=["src/chart.ts"],
+            file_evidence={
+                "src/chart.ts": CodingFileState(
+                    path="src/chart.ts",
+                    summary="Read 2 lines from src/chart.ts",
+                    spans=[
+                        CodingFileSpan(
+                            line_start=1,
+                            line_end=2,
+                            excerpt="const data = sortDesc(items) | return data",
+                            reason="read",
+                        )
+                    ],
+                    content_hash=original_hash,
+                )
+            },
+        )
+
+        await engine._hydrate_working_memory_from_coding_session(
+            conversation_id="conv-1",
+            session_state=session_state,
+            working_memory=memory,
+            run_id="run-restore",
+            updated_at="2026-04-29T12:00:00Z",
+        )
+
+        assert "src/chart.ts" not in memory.files_inspected
+        assert "src/chart.ts" in memory.stale_file_summaries
+        assert "changed" in memory.stale_file_summaries["src/chart.ts"]
+
+    @pytest.mark.asyncio
+    async def test_persist_coding_session_captures_multiple_file_spans(self, tmp_path: Path):
+        src_dir = tmp_path / "src"
+        src_dir.mkdir()
+        chart_file = src_dir / "chart.ts"
+        chart_file.write_text(
+            "const data = sortDesc(items)\nreturn data\nconst more = 1\n",
+            encoding="utf-8",
+        )
+
+        registry = create_mock_registry()
+        read_tool = ReadFileTool(str(tmp_path))
+        registry.get.side_effect = lambda name: read_tool if name == "read_file" else None
+        repo = create_mock_repo()
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=repo,
+            registry=registry,
+        )
+        memory = WorkingMemory(objective="Implement the sort fix")
+        first_tool_results = [
+            (
+                ParsedToolCall(
+                    id="tc-read",
+                    name="read_file",
+                    arguments={"file_path": "src/chart.ts", "offset": 1, "limit": 2},
+                    raw_arguments='{"file_path":"src/chart.ts","offset":1,"limit":20}',
+                ),
+                ToolResult(
+                    success=True,
+                    result_summary="Read 2 lines from src/chart.ts",
+                    result_data="     1\tconst data = sortDesc(items)\n     2\treturn data",
+                    metadata={"lines_read": 2},
+                ),
+            ),
+        ]
+        second_tool_results = [
+            (
+                ParsedToolCall(
+                    id="tc-read-2",
+                    name="read_file",
+                    arguments={"file_path": "src/chart.ts", "offset": 3, "limit": 1},
+                    raw_arguments='{"file_path":"src/chart.ts","offset":3,"limit":1}',
+                ),
+                ToolResult(
+                    success=True,
+                    result_summary="Read 1 line from src/chart.ts",
+                    result_data="     3\tconst more = 1",
+                    metadata={"lines_read": 1},
+                ),
+            ),
+        ]
+
+        engine._update_working_memory_from_tools(memory, first_tool_results)
+        session_state = CodingSessionState(objective="Implement the sort fix")
+        await engine._persist_coding_session_state(
+            conversation_id="conv-1",
+            run_id="run-1",
+            working_memory=memory,
+            session_state=session_state,
+            tool_results=first_tool_results,
+            reason="tool_progress",
+            step_number=1,
+        )
+        engine._update_working_memory_from_tools(memory, second_tool_results)
+        await engine._persist_coding_session_state(
+            conversation_id="conv-1",
+            run_id="run-1",
+            working_memory=memory,
+            session_state=session_state,
+            tool_results=second_tool_results,
+            reason="tool_progress",
+            step_number=2,
+        )
+
+        persisted_state = repo.upsert_coding_session_state.await_args.args[1]
+        stored_file = persisted_state["file_evidence"]["src/chart.ts"]
+        assert persisted_state["read_files"] == ["src/chart.ts"]
+        assert len(stored_file["spans"]) == 2
+        assert stored_file["spans"][0]["line_start"] == 1
+        assert stored_file["spans"][0]["line_end"] == 2
+        assert stored_file["spans"][1]["line_start"] == 3
+        assert stored_file["spans"][1]["line_end"] == 3
+        assert stored_file["content_hash"]
+
+    def test_classify_reread_reason_detects_span_gaps_and_explicit_rereads(self, tmp_path: Path):
+        src_dir = tmp_path / "src"
+        src_dir.mkdir()
+        chart_file = src_dir / "chart.ts"
+        chart_file.write_text("a\nb\nc\nd\n", encoding="utf-8")
+        file_hash = hashlib.sha256(
+            chart_file.read_text(encoding="utf-8").encode("utf-8")
+        ).hexdigest()
+
+        registry = create_mock_registry()
+        read_tool = ReadFileTool(str(tmp_path))
+        registry.get.side_effect = lambda name: read_tool if name == "read_file" else None
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=create_mock_repo(),
+            registry=registry,
+        )
+        engine._active_coding_session_state = CodingSessionState(
+            objective="Inspect chart",
+            read_files=["src/chart.ts"],
+            file_evidence={
+                "src/chart.ts": CodingFileState(
+                    path="src/chart.ts",
+                    summary="Read first two lines",
+                    spans=[
+                        CodingFileSpan(
+                            line_start=1,
+                            line_end=2,
+                            excerpt="a | b",
+                            reason="read",
+                        )
+                    ],
+                    content_hash=file_hash,
+                )
+            },
+        )
+
+        span_gap_reason = engine._classify_coding_file_read_reason(
+            ParsedToolCall(
+                id="tc-read-gap",
+                name="read_file",
+                arguments={"file_path": "src/chart.ts", "offset": 4, "limit": 1},
+                raw_arguments='{"file_path":"src/chart.ts","offset":4,"limit":1}',
+            )
+        )
+        explicit_reason = engine._classify_coding_file_read_reason(
+            ParsedToolCall(
+                id="tc-read-repeat",
+                name="read_file",
+                arguments={"file_path": "src/chart.ts", "offset": 1, "limit": 2},
+                raw_arguments='{"file_path":"src/chart.ts","offset":1,"limit":2}',
+            )
+        )
+
+        assert span_gap_reason["reason"] == "span_insufficient"
+        assert explicit_reason["reason"] == "explicit_model_request"
+
+    @pytest.mark.asyncio
+    async def test_compaction_keeps_last_two_turns_raw_and_preserves_tool_pairs(self):
+        repo = create_mock_repo()
+        repo.list_coding_session_entries.return_value = [
+            CodingSessionEntry(
+                conversation_id="conv-1",
+                seq=1,
+                run_id="run-0",
+                step_number=0,
+                entry_type="user",
+                role="user",
+                content_json={"content": "Turn 1"},
+                token_estimate=900,
+            ).to_dict(),
+            CodingSessionEntry(
+                conversation_id="conv-1",
+                seq=2,
+                run_id="run-0",
+                step_number=1,
+                entry_type="assistant_tool_calls",
+                role="assistant",
+                content_json={"content": "", "tool_calls": [{"id": "tc-1"}]},
+                token_estimate=500,
+            ).to_dict(),
+            CodingSessionEntry(
+                conversation_id="conv-1",
+                seq=3,
+                run_id="run-0",
+                step_number=1,
+                entry_type="tool_result",
+                role="tool",
+                content_json={"tool_call_id": "tc-1", "name": "read_file", "content": "Read file"},
+                token_estimate=400,
+            ).to_dict(),
+            CodingSessionEntry(
+                conversation_id="conv-1",
+                seq=4,
+                run_id="run-0",
+                step_number=2,
+                entry_type="assistant",
+                role="assistant",
+                content_json={"content": "Done turn 1"},
+                token_estimate=400,
+            ).to_dict(),
+            CodingSessionEntry(
+                conversation_id="conv-1",
+                seq=5,
+                run_id="run-1",
+                step_number=0,
+                entry_type="user",
+                role="user",
+                content_json={"content": "Turn 2"},
+                token_estimate=500,
+            ).to_dict(),
+            CodingSessionEntry(
+                conversation_id="conv-1",
+                seq=6,
+                run_id="run-1",
+                step_number=1,
+                entry_type="assistant",
+                role="assistant",
+                content_json={"content": "Done turn 2"},
+                token_estimate=300,
+            ).to_dict(),
+            CodingSessionEntry(
+                conversation_id="conv-1",
+                seq=7,
+                run_id="run-2",
+                step_number=0,
+                entry_type="user",
+                role="user",
+                content_json={"content": "Turn 3"},
+                token_estimate=500,
+            ).to_dict(),
+            CodingSessionEntry(
+                conversation_id="conv-1",
+                seq=8,
+                run_id="run-2",
+                step_number=1,
+                entry_type="assistant",
+                role="assistant",
+                content_json={"content": "Done turn 3"},
+                token_estimate=300,
+            ).to_dict(),
+        ]
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=repo,
+            registry=create_mock_registry(),
+        )
+        session_state = CodingSessionState(objective="Continue coding")
+
+        with patch.object(engine, "_coding_tail_target_tokens", return_value=2000):
+            compacted = await engine._compact_coding_session_history(
+                conversation_id="conv-1",
+                run_id="run-current",
+                step_number=3,
+                session_state=session_state,
+            )
+
+        assert compacted is True
+        repo.mark_coding_session_entries_compacted.assert_awaited_once()
+        assert repo.mark_coding_session_entries_compacted.await_args.kwargs["through_seq"] == 3
+
+    @pytest.mark.asyncio
+    async def test_persist_step_entries_skips_malformed_tool_call_replay(self):
+        repo = create_mock_repo()
+        edit_tool = MagicMock()
+        edit_tool.schema.parameters = {"required": ["file_path", "old_string", "new_string"]}
+        registry = create_mock_registry()
+        registry.get.side_effect = lambda name: edit_tool if name == "edit_file" else None
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=repo,
+            registry=registry,
+        )
+
+        tool_results = [
+            (
+                ParsedToolCall(
+                    id="tc-edit",
+                    name="edit_file",
+                    arguments={},
+                    raw_arguments='{"file_path":"src/chart.ts"}',
+                ),
+                ToolResult(
+                    success=False,
+                    result_summary="Missing required args: 'old_string', 'new_string'",
+                    error_message="Missing required argument(s).",
+                ),
+            ),
+        ]
+
+        await engine._persist_coding_session_step_entries(
+            conversation_id="conv-1",
+            run_id="run-1",
+            step_number=2,
+            assistant_content="Trying the edit.",
+            tool_results=tool_results,
+        )
+
+        persisted_entries = repo.append_coding_session_entries.await_args.args[1]
+        assert [entry["entry_type"] for entry in persisted_entries] == ["assistant", "tool_result"]
+        assert persisted_entries[0]["content_json"]["replay_eligible"] is False
+        assert "recovery_note" in persisted_entries[1]["content_json"]
+
+    @pytest.mark.asyncio
+    async def test_load_coding_session_messages_ignores_state_narrative_fields(self):
+        repo = create_mock_repo()
+        repo.list_coding_session_entries.return_value = [
+            CodingSessionEntry(
+                conversation_id="conv-1",
+                seq=1,
+                run_id="run-1",
+                step_number=0,
+                entry_type="user",
+                role="user",
+                content_json={"content": "please fix it"},
+                token_estimate=10,
+            ).to_dict(),
+        ]
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=repo,
+            registry=create_mock_registry(),
+        )
+        session_state = CodingSessionState.from_dict(
+            {
+                "objective": "Fix it",
+                "prior_outcomes": ["Assistant claimed it was fixed."],
+                "checkpoint_summary": "CODING SESSION CHECKPOINT\n- Progress so far: fixed",
+                "open_tasks": ["Double-check the cache path"],
+                "modified_files": ["src/App.tsx"],
+            }
+        )
+        memory = WorkingMemory(objective="Fix it")
+
+        messages, _ = await engine._load_coding_session_messages(
+            conversation_id="conv-1",
+            system_prompt="System prompt",
+            query="it still looks the same",
+            run_id="run-2",
+            session_state=session_state,
+            working_memory=memory,
+            use_session_entries=True,
+        )
+
+        flattened = "\n".join(str(message.get("content", "")) for message in messages)
+        assert "Assistant claimed it was fixed." not in flattened
+        assert "Progress so far: fixed" not in flattened
+        assert "Double-check the cache path" not in flattened
+        assert [message["role"] for message in messages] == ["system", "system", "user"]
+        assert "CODING SESSION METADATA" in messages[1]["content"]
+        assert repo.list_coding_session_entries.await_args.kwargs["include_compacted"] is False
+        assert engine._last_stored_context is not None
+        assert engine._last_stored_context["stored_tokens"] > 0
+
+    @pytest.mark.asyncio
+    async def test_persist_final_answer_can_mark_terminal_fallback_as_non_replayable(self):
+        repo = create_mock_repo()
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=repo,
+            registry=create_mock_registry(),
+        )
+
+        await engine._persist_coding_session_final_answer(
+            conversation_id="conv-1",
+            run_id="run-1",
+            step_number=4,
+            final_answer="Here is the patch to apply manually.",
+            replay_eligible=False,
+        )
+
+        persisted_entries = repo.append_coding_session_entries.await_args.args[1]
+        assert persisted_entries[0]["content_json"]["replay_eligible"] is False
+
+    @pytest.mark.asyncio
+    async def test_refresh_coding_stored_context_excludes_compacted_and_nonreplayable_entries(self):
+        repo = create_mock_repo()
+        repo.list_coding_session_entries.return_value = [
+            CodingSessionEntry(
+                conversation_id="conv-1",
+                seq=1,
+                run_id="run-1",
+                step_number=0,
+                entry_type="user",
+                role="user",
+                content_json={"content": "first"},
+                token_estimate=10,
+            ).to_dict(),
+            CodingSessionEntry(
+                conversation_id="conv-1",
+                seq=2,
+                run_id="run-1",
+                step_number=1,
+                entry_type="assistant",
+                role="assistant",
+                content_json={"content": "manual fallback", "replay_eligible": False},
+                token_estimate=10,
+            ).to_dict(),
+        ]
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=repo,
+            registry=create_mock_registry(),
+        )
+
+        payload = await engine._refresh_coding_stored_context(
+            conversation_id="conv-1",
+            session_state=CodingSessionState(objective="Fix it"),
+            working_memory=WorkingMemory(objective="Fix it"),
+        )
+
+        assert payload is not None
+        assert payload["replayable_entry_count"] == 1
+        assert repo.list_coding_session_entries.await_args.kwargs["include_compacted"] is False
 
 
 # =============================================================================
@@ -1281,10 +1835,12 @@ class TestAgentEngineToolExecution:
     async def test_forces_synthesis_after_repeated_filtered_duplicate_tool_calls(self):
         """Repeated duplicate tool calls should not spin until max steps."""
         call_count = 0
+        captured_messages = []
 
         async def mock_streaming(*args, **kwargs):
             nonlocal call_count
             call_count += 1
+            captured_messages.append(kwargs["messages"])
             if call_count == 1:
                 return LLMResponse(
                     text="Let me inspect git status.",
@@ -1378,6 +1934,20 @@ class TestAgentEngineToolExecution:
             for call in mock_sm.complete_step.await_args_list
         ]
         assert decisions == ["call_tool", "filtered", "filtered"]
+        assert any(
+            "Engine notice: the previous tool call was filtered as redundant"
+            in message["content"]
+            for batch in captured_messages[2:]
+            for message in batch
+            if message["role"] == "system"
+        )
+        assert any(
+            "Do not attribute that constraint to the user."
+            in message["content"]
+            for batch in captured_messages[2:]
+            for message in batch
+            if message["role"] == "user"
+        )
 
 
 class TestAgentEngineCitations:
@@ -1738,7 +2308,13 @@ class TestRedundancyDetection:
         """Flags tool calls that match a previous call exactly."""
         engine = self._make_engine()
         engine._tool_call_log = [
-            {"tool_name": "web_search", "arguments": {"query": "Tokyo population"}, "success": True, "step_number": 1},
+            {
+                "tool_name": "web_search",
+                "arguments": {"query": "Tokyo population"},
+                "success": True,
+                "step_number": 1,
+                "state_version_after": 0,
+            },
         ]
 
         calls = [ParsedToolCall(id="tc-2", name="web_search", arguments={"query": "Tokyo population"}, raw_arguments='{"query": "Tokyo population"}')]
@@ -1751,7 +2327,13 @@ class TestRedundancyDetection:
         """Does not flag calls with different arguments."""
         engine = self._make_engine()
         engine._tool_call_log = [
-            {"tool_name": "web_search", "arguments": {"query": "Tokyo population"}, "success": True, "step_number": 1},
+            {
+                "tool_name": "web_search",
+                "arguments": {"query": "Tokyo population"},
+                "success": True,
+                "step_number": 1,
+                "state_version_after": 0,
+            },
         ]
 
         calls = [ParsedToolCall(id="tc-2", name="web_search", arguments={"query": "Paris population"}, raw_arguments='{"query": "Paris population"}')]
@@ -1763,7 +2345,13 @@ class TestRedundancyDetection:
         """Same-run read_file calls are allowed so exact context can be reacquired."""
         engine = self._make_engine()
         engine._tool_call_log = [
-            {"tool_name": "read_file", "arguments": {"file_path": "src/chart.ts"}, "success": True, "step_number": 1},
+            {
+                "tool_name": "read_file",
+                "arguments": {"file_path": "src/chart.ts"},
+                "success": True,
+                "step_number": 1,
+                "state_version_after": 0,
+            },
         ]
 
         calls = [ParsedToolCall(id="tc-2", name="read_file", arguments={"file_path": "src/chart.ts"}, raw_arguments='{"file_path": "src/chart.ts"}')]
@@ -1801,7 +2389,13 @@ class TestRedundancyDetection:
         """Flags repeated list_directory on root."""
         engine = self._make_engine()
         engine._tool_call_log = [
-            {"tool_name": "list_directory", "arguments": {"path": "."}, "success": True, "step_number": 1},
+            {
+                "tool_name": "list_directory",
+                "arguments": {"path": "."},
+                "success": True,
+                "step_number": 1,
+                "state_version_after": 0,
+            },
         ]
 
         calls = [ParsedToolCall(id="tc-2", name="list_directory", arguments={"path": "."}, raw_arguments='{"path": "."}')]
@@ -1831,7 +2425,13 @@ class TestRedundancyDetection:
         """Correctly identifies subset of redundant calls."""
         engine = self._make_engine()
         engine._tool_call_log = [
-            {"tool_name": "web_search", "arguments": {"query": "test"}, "success": True, "step_number": 1},
+            {
+                "tool_name": "web_search",
+                "arguments": {"query": "test"},
+                "success": True,
+                "step_number": 1,
+                "state_version_after": 0,
+            },
         ]
 
         calls = [
@@ -1842,6 +2442,77 @@ class TestRedundancyDetection:
 
         assert len(redundant) == 1
         assert redundant[0][0].id == "tc-a"
+
+    def test_allows_duplicate_bash_after_edit_changes_state(self):
+        """Allows repeating verification commands after an edit changed state."""
+        engine = self._make_engine()
+        engine._tool_state_version = 1
+        engine._tool_call_log = [
+            {
+                "tool_name": "bash",
+                "arguments": {"command": "npm run build"},
+                "success": True,
+                "step_number": 1,
+                "state_version_after": 0,
+            },
+            {
+                "tool_name": "edit_file",
+                "arguments": {"file_path": "src/App.tsx"},
+                "success": True,
+                "step_number": 2,
+                "state_version_after": 1,
+            },
+        ]
+
+        calls = [ParsedToolCall(id="tc-3", name="bash", arguments={"command": "npm run build"}, raw_arguments='{"command": "npm run build"}')]
+        redundant = engine._detect_redundant_calls(calls)
+
+        assert len(redundant) == 0
+
+    def test_blocks_duplicate_edit_without_state_change(self):
+        """Still blocks identical edits when nothing changed since the last one."""
+        engine = self._make_engine()
+        engine._tool_state_version = 2
+        engine._tool_call_log = [
+            {
+                "tool_name": "edit_file",
+                "arguments": {"file_path": "src/App.tsx", "old_string": "a", "new_string": "b"},
+                "success": True,
+                "step_number": 3,
+                "state_version_after": 2,
+            },
+        ]
+
+        calls = [ParsedToolCall(id="tc-4", name="edit_file", arguments={"file_path": "src/App.tsx", "old_string": "a", "new_string": "b"}, raw_arguments='{"file_path": "src/App.tsx", "old_string": "a", "new_string": "b"}')]
+        redundant = engine._detect_redundant_calls(calls)
+
+        assert len(redundant) == 1
+
+    def test_allows_duplicate_web_search_after_state_change(self):
+        """Allows repeating a search after new evidence changed the working state."""
+        engine = self._make_engine()
+        engine._tool_state_version = 1
+        engine._tool_call_log = [
+            {
+                "tool_name": "web_search",
+                "arguments": {"query": "base-ui select collision padding"},
+                "success": True,
+                "step_number": 1,
+                "state_version_after": 0,
+            },
+            {
+                "tool_name": "web_extract",
+                "arguments": {"urls": ["https://example.com"]},
+                "success": True,
+                "step_number": 2,
+                "state_version_after": 1,
+            },
+        ]
+
+        calls = [ParsedToolCall(id="tc-5", name="web_search", arguments={"query": "base-ui select collision padding"}, raw_arguments='{"query": "base-ui select collision padding"}')]
+        redundant = engine._detect_redundant_calls(calls)
+
+        assert len(redundant) == 0
 
 
 # =============================================================================
@@ -2255,9 +2926,24 @@ class TestCodingContinuationBehavior:
             "orchestrator.agent.agent_engine.AgentStateMachine",
             return_value=mock_sm,
         ):
+            repo = create_mock_repo()
+            repo.get_coding_session_state.return_value = {
+                "conversation_id": "conv-1",
+                "state": CodingSessionState(
+                    objective="Use shadcn components",
+                    modified_files=["ui/src/App.tsx"],
+                    file_evidence={
+                        "ui/src/App.tsx": CodingFileState(
+                            path="ui/src/App.tsx",
+                            summary="Updated spacing and button components.",
+                        )
+                    },
+                ).to_dict(),
+                "updated_at": "2026-04-29T13:55:03Z",
+            }
             engine = AgentEngine(
                 provider=provider,
-                repo=create_mock_repo(),
+                repo=repo,
                 registry=self._registry_with_tools(),
                 trace_repo=create_mock_trace_repo(prior_runs=prior_runs),
                 profile=self._coding_profile(),
@@ -2275,6 +2961,7 @@ class TestCodingContinuationBehavior:
         assert execute_tools.await_count == 0
         assert provider.complete_streaming.call_count == 1
         assert provider.complete_streaming.call_args.kwargs["tool_choice"] is None
+        repo.upsert_coding_session_state.assert_awaited()
 
     @pytest.mark.asyncio
     async def test_planning_is_not_gated_by_removed_intent_routing(self):
@@ -2449,8 +3136,119 @@ class TestCodingContinuationBehavior:
         assert assistant_with_tool_calls == []
         assert any(
             msg.get("role") == "system"
-            and "Previous tool call was invalid and failed." in str(msg.get("content"))
+            and "malformed" in str(msg.get("content"))
             for msg in second_messages
+        )
+        assert any(
+            msg.get("role") == "user"
+            and "Retry the intended tool call now." in str(msg.get("content"))
+            for msg in second_messages
+        )
+
+    @pytest.mark.asyncio
+    async def test_malformed_tool_call_retries_instead_of_executing_empty_args(self):
+        provider = MagicMock()
+        provider.complete_streaming = AsyncMock(
+            side_effect=[
+                LLMResponse(
+                    text="",
+                    tool_calls=[
+                        {
+                            "id": "tc-bad",
+                            "type": "function",
+                            "function": {
+                                "name": "write_file",
+                                "arguments": '{"file_path"',
+                            },
+                        }
+                    ],
+                    finish_reason="length",
+                ),
+                LLMResponse(
+                    text="",
+                    tool_calls=[
+                        {
+                            "id": "tc-good",
+                            "type": "function",
+                            "function": {
+                                "name": "write_file",
+                                "arguments": json.dumps(
+                                    {
+                                        "file_path": "src/WeeklyHistory.tsx",
+                                        "content": "export const x = 1;\n",
+                                    }
+                                ),
+                            },
+                        }
+                    ],
+                    finish_reason="tool_calls",
+                ),
+                LLMResponse(text="Done.", finish_reason="stop"),
+            ]
+        )
+        repo = create_mock_repo()
+        registry = create_mock_registry()
+        write_tool = MagicMock()
+        write_tool.schema.parameters = {"required": ["file_path", "content"]}
+        write_tool.schema.permission_level = "auto"
+        write_tool.execute = AsyncMock(
+            return_value=ToolResult(success=True, result_summary="Wrote file")
+        )
+        registry.get.side_effect = lambda name: write_tool if name == "write_file" else None
+        registry.get_openai_schemas.return_value = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "write_file",
+                    "description": "Write a file",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "file_path": {"type": "string"},
+                            "content": {"type": "string"},
+                        },
+                        "required": ["file_path", "content"],
+                    },
+                },
+            }
+        ]
+        mock_sm = create_mock_state_machine(
+            can_continue_sequence=[True, True, True, False],
+            step_sequence=[
+                {"step_number": 1, "id": "step-1"},
+                {"step_number": 2, "id": "step-2"},
+                {"step_number": 3, "id": "step-3"},
+            ],
+        )
+        mock_sm.record_tool_call = AsyncMock(
+            side_effect=[
+                {"id": "tc-good"},
+            ]
+        )
+
+        with patch(
+            "orchestrator.agent.agent_engine.AgentStateMachine",
+            return_value=mock_sm,
+        ):
+            engine = AgentEngine(
+                provider=provider,
+                repo=repo,
+                registry=registry,
+                profile=self._coding_profile(),
+                planning_enabled=False,
+            )
+            result = await engine.run(run_id="run-retry", query="make the edits")
+
+        assert result.success is True
+        write_tool.execute.assert_awaited_once_with(
+            file_path="src/WeeklyHistory.tsx",
+            content="export const x = 1;\n",
+        )
+        first_retry_messages = provider.complete_streaming.call_args_list[1].kwargs["messages"]
+        assert any(
+            msg.get("role") == "user"
+            and "Retry the intended tool call now." in str(msg.get("content"))
+            for msg in first_retry_messages
         )
 
     @pytest.mark.asyncio
