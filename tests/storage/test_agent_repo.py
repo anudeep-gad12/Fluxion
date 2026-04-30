@@ -782,14 +782,19 @@ class TestCodingSessionStateRepo:
         state = {
             "objective": "Implement the UI cleanup",
             "prior_outcomes": ["Reviewed the component tree."],
-            "files_inspected": {"ui/src/App.tsx": "Read 80 lines from ui/src/App.tsx"},
+            "read_files": ["ui/src/App.tsx"],
             "file_evidence": {
                 "ui/src/App.tsx": {
                     "path": "ui/src/App.tsx",
                     "summary": "Read 80 lines from ui/src/App.tsx",
-                    "excerpt": "return <AppShell /> | className='space-y-6'",
-                    "line_start": 1,
-                    "line_end": 80,
+                    "spans": [
+                        {
+                            "line_start": 1,
+                            "line_end": 80,
+                            "excerpt": "return <AppShell /> | className='space-y-6'",
+                            "reason": "read",
+                        }
+                    ],
                     "content_hash": "abc123",
                 }
             },
@@ -802,8 +807,9 @@ class TestCodingSessionStateRepo:
         assert stored["conversation_id"] == "conv-1"
         assert stored["last_run_id"] == run_id
         assert stored["state"]["objective"] == "Implement the UI cleanup"
+        assert stored["state"]["read_files"] == ["ui/src/App.tsx"]
         assert (
-            stored["state"]["file_evidence"]["ui/src/App.tsx"]["excerpt"]
+            stored["state"]["file_evidence"]["ui/src/App.tsx"]["spans"][0]["excerpt"]
             == "return <AppShell /> | className='space-y-6'"
         )
 
@@ -834,5 +840,95 @@ class TestCodingSessionStateRepo:
 
         stored = await repo.get_coding_session_state("conv-1")
         assert stored is None
+
+        await db.close()
+
+    @pytest.mark.asyncio
+    async def test_append_and_list_coding_session_entries(self):
+        db = Database(":memory:")
+        await db.connect()
+        repo = AgentRepo(db)
+        trace_repo = TraceRepo(db)
+
+        await db.conn.execute(
+            "INSERT INTO conversations (conversation_id, title, created_at, status) VALUES (?, ?, ?, ?)",
+            ("conv-1", "Test", "2024-01-01T10:00:00Z", "active"),
+        )
+        await db.conn.commit()
+
+        run_id = str(uuid.uuid4())
+        await trace_repo.create_run(run_id, "conv-1", "coding", "agent", {})
+
+        appended = await repo.append_coding_session_entries(
+            "conv-1",
+            [
+                {
+                    "run_id": run_id,
+                    "step_number": 0,
+                    "entry_type": "user",
+                    "role": "user",
+                    "content_json": {"content": "Inspect the file"},
+                    "token_estimate": 12,
+                },
+                {
+                    "run_id": run_id,
+                    "step_number": 1,
+                    "entry_type": "assistant_tool_calls",
+                    "role": "assistant",
+                    "content_json": {"tool_calls": [{"id": "tc-1"}]},
+                    "token_estimate": 9,
+                },
+            ],
+        )
+        listed = await repo.list_coding_session_entries("conv-1")
+
+        assert [entry["seq"] for entry in appended] == [1, 2]
+        assert [entry["entry_type"] for entry in listed] == ["user", "assistant_tool_calls"]
+        assert listed[1]["content_json"]["tool_calls"][0]["id"] == "tc-1"
+
+        await db.close()
+
+    @pytest.mark.asyncio
+    async def test_mark_coding_session_entries_compacted(self):
+        db = Database(":memory:")
+        await db.connect()
+        repo = AgentRepo(db)
+        trace_repo = TraceRepo(db)
+
+        await db.conn.execute(
+            "INSERT INTO conversations (conversation_id, title, created_at, status) VALUES (?, ?, ?, ?)",
+            ("conv-1", "Test", "2024-01-01T10:00:00Z", "active"),
+        )
+        await db.conn.commit()
+
+        run_id = str(uuid.uuid4())
+        await trace_repo.create_run(run_id, "conv-1", "coding", "agent", {})
+        await repo.append_coding_session_entries(
+            "conv-1",
+            [
+                {
+                    "run_id": run_id,
+                    "step_number": 0,
+                    "entry_type": "user",
+                    "role": "user",
+                    "content_json": {"content": "Turn 1"},
+                    "token_estimate": 4,
+                },
+                {
+                    "run_id": run_id,
+                    "step_number": 1,
+                    "entry_type": "assistant",
+                    "role": "assistant",
+                    "content_json": {"content": "Done"},
+                    "token_estimate": 4,
+                },
+            ],
+        )
+
+        await repo.mark_coding_session_entries_compacted("conv-1", through_seq=1)
+        listed = await repo.list_coding_session_entries("conv-1")
+
+        assert listed[0]["compacted_at"] is not None
+        assert listed[1]["compacted_at"] is None
 
         await db.close()

@@ -765,6 +765,154 @@ class AgentRepo:
             "updated_at": now,
         }
 
+    async def append_coding_session_entries(
+        self,
+        conversation_id: str,
+        entries: List[dict[str, Any]],
+    ) -> List[dict[str, Any]]:
+        """Append normalized coding-session entries with monotonically increasing seq."""
+        if not entries:
+            return []
+
+        now = datetime.now(timezone.utc).isoformat()
+        await self.db.conn.execute("BEGIN IMMEDIATE")
+        try:
+            async with self.db.conn.execute(
+                """
+                SELECT COALESCE(MAX(seq), 0) AS max_seq
+                FROM coding_session_entries
+                WHERE conversation_id = ?
+                """,
+                (conversation_id,),
+            ) as cursor:
+                row = await cursor.fetchone()
+                next_seq = int(row["max_seq"] or 0) + 1 if row else 1
+
+            stored: List[dict[str, Any]] = []
+            for entry in entries:
+                entry_id = str(uuid.uuid4())
+                seq = next_seq
+                next_seq += 1
+                content_json = json.dumps(
+                    entry.get("content_json") or {},
+                    ensure_ascii=False,
+                )
+                await self.db.conn.execute(
+                    """
+                    INSERT INTO coding_session_entries (
+                        id, conversation_id, seq, run_id, step_number,
+                        entry_type, role, content_json, token_estimate,
+                        created_at, compacted_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        entry_id,
+                        conversation_id,
+                        seq,
+                        entry.get("run_id"),
+                        entry.get("step_number"),
+                        entry.get("entry_type"),
+                        entry.get("role"),
+                        content_json,
+                        int(entry.get("token_estimate") or 0),
+                        now,
+                        entry.get("compacted_at"),
+                    ),
+                )
+                stored.append(
+                    {
+                        "id": entry_id,
+                        "conversation_id": conversation_id,
+                        "seq": seq,
+                        "run_id": entry.get("run_id"),
+                        "step_number": entry.get("step_number"),
+                        "entry_type": entry.get("entry_type"),
+                        "role": entry.get("role"),
+                        "content_json": entry.get("content_json") or {},
+                        "token_estimate": int(entry.get("token_estimate") or 0),
+                        "created_at": now,
+                        "compacted_at": entry.get("compacted_at"),
+                    }
+                )
+
+            await self.db.conn.commit()
+            return stored
+        except Exception:
+            await self.db.conn.rollback()
+            raise
+
+    async def list_coding_session_entries(
+        self,
+        conversation_id: str,
+        *,
+        start_seq: Optional[int] = None,
+        end_seq: Optional[int] = None,
+        include_compacted: bool = True,
+    ) -> List[dict[str, Any]]:
+        """List coding-session entries in seq order."""
+        query = """
+            SELECT *
+            FROM coding_session_entries
+            WHERE conversation_id = ?
+        """
+        params: List[Any] = [conversation_id]
+        if start_seq is not None:
+            query += " AND seq >= ?"
+            params.append(start_seq)
+        if end_seq is not None:
+            query += " AND seq <= ?"
+            params.append(end_seq)
+        if not include_compacted:
+            query += " AND compacted_at IS NULL"
+        query += " ORDER BY seq ASC"
+
+        async with self.db.conn.execute(query, params) as cursor:
+            rows = await cursor.fetchall()
+            entries: List[dict[str, Any]] = []
+            for row in rows:
+                record = dict(row)
+                record["content_json"] = json.loads(record["content_json"])
+                entries.append(record)
+            return entries
+
+    async def get_latest_coding_session_entry_seq(
+        self,
+        conversation_id: str,
+    ) -> int:
+        """Return the latest seq stored for a conversation."""
+        async with self.db.conn.execute(
+            """
+            SELECT COALESCE(MAX(seq), 0) AS max_seq
+            FROM coding_session_entries
+            WHERE conversation_id = ?
+            """,
+            (conversation_id,),
+        ) as cursor:
+            row = await cursor.fetchone()
+            if not row:
+                return 0
+            return int(row["max_seq"] or 0)
+
+    async def mark_coding_session_entries_compacted(
+        self,
+        conversation_id: str,
+        *,
+        through_seq: int,
+        compacted_at: Optional[str] = None,
+    ) -> None:
+        """Mark coding-session entries through seq as compacted."""
+        timestamp = compacted_at or datetime.now(timezone.utc).isoformat()
+        await self.db.conn.execute(
+            """
+            UPDATE coding_session_entries
+            SET compacted_at = COALESCE(compacted_at, ?)
+            WHERE conversation_id = ? AND seq <= ?
+            """,
+            (timestamp, conversation_id, through_seq),
+        )
+        await self.db.conn.commit()
+
     # --- Run Agent State (updates to runs table) ---
 
     async def update_run_agent_state(

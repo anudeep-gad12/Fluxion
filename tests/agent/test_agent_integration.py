@@ -705,18 +705,27 @@ class TestAgentIntegrationCodingContinuation:
                 "state": {
                     "objective": "Right use shadcn component in that case",
                     "prior_outcomes": ["Implemented the UI polish and verified the build."],
-                    "files_changed": {
-                        "ui/src/App.tsx": "Updated spacing and button components."
+                    "modified_files": ["ui/src/App.tsx"],
+                    "file_evidence": {
+                        "ui/src/App.tsx": {
+                            "path": "ui/src/App.tsx",
+                            "summary": "Updated spacing and button components.",
+                        }
                     },
                 },
                 "updated_at": "2026-04-29T13:55:03Z",
             }
         )
         repo.upsert_coding_session_state = AsyncMock()
+        repo.append_coding_session_entries = AsyncMock(return_value=[])
+        repo.list_coding_session_entries = AsyncMock(return_value=[])
+        repo.get_latest_coding_session_entry_seq = AsyncMock(return_value=0)
+        repo.mark_coding_session_entries_compacted = AsyncMock()
 
         trace_repo = MagicMock()
         trace_repo.list_runs_for_conversation = AsyncMock(return_value=prior_runs)
         trace_repo.update_run = AsyncMock()
+        trace_repo.add_trace_event = AsyncMock(return_value="evt-1")
 
         mock_sm = MagicMock()
         mock_sm.initialize = AsyncMock(
@@ -760,7 +769,7 @@ class TestAgentIntegrationCodingContinuation:
         call_kwargs = provider.complete_streaming.call_args.kwargs
         assert call_kwargs["tool_choice"] is None
         assert call_kwargs["tools"] is not None
-        repo.upsert_coding_session_state.assert_not_awaited()
+        repo.upsert_coding_session_state.assert_awaited()
 
     @pytest.mark.asyncio
     async def test_invalid_tool_call_does_not_corrupt_next_request(self):

@@ -18,7 +18,13 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
-from orchestrator.agent.coding_session import CodingFileState, CodingSessionState
+from orchestrator.agent.coding_context_builder import CodingSessionContextBuilder
+from orchestrator.agent.coding_session import (
+    CodingFileState,
+    CodingSessionEntry,
+    CodingSessionState,
+    render_checkpoint_summary,
+)
 from orchestrator.agent.context_pruner import ContextPruner
 from orchestrator.agent.permissions import classify_tool_call
 from orchestrator.context.budget import ContextBudget
@@ -133,11 +139,13 @@ class WorkingMemory:
     objective: str
     restored_session: bool = False
     restored_session_updated_at: Optional[str] = None
+    checkpoint_summary: Optional[str] = None
     prior_outcomes: List[str] = field(default_factory=list)
     files_inspected: Dict[str, str] = field(default_factory=dict)
     files_changed: Dict[str, str] = field(default_factory=dict)
     stale_file_summaries: Dict[str, str] = field(default_factory=dict)
     validation_results: List[str] = field(default_factory=list)
+    recent_commands: List[str] = field(default_factory=list)
     current_hypothesis: Optional[str] = None
     unresolved_tasks: List[str] = field(default_factory=list)
     recent_raw_evidence: List[str] = field(default_factory=list)
@@ -153,6 +161,8 @@ class WorkingMemory:
             if self.restored_session_updated_at:
                 restored += f" Last updated: {self.restored_session_updated_at}."
             sections.append(restored)
+        if self.checkpoint_summary:
+            sections.append(self.checkpoint_summary)
         if self.prior_outcomes:
             sections.append(
                 "Prior outcomes:\n"
@@ -184,6 +194,11 @@ class WorkingMemory:
             sections.append(
                 "Validation:\n"
                 + "\n".join(f"- {item}" for item in self.validation_results[-6:])
+            )
+        if self.recent_commands:
+            sections.append(
+                "Recent commands:\n"
+                + "\n".join(f"- {item}" for item in self.recent_commands[-6:])
             )
 
         if self.current_hypothesis:
@@ -483,6 +498,8 @@ To provide your final answer, respond WITHOUT calling any tools."""
 
         # Run metrics accumulator
         self._tool_call_log: List[Dict[str, Any]] = []
+        self._active_conversation_id: Optional[str] = None
+        self._active_coding_session_state: Optional[CodingSessionState] = None
 
     def _reasoning_provider_kwargs(self) -> tuple[int, Dict[str, Any]]:
         """Resolve provider-specific reasoning kwargs for the active model."""
@@ -603,11 +620,15 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 memory.validation_results.append(summary[:500])
                 diagnostics = self._extract_bash_diagnostics(result.result_data, summary)
                 memory.validation_results.extend(item[:500] for item in diagnostics)
+                command = str(tool_call.arguments.get("command", "")).strip()
+                if command:
+                    memory.recent_commands.append(command[:500])
             else:
                 discovery = self._summarize_discovery(tool_call, result)
                 if discovery:
                     memory.recent_raw_evidence.append(discovery[:500])
         memory.validation_results = memory.validation_results[-8:]
+        memory.recent_commands = memory.recent_commands[-8:]
         memory.recent_raw_evidence = memory.recent_raw_evidence[-8:]
 
     def _record_tool_call_recovery(
@@ -856,7 +877,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
         self,
         base: Dict[str, str],
         incoming: Dict[str, str],
-        limit: int = 8,
+        limit: Optional[int] = 32,
     ) -> Dict[str, str]:
         """Merge ordered string maps and keep the newest entries."""
         merged = dict(base)
@@ -868,7 +889,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
             if clean_key in merged:
                 merged.pop(clean_key)
             merged[clean_key] = clean_value[:500]
-        if len(merged) <= limit:
+        if limit is None or len(merged) <= limit:
             return merged
         return dict(list(merged.items())[-limit:])
 
@@ -972,6 +993,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
         self,
         tool_call: ParsedToolCall,
         result: "ToolResult",
+        run_id: str,
     ) -> Optional[CodingFileState]:
         """Create persisted file evidence from a successful read_file call."""
         if not result.success:
@@ -984,21 +1006,27 @@ To provide your final answer, respond WITHOUT calling any tools."""
         excerpt = self._extract_read_file_excerpt(result.result_data)
         if excerpt is None and resolved is not None:
             excerpt = self._excerpt_from_file(resolved, line_start, line_end)
-        return CodingFileState(
+        file_state = CodingFileState(
             path=file_path,
-            summary=result.result_summary[:500],
-            excerpt=excerpt,
-            line_start=line_start,
-            line_end=line_end,
+            summary=result.result_summary[:1500],
             content_hash=self._hash_file_contents(resolved) if resolved else None,
             source="read_file",
             captured_at=datetime.now(timezone.utc).isoformat(),
+            last_read_run_id=run_id,
         )
+        file_state.add_span(
+            line_start=line_start,
+            line_end=line_end,
+            excerpt=excerpt,
+            reason="read",
+        )
+        return file_state
 
     def _build_file_state_from_write(
         self,
         tool_call: ParsedToolCall,
         result: "ToolResult",
+        run_id: str,
     ) -> Optional[CodingFileState]:
         """Create persisted file evidence from a successful edit/write call."""
         if not result.success:
@@ -1009,14 +1037,21 @@ To provide your final answer, respond WITHOUT calling any tools."""
         resolved = self._resolve_workspace_file(file_path)
         excerpt = self._excerpt_from_file(resolved) if resolved else None
         summary = self._summarize_diff(result.result_data) or result.result_summary
-        return CodingFileState(
+        file_state = CodingFileState(
             path=file_path,
-            summary=summary[:500],
-            excerpt=excerpt,
+            summary=summary[:1500],
             content_hash=self._hash_file_contents(resolved) if resolved else None,
             source=tool_call.name,
             captured_at=datetime.now(timezone.utc).isoformat(),
+            last_modified_run_id=run_id,
         )
+        file_state.add_span(
+            line_start=None,
+            line_end=None,
+            excerpt=excerpt,
+            reason="edit-context",
+        )
+        return file_state
 
     def _merge_working_memory_into_coding_session(
         self,
@@ -1024,37 +1059,32 @@ To provide your final answer, respond WITHOUT calling any tools."""
         working_memory: WorkingMemory,
     ) -> None:
         """Fold current working memory into durable coding-session state."""
-        session_state.objective = working_memory.objective
-        session_state.prior_outcomes = self._dedupe_tail(
-            session_state.prior_outcomes + working_memory.prior_outcomes,
-            6,
+        if working_memory.objective:
+            session_state.objective = working_memory.objective
+        session_state.prior_outcomes = list(
+            dict.fromkeys(session_state.prior_outcomes + working_memory.prior_outcomes)
         )
-        session_state.files_inspected = self._merge_string_maps(
-            session_state.files_inspected,
-            {
-                path: self._strip_session_render_markers(summary)
-                for path, summary in working_memory.files_inspected.items()
-            },
+        session_state.validation_results = list(
+            dict.fromkeys(
+                session_state.validation_results + working_memory.validation_results
+            )
         )
-        session_state.files_changed = self._merge_string_maps(
-            session_state.files_changed,
-            {
-                path: self._strip_session_render_markers(summary)
-                for path, summary in working_memory.files_changed.items()
-            },
+        session_state.recent_commands = list(
+            dict.fromkeys(session_state.recent_commands + working_memory.recent_commands)
         )
-        session_state.validation_results = self._dedupe_tail(
-            session_state.validation_results + working_memory.validation_results,
-            8,
+        if working_memory.current_hypothesis:
+            session_state.current_hypothesis = working_memory.current_hypothesis
+        session_state.open_tasks = list(
+            dict.fromkeys(session_state.open_tasks + working_memory.unresolved_tasks)
         )
-        session_state.current_hypothesis = working_memory.current_hypothesis
-        session_state.unresolved_tasks = self._dedupe_tail(
-            session_state.unresolved_tasks + working_memory.unresolved_tasks,
-            6,
-        )
-        session_state.recent_raw_evidence = self._dedupe_tail(
-            session_state.recent_raw_evidence + working_memory.recent_raw_evidence,
-            8,
+        if self._current_plan and getattr(self._current_plan, "steps", None):
+            session_state.accepted_plan = [
+                f"{step.step_number}. {step.description}"
+                for step in self._current_plan.steps
+            ]
+        session_state.checkpoint_summary = render_checkpoint_summary(
+            session_state,
+            stale_file_notes=working_memory.stale_file_summaries,
         )
         session_state.normalize()
 
@@ -1062,138 +1092,690 @@ To provide your final answer, respond WITHOUT calling any tools."""
         self,
         session_state: CodingSessionState,
         tool_results: List[tuple[ParsedToolCall, "ToolResult"]],
+        run_id: str,
     ) -> None:
         """Persist concrete file evidence from the current tool step."""
         for tool_call, result in tool_results:
             file_state: Optional[CodingFileState] = None
             if tool_call.name == "read_file":
-                file_state = self._build_file_state_from_read(tool_call, result)
+                session_state.note_read_file(
+                    self._canonical_workspace_path(
+                        str(tool_call.arguments.get("file_path", "unknown"))
+                    )
+                )
+                file_state = self._build_file_state_from_read(tool_call, result, run_id)
             elif tool_call.name in ("edit_file", "write_file"):
-                file_state = self._build_file_state_from_write(tool_call, result)
+                file_path = self._canonical_workspace_path(
+                    str(tool_call.arguments.get("file_path", "unknown"))
+                )
+                session_state.note_modified_file(file_path)
+                file_state = self._build_file_state_from_write(tool_call, result, run_id)
+            elif tool_call.name == "bash":
+                command = str(tool_call.arguments.get("command", "")).strip()
+                if command:
+                    session_state.recent_commands.append(command[:500])
             if file_state is None:
                 continue
-            session_state.file_evidence[file_state.path] = file_state
+            existing = session_state.file_evidence.get(file_state.path)
+            if existing is not None:
+                existing.summary = file_state.summary or existing.summary
+                existing.content_hash = file_state.content_hash or existing.content_hash
+                existing.source = file_state.source or existing.source
+                existing.captured_at = file_state.captured_at or existing.captured_at
+                existing.last_read_run_id = (
+                    file_state.last_read_run_id or existing.last_read_run_id
+                )
+                existing.last_modified_run_id = (
+                    file_state.last_modified_run_id or existing.last_modified_run_id
+                )
+                for span in file_state.spans:
+                    existing.add_span(
+                        line_start=span.line_start,
+                        line_end=span.line_end,
+                        excerpt=span.excerpt,
+                        reason=span.reason,
+                    )
+            else:
+                session_state.file_evidence[file_state.path] = file_state
         session_state.normalize()
 
     def _stored_file_summary(
         self,
         file_state: CodingFileState,
-        fallback_summary: Optional[str] = None,
     ) -> str:
         """Format stored file evidence for working-memory rendering."""
-        parts = [fallback_summary or file_state.summary]
-        if file_state.line_start and file_state.line_end:
-            parts.append(f"lines {file_state.line_start}-{file_state.line_end}")
-        if file_state.excerpt:
-            parts.append(f"Stored excerpt: {file_state.excerpt}")
+        parts = [file_state.summary]
+        latest_span = file_state.spans[-1] if file_state.spans else None
+        if latest_span and latest_span.line_start and latest_span.line_end:
+            parts.append(f"lines {latest_span.line_start}-{latest_span.line_end}")
+        excerpt = file_state.latest_excerpt()
+        if excerpt:
+            parts.append(f"Stored excerpt: {excerpt}")
         return ". ".join(part for part in parts if part)[:500]
 
     def _assess_file_freshness(
         self,
         file_state: CodingFileState,
-    ) -> tuple[bool, Optional[str]]:
+    ) -> tuple[bool, Optional[str], Optional[str]]:
         """Check whether persisted file evidence can be reused as-is."""
         resolved = self._resolve_workspace_file(file_state.path)
         if resolved is None:
-            return True, "freshness not revalidated; workspace file resolver unavailable"
+            return True, None, "freshness not revalidated; workspace file resolver unavailable"
         if not resolved.exists():
-            return False, "file is missing from the workspace"
+            return False, "missing_evidence", "file is missing from the workspace"
         if file_state.content_hash is None:
-            return True, "freshness not revalidated; no stored file hash"
+            return True, None, "freshness not revalidated; no stored file hash"
         current_hash = self._hash_file_contents(resolved)
         if current_hash != file_state.content_hash:
-            return False, "file content changed since the stored evidence was captured"
-        return True, None
+            return (
+                False,
+                "stale_hash",
+                "file content changed since the stored evidence was captured",
+            )
+        return True, None, None
 
-    async def _restore_coding_session_state(
+    async def _load_coding_session_state_record(
         self,
         conversation_id: str,
-        working_memory: WorkingMemory,
-        run_id: str,
-    ) -> Optional[CodingSessionState]:
-        """Restore persisted coding-session state into working memory."""
+    ) -> tuple[Optional[dict[str, Any]], Optional[CodingSessionState]]:
+        """Load persisted coding-session state for a conversation."""
         record = await self._call_repo_async_method(
             "get_coding_session_state", conversation_id
         )
         if not isinstance(record, dict):
-            return None
+            return None, None
+        return record, CodingSessionState.from_dict(record.get("state") or {})
 
-        session_state = CodingSessionState.from_dict(record.get("state") or {})
+    async def _hydrate_working_memory_from_coding_session(
+        self,
+        *,
+        conversation_id: str,
+        session_state: CodingSessionState,
+        working_memory: WorkingMemory,
+        run_id: str,
+        updated_at: Optional[str] = None,
+    ) -> None:
+        """Restore persisted coding-session state into working memory."""
         working_memory.restored_session = True
-        updated_at = record.get("updated_at")
         if updated_at:
             working_memory.restored_session_updated_at = str(updated_at)
         working_memory.prior_outcomes = self._dedupe_tail(
             session_state.prior_outcomes + working_memory.prior_outcomes,
-            6,
+            12,
         )
         working_memory.validation_results = self._dedupe_tail(
             session_state.validation_results + working_memory.validation_results,
-            8,
+            12,
+        )
+        working_memory.recent_commands = self._dedupe_tail(
+            session_state.recent_commands + working_memory.recent_commands,
+            12,
         )
         if session_state.current_hypothesis:
             working_memory.current_hypothesis = session_state.current_hypothesis
         working_memory.unresolved_tasks = self._dedupe_tail(
-            session_state.unresolved_tasks + working_memory.unresolved_tasks,
-            6,
-        )
-        working_memory.recent_raw_evidence = self._dedupe_tail(
-            session_state.recent_raw_evidence + working_memory.recent_raw_evidence,
-            8,
+            session_state.open_tasks + working_memory.unresolved_tasks,
+            12,
         )
 
         reused_files: List[str] = []
         stale_files: Dict[str, str] = {}
-        for path, summary in session_state.files_inspected.items():
+        for path in session_state.read_files:
             file_state = session_state.file_evidence.get(path)
             if file_state is None:
-                working_memory.files_inspected[path] = (
-                    f"[stored summary] {summary}"
-                )[:500]
-                reused_files.append(path)
+                stale_files[path] = "Stored read history exists but no concrete evidence spans remain."
+                await self._add_trace_event(
+                    run_id=run_id,
+                    event_type="coding_session_file_reread",
+                    content={
+                        "conversation_id": conversation_id,
+                        "path": path,
+                        "reason": "missing_evidence",
+                        "detail": stale_files[path],
+                    },
+                    actor="system",
+                )
                 continue
-            is_fresh, reason = self._assess_file_freshness(file_state)
+            is_fresh, reason_code, detail = self._assess_file_freshness(file_state)
             if is_fresh:
                 working_memory.files_inspected[path] = (
-                    f"[stored, fresh] {self._stored_file_summary(file_state, summary)}"
+                    f"[stored, fresh] {self._stored_file_summary(file_state)}"
                 )[:500]
                 reused_files.append(path)
-            elif reason:
-                stale_files[path] = reason[:500]
+                await self._add_trace_event(
+                    run_id=run_id,
+                    event_type="coding_session_file_reuse",
+                    content={
+                        "conversation_id": conversation_id,
+                        "path": path,
+                        "source": file_state.source,
+                        "line_spans": [
+                            {
+                                "line_start": span.line_start,
+                                "line_end": span.line_end,
+                                "reason": span.reason,
+                            }
+                            for span in file_state.spans
+                        ],
+                    },
+                    actor="system",
+                )
+            else:
+                stale_files[path] = detail or "Stored evidence is stale."
+                await self._add_trace_event(
+                    run_id=run_id,
+                    event_type="coding_session_file_reread",
+                    content={
+                        "conversation_id": conversation_id,
+                        "path": path,
+                        "reason": reason_code or "missing_evidence",
+                        "detail": detail,
+                    },
+                    actor="system",
+                )
 
-        for path, summary in session_state.files_changed.items():
+        for path in session_state.modified_files:
             file_state = session_state.file_evidence.get(path)
             if file_state is None:
-                working_memory.files_changed[path] = f"[stored summary] {summary}"[:500]
+                stale_files[path] = "Stored edit history exists but no concrete evidence spans remain."
+                await self._add_trace_event(
+                    run_id=run_id,
+                    event_type="coding_session_file_reread",
+                    content={
+                        "conversation_id": conversation_id,
+                        "path": path,
+                        "reason": "missing_evidence",
+                        "detail": stale_files[path],
+                    },
+                    actor="system",
+                )
                 continue
-            is_fresh, reason = self._assess_file_freshness(file_state)
+            is_fresh, reason_code, detail = self._assess_file_freshness(file_state)
             if is_fresh:
                 working_memory.files_changed[path] = (
-                    f"[stored, fresh] {self._stored_file_summary(file_state, summary)}"
+                    f"[stored, fresh] {self._stored_file_summary(file_state)}"
                 )[:500]
-            elif reason:
-                stale_files[path] = reason[:500]
+                await self._add_trace_event(
+                    run_id=run_id,
+                    event_type="coding_session_file_reuse",
+                    content={
+                        "conversation_id": conversation_id,
+                        "path": path,
+                        "source": file_state.source,
+                        "line_spans": [
+                            {
+                                "line_start": span.line_start,
+                                "line_end": span.line_end,
+                                "reason": span.reason,
+                            }
+                            for span in file_state.spans
+                        ],
+                    },
+                    actor="system",
+                )
+            else:
+                stale_files[path] = detail or "Stored evidence is stale."
+                await self._add_trace_event(
+                    run_id=run_id,
+                    event_type="coding_session_file_reread",
+                    content={
+                        "conversation_id": conversation_id,
+                        "path": path,
+                        "reason": reason_code or "missing_evidence",
+                        "detail": detail,
+                    },
+                    actor="system",
+                )
 
         working_memory.stale_file_summaries = self._merge_string_maps(
             working_memory.stale_file_summaries,
             stale_files,
+            limit=64,
+        )
+        working_memory.checkpoint_summary = render_checkpoint_summary(
+            session_state,
+            stale_file_notes=stale_files,
         )
 
+    def _coding_context_builder(self) -> CodingSessionContextBuilder:
+        """Return the coding-session prompt builder."""
+        from orchestrator.utils.tokens import get_token_counter
+
+        return CodingSessionContextBuilder(
+            token_counter=get_token_counter(),
+            max_context_tokens=self._max_context_tokens,
+            reserve_for_response=self._max_tokens,
+        )
+
+    def _has_coding_session_state(self, session_state: Optional[CodingSessionState]) -> bool:
+        """Return whether a session state contains meaningful durable data."""
+        if session_state is None:
+            return False
+        return bool(
+            session_state.objective
+            or session_state.accepted_plan
+            or session_state.prior_outcomes
+            or session_state.read_files
+            or session_state.modified_files
+            or session_state.file_evidence
+            or session_state.validation_results
+            or session_state.open_tasks
+            or session_state.recent_commands
+            or session_state.current_hypothesis
+            or session_state.checkpoint_summary
+        )
+
+    def _message_token_estimate(
+        self,
+        role: str,
+        content_json: dict[str, Any],
+    ) -> int:
+        """Estimate token cost for a persisted replay entry."""
+        from orchestrator.utils.tokens import get_token_counter
+
+        text = json.dumps({"role": role, **content_json}, ensure_ascii=False)
+        return get_token_counter().count_tokens(text) + 4
+
+    async def _append_coding_session_entries(
+        self,
+        *,
+        conversation_id: str,
+        run_id: str,
+        entries: List[dict[str, Any]],
+        step_number: Optional[int] = None,
+    ) -> List[CodingSessionEntry]:
+        """Append normalized coding-session entries and trace the append."""
+        stored = await self._call_repo_async_method(
+            "append_coding_session_entries",
+            conversation_id,
+            entries,
+        )
+        if not isinstance(stored, list):
+            return []
+        appended = [CodingSessionEntry.from_dict(entry) for entry in stored]
+        if appended:
+            await self._add_trace_event(
+                run_id=run_id,
+                event_type="coding_session_entry_append",
+                content={
+                    "conversation_id": conversation_id,
+                    "count": len(appended),
+                    "seq_start": appended[0].seq,
+                    "seq_end": appended[-1].seq,
+                    "entry_types": [entry.entry_type for entry in appended],
+                },
+                actor="system",
+                step_number=step_number,
+            )
+        return appended
+
+    async def _persist_coding_session_user_message(
+        self,
+        *,
+        conversation_id: str,
+        run_id: str,
+        session_state: CodingSessionState,
+        user_content: Any,
+    ) -> None:
+        """Persist the current user turn as a replayable session entry."""
+        entry = {
+            "run_id": run_id,
+            "step_number": 0,
+            "entry_type": "user",
+            "role": "user",
+            "content_json": {"content": user_content},
+            "token_estimate": self._message_token_estimate(
+                "user",
+                {"content": user_content},
+            ),
+        }
+        appended = await self._append_coding_session_entries(
+            conversation_id=conversation_id,
+            run_id=run_id,
+            entries=[entry],
+            step_number=0,
+        )
+        if appended and session_state.raw_tail_start_seq <= session_state.checkpoint_through_seq:
+            session_state.raw_tail_start_seq = appended[0].seq
+        session_state.normalize()
+
+    async def _persist_coding_session_step_entries(
+        self,
+        *,
+        conversation_id: str,
+        run_id: str,
+        step_number: int,
+        assistant_content: Optional[str],
+        tool_results: List[tuple[ParsedToolCall, "ToolResult"]],
+    ) -> None:
+        """Persist normalized assistant/tool history for a coding step."""
+        entries: List[dict[str, Any]] = []
+        clean_content = assistant_content.strip() if assistant_content else ""
+        if clean_content:
+            entries.append(
+                {
+                    "run_id": run_id,
+                    "step_number": step_number,
+                    "entry_type": "assistant",
+                    "role": "assistant",
+                    "content_json": {"content": clean_content},
+                    "token_estimate": self._message_token_estimate(
+                        "assistant",
+                        {"content": clean_content},
+                    ),
+                }
+            )
+
+        replay_tool_calls, _ = self._canonical_replay_tool_calls(tool_results)
+        if replay_tool_calls:
+            content_json = {"content": clean_content, "tool_calls": replay_tool_calls}
+            entries.append(
+                {
+                    "run_id": run_id,
+                    "step_number": step_number,
+                    "entry_type": "assistant_tool_calls",
+                    "role": "assistant",
+                    "content_json": content_json,
+                    "token_estimate": self._message_token_estimate("assistant", content_json),
+                }
+            )
+
+        for tool_call, result in tool_results:
+            recovery_note = self._tool_call_recovery_note(tool_call)
+            content_json = {
+                "tool_call_id": tool_call.id,
+                "name": tool_call.name,
+                "content": self._format_tool_result(result, tool_call.name),
+                "success": result.success,
+            }
+            if recovery_note:
+                content_json["recovery_note"] = (
+                    "Previous tool call was invalid and failed. "
+                    + recovery_note
+                    + " Continue from the current state. Do not repeat malformed or incomplete tool arguments."
+                )
+            entries.append(
+                {
+                    "run_id": run_id,
+                    "step_number": step_number,
+                    "entry_type": "tool_result",
+                    "role": "tool",
+                    "content_json": content_json,
+                    "token_estimate": self._message_token_estimate("tool", content_json),
+                }
+            )
+
+        if entries:
+            await self._append_coding_session_entries(
+                conversation_id=conversation_id,
+                run_id=run_id,
+                entries=entries,
+                step_number=step_number,
+            )
+
+    async def _persist_coding_session_final_answer(
+        self,
+        *,
+        conversation_id: str,
+        run_id: str,
+        step_number: int,
+        final_answer: str,
+    ) -> None:
+        """Persist the final assistant answer as a replayable session entry."""
+        clean_answer = final_answer.strip()
+        if not clean_answer:
+            return
+        await self._append_coding_session_entries(
+            conversation_id=conversation_id,
+            run_id=run_id,
+            entries=[
+                {
+                    "run_id": run_id,
+                    "step_number": step_number,
+                    "entry_type": "assistant",
+                    "role": "assistant",
+                    "content_json": {"content": clean_answer},
+                    "token_estimate": self._message_token_estimate(
+                        "assistant",
+                        {"content": clean_answer},
+                    ),
+                }
+            ],
+            step_number=step_number,
+        )
+
+    def _build_state_fallback_summary(
+        self,
+        session_state: CodingSessionState,
+        working_memory: Optional[WorkingMemory] = None,
+    ) -> str:
+        """Render a one-time fallback checkpoint when no raw session entries exist yet."""
+        stale_file_notes = working_memory.stale_file_summaries if working_memory else None
+        return render_checkpoint_summary(
+            session_state,
+            stale_file_notes=stale_file_notes,
+        )
+
+    async def _load_coding_session_messages(
+        self,
+        *,
+        conversation_id: str,
+        system_prompt: str,
+        query: str,
+        run_id: str,
+        session_state: CodingSessionState,
+        working_memory: Optional[WorkingMemory] = None,
+        use_session_entries: bool = True,
+        allow_state_fallback: bool = False,
+    ) -> tuple[List[Dict[str, Any]], ContextBudget]:
+        """Build coding prompt context from checkpoint + raw session entries."""
+        raw_entries: List[CodingSessionEntry] = []
+        if use_session_entries:
+            entry_records = await self._call_repo_async_method(
+                "list_coding_session_entries",
+                conversation_id,
+                start_seq=max(1, session_state.raw_tail_start_seq),
+            )
+            raw_entries = [
+                CodingSessionEntry.from_dict(entry)
+                for entry in (entry_records or [])
+            ]
+        builder = self._coding_context_builder()
+        state_fallback_message: Optional[str] = None
+        if (
+            allow_state_fallback
+            and not raw_entries
+            and self._has_coding_session_state(session_state)
+        ):
+            state_fallback_message = self._build_state_fallback_summary(
+                session_state,
+                working_memory,
+            )
+        context = builder.build(
+            system_prompt=system_prompt,
+            session_state=session_state,
+            raw_entries=raw_entries,
+            current_query=query,
+            state_fallback_message=state_fallback_message,
+        )
         await self._add_trace_event(
             run_id=run_id,
-            event_type="coding_session_restore",
+            event_type="coding_session_context_load",
             content={
                 "conversation_id": conversation_id,
-                "restored": True,
-                "updated_at": working_memory.restored_session_updated_at,
-                "reused_files": reused_files,
-                "stale_files": stale_files,
-                "files_inspected": list(session_state.files_inspected.keys()),
-                "files_changed": list(session_state.files_changed.keys()),
+                "used_session_entries": context.used_session_entries,
+                "used_state_fallback": context.used_state_fallback,
+                "raw_tail_start_seq": context.raw_tail_start_seq,
+                "checkpoint_through_seq": context.checkpoint_through_seq,
+                "replayed_entry_count": context.replayed_entry_count,
+                "message_count": len(context.messages),
+                "prompt_tokens": builder.estimate_tokens(context.messages),
             },
             actor="system",
         )
-        return session_state
+        return context.messages, context.budget
+
+    def _group_entries_by_turn(
+        self,
+        entries: List[CodingSessionEntry],
+    ) -> List[Dict[str, Any]]:
+        """Group replay entries into coding turns starting at user messages."""
+        groups: List[Dict[str, Any]] = []
+        current: Optional[Dict[str, Any]] = None
+        for entry in entries:
+            if entry.entry_type == "user" or current is None:
+                if current is not None:
+                    groups.append(current)
+                current = {
+                    "start_seq": entry.seq,
+                    "end_seq": entry.seq,
+                    "entries": [entry],
+                    "token_estimate": entry.token_estimate,
+                }
+            else:
+                current["entries"].append(entry)
+                current["end_seq"] = entry.seq
+                current["token_estimate"] += entry.token_estimate
+        if current is not None:
+            groups.append(current)
+        return groups
+
+    def _coding_tail_target_tokens(self) -> int:
+        """Return the retained raw-tail token target for coding compaction."""
+        effective_budget = self._context_profile.effective_input_budget
+        return min(20_000, max(2_000, int(effective_budget * 0.25)))
+
+    def _build_coding_checkpoint_summary(
+        self,
+        session_state: CodingSessionState,
+        compacted_entries: List[CodingSessionEntry],
+        working_memory: Optional[WorkingMemory] = None,
+    ) -> str:
+        """Build a deterministic checkpoint summary after compaction."""
+        next_actions: List[str] = []
+        for entry in reversed(compacted_entries):
+            if entry.entry_type == "tool_result":
+                recovery_note = entry.content_json.get("recovery_note")
+                if recovery_note:
+                    next_actions.append(str(recovery_note))
+            elif entry.entry_type == "assistant":
+                content = str(entry.content_json.get("content") or "").strip()
+                if content:
+                    next_actions.append(content.splitlines()[0][:240])
+            if len(next_actions) >= 4:
+                break
+        if session_state.open_tasks:
+            next_actions.extend(session_state.open_tasks[-4:])
+        if session_state.current_hypothesis:
+            next_actions.append(session_state.current_hypothesis)
+        return render_checkpoint_summary(
+            session_state,
+            stale_file_notes=working_memory.stale_file_summaries if working_memory else None,
+            next_actions=next_actions,
+        )
+
+    async def _compact_coding_session_history(
+        self,
+        *,
+        conversation_id: str,
+        run_id: str,
+        step_number: int,
+        session_state: CodingSessionState,
+        working_memory: Optional[WorkingMemory] = None,
+    ) -> bool:
+        """Compact coding-session history while retaining a raw tail."""
+        entry_records = await self._call_repo_async_method(
+            "list_coding_session_entries",
+            conversation_id,
+            start_seq=max(1, session_state.raw_tail_start_seq),
+        )
+        raw_entries = [
+            CodingSessionEntry.from_dict(entry)
+            for entry in (entry_records or [])
+        ]
+        if len(raw_entries) < 2:
+            return False
+
+        total_raw_tokens = sum(entry.token_estimate for entry in raw_entries)
+        tail_target = self._coding_tail_target_tokens()
+        if total_raw_tokens <= tail_target:
+            return False
+
+        turn_groups = self._group_entries_by_turn(raw_entries)
+        if not turn_groups:
+            return False
+        keep_two_start = (
+            turn_groups[-2]["start_seq"] if len(turn_groups) >= 2 else turn_groups[0]["start_seq"]
+        )
+
+        suffix_tokens: Dict[int, int] = {}
+        running = 0
+        for entry in reversed(raw_entries):
+            running += entry.token_estimate
+            suffix_tokens[entry.seq] = running
+
+        safe_candidates = [entry.seq for entry in raw_entries if entry.entry_type != "tool_result"]
+        preferred_candidates = [seq for seq in safe_candidates if seq <= keep_two_start]
+        candidate_seq: Optional[int] = next(
+            (seq for seq in preferred_candidates if suffix_tokens.get(seq, 0) <= tail_target),
+            None,
+        )
+        if candidate_seq is None:
+            split_candidates = [seq for seq in safe_candidates if seq >= keep_two_start]
+            candidate_seq = next(
+                (seq for seq in split_candidates if suffix_tokens.get(seq, 0) <= tail_target),
+                None,
+            )
+            if candidate_seq is None and split_candidates:
+                candidate_seq = split_candidates[-1]
+
+        if candidate_seq is None or candidate_seq <= session_state.raw_tail_start_seq:
+            return False
+
+        compacted_entries = [entry for entry in raw_entries if entry.seq < candidate_seq]
+        if not compacted_entries:
+            return False
+
+        session_state.checkpoint_through_seq = compacted_entries[-1].seq
+        session_state.raw_tail_start_seq = candidate_seq
+        session_state.checkpoint_summary = self._build_coding_checkpoint_summary(
+            session_state,
+            compacted_entries,
+            working_memory,
+        )
+        session_state.normalize()
+        await self._call_repo_async_method(
+            "mark_coding_session_entries_compacted",
+            conversation_id,
+            through_seq=session_state.checkpoint_through_seq,
+        )
+        await self._call_repo_async_method(
+            "upsert_coding_session_state",
+            conversation_id,
+            session_state.to_dict(),
+            last_run_id=run_id,
+        )
+        await self._add_trace_event(
+            run_id=run_id,
+            event_type="coding_session_compaction",
+            content={
+                "conversation_id": conversation_id,
+                "step_number": step_number,
+                "checkpoint_through_seq": session_state.checkpoint_through_seq,
+                "raw_tail_start_seq": session_state.raw_tail_start_seq,
+                "retained_raw_tokens": sum(
+                    entry.token_estimate
+                    for entry in raw_entries
+                    if entry.seq >= session_state.raw_tail_start_seq
+                ),
+                "tail_target_tokens": tail_target,
+                "compacted_entry_count": len(compacted_entries),
+                "kept_last_two_turns_raw": candidate_seq <= keep_two_start,
+            },
+            actor="system",
+            step_number=step_number,
+        )
+        return True
 
     async def _persist_coding_session_state(
         self,
@@ -1210,34 +1792,22 @@ To provide your final answer, respond WITHOUT calling any tools."""
         """Persist durable coding-session state for the current conversation."""
         self._merge_working_memory_into_coding_session(session_state, working_memory)
         if tool_results:
-            self._merge_tool_results_into_coding_session(session_state, tool_results)
+            self._merge_tool_results_into_coding_session(session_state, tool_results, run_id)
         if final_answer:
-            session_state.prior_outcomes = self._dedupe_tail(
-                session_state.prior_outcomes + [final_answer[:500]],
-                6,
+            session_state.prior_outcomes.append(final_answer[:1500])
+        if not session_state.checkpoint_summary:
+            session_state.checkpoint_summary = render_checkpoint_summary(
+                session_state,
+                stale_file_notes=working_memory.stale_file_summaries,
             )
         session_state.normalize()
+        working_memory.checkpoint_summary = session_state.checkpoint_summary
 
         await self._call_repo_async_method(
             "upsert_coding_session_state",
             conversation_id,
             session_state.to_dict(),
             last_run_id=run_id,
-        )
-        await self._add_trace_event(
-            run_id=run_id,
-            event_type="coding_session_snapshot",
-            content={
-                "conversation_id": conversation_id,
-                "reason": reason,
-                "files_inspected": list(session_state.files_inspected.keys()),
-                "files_changed": list(session_state.files_changed.keys()),
-                "validation_count": len(session_state.validation_results),
-                "open_tasks_count": len(session_state.unresolved_tasks),
-                "file_evidence_count": len(session_state.file_evidence),
-            },
-            actor="system",
-            step_number=step_number,
         )
 
     async def run(
@@ -1268,6 +1838,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
         start_time = time.perf_counter()
         coding_session_state: Optional[CodingSessionState] = None
         coding_session_dirty = False
+        ephemeral_messages: List[Dict[str, Any]] = []
 
         # Initialize findings for this run
         self._findings = []
@@ -1306,28 +1877,76 @@ To provide your final answer, respond WITHOUT calling any tools."""
 
         try:
             recovery_context = await state_machine.initialize()
-
-            # Build initial scaffold from system prompt + turn summaries.
-            messages, self._context_budget = await self._build_initial_messages(
-                query, conversation_id
+            current_user_content: Any = (
+                build_multimodal_user_content(query, validated_images)
+                if validated_images
+                else query
             )
-            if validated_images and messages and messages[-1].get("role") == "user":
-                messages[-1]["content"] = build_multimodal_user_content(query, validated_images)
-            working_memory = WorkingMemory(
-                objective=query,
-                prior_outcomes=self._prior_outcomes_from_scaffold(messages),
-            )
+            working_memory = WorkingMemory(objective=query)
+            self._active_conversation_id = conversation_id
+            self._active_coding_session_state = None
+            coding_session_had_entries = False
+            coding_session_record_exists = False
             if self._is_coding_profile() and conversation_id:
-                coding_session_state = await self._restore_coding_session_state(
-                    conversation_id=conversation_id,
-                    working_memory=working_memory,
-                    run_id=run_id,
+                session_record, coding_session_state = await self._load_coding_session_state_record(
+                    conversation_id
                 )
+                coding_session_record_exists = session_record is not None
+                latest_entry_seq = await self._call_repo_async_method(
+                    "get_latest_coding_session_entry_seq",
+                    conversation_id,
+                )
+                coding_session_had_entries = bool(latest_entry_seq)
                 if coding_session_state is None:
                     coding_session_state = CodingSessionState(objective=query)
+                else:
+                    await self._hydrate_working_memory_from_coding_session(
+                        conversation_id=conversation_id,
+                        session_state=coding_session_state,
+                        working_memory=working_memory,
+                        run_id=run_id,
+                        updated_at=session_record.get("updated_at") if session_record else None,
+                    )
+                if not coding_session_state.objective:
+                    coding_session_state.objective = query
+                await self._persist_coding_session_user_message(
+                    conversation_id=conversation_id,
+                    run_id=run_id,
+                    session_state=coding_session_state,
+                    user_content=current_user_content,
+                )
+                await self._persist_coding_session_state(
+                    conversation_id=conversation_id,
+                    run_id=run_id,
+                    working_memory=working_memory,
+                    session_state=coding_session_state,
+                    reason="user_turn_start",
+                )
+                coding_session_dirty = True
+                self._active_coding_session_state = coding_session_state
+
+            # Build initial scaffold from persisted session history or turn summaries.
+            messages, self._context_budget = await self._build_initial_messages(
+                query,
+                conversation_id,
+                run_id=run_id,
+                coding_session_state=coding_session_state,
+                working_memory=working_memory,
+                coding_session_use_entries=coding_session_had_entries,
+                coding_session_allow_state_fallback=(
+                    coding_session_record_exists and not coding_session_had_entries
+                ),
+            )
+            if not self._is_coding_profile():
+                if validated_images and messages and messages[-1].get("role") == "user":
+                    messages[-1]["content"] = current_user_content
+                working_memory.prior_outcomes = self._prior_outcomes_from_scaffold(messages)
+            elif not coding_session_record_exists and not coding_session_had_entries:
+                working_memory.prior_outcomes = self._prior_outcomes_from_scaffold(messages)
 
             # Handle recovery if needed
             if recovery_context.needs_recovery:
+                ephemeral_messages.extend(recovery_context.hints)
                 messages = build_recovery_messages(recovery_context, messages)
                 logger.info(
                     "Agent recovering from crash",
@@ -1386,7 +2005,16 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 if steer_queue:
                     while steer_queue:
                         steer_msg = steer_queue.pop(0)
-                        messages.append({"role": "user", "content": steer_msg})
+                        if self._is_coding_profile() and conversation_id and coding_session_state is not None:
+                            await self._persist_coding_session_user_message(
+                                conversation_id=conversation_id,
+                                run_id=run_id,
+                                session_state=coding_session_state,
+                                user_content=steer_msg,
+                            )
+                            coding_session_dirty = True
+                        else:
+                            messages.append({"role": "user", "content": steer_msg})
                         self._emit(
                             event_callback,
                             "steer_injected",
@@ -1399,6 +2027,38 @@ To provide your final answer, respond WITHOUT calling any tools."""
                             extra={"run_id": run_id, "step": step_number, "steer_content": steer_msg[:80]},
                         )
 
+                if self._is_coding_profile() and conversation_id and coding_session_state is not None:
+                    compacted_session = await self._compact_coding_session_history(
+                        conversation_id=conversation_id,
+                        run_id=run_id,
+                        step_number=step_number,
+                        session_state=coding_session_state,
+                        working_memory=working_memory,
+                    )
+                    if compacted_session:
+                        await self._persist_coding_session_state(
+                            conversation_id=conversation_id,
+                            run_id=run_id,
+                            working_memory=working_memory,
+                            session_state=coding_session_state,
+                            reason="compaction",
+                            step_number=step_number,
+                        )
+                        coding_session_dirty = True
+                    messages, self._context_budget = await self._build_initial_messages(
+                        query,
+                        conversation_id,
+                        run_id=run_id,
+                        coding_session_state=coding_session_state,
+                        working_memory=working_memory,
+                        coding_session_use_entries=True,
+                        coding_session_allow_state_fallback=False,
+                    )
+                    if self._current_plan:
+                        messages = self._inject_plan_into_messages(messages, self._current_plan)
+                    if ephemeral_messages:
+                        messages = [*messages, *ephemeral_messages]
+
                 prompt_messages = self._build_prompt_messages(
                     scaffold_messages=messages,
                     working_memory=working_memory,
@@ -1407,6 +2067,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 pruned_messages, context_usage_payload, compacted_now = self._enforce_prompt_budget(
                     prompt_messages,
                     step_number,
+                    enable_compaction=not self._is_coding_profile(),
                 )
                 estimated_tokens = context_usage_payload["prompt_tokens_current_call"]
                 context_remaining = context_usage_payload["remaining_tokens"]
@@ -1648,21 +2309,28 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         },
                     )
                     if llm_response.text:
-                        messages.append({
+                        partial_message = {
                             "role": "assistant",
                             "content": self._summarize_assistant_content(llm_response.text),
-                        })
+                        }
+                        messages.append(partial_message)
+                        if self._is_coding_profile():
+                            ephemeral_messages.append(partial_message)
                     if length_only:
                         length_only_continuations += 1
-                    messages.append({
+                    continuation_message = {
                         "role": "user",
                         "content": (
                             "Your last response hit the length limit before producing answer text. "
                             "Continue once from the compact working memory. "
                             "Prefer a concise final answer; call a tool only if essential."
                         ),
-                    })
-                    messages = self._trim_scaffold_messages(messages)
+                    }
+                    messages.append(continuation_message)
+                    if self._is_coding_profile():
+                        ephemeral_messages.append(continuation_message)
+                    else:
+                        messages = self._trim_scaffold_messages(messages)
                     await state_machine.complete_step(
                         decision="truncated",
                         thinking_text=thinking_text,
@@ -1682,10 +2350,13 @@ To provide your final answer, respond WITHOUT calling any tools."""
                             "Filtered redundant tool calls",
                             extra={"reasons": reasons, "filtered_count": len(redundant)},
                         )
-                        messages.append({
+                        filtered_notice = {
                             "role": "system",
                             "content": f"[Tool calls filtered — {reasons}. Try a different query or tool.]",
-                        })
+                        }
+                        messages.append(filtered_notice)
+                        if self._is_coding_profile():
+                            ephemeral_messages.append(filtered_notice)
                         if not tool_calls:
                             await state_machine.complete_step(
                                 decision="filtered",
@@ -1726,15 +2397,16 @@ To provide your final answer, respond WITHOUT calling any tools."""
                                     forced_synthesis=True,
                                 )
 
-                        messages.append(
-                            {
-                                "role": "user",
-                                "content": (
-                                    "Do not repeat filtered or duplicate tool calls. "
-                                    "Either provide the final answer now or choose a genuinely different tool call."
-                                ),
-                            }
-                        )
+                        filtered_user_prompt = {
+                            "role": "user",
+                            "content": (
+                                "Do not repeat filtered or duplicate tool calls. "
+                                "Either provide the final answer now or choose a genuinely different tool call."
+                            ),
+                        }
+                        messages.append(filtered_user_prompt)
+                        if self._is_coding_profile():
+                            ephemeral_messages.append(filtered_user_prompt)
                         continue
 
                     # Tool calling step
@@ -1767,6 +2439,13 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     self._record_tool_call_recovery(working_memory, recovery_notes)
                     if coding_session_state is not None and conversation_id:
                         coding_session_dirty = True
+                        await self._persist_coding_session_step_entries(
+                            conversation_id=conversation_id,
+                            run_id=run_id,
+                            step_number=step_number,
+                            assistant_content=assistant_content,
+                            tool_results=tool_results,
+                        )
                         await self._persist_coding_session_state(
                             conversation_id=conversation_id,
                             run_id=run_id,
@@ -1797,37 +2476,39 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         step_metadata[tool_call.id] = step_number
 
                     if recovery_notes:
-                        messages.append(
-                            {
-                                "role": "system",
-                                "content": (
-                                    "Previous tool call was invalid and failed. "
-                                    + " ".join(recovery_notes)
-                                    + " Continue from the current state. "
-                                    "Do not repeat malformed or incomplete tool arguments. "
-                                    "If no tool is needed, answer directly."
-                                ),
-                            }
-                        )
+                        recovery_message = {
+                            "role": "system",
+                            "content": (
+                                "Previous tool call was invalid and failed. "
+                                + " ".join(recovery_notes)
+                                + " Continue from the current state. "
+                                "Do not repeat malformed or incomplete tool arguments. "
+                                "If no tool is needed, answer directly."
+                            ),
+                        }
+                        messages.append(recovery_message)
+                        if self._is_coding_profile():
+                            ephemeral_messages.append(recovery_message)
 
                     if image_parts_for_next_call:
-                        messages.append(
-                            {
-                                "role": "user",
-                                "content": [
-                                    {
-                                        "type": "text",
-                                        "text": (
-                                            "Inspect the attached workspace image(s) visually and answer the user's request. "
-                                            "Use the images directly; do not rely on OCR unless you need exact text extraction."
-                                        ),
-                                    },
-                                    *image_parts_for_next_call,
-                                ],
-                                "_vision_from_tool": True,
-                                "_step": step_number,
-                            }
-                        )
+                        vision_followup_message = {
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": (
+                                        "Inspect the attached workspace image(s) visually and answer the user's request. "
+                                        "Use the images directly; do not rely on OCR unless you need exact text extraction."
+                                    ),
+                                },
+                                *image_parts_for_next_call,
+                            ],
+                            "_vision_from_tool": True,
+                            "_step": step_number,
+                        }
+                        messages.append(vision_followup_message)
+                        if self._is_coding_profile():
+                            ephemeral_messages.append(vision_followup_message)
 
                     # Update plan progress based on executed tools
                     if self._current_plan:
@@ -2015,6 +2696,9 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 usage=self._usage_totals.copy(),
                 cost=self._current_cost(),
             )
+        finally:
+            self._active_conversation_id = None
+            self._active_coding_session_state = None
 
     # =========================================================================
     # Private Methods
@@ -2212,13 +2896,15 @@ To provide your final answer, respond WITHOUT calling any tools."""
         self,
         messages: List[Dict[str, Any]],
         step_number: int,
+        *,
+        enable_compaction: bool = True,
     ) -> tuple[List[Dict[str, Any]], Dict[str, Any], bool]:
         effective_budget = self._context_profile.effective_input_budget
         threshold_tokens = int(effective_budget * self.COMPACTION_THRESHOLD_PCT / 100)
         prompt_tokens = self._pruner.estimate_tokens(messages)
         compacted_now = False
 
-        if prompt_tokens >= threshold_tokens:
+        if enable_compaction and prompt_tokens >= threshold_tokens:
             compacted_messages = self._compact_conversation(messages, step_number)
             if compacted_messages is not messages:
                 messages = compacted_messages
@@ -2490,12 +3176,18 @@ When you complete each step, proceed to the next."""
         self,
         query: str,
         conversation_id: Optional[str] = None,
+        run_id: Optional[str] = None,
+        coding_session_state: Optional[CodingSessionState] = None,
+        working_memory: Optional[WorkingMemory] = None,
+        coding_session_use_entries: bool = True,
+        coding_session_allow_state_fallback: bool = False,
     ) -> tuple[List[Dict[str, Any]], ContextBudget]:
         """Build initial message list with system prompt, history, and query.
 
-        Uses HistoryBuilder turn summaries for background history. Coding-profile
-        continuity is restored separately through persisted coding-session state,
-        not prior serialized tool transcripts.
+        Non-coding profiles use HistoryBuilder turn summaries. Coding-profile
+        continuity prefers coding-session checkpoint + raw entries keyed by
+        conversation_id and only falls back to summary history when no session
+        entries or durable state exist yet.
 
         Args:
             query: User's research query.
@@ -2528,6 +3220,24 @@ When you complete each step, proceed to the next."""
             prior_runs = await self._trace_repo.list_runs_for_conversation(
                 conversation_id
             )
+
+        if (
+            self._is_coding_profile()
+            and conversation_id
+            and coding_session_state is not None
+            and (coding_session_use_entries or coding_session_allow_state_fallback)
+        ):
+            messages, budget = await self._load_coding_session_messages(
+                conversation_id=conversation_id,
+                system_prompt=system_prompt,
+                query=query,
+                run_id=run_id or "coding-session-context",
+                session_state=coding_session_state,
+                working_memory=working_memory,
+                use_session_entries=coding_session_use_entries,
+                allow_state_fallback=coding_session_allow_state_fallback,
+            )
+            return messages, budget
 
         builder = HistoryBuilder(
             token_counter=get_token_counter(),
@@ -3138,6 +3848,20 @@ When you complete each step, proceed to the next."""
             )
             return prep
 
+        if tool_call.name == "read_file" and self._active_coding_session_state is not None:
+            reread_payload = self._classify_coding_file_read_reason(tool_call)
+            if reread_payload is not None:
+                await self._add_trace_event(
+                    run_id=run_id,
+                    event_type="coding_session_file_reread",
+                    content={
+                        "conversation_id": self._active_conversation_id,
+                        **reread_payload,
+                    },
+                    actor="system",
+                    step_number=step_number,
+                )
+
         # Permission gate
         permission_level = getattr(tool.schema, "permission_level", "auto")
         workspace_path = self._get_workspace_path()
@@ -3240,6 +3964,87 @@ When you complete each step, proceed to the next."""
             if isinstance(working_dir, Path):
                 return str(working_dir)
         return None
+
+    def _requested_read_span(
+        self,
+        tool_call: ParsedToolCall,
+    ) -> tuple[Optional[int], Optional[int]]:
+        """Return the requested read span from tool arguments."""
+        offset = tool_call.arguments.get("offset", 1)
+        limit = tool_call.arguments.get("limit")
+        try:
+            line_start = max(1, int(offset))
+        except (TypeError, ValueError):
+            line_start = 1
+        try:
+            limit_int = int(limit) if limit is not None else None
+        except (TypeError, ValueError):
+            limit_int = None
+        if limit_int is not None and limit_int > 0:
+            return line_start, line_start + limit_int - 1
+        return line_start, None
+
+    def _classify_coding_file_read_reason(
+        self,
+        tool_call: ParsedToolCall,
+    ) -> Optional[dict[str, Any]]:
+        """Classify why a coding run is rereading a file."""
+        session_state = self._active_coding_session_state
+        if tool_call.name != "read_file" or session_state is None:
+            return None
+        path = self._canonical_workspace_path(
+            str(tool_call.arguments.get("file_path", "unknown"))
+        )
+        file_state = session_state.file_evidence.get(path)
+        line_start, line_end = self._requested_read_span(tool_call)
+        if file_state is None:
+            if path in session_state.read_files or path in session_state.modified_files:
+                return {
+                    "path": path,
+                    "reason": "missing_evidence",
+                    "detail": "Stored file history exists but concrete evidence is missing.",
+                    "line_start": line_start,
+                    "line_end": line_end,
+                }
+            return {
+                "path": path,
+                "reason": "new_file_needed",
+                "detail": "This file has not been captured in the coding session yet.",
+                "line_start": line_start,
+                "line_end": line_end,
+            }
+        is_fresh, reason_code, detail = self._assess_file_freshness(file_state)
+        if not is_fresh:
+            return {
+                "path": path,
+                "reason": reason_code or "stale_hash",
+                "detail": detail,
+                "line_start": line_start,
+                "line_end": line_end,
+            }
+        if not file_state.spans:
+            return {
+                "path": path,
+                "reason": "missing_evidence",
+                "detail": "Stored file state has no reusable spans.",
+                "line_start": line_start,
+                "line_end": line_end,
+            }
+        if not file_state.covers_range(line_start, line_end):
+            return {
+                "path": path,
+                "reason": "span_insufficient",
+                "detail": "Stored evidence does not cover the requested line range.",
+                "line_start": line_start,
+                "line_end": line_end,
+            }
+        return {
+            "path": path,
+            "reason": "explicit_model_request",
+            "detail": "Fresh stored evidence already covered this file span.",
+            "line_start": line_start,
+            "line_end": line_end,
+        }
 
     async def _finalize_tool_call(
         self,
@@ -4160,6 +4965,12 @@ When you complete each step, proceed to the next."""
             and working_memory is not None
             and coding_session_state is not None
         ):
+            await self._persist_coding_session_final_answer(
+                conversation_id=conversation_id,
+                run_id=run_id,
+                step_number=step_number,
+                final_answer=final_answer,
+            )
             await self._persist_coding_session_state(
                 conversation_id=conversation_id,
                 run_id=run_id,
