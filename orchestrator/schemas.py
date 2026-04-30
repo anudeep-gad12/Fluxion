@@ -48,6 +48,11 @@ class RunResponse(BaseModel):
     error_detail: Optional[str] = None
     # Thinking data for CoT mode
     thinking_summary: Optional[str] = None
+    usage: Optional[dict[str, Any]] = None
+    cost: Optional[dict[str, Any]] = None
+    context_usage: Optional[dict[str, Any]] = None
+    stored_context: Optional[dict[str, Any]] = None
+    context_profile: Optional[dict[str, Any]] = None
 
 
 class RunListResponse(BaseModel):
@@ -386,6 +391,7 @@ class AgentRunStatusResponse(BaseModel):
     usage: Optional[dict[str, Any]] = None
     cost: Optional[dict[str, Any]] = None
     context_usage: Optional[dict[str, Any]] = None
+    stored_context: Optional[dict[str, Any]] = None
     context_profile: Optional[ModelContextProfileResponse] = None
     compaction_count: int = 0
     last_compacted_at_step: Optional[int] = None
@@ -421,6 +427,7 @@ class AgentRunTraceResponse(BaseModel):
     usage: Optional[dict[str, Any]] = None
     cost: Optional[dict[str, Any]] = None
     context_usage: Optional[dict[str, Any]] = None
+    stored_context: Optional[dict[str, Any]] = None
     context_profile: Optional[ModelContextProfileResponse] = None
     compaction_count: int = 0
     last_compacted_at_step: Optional[int] = None
@@ -499,6 +506,16 @@ class UpdateReasoningSettingsRequest(BaseModel):
 
 def trace_to_run(trace: dict) -> RunResponse:
     """Convert a trace dict to RunResponse."""
+    usage_stats = trace.get("usage") or {}
+    normalized_usage = usage_stats.get("usage")
+    if normalized_usage is None and "total_tokens" in usage_stats:
+        normalized_usage = {
+            "input_tokens": usage_stats.get("prompt_tokens", 0),
+            "output_tokens": usage_stats.get("completion_tokens", 0),
+            "reasoning_tokens": usage_stats.get("thinking_tokens", 0),
+            "cached_tokens": 0,
+            "total_tokens": usage_stats.get("total_tokens", 0),
+        }
     return RunResponse(
         run_id=trace.get("run_id", ""),
         created_at=trace.get("created_at", ""),
@@ -511,4 +528,9 @@ def trace_to_run(trace: dict) -> RunResponse:
         final_answer=trace.get("final_answer"),
         error_detail=trace.get("error_message"),
         thinking_summary=trace.get("thinking_summary"),
+        usage=normalized_usage,
+        cost=usage_stats.get("cost"),
+        context_usage=usage_stats.get("context_usage"),
+        stored_context=usage_stats.get("stored_context"),
+        context_profile=usage_stats.get("context_profile"),
     )

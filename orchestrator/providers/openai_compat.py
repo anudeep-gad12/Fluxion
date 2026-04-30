@@ -426,6 +426,21 @@ class OpenAICompatProvider:
         usage: Dict[str, int] = {}
         response_id: Optional[str] = None
 
+        def _has_valid_tool_arguments(arguments: Any) -> bool:
+            """Return whether tool-call arguments are non-empty valid JSON objects."""
+            if isinstance(arguments, dict):
+                return bool(arguments)
+            if not isinstance(arguments, str):
+                return False
+            stripped = arguments.strip()
+            if not stripped or stripped == "{}":
+                return False
+            try:
+                parsed = json.loads(stripped)
+            except json.JSONDecodeError:
+                return False
+            return isinstance(parsed, dict) and bool(parsed)
+
         # Debug: Log the request payload
         import json as json_module
         payload_json = json_module.dumps(payload)
@@ -585,7 +600,7 @@ class OpenAICompatProvider:
                     if delta.get("tool_call_complete"):
                         tc = delta["tool_call_complete"]
                         args = tc.get("function", {}).get("arguments", "")
-                        if args and args.strip() and args.strip() != "{}":
+                        if _has_valid_tool_arguments(args):
                             tool_calls.append(tc)
                             logger.debug(
                                 "Streaming tool call complete",
@@ -593,14 +608,14 @@ class OpenAICompatProvider:
                             )
                         else:
                             logger.warning(
-                                "Skipped tool call with empty arguments",
+                                "Skipped tool call with invalid arguments",
                                 extra={"tool_name": tc.get("function", {}).get("name", "unknown")}
                             )
                     # Handle multiple complete tool calls (e.g., DeepInfra)
                     if delta.get("tool_calls_complete"):
                         for tc in delta["tool_calls_complete"]:
                             args = tc.get("function", {}).get("arguments", "")
-                            if args and args.strip() and args.strip() != "{}":
+                            if _has_valid_tool_arguments(args):
                                 tool_calls.append(tc)
                                 logger.debug(
                                     "Streaming tool call complete (batch)",
@@ -608,7 +623,7 @@ class OpenAICompatProvider:
                                 )
                             else:
                                 logger.warning(
-                                    "Skipped tool call with empty arguments (batch)",
+                                    "Skipped tool call with invalid arguments (batch)",
                                     extra={"tool_name": tc.get("function", {}).get("name", "unknown")}
                                 )
 
@@ -642,9 +657,9 @@ class OpenAICompatProvider:
                         )
                         continue
                     args_str = "".join(acc["arguments_parts"])
-                    if not args_str.strip() or args_str.strip() == "{}":
+                    if not _has_valid_tool_arguments(args_str):
                         logger.warning(
-                            "Skipped streaming tool call with empty arguments",
+                            "Skipped streaming tool call with invalid arguments",
                             extra={"tool_name": acc["name"], "tool_id": acc["id"]},
                         )
                         continue
@@ -665,7 +680,7 @@ class OpenAICompatProvider:
                     )
                 elif acc["id"] and acc["name"]:
                     logger.warning(
-                        "Skipped streaming tool call with empty arguments",
+                        "Skipped streaming tool call with invalid arguments",
                         extra={"tool_name": acc["name"], "tool_id": acc["id"]},
                     )
 
