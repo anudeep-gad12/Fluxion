@@ -627,7 +627,8 @@ Step 2+: MAIN LOOP (while not synthesis and step < max_steps)
     │   ├── Chat flows use turn_summary when available (~10x more history)
     │   │   └── Turn summaries include key_findings from tool results
     │   │       for richer cross-turn context
-    │   ├── Agent flows primarily resume from persisted runs.agent_state
+    │   ├── Coding agent flows rebuild from coding checkpoint + raw-tail replay
+    │   ├── Non-coding agent flows fall back to runs.agent_state / summary history
     │   ├── Else use raw user_message + final_answer pairs
     │   └── Apply token budget with sliding window
     │

@@ -242,7 +242,27 @@ Persists durable coding-session state per conversation for coding-profile contin
 | `created_at` | TEXT | ISO 8601 timestamp |
 | `updated_at` | TEXT | ISO 8601 timestamp |
 
-**Coding Session State**: The JSON payload stores durable coding context for follow-up turns: accepted objective, prior outcomes, inspected files, changed files, validation results, unresolved tasks, recent evidence, and per-file excerpts with freshness markers. `AgentEngine` restores this state for coding-profile conversations before the next LLM call so “inspect → implement → commit” flows do not restart from `turn_summary` alone.
+**Coding Session State**: The JSON payload stores durable coding context for follow-up turns: accepted objective/plan, read files, modified files, validation results, open tasks, recent commands, checkpoint summary metadata, and per-file evidence with multiple stored line spans plus freshness hashes. `AgentEngine` restores this state for coding-profile conversations before the next LLM call so “inspect → implement → commit” flows do not restart from `turn_summary` alone.
+
+#### coding_session_entries
+
+Replayable coding-session transcript entries for coding-profile conversations. These rows preserve the recent raw tail that is replayed after the checkpoint summary.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | TEXT PK | UUID identifier |
+| `conversation_id` | TEXT FK | Conversation this entry belongs to |
+| `seq` | INTEGER | Monotonic per-conversation sequence number |
+| `run_id` | TEXT | Run that produced the entry |
+| `step_number` | INTEGER | Agent step that produced the entry, if any |
+| `entry_type` | TEXT | `user`, `assistant`, `assistant_tool_calls`, `tool_result`, or `checkpoint` |
+| `role` | TEXT | Prompt role to reconstruct (`user`, `assistant`, `tool`, `system`) |
+| `content_json` | TEXT | Canonical replay payload (JSON) |
+| `token_estimate` | INTEGER | Estimated token cost of the stored entry |
+| `compacted_at` | TEXT | ISO 8601 timestamp when this entry was compacted into a checkpoint |
+| `created_at` | TEXT | ISO 8601 timestamp |
+
+**Coding Session Replay**: `CodingSessionContextBuilder` rebuilds coding prompts as `system prompt + checkpoint summary + uncompacted raw tail`. Older entries can be compacted, but the recent raw tail remains replayable with canonical assistant/tool message structure.
 
 #### agent_steps
 
@@ -399,6 +419,8 @@ Indexes are created for performance optimization on frequently queried columns:
 |-------|------------|---------|---------|
 | `conversations` | `idx_conversations_created_at` | `created_at` | Sort by creation date |
 | `coding_sessions` | `idx_coding_sessions_updated_at` | `updated_at` | Find latest persisted coding sessions |
+| `coding_session_entries` | `idx_coding_session_entries_conversation_seq` | `conversation_id, seq` | Replay coding-session history in order |
+| `coding_session_entries` | `idx_coding_session_entries_compacted` | `conversation_id, compacted_at, seq` | Find uncompacted raw-tail entries efficiently |
 | `runs` | `idx_runs_conversation_id` | `conversation_id` | Filter runs by conversation |
 | `eval_runs` | `idx_eval_runs_created_at` | `created_at` | Sort by creation date |
 | `eval_runs` | `idx_eval_runs_benchmark` | `benchmark_name` | Filter by benchmark |
@@ -426,6 +448,7 @@ The schema uses `ON DELETE CASCADE` for automatic cleanup when parent records ar
 | `trace_events` | `runs` | `run_id` | Delete events when run deleted |
 | `trace_events` | `trace_events` | `parent_event_id` | Delete children when parent deleted |
 | `coding_sessions` | `conversations` | `conversation_id` | Delete coding continuity state when conversation deleted |
+| `coding_session_entries` | `conversations` | `conversation_id` | Delete coding raw-tail history when conversation deleted |
 | `agent_steps` | `runs` | `run_id` | Delete steps when run deleted |
 | `agent_tool_calls` | `runs` | `run_id` | Delete calls when run deleted |
 | `agent_tool_calls` | `agent_steps` | `step_id` | Delete calls when step deleted |
@@ -437,7 +460,7 @@ The schema uses `ON DELETE CASCADE` for automatic cleanup when parent records ar
 | `run_artifacts` | `runs` | `run_id` | Delete artifacts when run deleted |
 | `run_artifacts` | `agent_tool_calls` | `tool_call_id` | Delete artifacts when call deleted |
 
-**Note**: Deleting a `conversation` record will automatically cascade to remove its persisted `coding_sessions` row. Deleting a `runs` record will automatically cascade to remove all related `trace_events`, `agent_steps`, `agent_tool_calls`, `agent_citations`, `run_events`, and `run_artifacts`.
+**Note**: Deleting a `conversation` record will automatically cascade to remove its persisted `coding_sessions` row and `coding_session_entries`. Deleting a `runs` record will automatically cascade to remove all related `trace_events`, `agent_steps`, `agent_tool_calls`, `agent_citations`, `run_events`, and `run_artifacts`.
 
 ---
 
