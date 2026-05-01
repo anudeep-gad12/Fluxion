@@ -75,8 +75,13 @@ async def create_terminal_session(
     http_request: Request,
 ):
     session_id, is_owner = _get_http_session_context(http_request)
-    await _require_conversation_access(conversation_id, session_id=session_id, is_owner=is_owner)
-    workspace_path = str(_resolve_workspace_path(request.workspace_path)) if request.workspace_path else None
+    conversation = await _require_conversation_access(
+        conversation_id, session_id=session_id, is_owner=is_owner
+    )
+    workspace_path = (
+        conversation.get("workspace_path")
+        or (str(_resolve_workspace_path(request.workspace_path)) if request.workspace_path else None)
+    )
     manager = get_terminal_manager()
     return await manager.get_or_create(
         conversation_id=conversation_id,
@@ -94,8 +99,13 @@ async def restart_terminal_session(
     http_request: Request,
 ):
     session_id, is_owner = _get_http_session_context(http_request)
-    await _require_conversation_access(conversation_id, session_id=session_id, is_owner=is_owner)
-    workspace_path = str(_resolve_workspace_path(request.workspace_path)) if request.workspace_path else None
+    conversation = await _require_conversation_access(
+        conversation_id, session_id=session_id, is_owner=is_owner
+    )
+    workspace_path = (
+        conversation.get("workspace_path")
+        or (str(_resolve_workspace_path(request.workspace_path)) if request.workspace_path else None)
+    )
     manager = get_terminal_manager()
     return await manager.restart(
         conversation_id=conversation_id,

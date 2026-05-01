@@ -83,6 +83,7 @@ class ConversationResponse(BaseModel):
     created_at: str
     title: Optional[str] = None
     summary: Optional[str] = None
+    workspace_path: Optional[str] = None
     status: str
     metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -98,6 +99,7 @@ class CreateConversationRequest(BaseModel):
     """Request to create a conversation."""
 
     title: Optional[str] = None
+    workspace_path: Optional[str] = None
 
 
 class CreateConversationResponse(BaseModel):

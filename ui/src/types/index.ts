@@ -78,6 +78,7 @@ export interface Conversation {
   created_at: string;
   title?: string;
   summary?: string;
+  workspace_path?: string | null;
   status: string;
   metadata?: Record<string, unknown>;
 }
@@ -89,6 +90,7 @@ export interface ConversationDetailResponse {
 
 export interface CreateConversationRequest {
   title?: string;
+  workspace_path?: string;
 }
 
 export interface CreateConversationResponse {
