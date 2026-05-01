@@ -13,7 +13,6 @@ import {
   CheckSquare,
   ChevronDown,
   ChevronRight,
-  FolderCode,
   Plus,
   Square,
   Trash2,
@@ -23,6 +22,16 @@ import type { Conversation } from '@/types';
 
 function workspaceLabel(workspacePath: string): string {
   return workspacePath.split('/').filter(Boolean).pop() || workspacePath;
+}
+
+function workspacePathPreview(workspacePath: string): string {
+  const normalized = workspacePath.trim();
+  if (!normalized) return '';
+  const parts = normalized.split('/').filter(Boolean);
+  if (parts.length <= 3) {
+    return normalized;
+  }
+  return `…/${parts.slice(-3).join('/')}`;
 }
 
 type WorkspaceGroup = {
@@ -52,16 +61,17 @@ function ConversationCard({
   return (
     <div
       className={cn(
-        'rounded-none border px-3 py-3 sm:py-2 cursor-pointer transition-colors',
+        'cursor-pointer rounded-lg border border-zinc-800/80 bg-zinc-950/40 px-3 py-3 transition-all',
         'min-h-[60px] sm:min-h-0',
-        isSelected ? 'border-zinc-400 bg-zinc-900' : 'hover:bg-zinc-800',
-        isChecked && 'bg-zinc-800 border-zinc-500'
+        isSelected && 'border-zinc-600 bg-zinc-900/80 shadow-[0_0_0_1px_rgba(255,255,255,0.04)]',
+        !isSelected && 'hover:border-zinc-700 hover:bg-zinc-900/55',
+        isChecked && 'border-zinc-600 bg-zinc-900/70'
       )}
       onClick={isSelectMode ? onToggleCheck : onClick}
     >
       <div className="flex items-start justify-between gap-3">
         {isSelectMode && (
-          <div className="pt-1">
+          <div className="pt-1.5">
             {isChecked ? (
               <CheckSquare className="h-5 w-5 sm:h-4 sm:w-4 text-zinc-400" />
             ) : (
@@ -70,10 +80,10 @@ function ConversationCard({
           </div>
         )}
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium truncate">
+          <p className="truncate text-sm font-medium text-zinc-100">
             {conversation.title ? truncate(conversation.title, 50) : 'New conversation'}
           </p>
-          <p className="text-xs text-muted-foreground mt-1">
+          <p className="mt-1 text-xs text-zinc-500">
             {formatRelativeTime(conversation.created_at)}
           </p>
         </div>
@@ -81,13 +91,13 @@ function ConversationCard({
           <Button
             variant="ghost"
             size="icon"
-            className="h-9 w-9 sm:h-8 sm:w-8 flex-shrink-0"
+            className="h-8 w-8 flex-shrink-0 rounded-md text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200"
             onClick={(e) => {
               e.stopPropagation();
               onDelete();
             }}
           >
-            <Trash2 className="h-4 w-4 text-zinc-500 hover:text-zinc-200" />
+            <Trash2 className="h-4 w-4" />
           </Button>
         )}
       </div>
@@ -109,35 +119,55 @@ function WorkspaceSection({
   children: ReactNode;
 }) {
   return (
-    <div className="space-y-2">
-      <div className="flex items-center gap-2 rounded-none border border-zinc-900 bg-zinc-950/60 px-2 py-2">
-        <button
-          onClick={onToggle}
-          className="flex min-w-0 flex-1 items-center gap-2 text-left"
-        >
-          {isOpen ? (
-            <ChevronDown className="h-4 w-4 text-zinc-600" />
-          ) : (
-            <ChevronRight className="h-4 w-4 text-zinc-600" />
-          )}
-          <FolderCode className="h-4 w-4 text-zinc-400" />
+    <div className="space-y-2.5">
+      <div className="group rounded-xl border border-zinc-800/80 bg-zinc-950/55 px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)] transition-colors hover:border-zinc-700 hover:bg-zinc-900/60">
+        <div className="flex items-start gap-3.5">
+          <button
+            onClick={onToggle}
+            className="mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md border border-zinc-800 bg-zinc-900/80 text-zinc-500 transition-colors hover:border-zinc-700 hover:text-zinc-300"
+            title={isOpen ? 'Collapse workspace' : 'Expand workspace'}
+          >
+            {isOpen ? (
+              <ChevronDown className="h-3.5 w-3.5" />
+            ) : (
+              <ChevronRight className="h-3.5 w-3.5" />
+            )}
+          </button>
           <div className="min-w-0 flex-1">
-            <div className="truncate text-sm text-zinc-200">{group.label}</div>
-            <div className="truncate text-[10px] text-zinc-600">{group.workspacePath}</div>
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <button
+                  onClick={onToggle}
+                  className="block min-w-0 text-left"
+                  title={group.workspacePath}
+                >
+                  <div className="truncate pr-2 text-[15px] font-medium leading-5 text-zinc-100">
+                    {group.label}
+                  </div>
+                </button>
+                <div className="mt-1.5 truncate pr-2 font-mono text-[11px] leading-5 text-zinc-500">
+                  {workspacePathPreview(group.workspacePath)}
+                </div>
+              </div>
+              <div className="flex flex-shrink-0 items-center gap-2 pt-0.5">
+                <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full border border-zinc-800 bg-zinc-900 px-1.5 text-[10px] text-zinc-400">
+                  {group.conversations.length}
+                </span>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-8 w-8 flex-shrink-0 rounded-md text-zinc-500 hover:bg-zinc-800 hover:text-zinc-100"
+                  onClick={onNewConversation}
+                  title="New conversation in this workspace"
+                >
+                  <Plus className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
           </div>
-          <span className="text-[10px] text-zinc-600">{group.conversations.length}</span>
-        </button>
-        <Button
-          size="icon"
-          variant="ghost"
-          className="h-8 w-8 flex-shrink-0"
-          onClick={onNewConversation}
-          title="New conversation in this workspace"
-        >
-          <Plus className="h-4 w-4" />
-        </Button>
+        </div>
       </div>
-      {isOpen && <div className="space-y-2 pl-3">{children}</div>}
+      {isOpen && <div className="space-y-2 pl-4">{children}</div>}
     </div>
   );
 }
@@ -310,60 +340,95 @@ export function ConversationList() {
     setIsSelectMode(false);
   };
 
+  const allWorkspaceSectionsOpen = useMemo(
+    () =>
+      workspaceGroups.length > 0
+      && workspaceGroups.every((group) => workspaceSectionsOpen[group.workspacePath] ?? true),
+    [workspaceGroups, workspaceSectionsOpen]
+  );
+
+  const setAllWorkspaceSections = (isOpen: boolean) => {
+    setWorkspaceSectionsOpen(
+      Object.fromEntries(
+        workspaceGroups.map((group) => [group.workspacePath, isOpen])
+      )
+    );
+  };
+
   return (
     <div className="h-full flex flex-col">
-      <div className="flex items-center justify-between px-3 sm:px-4 py-3 border-b">
-        <div className="flex items-center gap-3 min-w-0">
-          <h2 className="font-semibold text-sm text-zinc-100">Create workspace</h2>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => setWorkspacePickerOpen(true)}
-            disabled={hasActiveRun}
-            className="h-8 w-8 p-0"
-            title="Create workspace"
-          >
-            <Plus className="h-4 w-4" />
-          </Button>
-        </div>
-        <div className="flex items-center gap-1">
-          {isSelectMode && (
+      <div className="border-b border-zinc-900 px-3 py-3 sm:px-4">
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-zinc-500">
+            Workspaces
+          </div>
+          <div className="flex items-center gap-1">
             <Button
               size="sm"
               variant="ghost"
-              onClick={() => {
-                if (selectedIds.size === conversations.length) {
-                  setSelectedIds(new Set());
-                } else {
-                  setSelectedIds(new Set(conversations.map((conversation) => conversation.conversation_id)));
-                }
-              }}
-              title={selectedIds.size === conversations.length ? 'Deselect all' : 'Select all'}
-              className="h-9 sm:h-8"
+              onClick={() => setAllWorkspaceSections(!allWorkspaceSectionsOpen)}
+              disabled={workspaceGroups.length === 0}
+              className="h-9 w-9 rounded-md p-0 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
+              title={allWorkspaceSectionsOpen ? 'Collapse all' : 'Expand all'}
             >
-              {selectedIds.size === conversations.length ? 'None' : 'All'}
+              {allWorkspaceSectionsOpen ? (
+                <ChevronDown className="h-4 w-4" />
+              ) : (
+                <ChevronRight className="h-4 w-4" />
+              )}
             </Button>
-          )}
-          <Button
-            size="sm"
-            variant={isSelectMode ? 'secondary' : 'ghost'}
-            onClick={toggleSelectMode}
-            title={isSelectMode ? 'Cancel selection' : 'Select conversations'}
-            className="h-9 w-9 sm:h-8 sm:w-8"
-          >
-            {isSelectMode ? <X className="h-4 w-4" /> : <CheckSquare className="h-4 w-4" />}
-          </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setWorkspacePickerOpen(true)}
+              disabled={hasActiveRun}
+              className="h-9 w-9 rounded-md p-0 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100"
+              title="Create workspace"
+            >
+              <Plus className="h-4 w-4" />
+            </Button>
+            {isSelectMode && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  if (selectedIds.size === conversations.length) {
+                    setSelectedIds(new Set());
+                  } else {
+                    setSelectedIds(
+                      new Set(
+                        conversations.map((conversation) => conversation.conversation_id)
+                      )
+                    );
+                  }
+                }}
+                title={selectedIds.size === conversations.length ? 'Deselect all' : 'Select all'}
+                className="h-9 rounded-md px-2 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100 sm:h-8"
+              >
+                {selectedIds.size === conversations.length ? 'None' : 'All'}
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant={isSelectMode ? 'secondary' : 'ghost'}
+              onClick={toggleSelectMode}
+              title={isSelectMode ? 'Cancel selection' : 'Select conversations'}
+              className="h-9 w-9 rounded-md sm:h-8 sm:w-8"
+            >
+              {isSelectMode ? <X className="h-4 w-4" /> : <CheckSquare className="h-4 w-4" />}
+            </Button>
+          </div>
         </div>
       </div>
 
       {isSelectMode && selectedIds.size > 0 && (
-        <div className="px-3 sm:px-4 py-2 bg-zinc-800 border-b flex items-center justify-between">
+        <div className="flex items-center justify-between border-b border-zinc-800 bg-zinc-900/80 px-3 py-2 sm:px-4">
           <span className="text-sm text-zinc-300">{selectedIds.size} selected</span>
           <Button
             size="sm"
             variant="destructive"
             onClick={() => setBulkDeleteModalOpen(true)}
-            className="h-9 sm:h-8"
+            className="h-9 rounded-md sm:h-8"
           >
             <Trash2 className="h-4 w-4" />
             Delete
@@ -371,11 +436,13 @@ export function ConversationList() {
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-4">
+      <div className="flex-1 space-y-4 overflow-y-auto bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.03),_transparent_40%)] p-3 sm:p-4">
         {isLoading && conversations.length === 0 ? (
           <div className="text-sm text-muted-foreground">Loading conversations...</div>
         ) : workspaceGroups.length === 0 ? (
-          <div className="text-sm text-muted-foreground">No workspaces yet.</div>
+          <div className="rounded-xl border border-dashed border-zinc-800 bg-zinc-950/40 px-4 py-6 text-sm text-zinc-500">
+            No workspaces yet.
+          </div>
         ) : (
           <>
             {workspaceGroups.map((group) => (
@@ -392,7 +459,7 @@ export function ConversationList() {
                 {group.conversations.length === 0 ? (
                   <button
                     onClick={() => startWorkspaceDraft(group.workspacePath)}
-                    className="w-full border border-dashed border-zinc-800 px-3 py-3 text-left text-xs text-zinc-500 hover:border-zinc-700 hover:text-zinc-300"
+                    className="w-full rounded-lg border border-dashed border-zinc-800 bg-zinc-950/40 px-3 py-3 text-left text-xs text-zinc-500 transition-colors hover:border-zinc-700 hover:bg-zinc-900/40 hover:text-zinc-300"
                   >
                     New conversation
                   </button>

@@ -71,7 +71,7 @@ function AppLayout() {
     // For non-owners, start collapsed (demo mode will enforce this)
     return true;
   });
-  const [sidebarWidth, setSidebarWidth] = useState(320); // default 320px
+  const [sidebarWidth, setSidebarWidth] = useState(392); // default 392px
   const isResizing = useRef(false);
 
   // Mobile detection - below md: breakpoint (768px)
@@ -153,7 +153,7 @@ function AppLayout() {
 
   const handleMouseMove = useCallback((e: MouseEvent) => {
     if (!isResizing.current) return;
-    const newWidth = Math.min(Math.max(e.clientX, 200), 500); // min 200, max 500
+    const newWidth = Math.min(Math.max(e.clientX, 280), 520); // min 280, max 520
     setSidebarWidth(newWidth);
   }, []);
 
