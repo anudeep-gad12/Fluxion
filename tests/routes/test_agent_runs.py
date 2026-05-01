@@ -22,6 +22,7 @@ import orchestrator.storage.db as db_module
 from orchestrator.app import app
 from orchestrator.agent import AgentResult
 from orchestrator.storage.db import Database
+from orchestrator.storage.repositories.conversation_repo import ConversationRepo
 
 
 # =============================================================================
@@ -196,6 +197,67 @@ class TestCreateAgentRun:
             },
         )
         assert response.status_code == 200
+
+    def test_existing_new_conversation_is_retitled_from_first_agent_message(
+        self,
+        client,
+        test_db,
+    ):
+        """Existing placeholder-titled conversations should auto-title on first agent run."""
+        conv_resp = client.post(
+            "/api/conversations",
+            json={"title": "New conversation"},
+        )
+        assert conv_resp.status_code == 200
+        conversation_id = conv_resp.json()["conversation_id"]
+
+        response = client.post(
+            "/api/agent/runs",
+            json={
+                "query": "   fix    the   broken workspace title handling   ",
+                "conversation_id": conversation_id,
+            },
+        )
+
+        async def fetch_conversation_title() -> str | None:
+            repo = ConversationRepo(test_db)
+            conversation = await repo.get(conversation_id)
+            return conversation.get("title") if conversation else None
+
+        loop = asyncio.get_event_loop()
+        updated_title = loop.run_until_complete(fetch_conversation_title())
+
+        assert response.status_code == 200
+        assert updated_title == "Fix the broken workspace title handling"
+
+    def test_standalone_agent_run_uses_normalized_conversation_title(self, client, test_db):
+        """Ephemeral agent conversations should use the normalized first query as title."""
+        response = client.post(
+            "/api/agent/runs",
+            json={
+                "query": "   explain    why   the   workspace   cards look cramped   ",
+            },
+        )
+        assert response.status_code == 200
+
+        run_id = response.json()["run_id"]
+
+        async def fetch_title() -> str | None:
+            async with test_db.conn.execute(
+                "SELECT conversation_id FROM runs WHERE run_id = ?",
+                (run_id,),
+            ) as cursor:
+                row = await cursor.fetchone()
+            conversation_id = row["conversation_id"] if row else None
+            if not conversation_id:
+                return None
+            repo = ConversationRepo(test_db)
+            conversation = await repo.get(conversation_id)
+            return conversation.get("title") if conversation else None
+
+        loop = asyncio.get_event_loop()
+        title = loop.run_until_complete(fetch_title())
+        assert title == "Issue: The workspace cards too cramped"
 
     def test_existing_conversation_workspace_overrides_request_workspace(self, test_db, tmp_path):
         """Workspace-bound conversations ignore mismatched request workspace paths."""

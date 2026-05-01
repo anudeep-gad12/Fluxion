@@ -30,6 +30,7 @@ from orchestrator.storage.db import get_db
 from orchestrator.services.reasoning_settings import get_runtime_reasoning_settings
 from orchestrator.storage.repositories.conversation_repo import ConversationRepo
 from orchestrator.storage.repositories.trace_repo import TraceRepo
+from orchestrator.conversation_titles import conversation_title_from_message
 
 
 router = APIRouter(prefix="/api", tags=["runs"])
@@ -116,14 +117,6 @@ def _append_turn_to_summary(
     if len(combined) <= max_chars:
         return combined
     return "..." + combined[-max_chars:]
-
-
-def _conversation_title_from_message(message: str, max_len: int = 64) -> str:
-    """Generate title from first message."""
-    cleaned = " ".join(message.strip().split())
-    if len(cleaned) <= max_len:
-        return cleaned
-    return cleaned[: max_len - 3] + "..."
 
 
 def _mode_to_strategy(thinking_mode: str, mode_mapping: dict) -> str:
@@ -225,7 +218,7 @@ async def create_conversation_run(
 
     # Auto-title from first message
     if not conversation.get("title") or conversation.get("title") == "New conversation":
-        title = _conversation_title_from_message(request.message)
+        title = conversation_title_from_message(request.message)
         await conv_repo.update(conversation_id, title=title)
 
     # Capture session_id for background task
@@ -328,7 +321,7 @@ async def create_run(request: CreateRunRequest, http_request: Request):
     conversation_id = str(uuid.uuid4())
     await conv_repo.create(
         conversation_id=conversation_id,
-        title=_conversation_title_from_message(request.prompt),
+        title=conversation_title_from_message(request.prompt),
         session_id=session_id,
     )
 

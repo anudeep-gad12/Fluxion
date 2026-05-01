@@ -39,6 +39,7 @@ from orchestrator.schemas import (
 from orchestrator.storage.db import get_db
 from orchestrator.routes.workspaces import _resolve_workspace_path
 from orchestrator.services.reasoning_settings import get_runtime_reasoning_settings
+from orchestrator.conversation_titles import conversation_title_from_message
 from orchestrator.storage.repositories.agent_repo import AgentRepo
 from orchestrator.storage.repositories.trace_repo import TraceRepo
 
@@ -527,7 +528,7 @@ async def create_agent_run(request: CreateAgentRunRequest, http_request: Request
         if not conversation_id:
             conversation_id = str(uuid.uuid4())
             # Create ephemeral conversation for standalone agent runs
-            title = request.query[:64] + "..." if len(request.query) > 64 else request.query
+            title = conversation_title_from_message(request.query)
             requested_workspace = request.workspace_path or request.working_dir
             workspace_path = (
                 str(_resolve_workspace_path(requested_workspace))
@@ -550,6 +551,11 @@ async def create_agent_run(request: CreateAgentRunRequest, http_request: Request
             if not conversation:
                 raise HTTPException(status_code=404, detail="Conversation not found")
             workspace_path = conversation.get("workspace_path")
+            if not conversation.get("title") or conversation.get("title") == "New conversation":
+                await conv_repo.update(
+                    conversation_id=conversation_id,
+                    title=conversation_title_from_message(request.query),
+                )
 
         capabilities = request.capabilities.model_dump()
         if workspace_path and request.filesystem_enabled:

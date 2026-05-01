@@ -266,22 +266,13 @@ export function ConversationList() {
       let changed = false;
       for (const group of workspaceGroups) {
         if (!(group.workspacePath in next)) {
-          next[group.workspacePath] = true;
-          changed = true;
-        }
-      }
-      if (selectedConversationId) {
-        const activeGroup = workspaceGroups.find((group) =>
-          group.conversations.some((conversation) => conversation.conversation_id === selectedConversationId)
-        );
-        if (activeGroup && !next[activeGroup.workspacePath]) {
-          next[activeGroup.workspacePath] = true;
+          next[group.workspacePath] = false;
           changed = true;
         }
       }
       return changed ? next : current;
     });
-  }, [selectedConversationId, workspaceGroups]);
+  }, [workspaceGroups]);
 
   const startWorkspaceDraft = (workspacePath: string) => {
     if (hasActiveRun) return;
@@ -343,7 +334,7 @@ export function ConversationList() {
   const allWorkspaceSectionsOpen = useMemo(
     () =>
       workspaceGroups.length > 0
-      && workspaceGroups.every((group) => workspaceSectionsOpen[group.workspacePath] ?? true),
+      && workspaceGroups.every((group) => workspaceSectionsOpen[group.workspacePath] ?? false),
     [workspaceGroups, workspaceSectionsOpen]
   );
 
@@ -449,10 +440,10 @@ export function ConversationList() {
               <WorkspaceSection
                 key={group.workspacePath}
                 group={group}
-                isOpen={workspaceSectionsOpen[group.workspacePath] ?? true}
+                isOpen={workspaceSectionsOpen[group.workspacePath] ?? false}
                 onToggle={() => setWorkspaceSectionsOpen((current) => ({
                   ...current,
-                  [group.workspacePath]: !(current[group.workspacePath] ?? true),
+                  [group.workspacePath]: !(current[group.workspacePath] ?? false),
                 }))}
                 onNewConversation={() => startWorkspaceDraft(group.workspacePath)}
               >
