@@ -27,8 +27,7 @@ function ConversationSync() {
     if (conversationId && conversationId !== selectedConversationId) {
       selectConversation(conversationId);
     } else if (!conversationId && selectedConversationId) {
-      // URL has no conversation, but store does - navigate to it
-      // This is handled by the parent, just clear the store selection
+      selectConversation(null);
     }
   }, [conversationId, selectedConversationId, selectConversation]);
 
@@ -311,4 +310,3 @@ function App() {
 }
 
 export default App;
-

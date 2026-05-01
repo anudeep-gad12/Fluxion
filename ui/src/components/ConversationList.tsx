@@ -148,6 +148,7 @@ export function ConversationList() {
   const selectedConversationId = useStore((s) => s.selectedConversationId);
   const setConversations = useStore((s) => s.setConversations);
   const removeConversation = useStore((s) => s.removeConversation);
+  const selectConversation = useStore((s) => s.selectConversation);
   const setDraftWorkspacePath = useStore((s) => s.setDraftWorkspacePath);
   const rememberWorkspacePath = useStore((s) => s.rememberWorkspacePath);
   const draftWorkspacePath = useStore((s) => s.draftWorkspacePath);
@@ -254,6 +255,7 @@ export function ConversationList() {
 
   const startWorkspaceDraft = (workspacePath: string) => {
     if (hasActiveRun) return;
+    selectConversation(null);
     rememberWorkspacePath(workspacePath);
     setDraftWorkspacePath(workspacePath);
     setWorkspaceSectionsOpen((current) => ({ ...current, [workspacePath]: true }));
@@ -419,6 +421,7 @@ export function ConversationList() {
         onOpenChange={setWorkspacePickerOpen}
         value={draftWorkspacePath}
         onSelect={(workspacePath) => {
+          selectConversation(null);
           rememberWorkspacePath(workspacePath);
           setDraftWorkspacePath(workspacePath);
           navigate('/conversations');
