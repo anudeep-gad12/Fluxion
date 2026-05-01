@@ -879,6 +879,60 @@ function EmptyStatePulse({
   );
 }
 
+function conversationTitleFromMessage(message: string, maxLen = 64): string {
+  const cleaned = message.trim().replace(/\s+/g, ' ');
+  if (!cleaned) return 'New conversation';
+
+  let normalized = cleaned.toLowerCase();
+  const fillerPatterns = [
+    /^(?:hey|hi|hello|yo|yoo|yup|okay|ok|alright|please)\s+/,
+    /^(?:can|could|would|will)\s+you\s+/,
+    /^i\s+need\s+you\s+to\s+/,
+    /^help\s+me\s+(?:with\s+)?/,
+  ];
+  for (const pattern of fillerPatterns) {
+    normalized = normalized.replace(pattern, '');
+  }
+  normalized = normalized.replace(/^[ .!?,;:-]+|[ .!?,;:-]+$/g, '');
+
+  const issuePhrase = (value: string) => {
+    let next = value.replace(/\bstill\b\s*/g, '').trim();
+    next = next.replace(/\b(?:look|looks|feel|feels)\s+/, '');
+    if (/\bcramped\b/.test(next)) {
+      next = next.replace(/\bcramped\b/, 'too cramped');
+    }
+    return next;
+  };
+
+  const smartTitleFromNormalized = (value: string): string => {
+    const patterns: Array<[RegExp, string]> = [
+      [/^(?:explain\s+why|why\s+(?:is|are|does|do|did))\s+/, 'Issue: '],
+      [/^how\s+(?:do|can|should|would)\s+i\s+/, 'How to '],
+      [/^how\s+to\s+/, 'How to '],
+      [/^what\s+(?:is|are)\s+/, 'About '],
+      [/^explain\s+/, 'About '],
+      [/^tell\s+me\s+(?:about\s+)?/, 'About '],
+    ];
+    for (const [pattern, prefix] of patterns) {
+      const match = value.match(pattern);
+      if (!match) continue;
+      const body = value.slice(match[0].length).trim();
+      if (!body) break;
+      const content = prefix === 'Issue: ' ? issuePhrase(body) : body;
+      return `${prefix}${content ? `${content[0].toUpperCase()}${content.slice(1)}` : content}`;
+    }
+    return value;
+  };
+
+  const smart = smartTitleFromNormalized(normalized) || cleaned;
+  const title = smart.replace(/^[ .!?,;:-]+|[ .!?,;:-]+$/g, '');
+  const sentenceCased = title ? `${title[0].toUpperCase()}${title.slice(1)}` : 'New conversation';
+  if (sentenceCased.length <= maxLen) {
+    return sentenceCased;
+  }
+  return `${sentenceCased.slice(0, maxLen - 3).trim()}...`;
+}
+
 export function ConversationView() {
   const navigate = useNavigate();
   const selectedConversationId = useStore((s) => s.selectedConversationId);
@@ -1299,7 +1353,7 @@ export function ConversationView() {
         const newConversation: Conversation = {
           conversation_id: conversationId,
           created_at: new Date().toISOString(),
-          title: messageToSend.slice(0, 64),
+          title: conversationTitleFromMessage(messageToSend),
           summary: '',
           workspace_path: effectiveWorkspacePath,
           status: 'active',
@@ -1308,6 +1362,10 @@ export function ConversationView() {
         addConversation(newConversation);
         setRuns(conversationId, []);
         needsNavigate = true;
+      } else if (!conversation?.title || conversation.title === 'New conversation') {
+        updateConversation(conversationId, {
+          title: conversationTitleFromMessage(messageToSend),
+        });
       }
 
       if (mode === 'agent') {

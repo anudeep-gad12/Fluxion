@@ -189,3 +189,23 @@ class TestChatEngineCleanup:
 
             # Verify provider.close() was called
             mock_provider.close.assert_called_once()
+
+
+class TestConversationAutoTitles:
+    """Tests for smart conversation auto-titles."""
+
+    def test_helper_generates_smart_issue_title(self):
+        from orchestrator.conversation_titles import conversation_title_from_message
+
+        assert (
+            conversation_title_from_message('why is the sidebar still cramped')
+            == 'Issue: The sidebar too cramped'
+        )
+
+    def test_helper_strips_filler_for_imperative_title(self):
+        from orchestrator.conversation_titles import conversation_title_from_message
+
+        assert (
+            conversation_title_from_message('can you fix the broken workspace title handling')
+            == 'Fix the broken workspace title handling'
+        )
