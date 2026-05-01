@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS conversations (
     title TEXT,
     summary TEXT,
     created_at TEXT NOT NULL,
+    workspace_path TEXT,
     status TEXT NOT NULL, -- active, archived, closed
     metadata_json TEXT
 );

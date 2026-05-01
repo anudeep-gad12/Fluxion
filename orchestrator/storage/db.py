@@ -186,6 +186,12 @@ class Database:
             "CREATE INDEX IF NOT EXISTS idx_coding_session_entries_compacted "
             "ON coding_session_entries(conversation_id, compacted_at, seq)"
         )
+        # Migration 15: Workspace-scoped conversations
+        await self._add_column_if_not_exists("conversations", "workspace_path", "TEXT")
+        await self._connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_conversations_workspace_path "
+            "ON conversations(workspace_path)"
+        )
 
     async def _create_table_if_not_exists(
         self, table: str, create_sql: str

@@ -14,6 +14,7 @@ class ConversationRepo:
         conversation_id: str,
         title: Optional[str] = None,
         status: str = "active",
+        workspace_path: Optional[str] = None,
         metadata: Optional[dict[str, Any]] = None,
         session_id: Optional[str] = None,
     ) -> dict[str, Any]:
@@ -34,10 +35,12 @@ class ConversationRepo:
 
         await self.db.conn.execute(
             """
-            INSERT INTO conversations (conversation_id, created_at, title, status, metadata_json, session_id)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO conversations (
+                conversation_id, created_at, title, status, workspace_path, metadata_json, session_id
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (conversation_id, now, title, status, metadata_json, session_id),
+            (conversation_id, now, title, status, workspace_path, metadata_json, session_id),
         )
         await self.db.conn.commit()
         return {
@@ -45,6 +48,7 @@ class ConversationRepo:
             "created_at": now,
             "title": title,
             "status": status,
+            "workspace_path": workspace_path,
             "metadata": metadata or {},
             "session_id": session_id,
         }

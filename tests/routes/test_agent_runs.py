@@ -53,12 +53,14 @@ def test_db():
 
     # Patch get_db everywhere it's used
     with patch("orchestrator.storage.db.get_db", mock_get_db):
-        with patch("orchestrator.routes.conversations.get_db", mock_get_db):
-            with patch("orchestrator.routes.runs.get_db", mock_get_db):
-                with patch("orchestrator.routes.agent_runs.get_db", mock_get_db):
-                    with patch("orchestrator.engine.chat_engine.get_db", mock_get_db):
-                        with patch("orchestrator.agent.factory.get_db", mock_get_db):
-                            yield database
+        with patch("orchestrator.app.get_db", mock_get_db):
+            with patch("orchestrator.routes.conversations.get_db", mock_get_db):
+                with patch("orchestrator.routes.runs.get_db", mock_get_db):
+                    with patch("orchestrator.routes.agent_runs.get_db", mock_get_db):
+                        with patch("orchestrator.engine.chat_engine.get_db", mock_get_db):
+                            with patch("orchestrator.agent.factory.get_db", mock_get_db):
+                                with patch("orchestrator.services.reasoning_settings.get_db", mock_get_db):
+                                    yield database
 
     # Cleanup
     loop.run_until_complete(database.close())
@@ -194,6 +196,65 @@ class TestCreateAgentRun:
             },
         )
         assert response.status_code == 200
+
+    def test_existing_conversation_workspace_overrides_request_workspace(self, test_db, tmp_path):
+        """Workspace-bound conversations ignore mismatched request workspace paths."""
+        mock_engine = MagicMock()
+        mock_engine._context_profile_dict.return_value = {
+            "provider_name": "test",
+            "model_id": "test-model",
+            "display_name": "Test Model",
+            "context_window": 1000,
+            "max_output_tokens": 100,
+            "effective_input_budget": 900,
+            "supports_tools": True,
+            "supports_reasoning": False,
+            "pricing": {},
+            "source": "test",
+        }
+
+        async def mock_run(run_id, query, event_callback=None, conversation_id=None):
+            return AgentResult(
+                run_id=run_id,
+                success=True,
+                final_answer="done",
+                citations=[],
+                total_steps=1,
+                error_message=None,
+                timing_ms=10,
+            )
+
+        mock_engine.run = mock_run
+
+        captured_kwargs = {}
+
+        async def mock_create_engine(**kwargs):
+            captured_kwargs.update(kwargs)
+            return mock_engine
+
+        with patch("orchestrator.agent.factory.create_agent_engine", mock_create_engine):
+            with TestClient(app, raise_server_exceptions=False) as client:
+                conv_resp = client.post(
+                    "/api/conversations",
+                    json={"title": "Workspace", "workspace_path": str(tmp_path)},
+                )
+                conv_id = conv_resp.json()["conversation_id"]
+
+                response = client.post(
+                    "/api/agent/runs",
+                    json={
+                        "query": "Test query",
+                        "conversation_id": conv_id,
+                        "workspace_path": "/var",
+                        "filesystem_enabled": True,
+                    },
+                )
+
+        import time
+        time.sleep(0.05)
+
+        assert response.status_code == 200
+        assert captured_kwargs["working_dir"] == str(tmp_path.resolve())
 
 
 # =============================================================================

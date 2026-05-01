@@ -49,6 +49,16 @@ class TestConversationRepo:
         assert result["metadata"] == metadata
 
     @pytest.mark.asyncio
+    async def test_create_with_workspace_path(self, repo):
+        """Create conversation with workspace path."""
+        result = await repo.create(
+            conversation_id="conv-workspace",
+            workspace_path="/tmp/project-a",
+        )
+
+        assert result["workspace_path"] == "/tmp/project-a"
+
+    @pytest.mark.asyncio
     async def test_get_existing_conversation(self, repo):
         """Get an existing conversation."""
         await repo.create(conversation_id="conv-get", title="Get Test")
@@ -76,6 +86,18 @@ class TestConversationRepo:
         result = await repo.get("conv-json")
 
         assert result["metadata"] == {"test": [1, 2, 3]}
+
+    @pytest.mark.asyncio
+    async def test_get_returns_workspace_path(self, repo):
+        """Get returns workspace path."""
+        await repo.create(
+            conversation_id="conv-json",
+            workspace_path="/tmp/project-b",
+        )
+
+        result = await repo.get("conv-json")
+
+        assert result["workspace_path"] == "/tmp/project-b"
 
     @pytest.mark.asyncio
     async def test_list_conversations(self, repo):
@@ -132,6 +154,15 @@ class TestConversationRepo:
         # Most recent should be first
         assert result[0]["conversation_id"] == "newest"
         assert result[-1]["conversation_id"] == "oldest"
+
+    @pytest.mark.asyncio
+    async def test_list_preserves_workspace_paths(self, repo):
+        """List includes workspace path for grouped sidebar consumers."""
+        await repo.create(conversation_id="workspace-conv", workspace_path="/tmp/project-c")
+
+        result = await repo.list()
+
+        assert result[0]["workspace_path"] == "/tmp/project-c"
 
     @pytest.mark.asyncio
     async def test_update_title(self, repo):

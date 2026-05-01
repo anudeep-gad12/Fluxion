@@ -11,6 +11,7 @@ import { MessageActions } from '@/components/MessageActions';
 import { ShimmerSkeleton, ThinkingTimer } from '@/components/StreamingIndicator';
 import { ScrollToBottom } from '@/components/ScrollToBottom';
 import { IntegratedTerminal } from '@/components/IntegratedTerminal';
+import { WorkspacePickerDialog } from '@/components/WorkspacePickerDialog';
 import {
   createConversation,
   createConversationRun,
@@ -29,7 +30,6 @@ import {
   updateReasoningSettings,
   getUsage,
   steerAgentRun,
-  browseWorkspaceDirectories,
   searchWorkspaceFiles,
 } from '@/api/client';
 import type {
@@ -39,7 +39,6 @@ import type {
   RegistryModelsResponse,
   CustomProviderRequest,
   UsageInfo,
-  WorkspaceBrowseResponse,
   WorkspaceFileEntry,
   ReasoningSettingsResponse,
   ReasoningSettings,
@@ -632,117 +631,6 @@ function ReasoningSettingsDialog({
   );
 }
 
-function WorkspacePicker({
-  open,
-  onOpenChange,
-  value,
-  onSelect,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  value: string;
-  onSelect: (path: string) => void;
-}) {
-  const [data, setData] = useState<WorkspaceBrowseResponse | null>(null);
-  const [pathInput, setPathInput] = useState(value);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const loadPath = useCallback((path?: string) => {
-    setLoading(true);
-    setError(null);
-    browseWorkspaceDirectories(path || undefined)
-      .then((next) => {
-        setData(next);
-        setPathInput(next.path);
-      })
-      .catch((err: { message?: string }) => setError(err.message || 'Failed to browse path'))
-      .finally(() => setLoading(false));
-  }, []);
-
-  useEffect(() => {
-    if (!open) return;
-    loadPath(value || undefined);
-  }, [open, value, loadPath]);
-
-  const chooseCurrent = () => {
-    if (!data?.path) return;
-    onSelect(data.path);
-    onOpenChange(false);
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogHeader>
-        <DialogTitle className="font-mono text-sm">Choose workspace</DialogTitle>
-      </DialogHeader>
-      <DialogContent>
-        <div className="space-y-3 font-mono text-xs">
-          <div className="flex gap-2">
-            <input
-              value={pathInput}
-              onChange={(e) => setPathInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') loadPath(pathInput);
-              }}
-              className="flex-1 bg-zinc-950 border border-zinc-800 px-2 py-1.5 text-zinc-300 outline-none"
-              placeholder="/path/to/repo"
-            />
-            <button
-              onClick={() => loadPath(pathInput)}
-              className="px-2 py-1.5 text-zinc-400 hover:text-zinc-200 border border-zinc-800"
-            >
-              open
-            </button>
-          </div>
-
-          {error && <p className="text-red-400">{error}</p>}
-
-          <div className="border border-zinc-800 max-h-72 overflow-y-auto">
-            {loading ? (
-              <p className="px-3 py-2 text-zinc-600">Loading...</p>
-            ) : (
-              <>
-                {data?.parent && (
-                  <button
-                    onClick={() => loadPath(data.parent!)}
-                    className="block w-full text-left px-3 py-1.5 text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800/50"
-                  >
-                    ../
-                  </button>
-                )}
-                {data?.entries.map((entry) => (
-                  <button
-                    key={entry.path}
-                    onClick={() => loadPath(entry.path)}
-                    className={cn(
-                      'block w-full text-left px-3 py-1.5 hover:text-zinc-200 hover:bg-zinc-800/50',
-                      entry.hidden ? 'text-zinc-700' : 'text-zinc-400'
-                    )}
-                  >
-                    {entry.name}/
-                  </button>
-                ))}
-              </>
-            )}
-          </div>
-
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-zinc-600 truncate">{data?.path || pathInput}</span>
-            <button
-              onClick={chooseCurrent}
-              disabled={!data?.path}
-              className="text-emerald-500/80 hover:text-emerald-400 disabled:text-zinc-700"
-            >
-              [use this folder]
-            </button>
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 // Empty string constant to avoid creating new references
 const EMPTY_STRING = '';
 
@@ -1007,13 +895,13 @@ export function ConversationView() {
   const terminalState = useConversationTerminal(selectedConversationId);
   const hasActiveRun = useHasActiveRun();
   const updateTerminalState = useStore((s) => s.updateTerminalState);
+  const draftWorkspacePath = useStore((s) => s.draftWorkspacePath);
+  const setDraftWorkspacePath = useStore((s) => s.setDraftWorkspacePath);
+  const rememberWorkspacePath = useStore((s) => s.rememberWorkspacePath);
   const [message, setMessage] = useState('');
   const [imageAttachments, setImageAttachments] = useState<ImageAttachment[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [mode, setMode] = useState<ChatMode>('agent');
-  const [workspacePath, setWorkspacePath] = useState(
-    () => localStorage.getItem('reasoner_workspace_path') || ''
-  );
   const [workspacePickerOpen, setWorkspacePickerOpen] = useState(false);
   const [mentionResults, setMentionResults] = useState<WorkspaceFileEntry[]>([]);
   const [mentionOpen, setMentionOpen] = useState(false);
@@ -1065,12 +953,14 @@ export function ConversationView() {
   }, []);
 
   useEffect(() => {
-    localStorage.setItem('reasoner_workspace_path', workspacePath);
-  }, [workspacePath]);
-
-  useEffect(() => {
     localStorage.setItem('reasoner_permission_policy', permissionPolicy);
   }, [permissionPolicy]);
+
+  useEffect(() => {
+    if (conversation?.workspace_path) {
+      setDraftWorkspacePath(conversation.workspace_path);
+    }
+  }, [conversation?.workspace_path, setDraftWorkspacePath]);
 
   useEffect(() => {
     const handleResize = () => setIsDesktop(window.innerWidth >= 768);
@@ -1120,6 +1010,10 @@ export function ConversationView() {
     () => [...runs].reverse().find((run) => run.mode === 'agent' || !!run.stored_context),
     [runs],
   );
+  const lockedWorkspacePath = (conversation?.workspace_path || '').trim();
+  const hasConversationWorkspace = lockedWorkspacePath.length > 0;
+  const isWorkspaceLocked = selectedConversationId !== null;
+  const effectiveWorkspacePath = isWorkspaceLocked ? lockedWorkspacePath : draftWorkspacePath.trim();
   const latestRunStoredContext = latestContextRun?.stored_context as
     | { stored_tokens?: number; utilization_pct?: number; context_window?: number }
     | undefined;
@@ -1284,23 +1178,45 @@ export function ConversationView() {
     }
   }, [reasoningDraft]);
 
+  const handleOpenWorkspacePicker = useCallback(() => {
+    if (isWorkspaceLocked) {
+      toast.error(
+        hasConversationWorkspace
+          ? 'This conversation is already bound to its workspace'
+          : 'This conversation has no workspace. Create a new workspace thread from the sidebar.'
+      );
+      return;
+    }
+    setWorkspacePickerOpen(true);
+  }, [hasConversationWorkspace, isWorkspaceLocked]);
+
   const handleOpenTerminal = useCallback(async () => {
     if (mode !== 'agent' || !isDesktop) return;
-    if (!workspacePath.trim()) {
-      toast.error('Select a workspace first');
-      setWorkspacePickerOpen(true);
+    if (!effectiveWorkspacePath) {
+      toast.error(
+        selectedConversationId
+          ? 'Create or open a workspace conversation first'
+          : 'Select a workspace first'
+      );
+      if (!selectedConversationId) {
+        setWorkspacePickerOpen(true);
+      }
       return;
     }
 
     let conversationId = selectedConversationId;
     if (!conversationId) {
-      const response = await createConversation({ title: 'Terminal' });
+      const response = await createConversation({
+        title: 'Terminal',
+        workspace_path: effectiveWorkspacePath,
+      });
       conversationId = response.conversation_id;
       const newConversation: Conversation = {
         conversation_id: conversationId,
         created_at: new Date().toISOString(),
         title: 'Terminal',
         summary: '',
+        workspace_path: effectiveWorkspacePath,
         status: 'active',
         metadata: {},
       };
@@ -1317,7 +1233,7 @@ export function ConversationView() {
     navigate,
     selectedConversationId,
     setRuns,
-    workspacePath,
+    effectiveWorkspacePath,
     updateTerminalState,
   ]);
 
@@ -1349,6 +1265,14 @@ export function ConversationView() {
 
     if (hasActiveRun) return; // Non-agent active run, block
 
+    let conversationId = selectedConversationId;
+
+    if (!conversationId && !effectiveWorkspacePath) {
+      toast.error('Choose a workspace first');
+      setWorkspacePickerOpen(true);
+      return;
+    }
+
     const attachmentsToSend = imageAttachments.map(({ name, mime_type, data_url }) => ({
       name,
       mime_type,
@@ -1361,7 +1285,6 @@ export function ConversationView() {
     setImageAttachments([]);
     clearMentionState();
     setPendingIsAgent(mode === 'agent');
-    let conversationId = selectedConversationId;
 
     // Track whether we need to navigate after setup (deferred to prevent
     // useEffect from re-subscribing while handleSubmit is still in flight)
@@ -1370,13 +1293,15 @@ export function ConversationView() {
     try {
       // Create conversation if needed
       if (!conversationId) {
-        const response = await createConversation();
+        const response = await createConversation({ workspace_path: effectiveWorkspacePath });
         conversationId = response.conversation_id;
+        rememberWorkspacePath(effectiveWorkspacePath);
         const newConversation: Conversation = {
           conversation_id: conversationId,
           created_at: new Date().toISOString(),
           title: messageToSend.slice(0, 64),
           summary: '',
+          workspace_path: effectiveWorkspacePath,
           status: 'active',
           metadata: {},
         };
@@ -1392,13 +1317,13 @@ export function ConversationView() {
           image_attachments: attachmentsToSend,
           conversation_id: conversationId!,
           max_steps: 25,
-          workspace_path: workspacePath.trim() || undefined,
-          filesystem_enabled: !!workspacePath.trim(),
+          workspace_path: effectiveWorkspacePath || undefined,
+          filesystem_enabled: !!effectiveWorkspacePath,
           permission_policy: permissionPolicy,
           capabilities: {
             web: true,
-            filesystem: !!workspacePath.trim(),
-            bash: !!workspacePath.trim(),
+            filesystem: !!effectiveWorkspacePath,
+            bash: !!effectiveWorkspacePath,
             python: false,
           },
         });
@@ -1634,7 +1559,7 @@ export function ConversationView() {
   }, [activeMention, message, resizeTextarea]);
 
   const syncMentionState = useCallback((value: string, selectionStart: number | null) => {
-    if (mode !== 'agent' || !workspacePath.trim()) {
+    if (mode !== 'agent' || !effectiveWorkspacePath) {
       setActiveMention(null);
       setMentionOpen(false);
       return;
@@ -1644,7 +1569,7 @@ export function ConversationView() {
     if (!mention) {
       setMentionOpen(false);
     }
-  }, [mode, workspacePath]);
+  }, [effectiveWorkspacePath, mode]);
 
   const handleMessageChange = useCallback((e: ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value;
@@ -1719,7 +1644,7 @@ export function ConversationView() {
   }, [message]);
 
   useEffect(() => {
-    if (mode !== 'agent' || !workspacePath.trim() || !activeMention) {
+    if (mode !== 'agent' || !effectiveWorkspacePath || !activeMention) {
       clearMentionState();
       return;
     }
@@ -1727,7 +1652,7 @@ export function ConversationView() {
     let cancelled = false;
     setMentionLoading(true);
     const timer = window.setTimeout(() => {
-      searchWorkspaceFiles(workspacePath.trim(), activeMention.query, MENTION_RESULT_LIMIT)
+      searchWorkspaceFiles(effectiveWorkspacePath, activeMention.query, MENTION_RESULT_LIMIT)
         .then((response) => {
           if (cancelled) return;
           setMentionResults(response.entries);
@@ -1750,7 +1675,7 @@ export function ConversationView() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [activeMention, clearMentionState, mode, workspacePath]);
+  }, [activeMention, clearMentionState, effectiveWorkspacePath, mode]);
 
   if (!conversation && runs.length === 0) {
     return (
@@ -1789,7 +1714,7 @@ export function ConversationView() {
                 <button
                   onClick={() => void handleOpenTerminal()}
                   className="text-zinc-600 hover:text-zinc-400 transition-colors"
-                  title={workspacePath.trim() ? 'Open integrated terminal' : 'Select a workspace first'}
+                  title={effectiveWorkspacePath ? 'Open integrated terminal' : 'Select or open a workspace conversation first'}
                 >
                   terminal
                 </button>
@@ -1821,17 +1746,20 @@ export function ConversationView() {
           onSave={handleSaveReasoningSettings}
           saving={reasoningSaving}
         />
-        <WorkspacePicker
+        <WorkspacePickerDialog
           open={workspacePickerOpen}
           onOpenChange={setWorkspacePickerOpen}
-          value={workspacePath}
-          onSelect={setWorkspacePath}
+          value={draftWorkspacePath}
+          onSelect={(workspacePath) => {
+            rememberWorkspacePath(workspacePath);
+            setDraftWorkspacePath(workspacePath);
+          }}
         />
 
         <div className="flex-1 flex flex-col items-center justify-center text-zinc-400 gap-4 sm:gap-6 px-3 sm:px-4 md:px-6 overflow-y-auto min-h-0">
           <EmptyStatePulse
             mode={mode}
-            workspacePath={workspacePath}
+            workspacePath={effectiveWorkspacePath}
             modelStatus={modelStatus}
           />
         </div>
@@ -1901,20 +1829,38 @@ export function ConversationView() {
               </button>
               {mode === 'agent' && (
                 <>
-                  <input
-                    value={workspacePath}
-                    onChange={(e) => setWorkspacePath(e.target.value)}
-                    placeholder="/path/to/repo"
-                    className="w-40 sm:w-56 bg-transparent border-none outline-none text-xs font-mono text-zinc-400 placeholder:text-zinc-700"
-                    title="Workspace path for filesystem and bash tools"
-                  />
-                  <button
-                    onClick={() => setWorkspacePickerOpen(true)}
-                    className="text-zinc-600 hover:text-zinc-300 transition-colors"
-                    title="Browse local folders"
-                  >
-                    browse
-                  </button>
+                  {isWorkspaceLocked ? (
+                    <span
+                      className={cn(
+                        'max-w-52 truncate text-xs font-mono',
+                        hasConversationWorkspace ? 'text-zinc-400' : 'text-zinc-700'
+                      )}
+                      title={
+                        hasConversationWorkspace
+                          ? effectiveWorkspacePath
+                          : 'This conversation has no workspace. Create a new workspace thread from the sidebar.'
+                      }
+                    >
+                      {hasConversationWorkspace ? effectiveWorkspacePath : 'no workspace'}
+                    </span>
+                  ) : (
+                    <>
+                      <input
+                        value={draftWorkspacePath}
+                        onChange={(e) => setDraftWorkspacePath(e.target.value)}
+                        placeholder="/path/to/repo"
+                        className="w-40 sm:w-56 bg-transparent border-none outline-none text-xs font-mono text-zinc-400 placeholder:text-zinc-700"
+                        title="Workspace path for filesystem and bash tools"
+                      />
+                      <button
+                        onClick={handleOpenWorkspacePicker}
+                        className="text-zinc-600 hover:text-zinc-300 transition-colors"
+                        title="Browse local folders"
+                      >
+                        browse
+                      </button>
+                    </>
+                  )}
                   <select
                     value={permissionPolicy}
                     onChange={(e) => setPermissionPolicy(e.target.value as 'strict' | 'relaxed' | 'yolo')}
@@ -1932,7 +1878,7 @@ export function ConversationView() {
                 <button
                   onClick={() => void handleOpenTerminal()}
                   className="text-zinc-500 hover:text-zinc-300 transition-colors"
-                  title={workspacePath.trim() ? 'Open integrated terminal' : 'Select a workspace first'}
+                  title={effectiveWorkspacePath ? 'Open integrated terminal' : 'Select or open a workspace conversation first'}
                 >
                   terminal
                 </button>
@@ -2034,11 +1980,14 @@ export function ConversationView() {
         onSave={handleSaveReasoningSettings}
         saving={reasoningSaving}
       />
-      <WorkspacePicker
+      <WorkspacePickerDialog
         open={workspacePickerOpen}
         onOpenChange={setWorkspacePickerOpen}
-        value={workspacePath}
-        onSelect={setWorkspacePath}
+        value={draftWorkspacePath}
+        onSelect={(workspacePath) => {
+          rememberWorkspacePath(workspacePath);
+          setDraftWorkspacePath(workspacePath);
+        }}
       />
 
       <div className="flex-1 overflow-y-auto px-3 sm:px-4 md:px-6 py-4 sm:py-5 md:py-6" ref={scrollRef}>
@@ -2081,7 +2030,7 @@ export function ConversationView() {
         <div style={{ ['--terminal-height' as string]: `${terminalState?.height ?? 260}px` }}>
           <IntegratedTerminal
             conversationId={selectedConversationId}
-            workspacePath={workspacePath}
+            workspacePath={effectiveWorkspacePath}
             active={terminalAvailable}
           />
         </div>
@@ -2166,20 +2115,38 @@ export function ConversationView() {
             </button>
             {mode === 'agent' && (
               <>
-                <input
-                  value={workspacePath}
-                  onChange={(e) => setWorkspacePath(e.target.value)}
-                  placeholder="/path/to/repo"
-                  className="w-40 sm:w-56 bg-transparent border-none outline-none text-xs font-mono text-zinc-400 placeholder:text-zinc-700"
-                  title="Workspace path for filesystem and bash tools"
-                />
-                <button
-                  onClick={() => setWorkspacePickerOpen(true)}
-                  className="text-zinc-600 hover:text-zinc-300 transition-colors"
-                  title="Browse local folders"
-                >
-                  browse
-                </button>
+                {isWorkspaceLocked ? (
+                  <span
+                    className={cn(
+                      'max-w-52 truncate text-xs font-mono',
+                      hasConversationWorkspace ? 'text-zinc-400' : 'text-zinc-700'
+                    )}
+                    title={
+                      hasConversationWorkspace
+                        ? effectiveWorkspacePath
+                        : 'This conversation has no workspace. Create a new workspace thread from the sidebar.'
+                    }
+                  >
+                    {hasConversationWorkspace ? effectiveWorkspacePath : 'no workspace'}
+                  </span>
+                ) : (
+                  <>
+                    <input
+                      value={draftWorkspacePath}
+                      onChange={(e) => setDraftWorkspacePath(e.target.value)}
+                      placeholder="/path/to/repo"
+                      className="w-40 sm:w-56 bg-transparent border-none outline-none text-xs font-mono text-zinc-400 placeholder:text-zinc-700"
+                      title="Workspace path for filesystem and bash tools"
+                    />
+                    <button
+                      onClick={handleOpenWorkspacePicker}
+                      className="text-zinc-600 hover:text-zinc-300 transition-colors"
+                      title="Browse local folders"
+                    >
+                      browse
+                    </button>
+                  </>
+                )}
                 <select
                   value={permissionPolicy}
                   onChange={(e) => setPermissionPolicy(e.target.value as 'strict' | 'relaxed' | 'yolo')}
@@ -2202,18 +2169,20 @@ export function ConversationView() {
               {terminalAvailable && selectedConversationId && (
                 <button
                   onClick={() => {
-                    if (!workspacePath.trim()) {
-                      toast.error('Select a workspace first');
-                      setWorkspacePickerOpen(true);
+                    if (!effectiveWorkspacePath) {
+                      toast.error(selectedConversationId ? 'Create or open a workspace conversation first' : 'Select a workspace first');
+                      if (!selectedConversationId) {
+                        setWorkspacePickerOpen(true);
+                      }
                       return;
                     }
                     updateTerminalState(selectedConversationId, { isOpen: !terminalState?.isOpen });
                   }}
                   className="text-zinc-500 hover:text-zinc-300 transition-colors"
                   title={
-                    workspacePath.trim()
+                    effectiveWorkspacePath
                       ? (terminalState?.isOpen ? 'Collapse terminal' : 'Open terminal')
-                      : 'Select a workspace first'
+                      : 'Select or open a workspace conversation first'
                   }
                 >
                   {terminalState?.isOpen ? 'terminal−' : 'terminal+'}

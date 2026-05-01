@@ -5,6 +5,9 @@ import type { Run, Event, Conversation } from '@/types';
 import type { AgentUIState, AgentStep, AgentToolCall, AgentCitation } from '@/types/agent';
 import type { TerminalSessionResponse } from '@/api/client';
 
+const WORKSPACE_STORAGE_KEY = 'reasoner_workspace_path';
+const WORKSPACE_LIST_STORAGE_KEY = 'reasoner_workspace_paths';
+
 export interface TerminalUIState {
   isOpen: boolean;
   height: number;
@@ -18,6 +21,8 @@ interface AppState {
   // Conversations
   conversations: Conversation[];
   selectedConversationId: string | null;
+  draftWorkspacePath: string;
+  workspacePaths: string[];
 
   // Runs per conversation
   runsByConversation: Record<string, Run[]>;
@@ -53,6 +58,8 @@ interface AppState {
   updateConversation: (conversationId: string, updates: Partial<Conversation>) => void;
   removeConversation: (conversationId: string) => void;
   selectConversation: (conversationId: string | null) => void;
+  setDraftWorkspacePath: (workspacePath: string) => void;
+  rememberWorkspacePath: (workspacePath: string) => void;
 
   // Run actions
   setRuns: (conversationId: string, runs: Run[]) => void;
@@ -107,6 +114,10 @@ export const useStore = create<AppState>((set, get) => ({
   // Initial state
   conversations: [],
   selectedConversationId: null,
+  draftWorkspacePath: typeof window !== 'undefined' ? (localStorage.getItem(WORKSPACE_STORAGE_KEY) || '') : '',
+  workspacePaths: typeof window !== 'undefined'
+    ? JSON.parse(localStorage.getItem(WORKSPACE_LIST_STORAGE_KEY) || '[]')
+    : [],
   runsByConversation: {},
   selectedRunId: null,
   eventsByRun: {},
@@ -150,6 +161,25 @@ export const useStore = create<AppState>((set, get) => ({
     selectedRunId: null,
     selectedEventSeq: null,
   }),
+
+  setDraftWorkspacePath: (workspacePath) => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(WORKSPACE_STORAGE_KEY, workspacePath);
+    }
+    set({ draftWorkspacePath: workspacePath });
+  },
+
+  rememberWorkspacePath: (workspacePath) => {
+    const normalized = workspacePath.trim();
+    if (!normalized) return;
+    set((state) => {
+      const next = [normalized, ...state.workspacePaths.filter((path) => path !== normalized)];
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(WORKSPACE_LIST_STORAGE_KEY, JSON.stringify(next));
+      }
+      return { workspacePaths: next };
+    });
+  },
 
   // Run actions
   setRuns: (conversationId, runs) => set((state) => ({

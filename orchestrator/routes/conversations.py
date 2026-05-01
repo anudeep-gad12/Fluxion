@@ -22,6 +22,7 @@ from orchestrator.schemas import (
 from orchestrator.storage.db import get_db
 from orchestrator.storage.repositories.conversation_repo import ConversationRepo
 from orchestrator.storage.repositories.trace_repo import TraceRepo
+from orchestrator.routes.workspaces import _resolve_workspace_path
 
 
 router = APIRouter(prefix="/api/conversations", tags=["conversations"])
@@ -50,9 +51,15 @@ async def create_conversation(
     conv_repo = ConversationRepo(db)
 
     conversation_id = str(uuid.uuid4())
+    workspace_path = (
+        str(_resolve_workspace_path(request.workspace_path))
+        if request.workspace_path
+        else None
+    )
     await conv_repo.create(
         conversation_id=conversation_id,
         title=request.title,
+        workspace_path=workspace_path,
         session_id=session_id,
     )
     return CreateConversationResponse(conversation_id=conversation_id)

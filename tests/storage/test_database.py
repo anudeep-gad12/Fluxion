@@ -1,5 +1,6 @@
 """Tests for database connection and schema management."""
 
+import sqlite3
 import pytest
 from pathlib import Path
 from orchestrator.storage.db import Database
@@ -102,3 +103,54 @@ class TestDatabase:
 
         assert row["conversation_id"] == "test-id"
         assert row["status"] == "active"
+
+    @pytest.mark.asyncio
+    async def test_connect_migrates_workspace_path_on_existing_database(self, tmp_path: Path):
+        """Connect migrates legacy databases before creating workspace index."""
+        db_path = tmp_path / "legacy.sqlite"
+        conn = sqlite3.connect(db_path)
+        conn.executescript(
+            """
+            CREATE TABLE conversations (
+                conversation_id TEXT PRIMARY KEY,
+                title TEXT,
+                summary TEXT,
+                created_at TEXT NOT NULL,
+                status TEXT NOT NULL,
+                metadata_json TEXT
+            );
+            CREATE TABLE runs (
+                run_id TEXT PRIMARY KEY,
+                conversation_id TEXT,
+                created_at TEXT NOT NULL,
+                profile_name TEXT NOT NULL,
+                mode TEXT NOT NULL,
+                model_config_snapshot TEXT NOT NULL,
+                status TEXT NOT NULL,
+                FOREIGN KEY(conversation_id) REFERENCES conversations(conversation_id)
+            );
+            CREATE INDEX idx_conversations_created_at ON conversations(created_at);
+            """
+        )
+        conn.commit()
+        conn.close()
+
+        db = Database(db_path)
+        await db.connect()
+
+        cursor = await db.conn.execute("PRAGMA table_info(conversations)")
+        columns = await cursor.fetchall()
+        column_names = [col["name"] for col in columns]
+        assert "workspace_path" in column_names
+
+        cursor = await db.conn.execute(
+            """
+            SELECT name
+            FROM sqlite_master
+            WHERE type = 'index' AND name = 'idx_conversations_workspace_path'
+            """
+        )
+        row = await cursor.fetchone()
+        assert row is not None
+
+        await db.close()
