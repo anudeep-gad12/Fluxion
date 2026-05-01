@@ -932,3 +932,60 @@ class TestCodingSessionStateRepo:
         assert listed[1]["compacted_at"] is None
 
         await db.close()
+
+    @pytest.mark.asyncio
+    async def test_insert_coding_session_entry_shifts_tail_sequences(self):
+        db = Database(":memory:")
+        await db.connect()
+        repo = AgentRepo(db)
+        trace_repo = TraceRepo(db)
+
+        await db.conn.execute(
+            "INSERT INTO conversations (conversation_id, title, created_at, status) VALUES (?, ?, ?, ?)",
+            ("conv-1", "Test", "2024-01-01T10:00:00Z", "active"),
+        )
+        await db.conn.commit()
+
+        run_id = str(uuid.uuid4())
+        await trace_repo.create_run(run_id, "conv-1", "coding", "agent", {})
+        await repo.append_coding_session_entries(
+            "conv-1",
+            [
+                {
+                    "run_id": run_id,
+                    "step_number": 0,
+                    "entry_type": "user",
+                    "role": "user",
+                    "content_json": {"content": "Turn 1"},
+                    "token_estimate": 4,
+                },
+                {
+                    "run_id": run_id,
+                    "step_number": 1,
+                    "entry_type": "assistant",
+                    "role": "assistant",
+                    "content_json": {"content": "Turn 1 done"},
+                    "token_estimate": 4,
+                },
+            ],
+        )
+
+        inserted = await repo.insert_coding_session_entry(
+            "conv-1",
+            before_seq=2,
+            entry={
+                "run_id": run_id,
+                "step_number": 2,
+                "entry_type": "compaction_summary",
+                "role": "user",
+                "content_json": {"content": "checkpoint"},
+                "token_estimate": 6,
+            },
+        )
+        listed = await repo.list_coding_session_entries("conv-1")
+
+        assert inserted["seq"] == 2
+        assert [entry["seq"] for entry in listed] == [1, 2, 3]
+        assert [entry["entry_type"] for entry in listed] == ["user", "compaction_summary", "assistant"]
+
+        await db.close()

@@ -1296,7 +1296,7 @@ class BaseTool(Protocol):
 
 **Current Agent Context Note**:
 - chat history still uses `HistoryBuilder` / `turn_summary`
-- coding-profile continuation now rebuilds from persisted `coding_session_entries` transcript replay plus a tiny neutral metadata block from `coding_sessions.state_json`
+- coding-profile continuation now rebuilds from persisted `coding_session_entries` as `checkpoint summary + restored file evidence + preserved raw tail`, plus a tiny neutral metadata block from `coding_sessions.state_json`
 - `coding_sessions.state_json` is bookkeeping-only (`objective`, read/modified files, file evidence, recent commands); it is not a narrative truth layer
 - replay-ineligible assistant fallback turns can stay persisted for debugging but are filtered out of future prompt replay
 - `runs.agent_state` remains a trace/debug scaffold snapshot, not the durable coding continuity source
@@ -1389,7 +1389,7 @@ async with self._seq_lock:
 - `add_tool_call()`, `update_tool_call()` - Tool tracking
 - `add_citation()`, `get_citations()` - Evidence management
 - `get_coding_session_state()`, `upsert_coding_session_state()` - Per-conversation coding bookkeeping state
-- `append_coding_session_entries()`, `list_coding_session_entries()`, `mark_coding_session_entries_compacted()` - Durable coding-session transcript storage and replay/compaction helpers
+- `append_coding_session_entries()`, `insert_coding_session_entry()`, `list_coding_session_entries()`, `mark_coding_session_entries_compacted()` - Durable coding-session transcript storage and replay/compaction helpers, including checkpoint insertion at a compaction boundary
 - `get_agent_trace()` - Full trace assembly
 
 ### `orchestrator/storage/repositories/terminal_repo.py`

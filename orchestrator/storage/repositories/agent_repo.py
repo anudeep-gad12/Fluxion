@@ -842,6 +842,70 @@ class AgentRepo:
             await self.db.conn.rollback()
             raise
 
+    async def insert_coding_session_entry(
+        self,
+        conversation_id: str,
+        *,
+        before_seq: int,
+        entry: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Insert a coding-session entry before an existing seq, shifting later seq values."""
+        now = datetime.now(timezone.utc).isoformat()
+        entry_id = str(uuid.uuid4())
+        content_json = json.dumps(entry.get("content_json") or {}, ensure_ascii=False)
+
+        await self.db.conn.execute("BEGIN IMMEDIATE")
+        try:
+            await self.db.conn.execute(
+                """
+                UPDATE coding_session_entries
+                SET seq = seq + 1
+                WHERE conversation_id = ? AND seq >= ?
+                """,
+                (conversation_id, before_seq),
+            )
+            await self.db.conn.execute(
+                """
+                INSERT INTO coding_session_entries (
+                    id, conversation_id, seq, run_id, step_number,
+                    entry_type, role, content_json, token_estimate,
+                    created_at, compacted_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    entry_id,
+                    conversation_id,
+                    before_seq,
+                    entry.get("run_id"),
+                    entry.get("step_number"),
+                    entry.get("entry_type"),
+                    entry.get("role"),
+                    content_json,
+                    int(entry.get("token_estimate") or 0),
+                    now,
+                    entry.get("compacted_at"),
+                ),
+            )
+            await self.db.conn.commit()
+        except Exception:
+            await self.db.conn.rollback()
+            raise
+
+        return {
+            "id": entry_id,
+            "conversation_id": conversation_id,
+            "seq": before_seq,
+            "run_id": entry.get("run_id"),
+            "step_number": entry.get("step_number"),
+            "entry_type": entry.get("entry_type"),
+            "role": entry.get("role"),
+            "content_json": entry.get("content_json") or {},
+            "token_estimate": int(entry.get("token_estimate") or 0),
+            "created_at": now,
+            "compacted_at": entry.get("compacted_at"),
+        }
+
     async def list_coding_session_entries(
         self,
         conversation_id: str,

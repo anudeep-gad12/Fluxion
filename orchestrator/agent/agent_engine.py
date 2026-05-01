@@ -36,7 +36,6 @@ from orchestrator.agent.recovery import (
 from orchestrator.agent.state_machine import (
     AgentStateMachine,
     MaxStepsExceededError,
-    RecoveryContext,
 )
 from orchestrator.logging_config import get_logger
 from orchestrator.providers.usage import add_usage, estimate_cost, normalize_usage
@@ -1416,7 +1415,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 {"content": user_content},
             ),
         }
-        appended = await self._append_coding_session_entries(
+        await self._append_coding_session_entries(
             conversation_id=conversation_id,
             run_id=run_id,
             entries=[entry],
@@ -1575,17 +1574,24 @@ To provide your final answer, respond WITHOUT calling any tools."""
             if working_memory is not None
             else None
         )
+        restored_file_messages = self._build_restored_file_messages(
+            session_state=session_state,
+            transcript_entries=transcript_entries,
+            current_query=query,
+        )
         context = builder.build(
             system_prompt=system_prompt,
             session_state=session_state,
             transcript_entries=transcript_entries,
             current_query=query,
             metadata_message=metadata_message,
+            restored_file_messages=restored_file_messages,
         )
         stored_context = builder.build_stored_context(
             session_state=session_state,
             transcript_entries=transcript_entries,
             metadata_message=metadata_message,
+            restored_file_messages=restored_file_messages,
         )
         self._last_stored_context = self._stored_context_usage_payload(
             stored_tokens=stored_context.token_count,
@@ -1603,6 +1609,10 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 "message_count": len(context.messages),
                 "prompt_tokens": builder.estimate_tokens(context.messages),
                 "stored_context_tokens": stored_context.token_count,
+                "checkpoint_present": context.checkpoint_present,
+                "preserved_tail_count": context.preserved_tail_count,
+                "restored_file_count": context.restored_file_count,
+                "replay_source_ranges": context.replay_source_ranges,
             },
             actor="system",
         )
@@ -1633,6 +1643,499 @@ To provide your final answer, respond WITHOUT calling any tools."""
             groups.append(current)
         return groups
 
+    def _is_coding_compaction_summary_entry(self, entry: CodingSessionEntry) -> bool:
+        """Return whether an entry is a replayable coding compaction checkpoint."""
+        return (
+            entry.entry_type == "compaction_summary"
+            and entry.content_json.get("replay_eligible", True) is not False
+        )
+
+    def _latest_coding_checkpoint_entry(
+        self,
+        entries: List[CodingSessionEntry],
+    ) -> Optional[CodingSessionEntry]:
+        """Return the latest replayable coding checkpoint entry if present."""
+        for entry in reversed(entries):
+            if self._is_coding_compaction_summary_entry(entry):
+                return entry
+        return None
+
+    def _tail_entries_after_checkpoint(
+        self,
+        entries: List[CodingSessionEntry],
+    ) -> List[CodingSessionEntry]:
+        """Return uncompacted tail entries after the latest checkpoint."""
+        checkpoint = self._latest_coding_checkpoint_entry(entries)
+        if checkpoint is None:
+            return [entry for entry in entries if not self._is_coding_compaction_summary_entry(entry)]
+        return [
+            entry
+            for entry in entries
+            if entry.seq > checkpoint.seq and not self._is_coding_compaction_summary_entry(entry)
+        ]
+
+    def _checkpoint_summary_state(
+        self,
+        entry: Optional[CodingSessionEntry],
+    ) -> dict[str, Any]:
+        """Return structured summary state from a stored checkpoint entry."""
+        if entry is None:
+            return {}
+        state = entry.content_json.get("summary_state")
+        return state if isinstance(state, dict) else {}
+
+    def _entry_text_blob(self, entry: CodingSessionEntry) -> str:
+        """Return normalized free-text content for an entry."""
+        parts: List[str] = []
+        content = entry.content_json.get("content")
+        if isinstance(content, str) and content.strip():
+            parts.append(content)
+        tool_calls = entry.content_json.get("tool_calls") or []
+        if isinstance(tool_calls, list):
+            for tool_call in tool_calls:
+                if not isinstance(tool_call, dict):
+                    continue
+                function = tool_call.get("function") or {}
+                if isinstance(function, dict):
+                    name = function.get("name")
+                    arguments = function.get("arguments")
+                    if name:
+                        parts.append(str(name))
+                    if arguments:
+                        parts.append(str(arguments))
+        return "\n".join(parts)
+
+    def _entry_file_paths(
+        self,
+        entry: CodingSessionEntry,
+        known_paths: Optional[List[str]] = None,
+    ) -> List[str]:
+        """Extract workspace file paths referenced by a coding entry."""
+        explicit: List[str] = []
+        tool_calls = entry.content_json.get("tool_calls") or []
+        if isinstance(tool_calls, list):
+            for tool_call in tool_calls:
+                if not isinstance(tool_call, dict):
+                    continue
+                function = tool_call.get("function") or {}
+                if not isinstance(function, dict):
+                    continue
+                arguments = function.get("arguments")
+                parsed_arguments: Dict[str, Any] = {}
+                if isinstance(arguments, str):
+                    try:
+                        candidate = json.loads(arguments)
+                        if isinstance(candidate, dict):
+                            parsed_arguments = candidate
+                    except json.JSONDecodeError:
+                        parsed_arguments = {}
+                elif isinstance(arguments, dict):
+                    parsed_arguments = arguments
+                file_path = parsed_arguments.get("file_path")
+                if file_path:
+                    explicit.append(self._canonical_workspace_path(str(file_path)))
+        if entry.entry_type == "tool_result":
+            content = str(entry.content_json.get("content") or "")
+            match = re.search(r"(?:from|to)\s+([^\s\(\[]+\.[A-Za-z0-9_./-]+)", content)
+            if match:
+                explicit.append(self._canonical_workspace_path(match.group(1)))
+
+        explicit = list(dict.fromkeys(path for path in explicit if path))
+        if explicit or not known_paths:
+            return explicit
+
+        blob = self._entry_text_blob(entry)
+        return [path for path in known_paths if path and path in blob]
+
+    def _coerce_string_list(self, value: Any) -> List[str]:
+        """Normalize a stored summary list field."""
+        if not isinstance(value, list):
+            return []
+        return [str(item).strip() for item in value if str(item).strip()]
+
+    def _dedupe_summary_items(self, items: List[str], limit: int = 10) -> List[str]:
+        """Keep recent unique summary bullets."""
+        deduped: List[str] = []
+        seen: set[str] = set()
+        for item in items:
+            clean = str(item).strip()
+            if not clean or clean in seen:
+                continue
+            seen.add(clean)
+            deduped.append(clean[:500])
+        if len(deduped) <= limit:
+            return deduped
+        return deduped[-limit:]
+
+    def _extract_constraint_preferences(self, text: str) -> List[str]:
+        """Extract explicit user constraints/preferences from a user message."""
+        if not text:
+            return []
+        sentences = re.split(r"(?<=[.!?])\s+|\n+", text)
+        constraints: List[str] = []
+        for sentence in sentences:
+            clean = sentence.strip(" -")
+            lowered = clean.lower()
+            if not clean:
+                continue
+            if any(
+                marker in lowered
+                for marker in (
+                    "do not",
+                    "don't",
+                    "must",
+                    "should",
+                    "keep",
+                    "preserve",
+                    "use ",
+                    "same branch",
+                    "follow",
+                )
+            ):
+                constraints.append(clean[:500])
+        return constraints[:4]
+
+    def _entry_summary_bullet(self, entry: CodingSessionEntry) -> Optional[str]:
+        """Summarize one compacted entry into a grounded checkpoint bullet."""
+        if entry.entry_type == "user":
+            content = str(entry.content_json.get("content") or "").strip()
+            if content:
+                return f"User asked: {content[:400]}"
+            return None
+        if entry.entry_type == "assistant":
+            content = str(entry.content_json.get("content") or "").strip()
+            if content:
+                return f"Assistant reported: {content[:400]}"
+            return None
+        if entry.entry_type == "assistant_tool_calls":
+            paths = self._entry_file_paths(entry)
+            if paths:
+                return f"Started tool work touching: {', '.join(paths[:4])}"
+            tool_calls = entry.content_json.get("tool_calls") or []
+            if tool_calls:
+                names = [
+                    str((tool_call.get('function') or {}).get('name') or "")
+                    for tool_call in tool_calls
+                    if isinstance(tool_call, dict)
+                ]
+                names = [name for name in names if name]
+                if names:
+                    return f"Started tools: {', '.join(names[:4])}"
+            return None
+        if entry.entry_type == "tool_result":
+            name = str(entry.content_json.get("name") or "").strip()
+            content = str(entry.content_json.get("content") or "").strip()
+            success = entry.content_json.get("success", True) is not False
+            if not success:
+                return f"Tool failed ({name}): {content[:300] or 'see transcript'}"
+            paths = self._entry_file_paths(entry)
+            path_text = f" {paths[0]}" if paths else ""
+            if name == "read_file":
+                return f"Read file{path_text}".strip()
+            if name in {"edit_file", "write_file"}:
+                return f"Modified file{path_text}".strip()
+            if name == "bash":
+                return f"Ran bash and captured output: {content[:220]}"
+            if name:
+                return f"Tool succeeded ({name}): {content[:260]}"
+        return None
+
+    def _build_coding_split_turn_context(
+        self,
+        compacted_entries: List[CodingSessionEntry],
+        preserved_tail: List[CodingSessionEntry],
+    ) -> List[str]:
+        """Describe a turn boundary split so the preserved tail still makes sense."""
+        if not compacted_entries or not preserved_tail:
+            return []
+        last_compacted = compacted_entries[-1]
+        first_tail = preserved_tail[0]
+        if last_compacted.entry_type == "assistant" and first_tail.entry_type == "assistant_tool_calls":
+            content = str(last_compacted.content_json.get("content") or "").strip()
+            if content:
+                return [f"Assistant had already said: {content[:400]}"]
+        if last_compacted.entry_type == "user" and first_tail.entry_type != "user":
+            content = str(last_compacted.content_json.get("content") or "").strip()
+            if content:
+                return [f"Open user request at the cut point: {content[:400]}"]
+        return []
+
+    def _build_coding_checkpoint_payload(
+        self,
+        *,
+        compacted_entries: List[CodingSessionEntry],
+        preserved_tail: List[CodingSessionEntry],
+        session_state: CodingSessionState,
+        covered_through_seq: int,
+        tail_start_seq: int,
+    ) -> dict[str, Any]:
+        """Build the persisted structured summary payload for a coding checkpoint."""
+        prior_checkpoint = next(
+            (
+                entry
+                for entry in reversed(compacted_entries)
+                if self._is_coding_compaction_summary_entry(entry)
+            ),
+            None,
+        )
+        prior_state = self._checkpoint_summary_state(prior_checkpoint)
+        transcript_entries = [
+            entry for entry in compacted_entries if not self._is_coding_compaction_summary_entry(entry)
+        ]
+
+        goal = str(prior_state.get("goal") or "").strip()
+        if not goal:
+            goal = session_state.objective.strip()
+        if not goal:
+            for entry in transcript_entries:
+                if entry.entry_type == "user":
+                    goal = str(entry.content_json.get("content") or "").strip()
+                    if goal:
+                        break
+
+        constraints = self._coerce_string_list(prior_state.get("constraints"))
+        done = self._coerce_string_list(prior_state.get("done"))
+        blocked = self._coerce_string_list(prior_state.get("blocked"))
+        key_decisions = self._coerce_string_list(prior_state.get("key_decisions"))
+        critical_context = self._coerce_string_list(prior_state.get("critical_context"))
+
+        for entry in transcript_entries:
+            if entry.entry_type == "user":
+                constraints.extend(
+                    self._extract_constraint_preferences(
+                        str(entry.content_json.get("content") or "").strip()
+                    )
+                )
+            bullet = self._entry_summary_bullet(entry)
+            if not bullet:
+                continue
+            if entry.entry_type == "tool_result" and entry.content_json.get("success", True) is False:
+                blocked.append(bullet)
+            else:
+                done.append(bullet)
+
+        if session_state.modified_files:
+            key_decisions.append(
+                "Modified files carried forward: "
+                + ", ".join(session_state.modified_files[-6:])
+            )
+        if session_state.read_files:
+            critical_context.append(
+                "Important read files: " + ", ".join(session_state.read_files[-8:])
+            )
+        if session_state.recent_commands:
+            critical_context.append(
+                "Recent commands: " + " | ".join(session_state.recent_commands[-4:])
+            )
+
+        split_turn_context = self._build_coding_split_turn_context(compacted_entries, preserved_tail)
+        in_progress = split_turn_context or ["Continue from the preserved tail below; do not restart."]
+        next_steps = split_turn_context or ["Resume from the preserved tail and finish the active task."]
+
+        payload = {
+            "goal": goal[:500],
+            "constraints": self._dedupe_summary_items(constraints, limit=8),
+            "done": self._dedupe_summary_items(done, limit=12),
+            "in_progress": self._dedupe_summary_items(in_progress, limit=6),
+            "blocked": self._dedupe_summary_items(blocked, limit=8),
+            "key_decisions": self._dedupe_summary_items(key_decisions, limit=8),
+            "next_steps": self._dedupe_summary_items(next_steps, limit=6),
+            "critical_context": self._dedupe_summary_items(critical_context, limit=8),
+            "split_turn_context": self._dedupe_summary_items(split_turn_context, limit=4),
+            "read_files": session_state.read_files[-12:],
+            "modified_files": session_state.modified_files[-12:],
+            "covered_through_seq": covered_through_seq,
+            "tail_start_seq": tail_start_seq,
+        }
+        payload["content"] = self._render_coding_checkpoint_summary(payload)
+        return payload
+
+    def _render_coding_checkpoint_summary(self, payload: Dict[str, Any]) -> str:
+        """Render the replayable checkpoint message content."""
+        def section_items(items: List[str], fallback: str) -> List[str]:
+            return items if items else [fallback]
+
+        lines = [
+            "The earlier part of this coding conversation was compacted into the summary below. Continue from it naturally; do not restart the task.",
+            "",
+            "<summary>",
+            "## Goal",
+            f"- {str(payload.get('goal') or 'Continue the existing coding task.')[:500]}",
+            "",
+            "## Constraints & Preferences",
+        ]
+        lines.extend(f"- {item}" for item in section_items(payload.get("constraints") or [], "No explicit constraints were preserved."))
+        lines.extend(
+            [
+                "",
+                "## Progress",
+                "### Done",
+            ]
+        )
+        lines.extend(f"- {item}" for item in section_items(payload.get("done") or [], "No completed work was preserved."))
+        lines.extend(["", "### In Progress"])
+        lines.extend(f"- {item}" for item in section_items(payload.get("in_progress") or [], "Continue from the preserved tail."))
+        lines.extend(["", "### Blocked"])
+        lines.extend(f"- {item}" for item in section_items(payload.get("blocked") or [], "No explicit blockers were recorded."))
+        lines.extend(["", "## Key Decisions"])
+        lines.extend(f"- {item}" for item in section_items(payload.get("key_decisions") or [], "No durable implementation decisions were preserved."))
+        lines.extend(["", "## Next Steps"])
+        lines.extend(f"- {item}" for item in section_items(payload.get("next_steps") or [], "Continue from the preserved tail below."))
+        lines.extend(["", "## Critical Context"])
+        lines.extend(f"- {item}" for item in section_items(payload.get("critical_context") or [], "No additional critical context was preserved."))
+        split_turn_context = payload.get("split_turn_context") or []
+        if split_turn_context:
+            lines.extend(["", "## Split Turn Context"])
+            lines.extend(f"- {item}" for item in split_turn_context)
+        lines.extend(["", "<read-files>"])
+        lines.extend(payload.get("read_files") or [])
+        lines.extend(["</read-files>", "<modified-files>"])
+        lines.extend(payload.get("modified_files") or [])
+        lines.extend(["</modified-files>", "</summary>"])
+        return "\n".join(lines)
+
+    def _file_restore_line_window(
+        self,
+        file_state: CodingFileState,
+    ) -> tuple[int, int]:
+        """Choose a bounded line window for restored file continuity."""
+        spans_with_lines = [
+            span
+            for span in file_state.spans
+            if span.line_start is not None and span.line_end is not None
+        ]
+        if spans_with_lines:
+            span = spans_with_lines[-1]
+            line_start = max(1, int(span.line_start or 1))
+            line_end = max(line_start, int(span.line_end or line_start))
+            if line_end - line_start + 1 > 160:
+                line_end = line_start + 159
+            return line_start, line_end
+        return 1, 120
+
+    def _format_restored_read_file_output(
+        self,
+        *,
+        path: str,
+        file_state: CodingFileState,
+    ) -> Optional[str]:
+        """Render current workspace file content as synthetic read_file output."""
+        resolved = self._resolve_workspace_file(path)
+        if resolved is None or not resolved.exists() or not resolved.is_file():
+            return None
+        try:
+            lines = resolved.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            return None
+
+        line_start, line_end = self._file_restore_line_window(file_state)
+        selected = lines[line_start - 1 : line_end]
+        numbered_lines: List[str] = []
+        for index, line in enumerate(selected, start=line_start):
+            clean_line = line
+            if len(clean_line) > 300:
+                clean_line = clean_line[:300] + "..."
+            numbered_lines.append(f"{index:>6}\t{clean_line}")
+        if not numbered_lines:
+            return None
+        return self._truncate_text_to_tokens("\n".join(numbered_lines), 3000)
+
+    def _build_restored_file_messages(
+        self,
+        *,
+        session_state: CodingSessionState,
+        transcript_entries: List[CodingSessionEntry],
+        current_query: str,
+    ) -> List[Dict[str, Any]]:
+        """Restore bounded current file evidence after a coding checkpoint."""
+        checkpoint = self._latest_coding_checkpoint_entry(transcript_entries)
+        if checkpoint is None:
+            return []
+
+        checkpoint_state = self._checkpoint_summary_state(checkpoint)
+        tail_entries = self._tail_entries_after_checkpoint(transcript_entries)
+        known_paths = list(dict.fromkeys(
+            session_state.modified_files
+            + session_state.read_files
+            + list(session_state.file_evidence.keys())
+            + self._coerce_string_list(checkpoint_state.get("modified_files"))
+            + self._coerce_string_list(checkpoint_state.get("read_files"))
+        ))
+        visible_paths: set[str] = set()
+        mentioned_paths: set[str] = set()
+        for entry in tail_entries:
+            entry_paths = self._entry_file_paths(entry, known_paths=known_paths)
+            if entry.entry_type in {"assistant_tool_calls", "tool_result"}:
+                visible_paths.update(entry_paths)
+            mentioned_paths.update(entry_paths)
+
+        ranked: List[tuple[int, int, str]] = []
+        for index, path in enumerate(known_paths):
+            if not path or path in visible_paths:
+                continue
+            file_state = session_state.file_evidence.get(path)
+            if file_state is None:
+                continue
+            score = 0
+            if path in session_state.modified_files:
+                score += 100
+            if path in self._coerce_string_list(checkpoint_state.get("modified_files")):
+                score += 80
+            if path in mentioned_paths:
+                score += 45
+            if path in self._coerce_string_list(checkpoint_state.get("read_files")):
+                score += 35
+            if path in current_query:
+                score += 30
+            if file_state.last_modified_run_id:
+                score += 20
+            score += min(len(file_state.spans), 4) * 5
+            ranked.append((score, index, path))
+        ranked.sort(key=lambda item: (-item[0], item[1]))
+        selected_paths = [path for _, _, path in ranked[:3]]
+        if not selected_paths:
+            return []
+
+        tool_calls: List[Dict[str, Any]] = []
+        tool_messages: List[Dict[str, Any]] = []
+        for idx, path in enumerate(selected_paths, start=1):
+            file_state = session_state.file_evidence.get(path)
+            if file_state is None:
+                continue
+            content = self._format_restored_read_file_output(path=path, file_state=file_state)
+            if not content:
+                continue
+            tool_call_id = f"checkpoint-read-{checkpoint.seq}-{idx}"
+            tool_calls.append(
+                {
+                    "id": tool_call_id,
+                    "type": "function",
+                    "function": {
+                        "name": "read_file",
+                        "arguments": json.dumps({"file_path": path}, ensure_ascii=False),
+                    },
+                }
+            )
+            tool_messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tool_call_id,
+                    "name": "read_file",
+                    "content": content,
+                }
+            )
+
+        if not tool_calls:
+            return []
+        return [
+            {
+                "role": "assistant",
+                "content": "Restoring important current file context from the workspace before continuing.",
+                "tool_calls": tool_calls,
+            },
+            *tool_messages,
+        ]
+
     def _coding_tail_target_tokens(self) -> int:
         """Return the retained raw-tail token target for coding compaction."""
         effective_budget = self._context_profile.effective_input_budget
@@ -1647,24 +2150,29 @@ To provide your final answer, respond WITHOUT calling any tools."""
         session_state: CodingSessionState,
         working_memory: Optional[WorkingMemory] = None,
     ) -> bool:
-        """Compact coding-session history while retaining a raw tail."""
+        """Compact coding-session history into a replayable checkpoint plus raw tail."""
         entry_records = await self._call_repo_async_method(
             "list_coding_session_entries",
             conversation_id,
+            include_compacted=False,
         )
-        raw_entries = [
+        active_entries = [
             CodingSessionEntry.from_dict(entry)
             for entry in (entry_records or [])
         ]
-        if len(raw_entries) < 2:
+        if len(active_entries) < 2:
             return False
 
-        total_raw_tokens = sum(entry.token_estimate for entry in raw_entries)
+        total_raw_tokens = sum(entry.token_estimate for entry in active_entries)
         tail_target = self._coding_tail_target_tokens()
         if total_raw_tokens <= tail_target:
             return False
 
-        turn_groups = self._group_entries_by_turn(raw_entries)
+        tail_entries = self._tail_entries_after_checkpoint(active_entries)
+        if len(tail_entries) < 2:
+            return False
+
+        turn_groups = self._group_entries_by_turn(tail_entries)
         if not turn_groups:
             return False
         keep_two_start = (
@@ -1673,11 +2181,11 @@ To provide your final answer, respond WITHOUT calling any tools."""
 
         suffix_tokens: Dict[int, int] = {}
         running = 0
-        for entry in reversed(raw_entries):
+        for entry in reversed(tail_entries):
             running += entry.token_estimate
             suffix_tokens[entry.seq] = running
 
-        safe_candidates = [entry.seq for entry in raw_entries if entry.entry_type != "tool_result"]
+        safe_candidates = [entry.seq for entry in tail_entries if entry.entry_type != "tool_result"]
         preferred_candidates = [seq for seq in safe_candidates if seq <= keep_two_start]
         candidate_seq: Optional[int] = next(
             (seq for seq in preferred_candidates if suffix_tokens.get(seq, 0) <= tail_target),
@@ -1692,19 +2200,59 @@ To provide your final answer, respond WITHOUT calling any tools."""
             if candidate_seq is None and split_candidates:
                 candidate_seq = split_candidates[-1]
 
-        if candidate_seq is None or candidate_seq <= 1:
+        if candidate_seq is None:
             return False
 
-        compacted_entries = [entry for entry in raw_entries if entry.seq < candidate_seq]
+        compacted_entries = [entry for entry in active_entries if entry.seq < candidate_seq]
         if not compacted_entries:
+            return False
+
+        preserved_tail = [entry for entry in active_entries if entry.seq >= candidate_seq]
+        if not preserved_tail:
             return False
 
         _ = working_memory
         session_state.normalize()
+        checkpoint_payload = self._build_coding_checkpoint_payload(
+            compacted_entries=compacted_entries,
+            preserved_tail=preserved_tail,
+            session_state=session_state,
+            covered_through_seq=compacted_entries[-1].seq,
+            tail_start_seq=candidate_seq,
+        )
+        checkpoint_entry = {
+            "run_id": run_id,
+            "step_number": step_number,
+            "entry_type": "compaction_summary",
+            "role": "user",
+            "content_json": {
+                "content": checkpoint_payload["content"],
+                "summary_state": {
+                    key: value
+                    for key, value in checkpoint_payload.items()
+                    if key != "content"
+                },
+                "covered_through_seq": checkpoint_payload["covered_through_seq"],
+                "tail_start_seq": checkpoint_payload["tail_start_seq"],
+                "read_files": checkpoint_payload["read_files"],
+                "modified_files": checkpoint_payload["modified_files"],
+                "replay_eligible": True,
+            },
+            "token_estimate": self._message_token_estimate(
+                "user",
+                {"content": checkpoint_payload["content"]},
+            ),
+        }
+        inserted_checkpoint = await self._call_repo_async_method(
+            "insert_coding_session_entry",
+            conversation_id,
+            before_seq=candidate_seq,
+            entry=checkpoint_entry,
+        )
         await self._call_repo_async_method(
             "mark_coding_session_entries_compacted",
             conversation_id,
-            through_seq=compacted_entries[-1].seq,
+            through_seq=candidate_seq - 1,
         )
         await self._call_repo_async_method(
             "upsert_coding_session_state",
@@ -1718,15 +2266,16 @@ To provide your final answer, respond WITHOUT calling any tools."""
             content={
                 "conversation_id": conversation_id,
                 "step_number": step_number,
-                "compacted_through_seq": compacted_entries[-1].seq,
-                "retained_raw_tokens": sum(
-                    entry.token_estimate
-                    for entry in raw_entries
-                    if entry.seq >= candidate_seq
-                ),
+                "checkpoint_seq": inserted_checkpoint.get("seq") if isinstance(inserted_checkpoint, dict) else candidate_seq,
+                "compacted_through_seq": candidate_seq - 1,
+                "checkpoint_present": True,
+                "preserved_tail_count": len(preserved_tail),
+                "retained_raw_tokens": sum(entry.token_estimate for entry in preserved_tail),
                 "tail_target_tokens": tail_target,
                 "compacted_entry_count": len(compacted_entries),
                 "kept_last_two_turns_raw": candidate_seq <= keep_two_start,
+                "restorable_read_files": checkpoint_payload["read_files"],
+                "restorable_modified_files": checkpoint_payload["modified_files"],
             },
             actor="system",
             step_number=step_number,
@@ -1838,12 +2387,10 @@ To provide your final answer, respond WITHOUT calling any tools."""
             self._active_conversation_id = conversation_id
             self._active_coding_session_state = None
             coding_session_had_entries = False
-            coding_session_record_exists = False
             if self._is_coding_profile() and conversation_id:
                 session_record, coding_session_state = await self._load_coding_session_state_record(
                     conversation_id
                 )
-                coding_session_record_exists = session_record is not None
                 latest_entry_seq = await self._call_repo_async_method(
                     "get_latest_coding_session_entry_seq",
                     conversation_id,
@@ -2810,10 +3357,16 @@ To provide your final answer, respond WITHOUT calling any tools."""
             if working_memory is not None
             else None
         )
+        restored_file_messages = self._build_restored_file_messages(
+            session_state=session_state,
+            transcript_entries=transcript_entries,
+            current_query=self._current_query or "",
+        )
         stored_context = builder.build_stored_context(
             session_state=session_state,
             transcript_entries=transcript_entries,
             metadata_message=metadata_message,
+            restored_file_messages=restored_file_messages,
         )
         payload = self._stored_context_usage_payload(
             stored_tokens=stored_context.token_count,

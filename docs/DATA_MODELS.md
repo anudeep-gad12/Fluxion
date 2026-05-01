@@ -255,7 +255,7 @@ Replayable coding-session transcript entries for coding-profile conversations. T
 | `seq` | INTEGER | Monotonic per-conversation sequence number |
 | `run_id` | TEXT | Run that produced the entry |
 | `step_number` | INTEGER | Agent step that produced the entry, if any |
-| `entry_type` | TEXT | `user`, `assistant`, `assistant_tool_calls`, or `tool_result` |
+| `entry_type` | TEXT | `user`, `assistant`, `assistant_tool_calls`, `tool_result`, or replayable synthetic `compaction_summary` |
 | `role` | TEXT | Prompt role to reconstruct (`user`, `assistant`, `tool`) |
 | `content_json` | TEXT | Canonical replay payload (JSON) |
 | `token_estimate` | INTEGER | Estimated token cost of the stored entry |
@@ -263,10 +263,10 @@ Replayable coding-session transcript entries for coding-profile conversations. T
 | `created_at` | TEXT | ISO 8601 timestamp |
 
 **Coding Session Replay**:
-- `CodingSessionContextBuilder` rebuilds coding prompts as `system prompt + optional neutral metadata + replayable transcript`
-- transcript entries are replayed in persisted `seq` order
+- `CodingSessionContextBuilder` rebuilds coding prompts as `system prompt + optional checkpoint summary + optional neutral metadata + restored file evidence + preserved raw tail`
+- transcript entries are replayed in persisted `seq` order, with `compaction_summary` inserted at the compaction boundary so the next turn still feels like one continuous conversation
 - only replay-eligible entries are included
-- entries marked compacted are excluded from active replay
+- entries marked compacted are excluded from active replay once a newer checkpoint replaces them
 - assistant/tool replay stays canonicalized from parsed tool-call arguments and stable tool-result payloads
 - structurally bad assistant fallback turns can remain stored with `replay_eligible=false` for debugging while being excluded from continuation prompts
 
