@@ -628,7 +628,7 @@ Step 2+: MAIN LOOP (while not synthesis and step < max_steps)
     │   │   └── Turn summaries include key_findings from tool results
     │   │       for richer cross-turn context
     │   ├── Coding agent flows rebuild from replayable coding_session_entries
-    │   │   in transcript order plus a tiny neutral metadata block
+    │   │   as checkpoint summary + restored file evidence + preserved raw tail
     │   ├── coding_sessions.state_json is bookkeeping-only, not narrative prompt authority
     │   ├── Non-coding agent flows fall back to runs.agent_state / summary history
     │   ├── Else use raw user_message + final_answer pairs
@@ -636,9 +636,10 @@ Step 2+: MAIN LOOP (while not synthesis and step < max_steps)
     │
     ├── 3. COMPACTION CHECK
     │   ├── At 90% of effective_input_budget:
-    │   │   ├── create visible system compaction message
-    │   │   ├── keep only latest compaction summary active
-    │   │   └── future prompt = system + latest summary + post-summary raw msgs
+    │   │   ├── compact older coding transcript into replayable compaction_summary checkpoint entry
+    │   │   ├── insert checkpoint at the compaction boundary
+    │   │   ├── restore bounded current read_file evidence for important files
+    │   │   └── future coding prompt = system + checkpoint + metadata + restored files + preserved raw tail
     │   └── Emergency hard truncation only if still over budget
     │
     ├── 4. LLM CALL with tool schemas

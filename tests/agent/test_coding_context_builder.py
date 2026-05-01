@@ -152,3 +152,76 @@ def test_builder_skips_replay_ineligible_assistant_entries():
     )
 
     assert [message["role"] for message in context.messages] == ["system", "tool"]
+
+
+def test_builder_replays_checkpoint_then_metadata_then_restored_files_then_tail():
+    builder = _builder()
+    session_state = CodingSessionState(
+        modified_files=["src/app.ts"],
+        read_files=["src/app.ts", "src/util.ts"],
+    )
+    entries = [
+        CodingSessionEntry(
+            conversation_id="conv-1",
+            seq=4,
+            run_id="run-2",
+            step_number=2,
+            entry_type="compaction_summary",
+            role="user",
+            content_json={
+                "content": "The earlier part of this coding conversation was compacted...",
+                "covered_through_seq": 3,
+            },
+            token_estimate=20,
+        ),
+        CodingSessionEntry(
+            conversation_id="conv-1",
+            seq=5,
+            run_id="run-3",
+            step_number=0,
+            entry_type="user",
+            role="user",
+            content_json={"content": "still broken in src/app.ts"},
+            token_estimate=10,
+        ),
+    ]
+    restored_messages = [
+        {
+            "role": "assistant",
+            "content": "Restoring important current file context from the workspace before continuing.",
+            "tool_calls": [
+                {
+                    "id": "checkpoint-read-1",
+                    "type": "function",
+                    "function": {"name": "read_file", "arguments": '{"file_path":"src/app.ts"}'},
+                }
+            ],
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "checkpoint-read-1",
+            "name": "read_file",
+            "content": "     1\tconst app = true;",
+        },
+    ]
+
+    context = builder.build(
+        system_prompt="System prompt",
+        session_state=session_state,
+        transcript_entries=entries,
+        restored_file_messages=restored_messages,
+    )
+
+    assert [message["role"] for message in context.messages] == [
+        "system",
+        "user",
+        "system",
+        "assistant",
+        "tool",
+        "user",
+    ]
+    assert context.checkpoint_present is True
+    assert context.restored_file_count == 1
+    assert context.preserved_tail_count == 1
+    assert context.replay_source_ranges["checkpoint_seq"] == 4
+    assert context.replay_source_ranges["tail_start_seq"] == 5

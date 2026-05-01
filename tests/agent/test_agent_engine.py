@@ -53,6 +53,7 @@ def create_mock_repo():
     repo.get_coding_session_state = AsyncMock(return_value=None)
     repo.upsert_coding_session_state = AsyncMock()
     repo.append_coding_session_entries = AsyncMock(return_value=[])
+    repo.insert_coding_session_entry = AsyncMock(return_value={})
     repo.list_coding_session_entries = AsyncMock(return_value=[])
     repo.get_latest_coding_session_entry_seq = AsyncMock(return_value=0)
     repo.mark_coding_session_entries_compacted = AsyncMock()
@@ -1060,6 +1061,18 @@ class TestCodingSessionPersistence:
         assert compacted is True
         repo.mark_coding_session_entries_compacted.assert_awaited_once()
         assert repo.mark_coding_session_entries_compacted.await_args.kwargs["through_seq"] == 3
+        repo.insert_coding_session_entry.assert_awaited_once()
+        inserted = repo.insert_coding_session_entry.await_args.kwargs["entry"]
+        assert inserted["entry_type"] == "compaction_summary"
+        assert inserted["role"] == "user"
+        summary_content = inserted["content_json"]["content"]
+        assert "## Goal" in summary_content
+        assert "## Progress" in summary_content
+        assert "### Done" in summary_content
+        assert "## Key Decisions" in summary_content
+        assert "<read-files>" in summary_content
+        assert inserted["content_json"]["covered_through_seq"] == 3
+        assert repo.list_coding_session_entries.await_args.kwargs["include_compacted"] is False
 
     @pytest.mark.asyncio
     async def test_persist_step_entries_skips_malformed_tool_call_replay(self):
@@ -1102,6 +1115,120 @@ class TestCodingSessionPersistence:
         assert [entry["entry_type"] for entry in persisted_entries] == ["assistant", "tool_result"]
         assert persisted_entries[0]["content_json"]["replay_eligible"] is False
         assert "recovery_note" in persisted_entries[1]["content_json"]
+
+    @pytest.mark.asyncio
+    async def test_compaction_summary_is_iterative_across_repeated_compactions(self):
+        repo = create_mock_repo()
+        repo.list_coding_session_entries.return_value = [
+            CodingSessionEntry(
+                conversation_id="conv-1",
+                seq=4,
+                run_id="run-old",
+                step_number=2,
+                entry_type="compaction_summary",
+                role="user",
+                content_json={
+                    "content": "prior checkpoint",
+                    "summary_state": {
+                        "goal": "Fix the app",
+                        "done": ["Read src/app.ts"],
+                        "read_files": ["src/app.ts"],
+                        "modified_files": [],
+                    },
+                },
+                token_estimate=30,
+            ).to_dict(),
+            CodingSessionEntry(
+                conversation_id="conv-1",
+                seq=5,
+                run_id="run-2",
+                step_number=0,
+                entry_type="user",
+                role="user",
+                content_json={"content": "now patch src/app.ts"},
+                token_estimate=20,
+            ).to_dict(),
+            CodingSessionEntry(
+                conversation_id="conv-1",
+                seq=6,
+                run_id="run-2",
+                step_number=1,
+                entry_type="assistant_tool_calls",
+                role="assistant",
+                content_json={
+                    "tool_calls": [
+                        {
+                            "id": "tc-1",
+                            "type": "function",
+                            "function": {
+                                "name": "edit_file",
+                                "arguments": '{"file_path":"src/app.ts"}',
+                            },
+                        }
+                    ]
+                },
+                token_estimate=20,
+            ).to_dict(),
+            CodingSessionEntry(
+                conversation_id="conv-1",
+                seq=7,
+                run_id="run-2",
+                step_number=1,
+                entry_type="tool_result",
+                role="tool",
+                content_json={
+                    "tool_call_id": "tc-1",
+                    "name": "edit_file",
+                    "content": "Updated src/app.ts",
+                },
+                token_estimate=20,
+            ).to_dict(),
+            CodingSessionEntry(
+                conversation_id="conv-1",
+                seq=8,
+                run_id="run-3",
+                step_number=0,
+                entry_type="user",
+                role="user",
+                content_json={"content": "verify it"},
+                token_estimate=20,
+            ).to_dict(),
+            CodingSessionEntry(
+                conversation_id="conv-1",
+                seq=9,
+                run_id="run-3",
+                step_number=1,
+                entry_type="assistant",
+                role="assistant",
+                content_json={"content": "Verifying now."},
+                token_estimate=20,
+            ).to_dict(),
+        ]
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=repo,
+            registry=create_mock_registry(),
+        )
+        session_state = CodingSessionState(
+            objective="Fix the app",
+            read_files=["src/app.ts"],
+            modified_files=["src/app.ts"],
+        )
+
+        with patch.object(engine, "_coding_tail_target_tokens", return_value=60):
+            compacted = await engine._compact_coding_session_history(
+                conversation_id="conv-1",
+                run_id="run-current",
+                step_number=4,
+                session_state=session_state,
+            )
+
+        assert compacted is True
+        inserted = repo.insert_coding_session_entry.await_args.kwargs["entry"]
+        summary_state = inserted["content_json"]["summary_state"]
+        assert summary_state["goal"] == "Fix the app"
+        assert "Read src/app.ts" in summary_state["done"]
+        assert any("Modified file" in item for item in summary_state["done"])
 
     @pytest.mark.asyncio
     async def test_load_coding_session_messages_ignores_state_narrative_fields(self):
@@ -1153,6 +1280,98 @@ class TestCodingSessionPersistence:
         assert repo.list_coding_session_entries.await_args.kwargs["include_compacted"] is False
         assert engine._last_stored_context is not None
         assert engine._last_stored_context["stored_tokens"] > 0
+
+    @pytest.mark.asyncio
+    async def test_load_coding_session_messages_replays_checkpoint_restores_files_and_preserves_tail(
+        self,
+        tmp_path: Path,
+    ):
+        repo = create_mock_repo()
+        app_file = tmp_path / "src" / "app.ts"
+        app_file.parent.mkdir(parents=True)
+        app_file.write_text("const app = true;\nconsole.log(app);\n", encoding="utf-8")
+
+        repo.list_coding_session_entries.return_value = [
+            CodingSessionEntry(
+                conversation_id="conv-1",
+                seq=4,
+                run_id="run-1",
+                step_number=3,
+                entry_type="compaction_summary",
+                role="user",
+                content_json={
+                    "content": "The earlier part of this coding conversation was compacted...\n\n<summary>\n## Goal\n- Fix app\n</summary>",
+                    "summary_state": {
+                        "goal": "Fix app",
+                        "read_files": ["src/app.ts"],
+                        "modified_files": ["src/app.ts"],
+                    },
+                    "covered_through_seq": 3,
+                    "tail_start_seq": 5,
+                },
+                token_estimate=50,
+            ).to_dict(),
+            CodingSessionEntry(
+                conversation_id="conv-1",
+                seq=5,
+                run_id="run-2",
+                step_number=0,
+                entry_type="user",
+                role="user",
+                content_json={"content": "still broken in src/app.ts"},
+                token_estimate=10,
+            ).to_dict(),
+        ]
+        from orchestrator.agent.tools.read_file import ReadFileTool
+
+        registry = create_mock_registry()
+        registry.get.side_effect = lambda name: ReadFileTool(str(tmp_path)) if name == "read_file" else None
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=repo,
+            registry=registry,
+        )
+        session_state = CodingSessionState(
+            objective="Fix app",
+            read_files=["src/app.ts"],
+            modified_files=["src/app.ts"],
+            file_evidence={
+                "src/app.ts": CodingFileState(
+                    path="src/app.ts",
+                    summary="Read app.ts",
+                    spans=[
+                        CodingFileSpan(
+                            line_start=1,
+                            line_end=2,
+                            excerpt="const app = true;",
+                            reason="read",
+                        )
+                    ],
+                )
+            },
+        )
+
+        messages, _ = await engine._load_coding_session_messages(
+            conversation_id="conv-1",
+            system_prompt="System prompt",
+            query="still broken in src/app.ts",
+            run_id="run-2",
+            session_state=session_state,
+            working_memory=WorkingMemory(objective="Fix app"),
+            use_session_entries=True,
+        )
+
+        assert [message["role"] for message in messages[:6]] == [
+            "system",
+            "user",
+            "system",
+            "assistant",
+            "tool",
+            "user",
+        ]
+        assert "The earlier part of this coding conversation was compacted" in messages[1]["content"]
+        assert messages[4]["name"] == "read_file"
+        assert "const app = true;" in messages[4]["content"]
 
     @pytest.mark.asyncio
     async def test_persist_final_answer_can_mark_terminal_fallback_as_non_replayable(self):
