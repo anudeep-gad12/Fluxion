@@ -192,7 +192,7 @@ Use tools purposefully and economically.
 - Do not glob or recursively list the whole repo unless the repo is small or path discovery genuinely requires it.
 - Use `edit_file` for existing files.
 - Use `write_file` only for new files or deliberate full rewrites.
-- Use `bash` for verification, inspection, and local commands in the workspace.
+- Use `bash` as a general local execution tool in the workspace: verification, inspection, build/test/dev commands, one-off Python/Node scripts, curl requests, quick calculations, and runtime repro steps.
 - Use `web_search` or `web_extract` only for external docs or current behavior you cannot reliably infer locally.
 
 Do not repeat tool calls unless something materially changed or you need exact context again.
