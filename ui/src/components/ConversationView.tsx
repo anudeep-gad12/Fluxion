@@ -641,12 +641,20 @@ const RunMessage = memo(function RunMessage({
   canRetry,
 }: {
   run: Run;
-  onShowTrace: () => void;
-  onRetry?: () => void;
+  onShowTrace: (runId: string) => void;
+  onRetry?: (userMessage: string) => void;
   canRetry?: boolean;
 }) {
   const isRunning = run.status === 'running';
   const finalAnswer = run.final_answer ? extractAnswer(run.final_answer) : '';
+  const userMessage = run.user_message || run.prompt;
+  const handleShowTraceClick = useCallback(() => {
+    onShowTrace(run.run_id);
+  }, [onShowTrace, run.run_id]);
+  const handleRetryClick = useCallback(() => {
+    if (!userMessage || !onRetry) return;
+    onRetry(userMessage);
+  }, [onRetry, userMessage]);
   // Use stable selectors - return constant empty string if not found
   const streamingText = useStore((s) => s.streamingText[run.run_id] ?? EMPTY_STRING);
   const streamingThinking = useStore((s) => s.streamingThinking[run.run_id] ?? EMPTY_STRING);
@@ -714,7 +722,7 @@ const RunMessage = memo(function RunMessage({
 
           <div className="mt-2 flex flex-wrap items-center gap-3 font-mono text-xs">
             <button
-              onClick={onShowTrace}
+              onClick={handleShowTraceClick}
               className="text-zinc-600 hover:text-zinc-300 transition-colors"
             >
               [details]
@@ -733,13 +741,49 @@ const RunMessage = memo(function RunMessage({
             {!isRunning && (
               <MessageActions
                 content={finalAnswer || displayText}
-                onRetry={onRetry}
+                onRetry={onRetry ? handleRetryClick : undefined}
                 canRetry={canRetry}
               />
             )}
           </div>
         </div>
       </div>
+    </div>
+  );
+});
+
+const ConversationRunList = memo(function ConversationRunList({
+  runs,
+  canRetry,
+  onShowTrace,
+  onRetry,
+}: {
+  runs: Run[];
+  canRetry: boolean;
+  onShowTrace: (runId: string) => void;
+  onRetry: (userMessage: string) => void;
+}) {
+  return (
+    <div className="space-y-8">
+      {runs.map((run) => (
+        run.mode === 'agent' ? (
+          <AgentRunMessage
+            key={run.run_id}
+            run={run}
+            onShowTrace={onShowTrace}
+            onRetry={onRetry}
+            canRetry={canRetry}
+          />
+        ) : (
+          <RunMessage
+            key={run.run_id}
+            run={run}
+            onShowTrace={onShowTrace}
+            onRetry={onRetry}
+            canRetry={canRetry}
+          />
+        )
+      ))}
     </div>
   );
 });
@@ -2049,27 +2093,12 @@ export function ConversationView() {
       />
 
       <div className="flex-1 overflow-y-auto px-3 sm:px-4 md:px-6 py-4 sm:py-5 md:py-6" ref={scrollRef}>
-        <div className="space-y-8">
-          {runs.map((run) =>
-            run.mode === 'agent' ? (
-              <AgentRunMessage
-                key={run.run_id}
-                run={run}
-                onShowTrace={() => handleShowTrace(run.run_id)}
-                onRetry={() => handleRetry(run.user_message || run.prompt)}
-                canRetry={!hasActiveRun}
-              />
-            ) : (
-              <RunMessage
-                key={run.run_id}
-                run={run}
-                onShowTrace={() => handleShowTrace(run.run_id)}
-                onRetry={() => handleRetry(run.user_message || run.prompt)}
-                canRetry={!hasActiveRun}
-              />
-            )
-          )}
-        </div>
+        <ConversationRunList
+          runs={runs}
+          canRetry={!hasActiveRun}
+          onShowTrace={handleShowTrace}
+          onRetry={handleRetry}
+        />
       </div>
 
       {/* Scroll-to-bottom pill */}

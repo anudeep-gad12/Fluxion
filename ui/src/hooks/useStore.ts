@@ -7,6 +7,8 @@ import type { TerminalSessionResponse } from '@/api/client';
 
 const WORKSPACE_STORAGE_KEY = 'reasoner_workspace_path';
 const WORKSPACE_LIST_STORAGE_KEY = 'reasoner_workspace_paths';
+const EMPTY_RUNS: Run[] = [];
+const EMPTY_EVENTS: Event[] = [];
 
 export interface TerminalUIState {
   isOpen: boolean;
@@ -197,13 +199,21 @@ export const useStore = create<AppState>((set, get) => ({
   })),
 
   updateRun: (runId, updates) => set((state) => {
-    const runsByConversation: Record<string, Run[]> = {};
     for (const [conversationId, runs] of Object.entries(state.runsByConversation)) {
-      runsByConversation[conversationId] = runs.map((run) =>
-        run.run_id === runId ? { ...run, ...updates } : run
-      );
+      const runIndex = runs.findIndex((run) => run.run_id === runId);
+      if (runIndex === -1) continue;
+
+      const nextRuns = [...runs];
+      nextRuns[runIndex] = { ...nextRuns[runIndex], ...updates };
+      return {
+        runsByConversation: {
+          ...state.runsByConversation,
+          [conversationId]: nextRuns,
+        },
+      };
     }
-    return { runsByConversation };
+
+    return state;
   }),
 
   removeRun: (runId) => set((state) => {
@@ -544,8 +554,9 @@ export const useSelectedConversation = () => {
 };
 
 export const useConversationRuns = (conversationId: string | null) => {
-  const runsByConversation = useStore((s) => s.runsByConversation);
-  return conversationId ? runsByConversation[conversationId] || [] : [];
+  return useStore((s) => (
+    conversationId ? s.runsByConversation[conversationId] ?? EMPTY_RUNS : EMPTY_RUNS
+  ));
 };
 
 export const useSelectedRun = () => {
@@ -560,18 +571,17 @@ export const useSelectedRun = () => {
 };
 
 export const useRunEvents = (runId: string | null) => {
-  const eventsByRun = useStore((s) => s.eventsByRun);
-  return runId ? eventsByRun[runId] || [] : [];
+  return useStore((s) => (
+    runId ? s.eventsByRun[runId] ?? EMPTY_EVENTS : EMPTY_EVENTS
+  ));
 };
 
 export const useAgentRunState = (runId: string | null) => {
-  const agentRunState = useStore((s) => s.agentRunState);
-  return runId ? agentRunState[runId] : undefined;
+  return useStore((s) => (runId ? s.agentRunState[runId] : undefined));
 };
 
 export const useConversationTerminal = (conversationId: string | null) => {
-  const terminalByConversation = useStore((s) => s.terminalByConversation);
-  return conversationId ? terminalByConversation[conversationId] : undefined;
+  return useStore((s) => (conversationId ? s.terminalByConversation[conversationId] : undefined));
 };
 
 /** Check if any run is currently active (agent or chat streaming) */
