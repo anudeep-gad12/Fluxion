@@ -856,13 +856,25 @@ class AgentRepo:
 
         await self.db.conn.execute("BEGIN IMMEDIATE")
         try:
+            async with self.db.conn.execute(
+                """
+                SELECT COALESCE(MAX(seq), 0) AS max_seq
+                FROM coding_session_entries
+                WHERE conversation_id = ?
+                """,
+                (conversation_id,),
+            ) as cursor:
+                row = await cursor.fetchone()
+                max_seq = int(row["max_seq"] or 0) if row else 0
+
+            shift_offset = max_seq + 1
             await self.db.conn.execute(
                 """
                 UPDATE coding_session_entries
-                SET seq = seq + 1
+                SET seq = seq + ?
                 WHERE conversation_id = ? AND seq >= ?
                 """,
-                (conversation_id, before_seq),
+                (shift_offset, conversation_id, before_seq),
             )
             await self.db.conn.execute(
                 """
@@ -886,6 +898,14 @@ class AgentRepo:
                     now,
                     entry.get("compacted_at"),
                 ),
+            )
+            await self.db.conn.execute(
+                """
+                UPDATE coding_session_entries
+                SET seq = seq - ?
+                WHERE conversation_id = ? AND seq >= ?
+                """,
+                (shift_offset - 1, conversation_id, before_seq + shift_offset),
             )
             await self.db.conn.commit()
         except Exception:

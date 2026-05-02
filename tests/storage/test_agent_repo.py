@@ -967,6 +967,22 @@ class TestCodingSessionStateRepo:
                     "content_json": {"content": "Turn 1 done"},
                     "token_estimate": 4,
                 },
+                {
+                    "run_id": run_id,
+                    "step_number": 2,
+                    "entry_type": "user",
+                    "role": "user",
+                    "content_json": {"content": "Turn 2"},
+                    "token_estimate": 4,
+                },
+                {
+                    "run_id": run_id,
+                    "step_number": 3,
+                    "entry_type": "assistant",
+                    "role": "assistant",
+                    "content_json": {"content": "Turn 2 done"},
+                    "token_estimate": 4,
+                },
             ],
         )
 
@@ -985,7 +1001,13 @@ class TestCodingSessionStateRepo:
         listed = await repo.list_coding_session_entries("conv-1")
 
         assert inserted["seq"] == 2
-        assert [entry["seq"] for entry in listed] == [1, 2, 3]
-        assert [entry["entry_type"] for entry in listed] == ["user", "compaction_summary", "assistant"]
+        assert [entry["seq"] for entry in listed] == [1, 2, 3, 4, 5]
+        assert [entry["entry_type"] for entry in listed] == [
+            "user",
+            "compaction_summary",
+            "assistant",
+            "user",
+            "assistant",
+        ]
 
         await db.close()
