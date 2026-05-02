@@ -3,6 +3,7 @@
  * Full agent run visualization with user query, progress, and answer.
  */
 
+import { memo, useCallback } from 'react';
 import { cn, formatRelativeTime } from '@/lib/utils';
 import { AgentStepsPanel } from '@/components/AgentStepsPanel';
 import { AnswerWithCitations } from '@/components/AnswerWithCitations';
@@ -35,12 +36,17 @@ function formatCost(cost: number): string {
 
 interface AgentRunMessageProps {
   run: Run;
-  onShowTrace: () => void;
-  onRetry?: () => void;
+  onShowTrace: (runId: string) => void;
+  onRetry?: (userMessage: string) => void;
   canRetry?: boolean;
 }
 
-export function AgentRunMessage({ run, onShowTrace, onRetry, canRetry }: AgentRunMessageProps) {
+export const AgentRunMessage = memo(function AgentRunMessage({
+  run,
+  onShowTrace,
+  onRetry,
+  canRetry,
+}: AgentRunMessageProps) {
   const isRunning = run.status === 'running';
   const agentState = useAgentRunDetails(run.run_id, isRunning);
 
@@ -48,6 +54,14 @@ export function AgentRunMessage({ run, onShowTrace, onRetry, canRetry }: AgentRu
   const isPaused = agentState?.agentState === 'paused';
   const finalAnswer = run.final_answer || agentState?.answerBuffer || '';
   const citations = agentState?.citations || [];
+  const userMessage = run.user_message || run.prompt;
+  const handleShowTraceClick = useCallback(() => {
+    onShowTrace(run.run_id);
+  }, [onShowTrace, run.run_id]);
+  const handleRetryClick = useCallback(() => {
+    if (!userMessage || !onRetry) return;
+    onRetry(userMessage);
+  }, [onRetry, userMessage]);
 
   const handleCancel = async () => {
     try {
@@ -154,7 +168,7 @@ export function AgentRunMessage({ run, onShowTrace, onRetry, canRetry }: AgentRu
               </button>
             ) : (
               <button
-                onClick={onShowTrace}
+                onClick={handleShowTraceClick}
                 className="text-zinc-600 hover:text-zinc-300 transition-colors"
               >
                 [details]
@@ -203,7 +217,7 @@ export function AgentRunMessage({ run, onShowTrace, onRetry, canRetry }: AgentRu
             {!isActive && finalAnswer && (
               <MessageActions
                 content={finalAnswer}
-                onRetry={onRetry}
+                onRetry={onRetry ? handleRetryClick : undefined}
                 canRetry={canRetry}
               />
             )}
@@ -212,4 +226,4 @@ export function AgentRunMessage({ run, onShowTrace, onRetry, canRetry }: AgentRu
       </div>
     </div>
   );
-}
+});
