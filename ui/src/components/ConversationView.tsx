@@ -1403,7 +1403,7 @@ export function ConversationView() {
           query: messageToSend,
           image_attachments: attachmentsToSend,
           conversation_id: conversationId!,
-          max_steps: 25,
+          max_steps: 1000,
           workspace_path: effectiveWorkspacePath || undefined,
           filesystem_enabled: !!effectiveWorkspacePath,
           permission_policy: permissionPolicy,

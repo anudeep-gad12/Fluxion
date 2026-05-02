@@ -266,7 +266,7 @@ async def create_agent_engine(
         )
         output_cost_per_million = getattr(provider_override, "_output_cost_per_million", None)
 
-    effective_max_steps = max_steps if max_steps is not None else 10
+    effective_max_steps = max_steps if max_steps is not None else profile.max_steps
 
     # Build engine with overrides
     engine = AgentEngine(

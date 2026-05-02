@@ -9,6 +9,7 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| test | Agent max-steps default alignment — raised browser agent run creation from a hardcoded 25 steps to 1000 and changed backend factory fallback to use each profile’s own default max-steps value so coding runs inherit 1000 while research keeps 25 | done | 2026-05-02 |
 | test | Workspace sidebar + new-conversation polish — widened the default desktop workspace sidebar, decluttered workspace cards/header controls, auto-retitled placeholder `New conversation` threads from the first chat/agent message with smarter normalized summaries both server-side and in the optimistic UI, and flipped workspace sections to default collapsed instead of expanded | done | 2026-05-01 |
 | test | Coding session seq-collision fix — fixed replay checkpoint insertion so compaction no longer trips SQLite `UNIQUE(conversation_id, seq)` failures when inserting a summary before a multi-entry preserved tail, and added storage regression coverage for resequencing multiple trailing transcript rows safely | done | 2026-05-02 |
 | test | Bash execution prompt/tool wording — expanded coding-agent bash guidance from narrow verification wording to an explicit general local-execution contract covering one-off scripts, curl, calculations, build/test/dev commands, and runtime repro work while keeping destructive-action guardrails | done | 2026-05-02 |
