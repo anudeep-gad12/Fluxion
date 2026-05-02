@@ -9,6 +9,7 @@ import re
 import signal
 import subprocess
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Optional
@@ -19,17 +20,19 @@ from orchestrator.logging_config import get_logger
 
 logger = get_logger(__name__)
 
-# Same directories the CLI scans
+# Fluxion should prefer LM Studio-managed model folders only.
 MODEL_DIRS = [
     Path.home() / ".lmstudio" / "models",
-    Path.home() / "models",
-    Path.home() / ".cache" / "huggingface",
     Path.home() / ".cache" / "lm-studio" / "models",
 ]
+EXCLUDED_MODEL_PATH_PARTS = {"ollama"}
 
 LLAMA_PORT = 8080
 LLAMA_HEALTH_URL = f"http://localhost:{LLAMA_PORT}/health"
 MLX_MODELS_URL = f"http://localhost:{LLAMA_PORT}/v1/models"
+LOG_DIR = Path(__file__).parent.parent.parent / "logs"
+LOCAL_MODEL_LOG_MAX_BYTES = 5 * 1024 * 1024
+LOCAL_MODEL_LOG_SEGMENTS = 10
 
 
 class ModelType(str, Enum):
@@ -82,6 +85,8 @@ def _scan_gguf_models() -> list[LocalModel]:
         for gguf_path in sorted(model_dir.rglob("*.gguf")):
             if not gguf_path.is_file():
                 continue
+            if any(part.lower() in EXCLUDED_MODEL_PATH_PARTS for part in gguf_path.parts):
+                continue
             name = gguf_path.name
             if "mmproj" in name.lower():
                 continue
@@ -117,6 +122,8 @@ def _scan_mlx_models() -> list[LocalModel]:
         for config_path in model_dir.rglob("config.json"):
             parent = config_path.parent
             parent_str = str(parent)
+            if any(part.lower() in EXCLUDED_MODEL_PATH_PARTS for part in parent.parts):
+                continue
 
             # Skip HF cache directories
             if "snapshots" in parent_str or "models--" in parent_str:
@@ -182,6 +189,84 @@ def _kill_port(port: int) -> None:
         pass
 
 
+def _log_file_path(model_type: ModelType) -> Path:
+    """Return the active log file path for the given local model server type."""
+    return LOG_DIR / ("mlx.log" if model_type == ModelType.MLX else "llama.log")
+
+
+def _wal_segment_path(log_file: Path, timestamp: str, suffix: int) -> Path:
+    """Build a rotated append-only WAL segment path for a local model log file."""
+    candidate = log_file.with_name(f"{log_file.name}.wal.{timestamp}")
+    if suffix == 0:
+        return candidate
+    return log_file.with_name(f"{log_file.name}.wal.{timestamp}.{suffix}")
+
+
+def _rotate_log_if_needed(log_file: Path) -> Optional[Path]:
+    """Rotate the active log into an append-only WAL segment when it grows too large."""
+    if not log_file.exists() or log_file.stat().st_size < LOCAL_MODEL_LOG_MAX_BYTES:
+        return None
+
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    suffix = 0
+    archive = _wal_segment_path(log_file, timestamp, suffix)
+    while archive.exists():
+        suffix += 1
+        archive = _wal_segment_path(log_file, timestamp, suffix)
+
+    log_file.rename(archive)
+
+    segments = sorted(
+        log_file.parent.glob(f"{log_file.name}.wal.*"),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    for stale in segments[LOCAL_MODEL_LOG_SEGMENTS:]:
+        try:
+            stale.unlink()
+        except OSError:
+            logger.warning("Failed to prune local model log segment", extra={"path": str(stale)})
+
+    return archive
+
+
+def _open_log_file(
+    model_type: ModelType,
+    *,
+    model_name: str,
+    model_path: str,
+    ctx_size: int,
+    command: list[str],
+):
+    """Open the active local-model log file in append mode with WAL-style rotation."""
+    LOG_DIR.mkdir(exist_ok=True)
+    log_file = _log_file_path(model_type)
+    rotated = _rotate_log_if_needed(log_file)
+
+    if rotated:
+        logger.info(
+            "Rotated local model log file",
+            extra={"active_log": str(log_file), "archive_log": str(rotated)},
+        )
+
+    handle = open(log_file, "a", encoding="utf-8")
+    started_at = datetime.now(timezone.utc).isoformat()
+    header = (
+        "\n"
+        "============================================================\n"
+        f"START {started_at}\n"
+        f"MODEL_TYPE: {model_type.value}\n"
+        f"MODEL_NAME: {model_name}\n"
+        f"MODEL_PATH: {model_path}\n"
+        f"CTX_SIZE: {ctx_size}\n"
+        f"COMMAND: {' '.join(command)}\n"
+        "============================================================\n"
+    )
+    handle.write(header)
+    handle.flush()
+    return handle, log_file
+
+
 async def _wait_for_health(model_type: ModelType, timeout: float = 60.0) -> bool:
     """Poll server health endpoint until ready."""
     interval = 0.5
@@ -242,11 +327,6 @@ async def start(model_path: str, ctx_size: int = 100000) -> bool:
     _kill_port(LLAMA_PORT)
     await asyncio.sleep(0.5)
 
-    # Ensure logs directory exists
-    log_dir = Path(__file__).parent.parent.parent / "logs"
-    log_dir.mkdir(exist_ok=True)
-    log_file = log_dir / ("mlx.log" if model_type == ModelType.MLX else "llama.log")
-
     model_name = Path(resolved).stem if model_type == ModelType.GGUF else Path(resolved).name
 
     logger.info(
@@ -271,7 +351,14 @@ async def start(model_path: str, ctx_size: int = 100000) -> bool:
             "-b", "512",
         ]
 
-    with open(log_file, "w") as lf:
+    lf, log_file = _open_log_file(
+        model_type,
+        model_name=model_name,
+        model_path=resolved,
+        ctx_size=ctx_size,
+        command=cmd,
+    )
+    with lf:
         proc = subprocess.Popen(
             cmd,
             stdout=lf,

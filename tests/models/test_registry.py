@@ -140,15 +140,15 @@ class TestProviderHint:
 
     @patch.dict(os.environ, {"FIREWORKS_API_KEY": "fw-key"})
     def test_glm5_fireworks_routes_with_pricing(self):
-        """Fireworks GLM-5 resolves with the official Fireworks model id and pricing."""
+        """Fireworks GLM-5 alias resolves to the current GLM-5.1 model card metadata."""
         resolved = ModelRegistry.resolve("fireworks-glm-5")
         assert resolved.provider_name == "fireworks"
-        assert resolved.model_id == "accounts/fireworks/models/glm-5"
+        assert resolved.model_id == "accounts/fireworks/models/glm-5p1"
         assert resolved.base_url == "https://api.fireworks.ai/inference/v1"
         assert resolved.context_window == 202752
-        assert resolved.input_cost_per_million == 1.00
-        assert resolved.cached_input_cost_per_million == 0.20
-        assert resolved.output_cost_per_million == 3.20
+        assert resolved.input_cost_per_million == 1.40
+        assert resolved.cached_input_cost_per_million == 0.26
+        assert resolved.output_cost_per_million == 4.40
         assert resolved.reasoning_request_param is None
 
     @patch.dict(os.environ, {"FIREWORKS_API_KEY": "fw-key"})
@@ -268,11 +268,11 @@ class TestListModels:
         glm5 = next(
             model
             for model in result["fireworks"]["models"]
-            if model["model_id"] == "accounts/fireworks/models/glm-5"
+            if model["model_id"] == "accounts/fireworks/models/glm-5p1"
         )
-        assert glm5["input_cost_per_million"] == 1.00
-        assert glm5["cached_input_cost_per_million"] == 0.20
-        assert glm5["output_cost_per_million"] == 3.20
+        assert glm5["input_cost_per_million"] == 1.40
+        assert glm5["cached_input_cost_per_million"] == 0.26
+        assert glm5["output_cost_per_million"] == 4.40
 
         qwen36 = next(
             model

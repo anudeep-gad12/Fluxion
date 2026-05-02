@@ -1316,7 +1316,7 @@ GET /api/models/local
 ]
 ```
 
-Scans: `~/.lmstudio/models`, `~/models`, `~/.cache/huggingface`, `~/.cache/lm-studio/models`
+Scans: `~/.lmstudio/models`, `~/.cache/lm-studio/models` (excluding Ollama subfolders)
 
 ---
 
