@@ -562,5 +562,21 @@ class TestAgentFactory:
                 engine = await create_agent_engine()
 
                 assert engine is not None
-                # Default max_steps is 10
-                assert engine._max_steps == 10
+                # Default research profile max_steps is 25
+                assert engine._max_steps == 25
+
+    @pytest.mark.asyncio
+    async def test_factory_uses_coding_profile_max_steps(self, test_db):
+        """Factory uses coding profile max_steps when filesystem mode is enabled."""
+        from orchestrator.agent import create_agent_engine
+
+        mock_provider = MagicMock()
+        mock_registry = MagicMock()
+        mock_registry.tool_names = []
+
+        with patch("orchestrator.agent.factory.create_provider", return_value=mock_provider):
+            with patch("orchestrator.agent.factory.create_tool_registry", return_value=mock_registry):
+                engine = await create_agent_engine(filesystem_enabled=True)
+
+                assert engine is not None
+                assert engine._max_steps == 1000
