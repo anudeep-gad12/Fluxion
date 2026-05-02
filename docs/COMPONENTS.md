@@ -1471,10 +1471,10 @@ async with self._seq_lock:
 
 | Element | Type | Description |
 |---------|------|-------------|
-| `MODEL_DIRS` | List[Path] | Directories to scan for .gguf files |
+| `MODEL_DIRS` | List[Path] | LM Studio directories to scan for local models |
 | `LLAMA_PORT` | int | Default port (8080) |
 | `LocalModel` | dataclass | Model metadata (path, name, size) |
-| `scan_models()` | function | Scans all MODEL_DIRS for .gguf files |
+| `scan_models()` | function | Scans LM Studio directories and excludes Ollama subfolders |
 | `start()` | async function | Starts llama-server with `--jinja` flag, waits for health |
 | `stop()` | async function | Graceful SIGTERM shutdown |
 | `is_running()` | async function | Health check via HTTP GET |

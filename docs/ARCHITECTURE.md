@@ -588,11 +588,11 @@ The `ChatGPTProvider` (`orchestrator/providers/chatgpt.py`) enables direct acces
 
 The local model service (`orchestrator/services/local_models.py`) manages GGUF models and llama-server lifecycle:
 
-**Model Scanning**: Searches these directories for `.gguf` files:
+**Model Scanning**: Searches these LM Studio directories for local models:
 - `~/.lmstudio/models`
-- `~/models`
-- `~/.cache/huggingface`
 - `~/.cache/lm-studio/models`
+
+Ollama subfolders under those roots are intentionally excluded from discovery.
 
 **llama-server Management**:
 - Start with selected GGUF model on port 8080
