@@ -144,6 +144,7 @@ class TestProfileSystemPrompts:
     def test_coding_prompt_has_tool_usage_patterns(self):
         """Coding prompt has USE WHEN patterns for tools."""
         assert "Use tools purposefully and economically" in CODING_SYSTEM_PROMPT
+        assert "Use `bash` as a general local execution tool" in CODING_SYSTEM_PROMPT
 
     def test_coding_prompt_treats_steps_as_continuation(self):
         """Coding prompt discourages repeated restart narration between steps."""

@@ -52,7 +52,9 @@ class BashTool:
             description=(
                 "Execute a shell command. Captures stdout and stderr. "
                 "Working directory persists between calls. "
-                "Use for git operations, running tests, installing packages, etc."
+                "Use for general local execution: git operations, running tests, build/dev commands, "
+                "one-off Python or Node scripts, curl requests, quick calculations, and runtime verification. "
+                "Stay task-focused and avoid destructive commands unless truly required."
             ),
             parameters={
                 "type": "object",
