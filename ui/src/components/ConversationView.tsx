@@ -12,6 +12,7 @@ import { ShimmerSkeleton, ThinkingTimer } from '@/components/StreamingIndicator'
 import { ScrollToBottom } from '@/components/ScrollToBottom';
 import { IntegratedTerminal } from '@/components/IntegratedTerminal';
 import { WorkspacePickerDialog } from '@/components/WorkspacePickerDialog';
+import { VirtualizedConversationRunList } from '@/components/VirtualizedConversationRunList';
 import {
   createConversation,
   createConversationRun,
@@ -752,42 +753,6 @@ const RunMessage = memo(function RunMessage({
   );
 });
 
-const ConversationRunList = memo(function ConversationRunList({
-  runs,
-  canRetry,
-  onShowTrace,
-  onRetry,
-}: {
-  runs: Run[];
-  canRetry: boolean;
-  onShowTrace: (runId: string) => void;
-  onRetry: (userMessage: string) => void;
-}) {
-  return (
-    <div className="space-y-8">
-      {runs.map((run) => (
-        run.mode === 'agent' ? (
-          <AgentRunMessage
-            key={run.run_id}
-            run={run}
-            onShowTrace={onShowTrace}
-            onRetry={onRetry}
-            canRetry={canRetry}
-          />
-        ) : (
-          <RunMessage
-            key={run.run_id}
-            run={run}
-            onShowTrace={onShowTrace}
-            onRetry={onRetry}
-            canRetry={canRetry}
-          />
-        )
-      ))}
-    </div>
-  );
-});
-
 function extractActiveMention(value: string, cursor: number): { start: number; end: number; query: string } | null {
   const safeCursor = Math.max(0, Math.min(cursor, value.length));
   const beforeCursor = value.slice(0, safeCursor);
@@ -1256,6 +1221,26 @@ export function ConversationView() {
     // Focus the textarea so user can edit before sending
     requestAnimationFrame(() => textareaRef.current?.focus());
   }, [clearMentionState, hasActiveRun]);
+
+  const renderRunCard = useCallback((run: Run) => (
+    run.mode === 'agent' ? (
+      <AgentRunMessage
+        key={run.run_id}
+        run={run}
+        onShowTrace={handleShowTrace}
+        onRetry={handleRetry}
+        canRetry={!hasActiveRun}
+      />
+    ) : (
+      <RunMessage
+        key={run.run_id}
+        run={run}
+        onShowTrace={handleShowTrace}
+        onRetry={handleRetry}
+        canRetry={!hasActiveRun}
+      />
+    )
+  ), [handleRetry, handleShowTrace, hasActiveRun]);
 
   const handleSaveReasoningSettings = useCallback(async () => {
     if (!reasoningDraft) return;
@@ -2093,11 +2078,10 @@ export function ConversationView() {
       />
 
       <div className="flex-1 overflow-y-auto px-3 sm:px-4 md:px-6 py-4 sm:py-5 md:py-6" ref={scrollRef}>
-        <ConversationRunList
+        <VirtualizedConversationRunList
           runs={runs}
-          canRetry={!hasActiveRun}
-          onShowTrace={handleShowTrace}
-          onRetry={handleRetry}
+          scrollContainerRef={scrollRef}
+          renderRun={renderRunCard}
         />
       </div>
 
