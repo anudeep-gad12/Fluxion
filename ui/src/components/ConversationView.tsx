@@ -65,6 +65,99 @@ const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 /** Mode: 'chat' for regular conversation, 'agent' for agent */
 type ChatMode = 'chat' | 'agent';
 
+function isApplePlatform(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  return /(Mac|iPhone|iPad|iPod)/i.test(navigator.platform || navigator.userAgent);
+}
+
+function getLineStart(text: string, position: number): number {
+  return text.lastIndexOf('\n', Math.max(0, position) - 1) + 1;
+}
+
+function getLineEnd(text: string, position: number): number {
+  const nextBreak = text.indexOf('\n', position);
+  return nextBreak === -1 ? text.length : nextBreak;
+}
+
+function classifyWordCharacter(char: string): 'space' | 'word' | 'punctuation' {
+  if (/\s/.test(char)) return 'space';
+  if (/[A-Za-z0-9_]/.test(char)) return 'word';
+  return 'punctuation';
+}
+
+function moveWordLeft(text: string, position: number): number {
+  let nextPosition = position;
+  while (nextPosition > 0 && /\s/.test(text[nextPosition - 1])) {
+    nextPosition -= 1;
+  }
+  if (nextPosition === 0) return 0;
+  const kind = classifyWordCharacter(text[nextPosition - 1]);
+  while (nextPosition > 0 && classifyWordCharacter(text[nextPosition - 1]) === kind) {
+    nextPosition -= 1;
+  }
+  return nextPosition;
+}
+
+function moveWordRight(text: string, position: number): number {
+  let nextPosition = position;
+  while (nextPosition < text.length && /\s/.test(text[nextPosition])) {
+    nextPosition += 1;
+  }
+  if (nextPosition >= text.length) return text.length;
+  const kind = classifyWordCharacter(text[nextPosition]);
+  while (nextPosition < text.length && classifyWordCharacter(text[nextPosition]) === kind) {
+    nextPosition += 1;
+  }
+  return nextPosition;
+}
+
+function moveVertical(text: string, position: number, direction: -1 | 1, preferredColumn?: number | null): number {
+  const currentLineStart = getLineStart(text, position);
+  const currentColumn = preferredColumn ?? (position - currentLineStart);
+  if (direction < 0) {
+    if (currentLineStart === 0) return 0;
+    const previousLineEnd = currentLineStart - 1;
+    const previousLineStart = getLineStart(text, previousLineEnd);
+    return Math.min(previousLineStart + currentColumn, previousLineEnd);
+  }
+
+  const currentLineEnd = getLineEnd(text, position);
+  if (currentLineEnd >= text.length) return text.length;
+  const nextLineStart = currentLineEnd + 1;
+  const nextLineEnd = getLineEnd(text, nextLineStart);
+  return Math.min(nextLineStart + currentColumn, nextLineEnd);
+}
+
+function hasTextSelection(textarea: HTMLTextAreaElement): boolean {
+  return textarea.selectionStart !== textarea.selectionEnd;
+}
+
+function replaceTextareaRange(
+  textarea: HTMLTextAreaElement,
+  replacement: string,
+  start: number,
+  end: number,
+  selectMode: SelectionMode = 'end',
+): void {
+  const scrollTop = textarea.scrollTop;
+  const scrollLeft = textarea.scrollLeft;
+  textarea.setRangeText(replacement, start, end, selectMode);
+  textarea.scrollTop = scrollTop;
+  textarea.scrollLeft = scrollLeft;
+}
+
+function isTextInputElement(element: EventTarget | null): boolean {
+  if (!(element instanceof HTMLElement)) return false;
+  const tagName = element.tagName.toLowerCase();
+  if (tagName === 'input' || tagName === 'textarea' || tagName === 'select') {
+    return true;
+  }
+  if (element.isContentEditable) {
+    return true;
+  }
+  return !!element.closest('[contenteditable="true"], [role="textbox"]');
+}
+
 function formatContextTokens(tokens: number): string {
   if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(tokens >= 10_000_000 ? 0 : 1)}m`;
   if (tokens >= 1_000) return `${(tokens / 1_000).toFixed(tokens >= 10_000 ? 0 : 1)}k`;
@@ -979,6 +1072,7 @@ export function ConversationView() {
   );
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const verticalMoveColumnRef = useRef<number | null>(null);
 
   // Model picker state
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
@@ -1219,14 +1313,21 @@ export function ConversationView() {
     setDetailPanelOpen(true);
   }, [selectRun, setDetailPanelOpen]);
 
+  const focusComposer = useCallback(() => {
+    const textarea = textareaRef.current;
+    if (!textarea || textarea.disabled) return;
+    textarea.focus();
+    const end = textarea.value.length;
+    textarea.setSelectionRange(end, end);
+  }, []);
+
   /** Retry a message: pre-fill the input with the original user message */
   const handleRetry = useCallback((userMessage: string) => {
     if (hasActiveRun) return;
     clearMentionState();
     setMessage(userMessage);
-    // Focus the textarea so user can edit before sending
-    requestAnimationFrame(() => textareaRef.current?.focus());
-  }, [clearMentionState, hasActiveRun]);
+    requestAnimationFrame(focusComposer);
+  }, [clearMentionState, focusComposer, hasActiveRun]);
 
   const renderRunCard = useCallback((run: Run) => (
     run.mode === 'agent' ? (
@@ -1570,57 +1671,6 @@ export function ConversationView() {
     }
   };
 
-  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (mentionOpen) {
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        setMentionSelectedIndex((prev) => (
-          mentionResults.length ? (prev + 1) % mentionResults.length : 0
-        ));
-        return;
-      }
-      if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        setMentionSelectedIndex((prev) => (
-          mentionResults.length ? (prev - 1 + mentionResults.length) % mentionResults.length : 0
-        ));
-        return;
-      }
-      if (e.key === 'Enter' && !e.metaKey && !e.ctrlKey) {
-        const entry = mentionResults[mentionSelectedIndex];
-        if (entry) {
-          e.preventDefault();
-          handleMentionSelect(entry);
-          return;
-        }
-      }
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        setMentionOpen(false);
-        return;
-      }
-    }
-
-    // Cmd/Ctrl + Enter to send
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-      e.preventDefault();
-      handleSubmit();
-      return;
-    }
-    // Cmd/Ctrl + 1 for Agent mode
-    if (e.key === '1' && (e.metaKey || e.ctrlKey)) {
-      e.preventDefault();
-      setMode('agent');
-      return;
-    }
-    // Cmd/Ctrl + 2 for Chat mode
-    if (e.key === '2' && (e.metaKey || e.ctrlKey)) {
-      e.preventDefault();
-      setMode('chat');
-      return;
-    }
-  };
-
   // Determine if we should show Stop button (active run we started)
   const isGenerating = !!pendingRunId;
   const terminalAvailable = !!selectedConversationId && mode === 'agent' && isDesktop;
@@ -1666,6 +1716,7 @@ export function ConversationView() {
 
   const handleMessageChange = useCallback((e: ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value;
+    verticalMoveColumnRef.current = null;
     // Enforce character limit
     if (value.length <= MAX_INPUT_CHARS) {
       setMessage(value);
@@ -1726,8 +1777,225 @@ export function ConversationView() {
   const handleTextareaSelection = useCallback(() => {
     const textarea = textareaRef.current;
     if (!textarea) return;
+    verticalMoveColumnRef.current = null;
     syncMentionState(textarea.value, textarea.selectionStart);
   }, [syncMentionState]);
+
+  const syncTextareaState = useCallback((textarea: HTMLTextAreaElement) => {
+    setMessage(textarea.value);
+    syncMentionState(textarea.value, textarea.selectionStart);
+    requestAnimationFrame(resizeTextarea);
+  }, [resizeTextarea, syncMentionState]);
+
+  const handleMentionKeyDown = useCallback((e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (mentionOpen) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setMentionSelectedIndex((prev) => (
+          mentionResults.length ? (prev + 1) % mentionResults.length : 0
+        ));
+        return true;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setMentionSelectedIndex((prev) => (
+          mentionResults.length ? (prev - 1 + mentionResults.length) % mentionResults.length : 0
+        ));
+        return true;
+      }
+      if (e.key === 'Enter' && !e.metaKey && !e.ctrlKey) {
+        const entry = mentionResults[mentionSelectedIndex];
+        if (entry) {
+          e.preventDefault();
+          handleMentionSelect(entry);
+          return true;
+        }
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setMentionOpen(false);
+        return true;
+      }
+    }
+    return false;
+  }, [handleMentionSelect, mentionOpen, mentionResults, mentionSelectedIndex]);
+
+  const handleComposerCommandKeyDown = useCallback((e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      handleSubmit();
+      return true;
+    }
+    if (e.key === '1' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      setMode('agent');
+      return true;
+    }
+    if (e.key === '2' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      setMode('chat');
+      return true;
+    }
+    return false;
+  }, [handleSubmit]);
+
+  const handleComposerEditingShortcut = useCallback((e: KeyboardEvent<HTMLTextAreaElement>) => {
+    const textarea = e.currentTarget;
+    if (textarea.disabled || e.nativeEvent.isComposing) return false;
+
+    const isMac = isApplePlatform();
+    const key = e.key;
+    const normalizedKey = key.length === 1 ? key.toLowerCase() : key;
+    const hasModifiers = e.metaKey || e.altKey || e.shiftKey || e.ctrlKey;
+    if (!hasModifiers) {
+      verticalMoveColumnRef.current = null;
+      return false;
+    }
+
+    const text = textarea.value;
+    const selectionStart = textarea.selectionStart;
+    const selectionEnd = textarea.selectionEnd;
+    const selectionCollapsed = selectionStart === selectionEnd;
+    const collapseTo = (position: number) => {
+      textarea.setSelectionRange(position, position);
+      verticalMoveColumnRef.current = null;
+      syncMentionState(textarea.value, textarea.selectionStart);
+    };
+
+    if (e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+      if (!isMac && normalizedKey === 'f') {
+        return false;
+      }
+
+      switch (normalizedKey) {
+        case 'a':
+          e.preventDefault();
+          collapseTo(getLineStart(text, selectionStart));
+          return true;
+        case 'e':
+          e.preventDefault();
+          collapseTo(getLineEnd(text, selectionEnd));
+          return true;
+        case 'b':
+          e.preventDefault();
+          collapseTo(selectionCollapsed ? Math.max(0, selectionStart - 1) : selectionStart);
+          return true;
+        case 'f':
+          e.preventDefault();
+          collapseTo(selectionCollapsed ? Math.min(text.length, selectionEnd + 1) : selectionEnd);
+          return true;
+        case 'p': {
+          e.preventDefault();
+          const nextPosition = moveVertical(text, selectionStart, -1, verticalMoveColumnRef.current);
+          verticalMoveColumnRef.current = selectionStart - getLineStart(text, selectionStart);
+          textarea.setSelectionRange(nextPosition, nextPosition);
+          syncMentionState(textarea.value, textarea.selectionStart);
+          return true;
+        }
+        case 'n': {
+          e.preventDefault();
+          const nextPosition = moveVertical(text, selectionEnd, 1, verticalMoveColumnRef.current);
+          verticalMoveColumnRef.current = selectionEnd - getLineStart(text, selectionEnd);
+          textarea.setSelectionRange(nextPosition, nextPosition);
+          syncMentionState(textarea.value, textarea.selectionStart);
+          return true;
+        }
+        case 'k':
+          e.preventDefault();
+          if (hasTextSelection(textarea)) {
+            replaceTextareaRange(textarea, '', selectionStart, selectionEnd, 'start');
+          } else {
+            replaceTextareaRange(textarea, '', selectionStart, getLineEnd(text, selectionStart), 'start');
+          }
+          verticalMoveColumnRef.current = null;
+          syncTextareaState(textarea);
+          return true;
+        case 'u':
+          e.preventDefault();
+          if (hasTextSelection(textarea)) {
+            replaceTextareaRange(textarea, '', selectionStart, selectionEnd, 'start');
+          } else {
+            replaceTextareaRange(textarea, '', getLineStart(text, selectionStart), selectionStart, 'start');
+          }
+          verticalMoveColumnRef.current = null;
+          syncTextareaState(textarea);
+          return true;
+        case 'w':
+          e.preventDefault();
+          if (hasTextSelection(textarea)) {
+            replaceTextareaRange(textarea, '', selectionStart, selectionEnd, 'start');
+          } else {
+            replaceTextareaRange(textarea, '', moveWordLeft(text, selectionStart), selectionStart, 'start');
+          }
+          verticalMoveColumnRef.current = null;
+          syncTextareaState(textarea);
+          return true;
+        default:
+          verticalMoveColumnRef.current = null;
+          return false;
+      }
+    }
+
+    if (isMac && e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey) {
+      if (normalizedKey === 'b') {
+        e.preventDefault();
+        collapseTo(moveWordLeft(text, selectionStart));
+        return true;
+      }
+      if (normalizedKey === 'f') {
+        e.preventDefault();
+        collapseTo(moveWordRight(text, selectionEnd));
+        return true;
+      }
+      if (normalizedKey === 'Backspace') {
+        e.preventDefault();
+        if (hasTextSelection(textarea)) {
+          replaceTextareaRange(textarea, '', selectionStart, selectionEnd, 'start');
+        } else {
+          replaceTextareaRange(textarea, '', moveWordLeft(text, selectionStart), selectionStart, 'start');
+        }
+        verticalMoveColumnRef.current = null;
+        syncTextareaState(textarea);
+        return true;
+      }
+    }
+
+    if (isMac && e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && normalizedKey === 'Backspace') {
+      e.preventDefault();
+      if (hasTextSelection(textarea)) {
+        replaceTextareaRange(textarea, '', selectionStart, selectionEnd, 'start');
+      } else {
+        replaceTextareaRange(textarea, '', getLineStart(text, selectionStart), selectionStart, 'start');
+      }
+      verticalMoveColumnRef.current = null;
+      syncTextareaState(textarea);
+      return true;
+    }
+
+    verticalMoveColumnRef.current = null;
+    return false;
+  }, [syncMentionState, syncTextareaState]);
+
+  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (handleMentionKeyDown(e)) return;
+    if (handleComposerCommandKeyDown(e)) return;
+    handleComposerEditingShortcut(e);
+  };
+
+  useEffect(() => {
+    const handleWindowKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.defaultPrevented || event.isComposing) return;
+      if (event.key !== '/' || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+      if (isTextInputElement(event.target)) return;
+      const textarea = textareaRef.current;
+      if (!textarea || textarea.disabled) return;
+      event.preventDefault();
+      focusComposer();
+    };
+
+    window.addEventListener('keydown', handleWindowKeyDown);
+    return () => window.removeEventListener('keydown', handleWindowKeyDown);
+  }, [focusComposer]);
 
   // Reset textarea height when message is cleared (after submit)
   useEffect(() => {
