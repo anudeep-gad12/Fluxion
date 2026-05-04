@@ -9,6 +9,7 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| test | Browser composer terminal shortcuts + slash focus — added focused-only terminal/editor-style textarea editing in ConversationView (line/word movement, kill-style deletions, preserved mention picker ownership, kept send/mode shortcuts, left browser find untouched on non-mac Ctrl+F), plus a bare `/` window shortcut that focuses the main composer unless another editable control is active | done | 2026-05-04 |
 | test | Local-model request identity fix — made local model startup pin the provider default model to the loaded local model name and taught agent-engine creation to prefer provider-override model identity over stale config names, so local runs no longer send old cloud model ids in `model` payload fields during continuation/streaming | done | 2026-05-04 |
 | test | Local-model footer ctx denominator fix — changed the browser composer status line to derive its total context window from the active selected model/runtime instead of stale prior-run stored-context metadata, and recompute the displayed ctx utilization percentage against that live window so switching local models no longer leaves the bottom ctx meter stuck on the previous model's limit | done | 2026-05-04 |
 | test | Fireworks GLM refresh — replaced the Fireworks GLM-5 registry preset with GLM-5.1 using the current Fireworks model-card id (`accounts/fireworks/models/glm-5p1`), updated pricing/context metadata to match the official Fireworks page, and kept the old Fireworks GLM-5 aliases mapped forward for compatibility | done | 2026-05-02 |
@@ -100,6 +101,19 @@
 | feature/preset-question-chips | Demo preset questions | done | 2026-01-23 |
 | feature/gaia-benchmark | GAIA Benchmark Evaluation | done | 2026-01-21 |
 | feature/agent-planning | Agent Planning Step | done | 2026-01-20 |
+
+### 2026-05-04: Browser Composer Terminal Shortcuts + Slash Focus
+
+**Branch:** `test`
+**Status:** done
+
+**Description:**
+Added terminal-style composer editing shortcuts directly on the existing browser textarea, scoped to when the composer itself is focused, and added a global bare `/` shortcut that jumps focus into the main composer without stealing focus from other active text inputs.
+
+**Changes:**
+- `ui/src/components/ConversationView.tsx` — added textarea selection/edit helpers for line boundaries, word movement, vertical movement, and selection-aware deletions using native textarea APIs
+- `ui/src/components/ConversationView.tsx` — refactored composer keydown handling into mention navigation, existing send/mode shortcuts, and focused-only terminal-style editing shortcuts
+- `ui/src/components/ConversationView.tsx` — kept browser/native find intact on non-mac `Ctrl+F`, preserved mention picker Arrow/Enter/Escape behavior, and added `/` window focus-to-compose handling with editable-element and IME guards
 
 ### 2026-03-19: Pause/Resume Agent Runs
 
