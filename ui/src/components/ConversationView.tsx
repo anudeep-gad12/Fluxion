@@ -1096,11 +1096,17 @@ export function ConversationView() {
       return total + (runUsage?.total_tokens ?? 0);
     }, 0);
   }, [runs, activeRunId, activeAgentState?.usage?.total_tokens]);
+  const footerStoredTokens = footerStoredContext?.stored_tokens ?? 0;
   const composerContextWindow = (
-    footerStoredContext?.context_window
-    ?? activeAgentState?.context_profile?.context_window
-    ?? (latestContextRun?.context_profile as { context_window?: number } | undefined)?.context_window
+    activeAgentState?.context_profile?.context_window
     ?? modelStatus?.context_window
+    ?? (latestContextRun?.context_profile as { context_window?: number } | undefined)?.context_window
+    ?? footerStoredContext?.context_window
+  );
+  const composerStoredContextUtilizationPct = (
+    footerStoredContext && typeof composerContextWindow === 'number' && composerContextWindow > 0
+      ? (footerStoredTokens / composerContextWindow) * 100
+      : null
   );
   const showComposerContextStats = mode === 'agent' && !!composerContextWindow && (
     !!footerStoredContext || conversationRawTokens > 0
@@ -2285,11 +2291,11 @@ export function ConversationView() {
               <>
                 <span className="text-zinc-700">|</span>
                 <span className="text-zinc-500">
-                  ctx {footerStoredContext ? `${Math.round(footerStoredContext.utilization_pct ?? 0)}%` : '—'}
+                  ctx {composerStoredContextUtilizationPct !== null ? `${Math.round(composerStoredContextUtilizationPct)}%` : '—'}
                 </span>
                 <span className="text-zinc-600">
                   {footerStoredContext && composerContextWindow
-                    ? `${formatContextTokens(footerStoredContext.stored_tokens ?? 0)}/${formatContextTokens(composerContextWindow)}`
+                    ? `${formatContextTokens(footerStoredTokens)}/${formatContextTokens(composerContextWindow)}`
                     : '—'}
                 </span>
                 <span className="text-zinc-500">

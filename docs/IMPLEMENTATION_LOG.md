@@ -9,6 +9,7 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| test | Local-model footer ctx denominator fix — changed the browser composer status line to derive its total context window from the active selected model/runtime instead of stale prior-run stored-context metadata, and recompute the displayed ctx utilization percentage against that live window so switching local models no longer leaves the bottom ctx meter stuck on the previous model's limit | done | 2026-05-04 |
 | test | Fireworks GLM refresh — replaced the Fireworks GLM-5 registry preset with GLM-5.1 using the current Fireworks model-card id (`accounts/fireworks/models/glm-5p1`), updated pricing/context metadata to match the official Fireworks page, and kept the old Fireworks GLM-5 aliases mapped forward for compatibility | done | 2026-05-02 |
 | test | Local model source narrowing — restricted browser local-model discovery to LM Studio directories only, explicitly excluded Ollama subfolders from GGUF/MLX scans, and added service coverage so Fluxion now prefers LM Studio-managed local models instead of mixing in incompatible Ollama cache artifacts | done | 2026-05-02 |
 | test | Local model append-only startup logs — changed GGUF/MLX server launch logs from overwrite-on-start to append mode with size-based WAL-style rotation segments, preserved per-start metadata headers (model path, ctx, command), and added service tests so failed local model launches can be diagnosed after later attempts instead of losing the prior stderr output | done | 2026-05-02 |
