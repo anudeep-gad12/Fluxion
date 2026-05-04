@@ -112,15 +112,12 @@ async def start_local_model(request: StartModelRequest):
 
     # Swap the provider to point at local server
     local_status = local_models.status()
+    local_model_name = local_status.get("model_name") or request.model_path
     local_provider = OpenAICompatProvider(
         base_url=f"http://localhost:{local_models.LLAMA_PORT}/v1",
         api_key="not-needed",
         endpoint="chat_completions",
-        default_model=(
-            local_status["model_path"]
-            if local_status.get("model_type") == "mlx"
-            else None
-        ),
+        default_model=local_model_name,
     )
     local_provider._shared = True  # Prevent engine.close() from killing the shared client
     local_provider._input_cost_per_million = 0.0
@@ -133,8 +130,8 @@ async def start_local_model(request: StartModelRequest):
     local_provider._reasoning_provider_family = "local"
     local_provider._context_profile_source = "local"
     local_provider._context_profile_provider_name = "local"
-    local_provider._context_profile_model_id = local_status.get("model_name") or request.model_path
-    local_provider._context_profile_display_name = local_status.get("model_name") or request.model_path
+    local_provider._context_profile_model_id = local_model_name
+    local_provider._context_profile_display_name = local_model_name
     set_provider_override(local_provider)
 
     model_name = local_models.status()["model_name"]

@@ -566,6 +566,23 @@ class TestAgentFactory:
                 assert engine._max_steps == 25
 
     @pytest.mark.asyncio
+    async def test_factory_prefers_provider_override_model_name(self, test_db):
+        """Factory should use the active override model identity instead of stale config names."""
+        from orchestrator.agent import create_agent_engine
+
+        mock_provider = MagicMock()
+        mock_provider._context_profile_model_id = "Qwen3.6-35B-A3B-Q4_K_M"
+        mock_provider._default_model = None
+        mock_registry = MagicMock()
+        mock_registry.tool_names = []
+
+        with patch("orchestrator.agent.factory.create_provider", return_value=MagicMock()):
+            with patch("orchestrator.agent.factory.create_tool_registry", return_value=mock_registry):
+                engine = await create_agent_engine(provider_override=mock_provider, filesystem_enabled=True)
+
+                assert engine is not None
+                assert engine._model_name == "Qwen3.6-35B-A3B-Q4_K_M"
+
     async def test_factory_uses_coding_profile_max_steps(self, test_db):
         """Factory uses coding profile max_steps when filesystem mode is enabled."""
         from orchestrator.agent import create_agent_engine

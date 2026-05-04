@@ -203,6 +203,31 @@ async def test_select_model_updates_active_state():
 
 
 @pytest.mark.asyncio
+async def test_start_local_model_sets_provider_default_model():
+    """Local model start should pin the provider default model to the loaded local model."""
+    with patch("orchestrator.routes.models.local_models.start", return_value=True), patch(
+        "orchestrator.routes.models.local_models.status",
+        return_value={
+            "model_name": "Qwen3.6-35B-A3B-Q4_K_M",
+            "model_path": "/models/qwen.gguf",
+            "model_type": "gguf",
+        },
+    ), patch("orchestrator.routes.models.set_provider_override") as mock_set_provider:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.post(
+                "/api/models/local/start", json={"model_path": "/models/qwen.gguf", "ctx_size": 65536}
+            )
+
+    assert response.status_code == 200
+    provider = mock_set_provider.call_args.args[0]
+    assert provider._default_model == "Qwen3.6-35B-A3B-Q4_K_M"
+    assert provider._context_profile_model_id == "Qwen3.6-35B-A3B-Q4_K_M"
+    assert provider._context_profile_display_name == "Qwen3.6-35B-A3B-Q4_K_M"
+
+
+@pytest.mark.asyncio
 async def test_model_status_includes_context_profile_fields():
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://test"
