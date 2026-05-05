@@ -270,19 +270,25 @@ function ModelPicker({
   // Flatten registry models by provider, only show available providers
   const registryProviders = registryData
     ? Object.entries(registryData.providers)
-        .filter(([, info]) => info.available && info.models.length > 0)
+        .filter(([providerName, info]) => (
+          providerName !== 'local' && info.available && info.models.length > 0
+        ))
     : [];
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={onOpenChange}
+      className="max-w-5xl max-h-[88vh] flex flex-col"
+    >
       <DialogHeader>
         <DialogTitle className="font-mono text-sm">Select Model</DialogTitle>
       </DialogHeader>
-      <DialogContent>
+      <DialogContent className="flex-1 overflow-hidden">
         {error && (
           <p className="text-xs text-red-400 mb-2 font-mono">{error}</p>
         )}
-        <div className="space-y-1 max-h-80 overflow-y-auto">
+        <div className="space-y-1 max-h-[70vh] overflow-y-auto pr-1">
           {loading ? (
             <p className="text-xs text-zinc-600 font-mono px-3 py-2">Loading models...</p>
           ) : (
