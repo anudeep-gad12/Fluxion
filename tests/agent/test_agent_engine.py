@@ -2707,6 +2707,136 @@ class TestRedundancyDetection:
 
         assert len(redundant) == 1
 
+    def test_blocks_same_failed_edit_without_reread(self):
+        """Exact failed edit retries require rereading first."""
+        engine = self._make_engine()
+        engine._tool_state_version = 3
+        engine._tool_call_log = [
+            {
+                "tool_name": "edit_file",
+                "arguments": {
+                    "file_path": "src/App.tsx",
+                    "old_string": "const a = 1;",
+                    "new_string": "const a = 2;",
+                },
+                "success": False,
+                "step_number": 4,
+                "state_version_after": 3,
+                "result_metadata": {"match_failure_type": "not_found"},
+            },
+        ]
+        engine._edit_failures = {
+            "src/App.tsx": {
+                "arguments": {
+                    "file_path": "src/App.tsx",
+                    "old_string": "const a = 1;",
+                    "new_string": "const a = 2;",
+                },
+                "failure_type": "not_found",
+                "file_read_sequence_at_failure": 1,
+            }
+        }
+        engine._file_last_read_sequences = {"src/App.tsx": 1}
+
+        calls = [
+            ParsedToolCall(
+                id="tc-edit",
+                name="edit_file",
+                arguments={
+                    "file_path": "src/App.tsx",
+                    "old_string": "const a = 1;",
+                    "new_string": "const a = 2;",
+                },
+                raw_arguments='{"file_path": "src/App.tsx", "old_string": "const a = 1;", "new_string": "const a = 2;"}',
+            )
+        ]
+        redundant = engine._detect_redundant_calls(calls)
+
+        assert len(redundant) == 1
+        assert "rereading the file first" in redundant[0][1]
+
+    def test_allows_same_failed_edit_after_reread(self):
+        """A reread clears the redundant-filter block for the same edit."""
+        engine = self._make_engine()
+        engine._tool_state_version = 3
+        engine._tool_call_log = [
+            {
+                "tool_name": "edit_file",
+                "arguments": {
+                    "file_path": "src/App.tsx",
+                    "old_string": "const a = 1;",
+                    "new_string": "const a = 2;",
+                },
+                "success": False,
+                "step_number": 4,
+                "state_version_after": 3,
+                "result_metadata": {"match_failure_type": "not_found"},
+            },
+        ]
+        engine._edit_failures = {
+            "src/App.tsx": {
+                "arguments": {
+                    "file_path": "src/App.tsx",
+                    "old_string": "const a = 1;",
+                    "new_string": "const a = 2;",
+                },
+                "failure_type": "not_found",
+                "file_read_sequence_at_failure": 1,
+            }
+        }
+        engine._file_last_read_sequences = {"src/App.tsx": 2}
+
+        calls = [
+            ParsedToolCall(
+                id="tc-edit",
+                name="edit_file",
+                arguments={
+                    "file_path": "src/App.tsx",
+                    "old_string": "const a = 1;",
+                    "new_string": "const a = 2;",
+                },
+                raw_arguments='{"file_path": "src/App.tsx", "old_string": "const a = 1;", "new_string": "const a = 2;"}',
+            )
+        ]
+        redundant = engine._detect_redundant_calls(calls)
+
+        assert redundant == []
+
+    def test_allows_materially_changed_edit_args_after_failure(self):
+        """Updated edit args are allowed even after a stale-match failure."""
+        engine = self._make_engine()
+        engine._tool_state_version = 3
+        engine._tool_call_log = [
+            {
+                "tool_name": "edit_file",
+                "arguments": {
+                    "file_path": "src/App.tsx",
+                    "old_string": "const a = 1;",
+                    "new_string": "const a = 2;",
+                },
+                "success": False,
+                "step_number": 4,
+                "state_version_after": 3,
+                "result_metadata": {"match_failure_type": "not_found"},
+            },
+        ]
+
+        calls = [
+            ParsedToolCall(
+                id="tc-edit",
+                name="edit_file",
+                arguments={
+                    "file_path": "src/App.tsx",
+                    "old_string": "const a = 2;",
+                    "new_string": "const a = 3;",
+                },
+                raw_arguments='{"file_path": "src/App.tsx", "old_string": "const a = 2;", "new_string": "const a = 3;"}',
+            )
+        ]
+        redundant = engine._detect_redundant_calls(calls)
+
+        assert redundant == []
+
     def test_allows_duplicate_web_search_after_state_change(self):
         """Allows repeating a search after new evidence changed the working state."""
         engine = self._make_engine()
@@ -2742,6 +2872,230 @@ class TestRedundancyDetection:
 # =============================================================================
 # Parallel Tool Execution Tests
 # =============================================================================
+
+
+class TestEditRecoveryFlow:
+    """Regression coverage for edit-failure recovery behavior."""
+
+    def _coding_profile(self):
+        profile = MagicMock()
+        profile.name = "coding"
+        profile.max_steps = 20
+        return profile
+
+    def _registry_with_file_tools(self, root: Path):
+        registry = create_mock_registry()
+        read_tool = ReadFileTool(str(root))
+        from orchestrator.agent.tools.edit_file import EditFileTool
+
+        edit_tool = EditFileTool(str(root))
+        registry.get.side_effect = (
+            lambda name: read_tool
+            if name == "read_file"
+            else edit_tool
+            if name == "edit_file"
+            else None
+        )
+        return registry
+
+    @pytest.mark.asyncio
+    async def test_failed_edit_injects_reread_oriented_recovery_messages(self, tmp_path: Path):
+        app_file = tmp_path / "App.tsx"
+        app_file.write_text("const value = 1;\nconst label = value;\n", encoding="utf-8")
+
+        provider = MagicMock()
+        provider.complete_streaming = AsyncMock(
+            side_effect=[
+                LLMResponse(
+                    text="",
+                    tool_calls=[
+                        {
+                            "id": "tc-edit-1",
+                            "type": "function",
+                            "function": {
+                                "name": "edit_file",
+                                "arguments": json.dumps(
+                                    {
+                                        "file_path": "App.tsx",
+                                        "old_string": "const value = 1;",
+                                        "new_string": "const value = 2;",
+                                    }
+                                ),
+                            },
+                        }
+                    ],
+                ),
+                LLMResponse(
+                    text="",
+                    tool_calls=[
+                        {
+                            "id": "tc-edit-2",
+                            "type": "function",
+                            "function": {
+                                "name": "edit_file",
+                                "arguments": json.dumps(
+                                    {
+                                        "file_path": "App.tsx",
+                                        "old_string": "const value = 1;\nconst label = value;",
+                                        "new_string": "const value = 2;\nconst label = String(value);",
+                                    }
+                                ),
+                            },
+                        }
+                    ],
+                ),
+                LLMResponse(
+                    text="",
+                    tool_calls=[
+                        {
+                            "id": "tc-read-1",
+                            "type": "function",
+                            "function": {
+                                "name": "read_file",
+                                "arguments": json.dumps({"file_path": "App.tsx"}),
+                            },
+                        }
+                    ],
+                ),
+                LLMResponse(text="Done."),
+            ]
+        )
+
+        mock_sm = create_mock_state_machine(
+            can_continue_sequence=[True, True, True, True, False],
+            step_sequence=[
+                {"step_number": 1, "id": "step-1"},
+                {"step_number": 2, "id": "step-2"},
+                {"step_number": 3, "id": "step-3"},
+                {"step_number": 4, "id": "step-4"},
+            ],
+        )
+        mock_sm.record_tool_call = AsyncMock(
+            side_effect=lambda *args, **kwargs: {"id": kwargs["tool_call_id"]}
+        )
+
+        with patch(
+            "orchestrator.agent.agent_engine.AgentStateMachine",
+            return_value=mock_sm,
+        ):
+            engine = AgentEngine(
+                provider=provider,
+                repo=create_mock_repo(),
+                registry=self._registry_with_file_tools(tmp_path),
+                profile=self._coding_profile(),
+                planning_enabled=False,
+            )
+            result = await engine.run(run_id="run-edit-recovery", query="Fix App.tsx")
+
+        assert result.success is True
+        assert provider.complete_streaming.call_count == 4
+        third_messages = provider.complete_streaming.call_args_list[2].kwargs["messages"]
+        assert any(
+            msg.get("role") == "system"
+            and "Reread the relevant file region before retrying edit_file" in str(
+                msg.get("content")
+            )
+            for msg in third_messages
+        )
+        assert any(
+            msg.get("role") == "system" and "App.tsx" in str(msg.get("content"))
+            for msg in third_messages
+        )
+
+    @pytest.mark.asyncio
+    async def test_repeated_filtered_edit_retry_without_reread_does_not_force_synthesis(
+        self, tmp_path: Path
+    ):
+        app_file = tmp_path / "App.tsx"
+        app_file.write_text("const value = 2;\n", encoding="utf-8")
+
+        failed_args = {
+            "file_path": "App.tsx",
+            "old_string": "const value = 1;",
+            "new_string": "const value = 3;",
+        }
+
+        provider = MagicMock()
+        provider.complete_streaming = AsyncMock(
+            side_effect=[
+                LLMResponse(
+                    text="",
+                    tool_calls=[
+                        {
+                            "id": "tc-edit-1",
+                            "type": "function",
+                            "function": {
+                                "name": "edit_file",
+                                "arguments": json.dumps(failed_args),
+                            },
+                        }
+                    ],
+                ),
+                LLMResponse(
+                    text="",
+                    tool_calls=[
+                        {
+                            "id": "tc-edit-2",
+                            "type": "function",
+                            "function": {
+                                "name": "edit_file",
+                                "arguments": json.dumps(failed_args),
+                            },
+                        }
+                    ],
+                ),
+                LLMResponse(
+                    text="",
+                    tool_calls=[
+                        {
+                            "id": "tc-edit-3",
+                            "type": "function",
+                            "function": {
+                                "name": "edit_file",
+                                "arguments": json.dumps(failed_args),
+                            },
+                        }
+                    ],
+                ),
+                LLMResponse(text="Done without forcing synthesis."),
+            ]
+        )
+
+        mock_sm = create_mock_state_machine(
+            can_continue_sequence=[True, True, True, True, False],
+            step_sequence=[
+                {"step_number": 1, "id": "step-1"},
+                {"step_number": 2, "id": "step-2"},
+                {"step_number": 3, "id": "step-3"},
+                {"step_number": 4, "id": "step-4"},
+            ],
+        )
+        mock_sm.record_tool_call = AsyncMock(
+            side_effect=lambda *args, **kwargs: {"id": kwargs["tool_call_id"]}
+        )
+
+        with patch(
+            "orchestrator.agent.agent_engine.AgentStateMachine",
+            return_value=mock_sm,
+        ):
+            engine = AgentEngine(
+                provider=provider,
+                repo=create_mock_repo(),
+                registry=self._registry_with_file_tools(tmp_path),
+                profile=self._coding_profile(),
+                planning_enabled=False,
+            )
+            result = await engine.run(run_id="run-edit-filter", query="Fix App.tsx")
+
+        assert result.success is True
+        assert result.final_answer == "Done without forcing synthesis."
+        assert provider.complete_streaming.call_count == 4
+        third_messages = provider.complete_streaming.call_args_list[2].kwargs["messages"]
+        assert any(
+            msg.get("role") == "user"
+            and "Do not resend identical stale edit arguments" in str(msg.get("content"))
+            for msg in third_messages
+        )
 
 
 class TestParallelToolExecution:

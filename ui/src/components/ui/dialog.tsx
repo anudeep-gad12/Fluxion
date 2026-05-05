@@ -6,9 +6,10 @@ interface DialogProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
     children: React.ReactNode;
+    className?: string;
 }
 
-export function Dialog({ open, onOpenChange, children }: DialogProps) {
+export function Dialog({ open, onOpenChange, children, className }: DialogProps) {
     if (!open) return null;
 
     return (
@@ -19,7 +20,7 @@ export function Dialog({ open, onOpenChange, children }: DialogProps) {
                 onClick={() => onOpenChange(false)}
             />
             {/* Content - relative z-10 to sit above backdrop */}
-            <div className="relative z-10 bg-card rounded-none shadow-none border border-border w-full max-w-md mx-4">
+            <div className={cn("relative z-10 bg-card rounded-none shadow-none border border-border w-full max-w-md mx-4", className)}>
                 {children}
             </div>
         </div>
