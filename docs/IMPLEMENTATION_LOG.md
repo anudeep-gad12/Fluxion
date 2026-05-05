@@ -9,6 +9,8 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| test | Model picker local-preset cleanup — removed the generic registry `local` model row from the browser model selector so the dialog only shows useful cloud presets plus the real scanned local GGUF/MLX entries instead of a redundant “Local Model” placeholder block | done | 2026-05-05 |
+| test | Model selector dialog sizing pass — made the browser model picker dialog substantially wider/taller with preserved internal scrolling so more model rows and metadata are visible at once without changing other dialog layouts | done | 2026-05-05 |
 | test | Browser composer terminal shortcuts + slash focus — added focused-only terminal/editor-style textarea editing in ConversationView (line/word movement, kill-style deletions, preserved mention picker ownership, kept send/mode shortcuts, left browser find untouched on non-mac Ctrl+F), plus a bare `/` window shortcut that focuses the main composer unless another editable control is active | done | 2026-05-04 |
 | test | Local-model request identity fix — made local model startup pin the provider default model to the loaded local model name and taught agent-engine creation to prefer provider-override model identity over stale config names, so local runs no longer send old cloud model ids in `model` payload fields during continuation/streaming | done | 2026-05-04 |
 | test | Local-model footer ctx denominator fix — changed the browser composer status line to derive its total context window from the active selected model/runtime instead of stale prior-run stored-context metadata, and recompute the displayed ctx utilization percentage against that live window so switching local models no longer leaves the bottom ctx meter stuck on the previous model's limit | done | 2026-05-04 |
@@ -101,6 +103,29 @@
 | feature/preset-question-chips | Demo preset questions | done | 2026-01-23 |
 | feature/gaia-benchmark | GAIA Benchmark Evaluation | done | 2026-01-21 |
 | feature/agent-planning | Agent Planning Step | done | 2026-01-20 |
+
+### 2026-05-05: Model Picker Local-Preset Cleanup
+
+**Branch:** `test`
+**Status:** done
+
+**Description:**
+Removed the redundant generic registry `local` model row from the browser model selector. The picker already has dedicated sections for real scanned local GGUF/MLX models, so the extra “Local Model” preset block added noise without providing useful selection value.
+
+**Changes:**
+- `ui/src/components/ConversationView.tsx` — filtered the registry-backed provider list so the generic `local` preset is hidden from the model picker while the dedicated scanned local model sections remain visible
+
+### 2026-05-05: Model Selector Dialog Sizing Pass
+
+**Branch:** `test`
+**Status:** done
+
+**Description:**
+Made the browser model selector dialog much larger so more model rows and metadata fit on screen at once, while keeping the list scrollable inside the modal instead of forcing the whole page/layout to grow.
+
+**Changes:**
+- `ui/src/components/ui/dialog.tsx` — added an optional `className` prop on the shared dialog shell so specific dialogs can override the default modal width/height without affecting every dialog
+- `ui/src/components/ConversationView.tsx` — expanded the model picker modal to a large viewport-constrained layout and increased the internal scroll region height for the model list
 
 ### 2026-05-04: Browser Composer Terminal Shortcuts + Slash Focus
 
