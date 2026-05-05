@@ -9,6 +9,7 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| feature/edit-recovery-stalls | Sequential edit recovery hardening — made `edit_file` exact-first but resilient across newline/whitespace/indentation/context drift with structured matcher metadata, tracked per-file reread freshness in the agent loop, injected explicit reread-before-retry recovery guidance after stale/ambiguous edit failures, and relaxed redundancy filtering so legitimate edit recovery attempts are allowed while exact stale retries are blocked with a specific reread instruction | done | 2026-05-05 |
 | test | Model picker local-preset cleanup — removed the generic registry `local` model row from the browser model selector so the dialog only shows useful cloud presets plus the real scanned local GGUF/MLX entries instead of a redundant “Local Model” placeholder block | done | 2026-05-05 |
 | test | Model selector dialog sizing pass — made the browser model picker dialog substantially wider/taller with preserved internal scrolling so more model rows and metadata are visible at once without changing other dialog layouts | done | 2026-05-05 |
 | test | Browser composer terminal shortcuts + slash focus — added focused-only terminal/editor-style textarea editing in ConversationView (line/word movement, kill-style deletions, preserved mention picker ownership, kept send/mode shortcuts, left browser find untouched on non-mac Ctrl+F), plus a bare `/` window shortcut that focuses the main composer unless another editable control is active | done | 2026-05-04 |

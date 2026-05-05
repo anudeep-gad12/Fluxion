@@ -520,6 +520,12 @@ To provide your final answer, respond WITHOUT calling any tools."""
         # Run metrics accumulator
         self._tool_call_log: List[Dict[str, Any]] = []
         self._tool_state_version = 0
+        self._file_state_versions: Dict[str, int] = {}
+        self._file_last_read_state_versions: Dict[str, int] = {}
+        self._file_last_read_sequences: Dict[str, int] = {}
+        self._file_read_sequence = 0
+        self._edit_failures: Dict[str, Dict[str, Any]] = {}
+        self._last_redundant_filter_codes: Dict[str, str] = {}
         self._coding_last_step_structural_failure = False
         self._last_context_usage: Optional[Dict[str, Any]] = None
         self._last_stored_context: Optional[Dict[str, Any]] = None
@@ -636,9 +642,10 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 file_path = self._canonical_workspace_path(
                     str(tool_call.arguments.get("file_path", "unknown"))
                 )
-                diff_summary = self._summarize_diff(result.result_data) or summary
-                memory.files_changed[file_path] = diff_summary[:500]
-                memory.current_hypothesis = f"Changed {file_path}"
+                if result.success:
+                    diff_summary = self._summarize_diff(result.result_data) or summary
+                    memory.files_changed[file_path] = diff_summary[:500]
+                    memory.current_hypothesis = f"Changed {file_path}"
             elif tool_call.name == "bash":
                 memory.validation_results.append(summary[:500])
                 diagnostics = self._extract_bash_diagnostics(result.result_data, summary)
@@ -666,6 +673,89 @@ To provide your final answer, respond WITHOUT calling any tools."""
         memory.unresolved_tasks = memory.unresolved_tasks[-6:]
         memory.recent_raw_evidence.extend(note[:500] for note in recovery_notes)
         memory.recent_raw_evidence = memory.recent_raw_evidence[-8:]
+
+    def _edit_failure_contexts(
+        self,
+        tool_results: List[tuple[ParsedToolCall, "ToolResult"]],
+    ) -> List[Dict[str, Any]]:
+        """Extract structured edit-match failures that need explicit recovery."""
+        failures: List[Dict[str, Any]] = []
+        for tool_call, result in tool_results:
+            if tool_call.name != "edit_file" or result.success:
+                continue
+            metadata = result.metadata if isinstance(result.metadata, dict) else {}
+            failure_type = metadata.get("match_failure_type")
+            if failure_type not in {"not_found", "ambiguous"}:
+                continue
+            file_path = self._canonical_workspace_path(
+                str(tool_call.arguments.get("file_path", "unknown"))
+            )
+            failures.append(
+                {
+                    "file_path": file_path,
+                    "failure_type": failure_type,
+                    "candidate_snippets": list(metadata.get("candidate_snippets") or [])[:3],
+                }
+            )
+        return failures
+
+    def _build_edit_failure_recovery_messages(
+        self,
+        failures: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """Build targeted recovery guidance after edit matching failures."""
+        if not failures:
+            return []
+
+        lines = []
+        for failure in failures[:2]:
+            reason = (
+                "the target text was not found"
+                if failure["failure_type"] == "not_found"
+                else "the target text matched multiple locations"
+            )
+            snippet_hint = ""
+            candidate_snippets = failure.get("candidate_snippets") or []
+            if candidate_snippets:
+                snippet_hint = " Candidate snippets: " + " || ".join(
+                    snippet.replace("\n", " ")[:180] for snippet in candidate_snippets[:2]
+                )
+            lines.append(f"- {failure['file_path']}: {reason}.{snippet_hint}")
+
+        return [
+            {
+                "role": "system",
+                "content": (
+                    "Edit recovery required. The file may have changed since the last read. "
+                    "Reread the relevant file region before retrying edit_file, and do not repeat "
+                    "the same edit arguments unchanged.\n"
+                    + "\n".join(lines)
+                ),
+            }
+        ]
+
+    def _record_edit_failure_recovery(
+        self,
+        memory: WorkingMemory,
+        failures: List[Dict[str, Any]],
+    ) -> None:
+        """Persist edit recovery hints into working memory."""
+        if not failures:
+            return
+        for failure in failures:
+            reason = (
+                "reread before retrying edit_file; previous target was not found"
+                if failure["failure_type"] == "not_found"
+                else "reread before retrying edit_file; previous target was ambiguous"
+            )
+            memory.stale_file_summaries[failure["file_path"]] = reason
+            memory.unresolved_tasks.append(
+                f"edit_file recovery for {failure['file_path']}: {reason}"
+            )
+        memory.stale_file_summaries = self._merge_string_maps(
+            {}, memory.stale_file_summaries, limit=8
+        )
+        memory.unresolved_tasks = memory.unresolved_tasks[-6:]
 
     def _tool_call_recovery_note(self, tool_call: ParsedToolCall) -> Optional[str]:
         """Return a recovery note when a tool call should not be replayed."""
@@ -942,6 +1032,70 @@ To provide your final answer, respond WITHOUT calling any tools."""
             return str(resolved.relative_to(Path(workspace_path).resolve()))
         except ValueError:
             return str(file_path)
+
+    def _track_file_freshness(
+        self,
+        tool_call: ParsedToolCall,
+        result: "ToolResult",
+    ) -> Dict[str, Any]:
+        """Update per-file freshness state for edit recovery."""
+        if tool_call.name not in {"read_file", "edit_file", "write_file"}:
+            return {}
+
+        file_path = str(tool_call.arguments.get("file_path", "")).strip()
+        if not file_path:
+            return {}
+
+        canonical_path = self._canonical_workspace_path(file_path)
+        payload: Dict[str, Any] = {"file_path": canonical_path}
+
+        if tool_call.name == "read_file" and result.success:
+            self._file_read_sequence += 1
+            file_state_version = self._file_state_versions.get(canonical_path, 0)
+            self._file_last_read_state_versions[canonical_path] = file_state_version
+            self._file_last_read_sequences[canonical_path] = self._file_read_sequence
+            payload["file_state_version_after"] = file_state_version
+            payload["file_read_sequence_after"] = self._file_read_sequence
+            return payload
+
+        payload["file_state_version_before"] = self._file_state_versions.get(canonical_path, 0)
+        payload["file_read_sequence_before"] = self._file_last_read_sequences.get(canonical_path, 0)
+
+        if tool_call.name in {"edit_file", "write_file"} and result.success:
+            self._file_state_versions[canonical_path] = (
+                self._file_state_versions.get(canonical_path, 0) + 1
+            )
+
+        payload["file_state_version_after"] = self._file_state_versions.get(canonical_path, 0)
+
+        if tool_call.name == "edit_file":
+            metadata = result.metadata if isinstance(result.metadata, dict) else {}
+            failure_type = metadata.get("match_failure_type")
+            if result.success:
+                self._edit_failures.pop(canonical_path, None)
+            elif failure_type in {"not_found", "ambiguous"}:
+                self._edit_failures[canonical_path] = {
+                    "arguments": dict(tool_call.arguments),
+                    "failure_type": failure_type,
+                    "candidate_snippets": list(metadata.get("candidate_snippets") or [])[:3],
+                    "file_read_sequence_at_failure": self._file_last_read_sequences.get(
+                        canonical_path, 0
+                    ),
+                    "file_state_version_at_failure": self._file_state_versions.get(
+                        canonical_path, 0
+                    ),
+                }
+
+        return payload
+
+    def _has_reread_since_edit_failure(self, file_path: str) -> bool:
+        """Return whether the file was reread after the latest tracked edit failure."""
+        failure = self._edit_failures.get(file_path)
+        if not failure:
+            return False
+        return self._file_last_read_sequences.get(file_path, 0) > int(
+            failure.get("file_read_sequence_at_failure", 0)
+        )
 
     def _resolve_workspace_file(self, file_path: str) -> Optional[Path]:
         """Resolve a workspace file using tool resolvers when available."""
@@ -2350,6 +2504,12 @@ To provide your final answer, respond WITHOUT calling any tools."""
         }
         self._tool_call_log = []
         self._tool_state_version = 0
+        self._file_state_versions = {}
+        self._file_last_read_state_versions = {}
+        self._file_last_read_sequences = {}
+        self._file_read_sequence = 0
+        self._edit_failures = {}
+        self._last_redundant_filter_codes = {}
         self._coding_last_step_structural_failure = False
         self._last_context_usage = None
         self._last_stored_context = None
@@ -2913,6 +3073,11 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         redundant_ids = {tc.id for tc, _ in redundant}
                         tool_calls = [tc for tc in tool_calls if tc["id"] not in redundant_ids]
                         reasons = "; ".join(r for _, r in redundant)
+                        redundant_codes = {
+                            self._last_redundant_filter_codes.get(tc.id, "duplicate")
+                            for tc, _ in redundant
+                        }
+                        edit_reread_only = redundant_codes == {"edit_reread_required"}
                         logger.info(
                             "Filtered redundant tool calls",
                             extra={"reasons": reasons, "filtered_count": len(redundant)},
@@ -2932,7 +3097,10 @@ To provide your final answer, respond WITHOUT calling any tools."""
                                 decision="filtered",
                                 thinking_text=thinking_text,
                             )
-                            consecutive_filtered_steps += 1
+                            if edit_reread_only:
+                                consecutive_filtered_steps = 0
+                            else:
+                                consecutive_filtered_steps += 1
                             if consecutive_filtered_steps >= 2:
                                 logger.warning(
                                     "Model repeated filtered tool calls; forcing synthesis",
@@ -2972,8 +3140,13 @@ To provide your final answer, respond WITHOUT calling any tools."""
                             "content": (
                                 "A tool call was filtered by the engine as redundant. "
                                 "Do not attribute that constraint to the user. "
-                                "Either provide the final answer now or choose a genuinely different tool call. "
-                                "Only retry the same tool if something materially changed since the last identical call."
+                                + (
+                                    "Reread the relevant file region before retrying the same edit_file call. "
+                                    "Do not resend identical stale edit arguments without reacquiring current text."
+                                    if edit_reread_only
+                                    else "Either provide the final answer now or choose a genuinely different tool call. "
+                                    "Only retry the same tool if something materially changed since the last identical call."
+                                )
                             ),
                         }
                         messages.append(filtered_user_prompt)
@@ -3009,6 +3182,8 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     messages.append(assistant_message)
                     self._update_working_memory_from_tools(working_memory, tool_results)
                     self._record_tool_call_recovery(working_memory, recovery_notes)
+                    edit_failures = self._edit_failure_contexts(tool_results)
+                    self._record_edit_failure_recovery(working_memory, edit_failures)
                     if coding_session_state is not None and conversation_id:
                         coding_session_dirty = True
                         await self._persist_coding_session_step_entries(
@@ -3043,9 +3218,17 @@ To provide your final answer, respond WITHOUT calling any tools."""
                                 "name": tool_call.name,
                                 "content": self._format_tool_result(result, tool_call.name),
                                 "_step": step_number,
-                            }
+                        }
                         )
                         step_metadata[tool_call.id] = step_number
+
+                    if edit_failures:
+                        for recovery_message in self._build_edit_failure_recovery_messages(
+                            edit_failures
+                        ):
+                            messages.append(recovery_message)
+                            if self._is_coding_profile():
+                                ephemeral_messages.append(recovery_message)
 
                     if recovery_notes:
                         recovery_message = {
@@ -4357,6 +4540,7 @@ When you complete each step, proceed to the next."""
 
             results.append((tool_call, result))
 
+            freshness_metadata = self._track_file_freshness(tool_call, result)
             state_changed = self._did_tool_call_change_state(tool_call.name, result)
             if state_changed:
                 self._tool_state_version += 1
@@ -4369,6 +4553,8 @@ When you complete each step, proceed to the next."""
                 "result_summary": result.result_summary,
                 "step_number": step_number,
                 "state_version_after": self._tool_state_version,
+                "result_metadata": dict(result.metadata) if isinstance(result.metadata, dict) else {},
+                **freshness_metadata,
             })
 
         return results
@@ -5375,6 +5561,7 @@ When you complete each step, proceed to the next."""
         """
         redundant = []
         seen_in_batch: list[dict] = []
+        self._last_redundant_filter_codes = {}
 
         for tc in tool_calls:
             # Intra-batch duplicate check (same tool+args within this LLM response)
@@ -5382,6 +5569,7 @@ When you complete each step, proceed to the next."""
             for seen in seen_in_batch:
                 if seen["tool_name"] == tc.name and seen["arguments"] == tc.arguments:
                     redundant.append((tc, f"Duplicate in same step: {tc.name} called twice with same arguments"))
+                    self._last_redundant_filter_codes[tc.id] = "duplicate"
                     is_dup = True
                     break
             if is_dup:
@@ -5389,6 +5577,40 @@ When you complete each step, proceed to the next."""
 
             # Exact duplicate check against history
             if tc.name != "read_file":
+                allow_edit_retry_after_reread = False
+                matching_history = [
+                    prev
+                    for prev in self._tool_call_log
+                    if (
+                        prev["tool_name"] == tc.name
+                        and prev["arguments"] == tc.arguments
+                        and prev.get("state_version_after", 0) == self._tool_state_version
+                    )
+                ]
+                if tc.name == "edit_file" and matching_history:
+                    prev = matching_history[-1]
+                    file_path = self._canonical_workspace_path(
+                        str(tc.arguments.get("file_path", ""))
+                    )
+                    previous_failure_type = (
+                        (prev.get("result_metadata") or {}).get("match_failure_type")
+                    )
+                    if previous_failure_type in {"not_found", "ambiguous"}:
+                        if self._has_reread_since_edit_failure(file_path):
+                            allow_edit_retry_after_reread = True
+                        else:
+                            redundant.append(
+                                (
+                                    tc,
+                                    "Retrying the same failed edit_file call without rereading the file first",
+                                )
+                            )
+                            self._last_redundant_filter_codes[tc.id] = (
+                                "edit_reread_required"
+                            )
+                            is_dup = True
+                if is_dup or allow_edit_retry_after_reread:
+                    continue
                 for prev in self._tool_call_log:
                     if (
                         prev["tool_name"] == tc.name
@@ -5396,6 +5618,7 @@ When you complete each step, proceed to the next."""
                         and prev.get("state_version_after", 0) == self._tool_state_version
                     ):
                         redundant.append((tc, f"Duplicate: already called {tc.name} with same arguments"))
+                        self._last_redundant_filter_codes[tc.id] = "duplicate"
                         is_dup = True
                         break
             if is_dup:
@@ -5408,6 +5631,7 @@ When you complete each step, proceed to the next."""
                 pattern = tc.arguments.get("pattern", "")
                 if pattern in ("**/*.py", "**/*.md", "**/*.ts", "**/*.tsx", "**/*"):
                     redundant.append((tc, f"Too broad: glob '{pattern}' scans entire project"))
+                    self._last_redundant_filter_codes[tc.id] = "broad_glob"
                     continue
 
             # Repeated list_directory on root
@@ -5420,6 +5644,7 @@ When you complete each step, proceed to the next."""
                             and prev.get("state_version_after", 0) == self._tool_state_version
                         ):
                             redundant.append((tc, "Duplicate: already listed directory"))
+                            self._last_redundant_filter_codes[tc.id] = "duplicate"
                             break
 
         return redundant
