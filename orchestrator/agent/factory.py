@@ -130,7 +130,10 @@ async def create_agent_engine(
     # Only use registry when the model is a KNOWN preset (has aliases/model_id match).
     # Unknown models fall through to config.provider which reads LLM_BASE_URL/LLM_API_KEY.
     resolved_model = None
-    resolve_name = model_name or config.model.name
+    override_model_name = None
+    if provider_override is not None:
+        override_model_name = getattr(provider_override, "_context_profile_model_id", None) or getattr(provider_override, "_default_model", None)
+    resolve_name = model_name or override_model_name or config.model.name
     if resolve_name:
         try:
             from orchestrator.models.registry import (
@@ -245,7 +248,12 @@ async def create_agent_engine(
         cached_input_cost_per_million = resolved_model.cached_input_cost_per_million
         output_cost_per_million = resolved_model.output_cost_per_million
     else:
-        effective_model = model_name or config.model.name
+        effective_model = (
+            model_name
+            or getattr(provider_override, "_default_model", None)
+            or getattr(provider_override, "_context_profile_model_id", None)
+            or config.model.name
+        )
         effective_temp = temperature or config.model.temperature
         provider_max_output = getattr(provider_override, "_max_output_tokens", None)
         effective_max_tokens = (
@@ -266,7 +274,7 @@ async def create_agent_engine(
         )
         output_cost_per_million = getattr(provider_override, "_output_cost_per_million", None)
 
-    effective_max_steps = max_steps if max_steps is not None else 10
+    effective_max_steps = max_steps if max_steps is not None else profile.max_steps
 
     # Build engine with overrides
     engine = AgentEngine(

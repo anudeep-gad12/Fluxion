@@ -215,6 +215,7 @@ class OpenAICompatProvider:
                 tools=tools,
                 max_tokens=max_tokens,
                 temperature=temperature,
+                reasoning_effort=reasoning_effort,
                 stream=False,
                 **kwargs,
             )
@@ -227,7 +228,14 @@ class OpenAICompatProvider:
         if response.status_code in (404, 405) and self._fallback_on_404:
             if endpoint_type == "responses":
                 response, url = await self._handle_fallback(
-                    messages, model, tools, max_tokens, temperature, stream=False, **kwargs
+                    messages,
+                    model,
+                    tools,
+                    max_tokens,
+                    temperature,
+                    reasoning_effort=reasoning_effort,
+                    stream=False,
+                    **kwargs,
                 )
 
         response.raise_for_status()
@@ -312,6 +320,7 @@ class OpenAICompatProvider:
                 tool_choice=tool_choice,
                 max_tokens=max_tokens,
                 temperature=temperature,
+                reasoning_effort=reasoning_effort,
                 stream=True,
                 **kwargs,
             )
@@ -332,6 +341,7 @@ class OpenAICompatProvider:
                     tools=tools,
                     max_tokens=max_tokens,
                     temperature=temperature,
+                    reasoning_effort=reasoning_effort,
                     **kwargs,
                 )
             except (httpx.RemoteProtocolError, httpx.ReadError, httpx.HTTPStatusError) as e:
@@ -378,6 +388,7 @@ class OpenAICompatProvider:
         tools: Optional[List[Dict[str, Any]]],
         max_tokens: Optional[int],
         temperature: Optional[float],
+        reasoning_effort: Optional[str],
         **kwargs: Any,
     ) -> LLMResponse:
         """Execute the actual streaming request.
@@ -414,6 +425,21 @@ class OpenAICompatProvider:
         finish_reason = "stop"
         usage: Dict[str, int] = {}
         response_id: Optional[str] = None
+
+        def _has_valid_tool_arguments(arguments: Any) -> bool:
+            """Return whether tool-call arguments are non-empty valid JSON objects."""
+            if isinstance(arguments, dict):
+                return bool(arguments)
+            if not isinstance(arguments, str):
+                return False
+            stripped = arguments.strip()
+            if not stripped or stripped == "{}":
+                return False
+            try:
+                parsed = json.loads(stripped)
+            except json.JSONDecodeError:
+                return False
+            return isinstance(parsed, dict) and bool(parsed)
 
         # Debug: Log the request payload
         import json as json_module
@@ -574,7 +600,7 @@ class OpenAICompatProvider:
                     if delta.get("tool_call_complete"):
                         tc = delta["tool_call_complete"]
                         args = tc.get("function", {}).get("arguments", "")
-                        if args and args.strip() and args.strip() != "{}":
+                        if _has_valid_tool_arguments(args):
                             tool_calls.append(tc)
                             logger.debug(
                                 "Streaming tool call complete",
@@ -582,14 +608,14 @@ class OpenAICompatProvider:
                             )
                         else:
                             logger.warning(
-                                "Skipped tool call with empty arguments",
+                                "Skipped tool call with invalid arguments",
                                 extra={"tool_name": tc.get("function", {}).get("name", "unknown")}
                             )
                     # Handle multiple complete tool calls (e.g., DeepInfra)
                     if delta.get("tool_calls_complete"):
                         for tc in delta["tool_calls_complete"]:
                             args = tc.get("function", {}).get("arguments", "")
-                            if args and args.strip() and args.strip() != "{}":
+                            if _has_valid_tool_arguments(args):
                                 tool_calls.append(tc)
                                 logger.debug(
                                     "Streaming tool call complete (batch)",
@@ -597,7 +623,7 @@ class OpenAICompatProvider:
                                 )
                             else:
                                 logger.warning(
-                                    "Skipped tool call with empty arguments (batch)",
+                                    "Skipped tool call with invalid arguments (batch)",
                                     extra={"tool_name": tc.get("function", {}).get("name", "unknown")}
                                 )
 
@@ -610,7 +636,7 @@ class OpenAICompatProvider:
                 # Fallback to chat_completions
                 return await self._streaming_fallback(
                     messages, model, on_token, on_reasoning,
-                    tools, max_tokens, temperature, **kwargs
+                    tools, max_tokens, temperature, reasoning_effort, **kwargs
                 )
             raise
 
@@ -631,9 +657,9 @@ class OpenAICompatProvider:
                         )
                         continue
                     args_str = "".join(acc["arguments_parts"])
-                    if not args_str.strip() or args_str.strip() == "{}":
+                    if not _has_valid_tool_arguments(args_str):
                         logger.warning(
-                            "Skipped streaming tool call with empty arguments",
+                            "Skipped streaming tool call with invalid arguments",
                             extra={"tool_name": acc["name"], "tool_id": acc["id"]},
                         )
                         continue
@@ -654,7 +680,7 @@ class OpenAICompatProvider:
                     )
                 elif acc["id"] and acc["name"]:
                     logger.warning(
-                        "Skipped streaming tool call with empty arguments",
+                        "Skipped streaming tool call with invalid arguments",
                         extra={"tool_name": acc["name"], "tool_id": acc["id"]},
                     )
 
@@ -752,6 +778,7 @@ class OpenAICompatProvider:
         tools: Optional[List[Dict[str, Any]]],
         max_tokens: Optional[int],
         temperature: Optional[float],
+        reasoning_effort: Optional[str] = None,
         stream: bool = False,
         **kwargs: Any,
     ) -> tuple[httpx.Response, str]:
@@ -794,6 +821,7 @@ class OpenAICompatProvider:
             tools=tools,
             max_tokens=max_tokens,
             temperature=temperature,
+            reasoning_effort=reasoning_effort,
             stream=stream,
             **kwargs,
         )
@@ -814,6 +842,7 @@ class OpenAICompatProvider:
         tools: Optional[List[Dict[str, Any]]],
         max_tokens: Optional[int],
         temperature: Optional[float],
+        reasoning_effort: Optional[str] = None,
         **kwargs: Any,
     ) -> LLMResponse:
         """Fallback to chat_completions for streaming.
@@ -852,6 +881,7 @@ class OpenAICompatProvider:
             tools=tools,
             max_tokens=max_tokens,
             temperature=temperature,
+            reasoning_effort=reasoning_effort,
             stream=True,
             **kwargs,
         )

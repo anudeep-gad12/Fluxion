@@ -225,9 +225,11 @@ def create_tool_registry(
         from .grep_tool import GrepTool
         from .list_directory import ListDirectoryTool
         from .read_file import ReadFileTool
+        from .view_image import ViewImageTool
         from .write_file import WriteFileTool
 
         registry.register(ReadFileTool(working_dir=wd))
+        registry.register(ViewImageTool(working_dir=wd))
         registry.register(ListDirectoryTool(working_dir=wd))
         registry.register(GlobTool(working_dir=wd))
         registry.register(GrepTool(working_dir=wd))
@@ -236,7 +238,7 @@ def create_tool_registry(
         registry.register(BashTool(working_dir=wd))
         logger.info(
             "Registered filesystem tools",
-            extra={"working_dir": wd, "tools": 7},
+            extra={"working_dir": wd, "tools": 8},
         )
 
     return registry
@@ -323,9 +325,11 @@ def create_tool_registry_from_profile(
             from .grep_tool import GrepTool
             from .list_directory import ListDirectoryTool
             from .read_file import ReadFileTool
+            from .view_image import ViewImageTool
             from .write_file import WriteFileTool
 
             registry.register(ReadFileTool(working_dir=wd))
+            registry.register(ViewImageTool(working_dir=wd))
             registry.register(ListDirectoryTool(working_dir=wd))
             registry.register(GlobTool(working_dir=wd))
             registry.register(GrepTool(working_dir=wd))
@@ -405,9 +409,11 @@ def create_browser_agent_tool_registry(
         from .grep_tool import GrepTool
         from .list_directory import ListDirectoryTool
         from .read_file import ReadFileTool
+        from .view_image import ViewImageTool
         from .write_file import WriteFileTool
 
         registry.register(ReadFileTool(working_dir=wd))
+        registry.register(ViewImageTool(working_dir=wd))
         registry.register(ListDirectoryTool(working_dir=wd))
         registry.register(GlobTool(working_dir=wd))
         registry.register(GrepTool(working_dir=wd))

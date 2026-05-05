@@ -17,6 +17,7 @@ class ModelContextProfile:
     max_output_tokens: int
     supports_tools: bool
     supports_reasoning: bool
+    supports_vision: bool
     pricing: dict[str, Optional[float]]
     source: str
 
@@ -34,6 +35,7 @@ class ModelContextProfile:
             "effective_input_budget": self.effective_input_budget,
             "supports_tools": self.supports_tools,
             "supports_reasoning": self.supports_reasoning,
+            "supports_vision": self.supports_vision,
             "pricing": self.pricing,
             "source": self.source,
         }
@@ -60,6 +62,7 @@ def profile_from_resolved_model(resolved_model: Any, source: str = "registry") -
         max_output_tokens=max(1, int(getattr(resolved_model, "max_output_tokens", 8192))),
         supports_tools=bool(getattr(resolved_model, "supports_tools", True)),
         supports_reasoning=bool(getattr(resolved_model, "reasoning_effort", None)),
+        supports_vision=bool(getattr(resolved_model, "supports_vision", False)),
         pricing=_pricing_dict(
             getattr(resolved_model, "input_cost_per_million", None),
             getattr(resolved_model, "cached_input_cost_per_million", None),
@@ -101,6 +104,7 @@ def profile_from_provider(
     )
     supports_tools_attr = getattr(provider, "_supports_tools", None)
     supports_tools = bool(True if supports_tools_attr is None else supports_tools_attr)
+    supports_vision = bool(getattr(provider, "_supports_vision", False))
 
     return ModelContextProfile(
         provider_name=provider_name,
@@ -110,6 +114,7 @@ def profile_from_provider(
         max_output_tokens=max_output_tokens,
         supports_tools=supports_tools,
         supports_reasoning=supports_reasoning,
+        supports_vision=supports_vision,
         pricing=_pricing_dict(
             getattr(provider, "_input_cost_per_million", None),
             getattr(provider, "_cached_input_cost_per_million", None),
@@ -164,6 +169,7 @@ def resolve_model_context_profile(
         max_output_tokens=max(1, int(getattr(getattr(cfg, "context", None), "reserve_for_response", 8192) or 8192)),
         supports_tools=True,
         supports_reasoning=bool(getattr(getattr(cfg, "model", None), "reasoning_effort", None)),
+        supports_vision=False,
         pricing=_pricing_dict(None, None, None),
         source="config_fallback",
     )

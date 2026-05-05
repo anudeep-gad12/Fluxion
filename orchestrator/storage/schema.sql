@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS conversations (
     title TEXT,
     summary TEXT,
     created_at TEXT NOT NULL,
+    workspace_path TEXT,
     status TEXT NOT NULL, -- active, archived, closed
     metadata_json TEXT
 );
@@ -283,4 +284,37 @@ CREATE TABLE IF NOT EXISTS app_settings (
     updated_at TEXT NOT NULL
 );
 
+-- Persistent coding-session state for cross-turn coding continuity
+CREATE TABLE IF NOT EXISTS coding_sessions (
+    conversation_id TEXT PRIMARY KEY,
+    state_json TEXT NOT NULL,
+    last_run_id TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(conversation_id) REFERENCES conversations(conversation_id) ON DELETE CASCADE,
+    FOREIGN KEY(last_run_id) REFERENCES runs(run_id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS coding_session_entries (
+    id TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL,
+    seq INTEGER NOT NULL,
+    run_id TEXT NOT NULL,
+    step_number INTEGER,
+    entry_type TEXT NOT NULL,
+    role TEXT NOT NULL,
+    content_json TEXT NOT NULL,
+    token_estimate INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    compacted_at TEXT,
+    UNIQUE(conversation_id, seq),
+    FOREIGN KEY(conversation_id) REFERENCES conversations(conversation_id) ON DELETE CASCADE,
+    FOREIGN KEY(run_id) REFERENCES runs(run_id) ON DELETE CASCADE
+);
+
 CREATE INDEX IF NOT EXISTS idx_run_artifacts_run ON run_artifacts(run_id);
+CREATE INDEX IF NOT EXISTS idx_coding_sessions_updated_at ON coding_sessions(updated_at);
+CREATE INDEX IF NOT EXISTS idx_coding_session_entries_conversation_seq
+    ON coding_session_entries(conversation_id, seq);
+CREATE INDEX IF NOT EXISTS idx_coding_session_entries_compacted
+    ON coding_session_entries(conversation_id, compacted_at, seq);

@@ -1,5 +1,13 @@
 // API Types
 
+import type {
+  TokenUsage,
+  CostUsage,
+  ContextUsage,
+  StoredContextUsage,
+  ModelContextProfile,
+} from './agent';
+
 export interface ThinkingStep {
   seq: number;
   step_type: string;
@@ -23,6 +31,11 @@ export interface Run {
   error_detail?: string;
   // Thinking data
   thinking_summary?: string;
+  usage?: TokenUsage;
+  cost?: CostUsage | null;
+  context_usage?: ContextUsage;
+  stored_context?: StoredContextUsage;
+  context_profile?: ModelContextProfile;
 }
 
 export interface Event {
@@ -52,6 +65,7 @@ export interface CreateRunRequest {
   prompt: string;
   mode?: string;
   profile?: string;
+  image_attachments?: ImageAttachment[];
 }
 
 export interface CreateRunResponse {
@@ -64,6 +78,7 @@ export interface Conversation {
   created_at: string;
   title?: string;
   summary?: string;
+  workspace_path?: string | null;
   status: string;
   metadata?: Record<string, unknown>;
 }
@@ -75,6 +90,7 @@ export interface ConversationDetailResponse {
 
 export interface CreateConversationRequest {
   title?: string;
+  workspace_path?: string;
 }
 
 export interface CreateConversationResponse {
@@ -102,4 +118,12 @@ export interface CreateConversationRunRequest {
   message: string;
   thinking_mode?: ThinkingMode;
   reasoning_effort?: ReasoningEffort;
+  image_attachments?: ImageAttachment[];
+}
+
+export interface ImageAttachment {
+  id?: string;
+  name: string;
+  mime_type: string;
+  data_url: string;
 }

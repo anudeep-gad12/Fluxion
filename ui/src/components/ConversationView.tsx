@@ -1,7 +1,7 @@
 // Conversation view - simple chat interface
 
 import { useEffect, useMemo, useRef, useState, useCallback, memo } from 'react';
-import type { KeyboardEvent, ChangeEvent } from 'react';
+import type { KeyboardEvent, ChangeEvent, ClipboardEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { AnswerMarkdown, extractAnswer } from '@/components/AnswerMarkdown';
@@ -11,6 +11,8 @@ import { MessageActions } from '@/components/MessageActions';
 import { ShimmerSkeleton, ThinkingTimer } from '@/components/StreamingIndicator';
 import { ScrollToBottom } from '@/components/ScrollToBottom';
 import { IntegratedTerminal } from '@/components/IntegratedTerminal';
+import { WorkspacePickerDialog } from '@/components/WorkspacePickerDialog';
+import { VirtualizedConversationRunList } from '@/components/VirtualizedConversationRunList';
 import {
   createConversation,
   createConversationRun,
@@ -29,7 +31,6 @@ import {
   updateReasoningSettings,
   getUsage,
   steerAgentRun,
-  browseWorkspaceDirectories,
   searchWorkspaceFiles,
 } from '@/api/client';
 import type {
@@ -39,7 +40,6 @@ import type {
   RegistryModelsResponse,
   CustomProviderRequest,
   UsageInfo,
-  WorkspaceBrowseResponse,
   WorkspaceFileEntry,
   ReasoningSettingsResponse,
   ReasoningSettings,
@@ -54,34 +54,115 @@ import { useConversationRuns, useSelectedConversation, useStore, useHasActiveRun
 import { useSSE } from '@/hooks/useSSE';
 import { useAgentSSE } from '@/hooks/useAgentSSE';
 import { cn, formatRelativeTime } from '@/lib/utils';
-import type { Run, Conversation } from '@/types';
+import type { Run, Conversation, ImageAttachment } from '@/types';
 
 /** Maximum characters allowed in the input textarea (~2000 tokens) */
 const MAX_INPUT_CHARS = 8000;
 const MENTION_RESULT_LIMIT = 20;
-
-/** Preset questions showcasing multi-step agent capabilities */
-const PRESET_QUESTIONS = [
-  {
-    label: "What's the total mass of all humans versus all ants?",
-    query: "What's the total mass of all humans alive today versus all ants, and which weighs more?",
-  },
-  {
-    label: 'How long to watch every Oscar Best Picture winner back to back?',
-    query: 'How long would it take to watch every movie that won Best Picture at the Oscars back to back?',
-  },
-  {
-    label: '$1,000 in Apple, Google, Amazon 10 years ago — worth today?',
-    query: 'If you invested $1,000 in Apple, Google, and Amazon 10 years ago, how much would each be worth today?',
-  },
-  {
-    label: 'How many soccer fields to cover the entire EU?',
-    query: 'How many soccer fields would it take to cover the surface area of every country in the EU?',
-  },
-];
+const MAX_IMAGE_ATTACHMENTS = 8;
+const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 
 /** Mode: 'chat' for regular conversation, 'agent' for agent */
 type ChatMode = 'chat' | 'agent';
+
+function isApplePlatform(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  return /(Mac|iPhone|iPad|iPod)/i.test(navigator.platform || navigator.userAgent);
+}
+
+function getLineStart(text: string, position: number): number {
+  return text.lastIndexOf('\n', Math.max(0, position) - 1) + 1;
+}
+
+function getLineEnd(text: string, position: number): number {
+  const nextBreak = text.indexOf('\n', position);
+  return nextBreak === -1 ? text.length : nextBreak;
+}
+
+function classifyWordCharacter(char: string): 'space' | 'word' | 'punctuation' {
+  if (/\s/.test(char)) return 'space';
+  if (/[A-Za-z0-9_]/.test(char)) return 'word';
+  return 'punctuation';
+}
+
+function moveWordLeft(text: string, position: number): number {
+  let nextPosition = position;
+  while (nextPosition > 0 && /\s/.test(text[nextPosition - 1])) {
+    nextPosition -= 1;
+  }
+  if (nextPosition === 0) return 0;
+  const kind = classifyWordCharacter(text[nextPosition - 1]);
+  while (nextPosition > 0 && classifyWordCharacter(text[nextPosition - 1]) === kind) {
+    nextPosition -= 1;
+  }
+  return nextPosition;
+}
+
+function moveWordRight(text: string, position: number): number {
+  let nextPosition = position;
+  while (nextPosition < text.length && /\s/.test(text[nextPosition])) {
+    nextPosition += 1;
+  }
+  if (nextPosition >= text.length) return text.length;
+  const kind = classifyWordCharacter(text[nextPosition]);
+  while (nextPosition < text.length && classifyWordCharacter(text[nextPosition]) === kind) {
+    nextPosition += 1;
+  }
+  return nextPosition;
+}
+
+function moveVertical(text: string, position: number, direction: -1 | 1, preferredColumn?: number | null): number {
+  const currentLineStart = getLineStart(text, position);
+  const currentColumn = preferredColumn ?? (position - currentLineStart);
+  if (direction < 0) {
+    if (currentLineStart === 0) return 0;
+    const previousLineEnd = currentLineStart - 1;
+    const previousLineStart = getLineStart(text, previousLineEnd);
+    return Math.min(previousLineStart + currentColumn, previousLineEnd);
+  }
+
+  const currentLineEnd = getLineEnd(text, position);
+  if (currentLineEnd >= text.length) return text.length;
+  const nextLineStart = currentLineEnd + 1;
+  const nextLineEnd = getLineEnd(text, nextLineStart);
+  return Math.min(nextLineStart + currentColumn, nextLineEnd);
+}
+
+function hasTextSelection(textarea: HTMLTextAreaElement): boolean {
+  return textarea.selectionStart !== textarea.selectionEnd;
+}
+
+function replaceTextareaRange(
+  textarea: HTMLTextAreaElement,
+  replacement: string,
+  start: number,
+  end: number,
+  selectMode: SelectionMode = 'end',
+): void {
+  const scrollTop = textarea.scrollTop;
+  const scrollLeft = textarea.scrollLeft;
+  textarea.setRangeText(replacement, start, end, selectMode);
+  textarea.scrollTop = scrollTop;
+  textarea.scrollLeft = scrollLeft;
+}
+
+function isTextInputElement(element: EventTarget | null): boolean {
+  if (!(element instanceof HTMLElement)) return false;
+  const tagName = element.tagName.toLowerCase();
+  if (tagName === 'input' || tagName === 'textarea' || tagName === 'select') {
+    return true;
+  }
+  if (element.isContentEditable) {
+    return true;
+  }
+  return !!element.closest('[contenteditable="true"], [role="textbox"]');
+}
+
+function formatContextTokens(tokens: number): string {
+  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(tokens >= 10_000_000 ? 0 : 1)}m`;
+  if (tokens >= 1_000) return `${(tokens / 1_000).toFixed(tokens >= 10_000 ? 0 : 1)}k`;
+  return tokens.toLocaleString();
+}
 
 /** Model picker component shown in the status bar */
 function ModelPicker({
@@ -109,6 +190,7 @@ function ModelPicker({
     max_output_tokens: 8192,
     supports_tools: true,
     supports_reasoning: false,
+    supports_vision: false,
     input_cost_per_million: null,
     cached_input_cost_per_million: null,
     output_cost_per_million: null,
@@ -234,6 +316,7 @@ function ModelPicker({
                             {model.input_cost_per_million != null && model.output_cost_per_million != null
                               ? `$${model.input_cost_per_million}/$${model.output_cost_per_million}M · `
                               : ''}
+                            {model.supports_vision ? 'vision · ' : ''}
                             {Math.round(model.context_window / 1024)}k
                           </span>
                         </div>
@@ -426,7 +509,11 @@ function ReasoningSettingsDialog({
   const providerFamily = settingsResponse?.provider_family || 'generic';
   const modelName = settingsResponse?.model_name || 'model';
   const isFireworks = providerFamily === 'fireworks';
+  const showReasoningEffort = !isFireworks && capabilities?.reasoning_effort.supported;
+  const showReasoningMaxTokens = providerFamily === 'openrouter' && capabilities?.reasoning_max_tokens.supported;
   const fireworksMode = draft?.fireworks_reasoning_mode ?? 'effort';
+  const openRouterMode = draft?.reasoning_max_tokens == null ? 'effort' : 'budget';
+  const minFireworksThinkingBudget = 1024;
 
   const disabledReason = (supported?: boolean, reason?: string | null) =>
     supported ? undefined : (reason || 'Unsupported by active provider/model');
@@ -434,6 +521,11 @@ function ReasoningSettingsDialog({
   const update = <K extends keyof ReasoningSettings>(key: K, value: ReasoningSettings[K]) => {
     if (!draft) return;
     onDraftChange({ ...draft, [key]: value });
+  };
+
+  const updateMany = (patch: Partial<ReasoningSettings>) => {
+    if (!draft) return;
+    onDraftChange({ ...draft, ...patch });
   };
 
   return (
@@ -453,7 +545,7 @@ function ReasoningSettingsDialog({
 
             <div className="grid grid-cols-2 gap-3">
               <label className="space-y-1">
-                <div className="text-zinc-400">max output tokens</div>
+                <div className="text-zinc-400">max output</div>
                 <input
                   type="number"
                   min={1}
@@ -462,9 +554,9 @@ function ReasoningSettingsDialog({
                   className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-zinc-200"
                 />
               </label>
-              {!isFireworks && (
+              {showReasoningEffort && !showReasoningMaxTokens && (
                 <label className="space-y-1">
-                  <div className="text-zinc-400">reasoning effort</div>
+                  <div className="text-zinc-400">thinking effort</div>
                   <select
                     value={draft.reasoning_effort ?? ''}
                     onChange={(e) => update('reasoning_effort', e.target.value || null)}
@@ -483,16 +575,22 @@ function ReasoningSettingsDialog({
 
             {isFireworks ? (
               <div className="border-t border-zinc-800 pt-3 space-y-3">
-                <div className="text-zinc-500 uppercase text-[10px]">Fireworks reasoning</div>
-                <div className="text-[11px] text-zinc-600">
-                  Fireworks supports two alternative reasoning controls. Only the active mode below is sent in requests.
-                </div>
+                <div className="text-zinc-500 uppercase text-[10px]">Fireworks controls</div>
                 <div className="grid grid-cols-2 gap-3">
                   <label className="space-y-1">
-                    <div className="text-zinc-400">mode</div>
+                    <div className="text-zinc-400">control</div>
                     <select
                       value={draft.fireworks_reasoning_mode}
-                      onChange={(e) => update('fireworks_reasoning_mode', e.target.value as 'effort' | 'thinking')}
+                      onChange={(e) => {
+                        const nextMode = e.target.value as 'effort' | 'thinking';
+                        updateMany({
+                          fireworks_reasoning_mode: nextMode,
+                          fireworks_thinking_budget_tokens:
+                            nextMode === 'thinking'
+                              ? Math.max(draft.fireworks_thinking_budget_tokens ?? minFireworksThinkingBudget, minFireworksThinkingBudget)
+                              : null,
+                        });
+                      }}
                       disabled={!capabilities.fireworks_reasoning_mode.supported}
                       title={disabledReason(capabilities.fireworks_reasoning_mode.supported, capabilities.fireworks_reasoning_mode.reason)}
                       className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-zinc-200 disabled:text-zinc-600"
@@ -504,7 +602,7 @@ function ReasoningSettingsDialog({
 
                   {fireworksMode === 'effort' ? (
                     <label className="space-y-1">
-                      <div className="text-zinc-400">reasoning effort</div>
+                      <div className="text-zinc-400">thinking effort</div>
                       <select
                         value={draft.reasoning_effort ?? ''}
                         onChange={(e) => update('reasoning_effort', e.target.value || null)}
@@ -520,12 +618,13 @@ function ReasoningSettingsDialog({
                     </label>
                   ) : (
                     <label className="space-y-1">
-                      <div className="text-zinc-400">thinking budget</div>
+                      <div className="text-zinc-400">max thinking tokens</div>
                       <input
                         type="number"
                         min={1024}
                         value={draft.fireworks_thinking_budget_tokens ?? ''}
                         onChange={(e) => update('fireworks_thinking_budget_tokens', e.target.value === '' ? null : Number(e.target.value))}
+                        onBlur={(e) => update('fireworks_thinking_budget_tokens', Math.max(Number(e.target.value) || minFireworksThinkingBudget, minFireworksThinkingBudget))}
                         disabled={!capabilities.fireworks_thinking_budget_tokens.supported}
                         title={disabledReason(capabilities.fireworks_thinking_budget_tokens.supported, capabilities.fireworks_thinking_budget_tokens.reason)}
                         className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-zinc-200 disabled:text-zinc-600"
@@ -534,97 +633,75 @@ function ReasoningSettingsDialog({
                   )}
                 </div>
 
-                <label className="space-y-1 block">
-                  <div className="text-zinc-400">reasoning history</div>
-                  <select
-                    value={draft.fireworks_reasoning_history ?? ''}
-                    onChange={(e) => update('fireworks_reasoning_history', (e.target.value || null) as 'discarded' | 'preserved' | null)}
-                    disabled={!capabilities.fireworks_reasoning_history.supported}
-                    title={disabledReason(capabilities.fireworks_reasoning_history.supported, capabilities.fireworks_reasoning_history.reason)}
-                    className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-zinc-200 disabled:text-zinc-600"
-                  >
-                    <option value="">default</option>
-                    <option value="discarded">discarded</option>
-                    <option value="preserved">preserved</option>
-                  </select>
-                </label>
-
                 <div className="text-[11px] text-zinc-600">
                   {fireworksMode === 'effort'
-                    ? 'This sends Fireworks reasoning_effort. Thinking budget is not sent.'
-                    : 'This sends Fireworks thinking.budget_tokens. Reasoning effort is not sent.'}
+                    ? 'Sends reasoning_effort only.'
+                    : 'Sends thinking.budget_tokens only.'}
                 </div>
               </div>
             ) : (
-              <>
-                <div className="grid grid-cols-2 gap-3">
-                  <label className="space-y-1">
-                    <div className="text-zinc-400">reasoning enabled</div>
-                    <select
-                      value={draft.reasoning_enabled == null ? '' : String(draft.reasoning_enabled)}
-                      onChange={(e) => update('reasoning_enabled', e.target.value === '' ? null : e.target.value === 'true')}
-                      disabled={!capabilities.reasoning_enabled.supported}
-                      title={disabledReason(capabilities.reasoning_enabled.supported, capabilities.reasoning_enabled.reason)}
-                      className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-zinc-200 disabled:text-zinc-600"
-                    >
-                      <option value="">default</option>
-                      <option value="true">true</option>
-                      <option value="false">false</option>
-                    </select>
-                  </label>
+              showReasoningMaxTokens ? (
+                <div className="border-t border-zinc-800 pt-3 space-y-3">
+                  <div className="text-zinc-500 uppercase text-[10px]">OpenRouter controls</div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <label className="space-y-1">
+                      <div className="text-zinc-400">control</div>
+                      <select
+                        value={openRouterMode}
+                        onChange={(e) => {
+                          if (e.target.value === 'effort') {
+                            updateMany({ reasoning_max_tokens: null });
+                          } else {
+                            updateMany({ reasoning_max_tokens: draft.reasoning_max_tokens ?? 1024 });
+                          }
+                        }}
+                        className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-zinc-200"
+                      >
+                        <option value="effort">effort-based</option>
+                        <option value="budget">budget-based</option>
+                      </select>
+                    </label>
 
-                  <label className="space-y-1">
-                    <div className="text-zinc-400">reasoning summary</div>
-                    <select
-                      value={draft.reasoning_summary ?? ''}
-                      onChange={(e) => update('reasoning_summary', e.target.value || null)}
-                      disabled={!capabilities.reasoning_summary.supported}
-                      title={disabledReason(capabilities.reasoning_summary.supported, capabilities.reasoning_summary.reason)}
-                      className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-zinc-200 disabled:text-zinc-600"
-                    >
-                      <option value="">default</option>
-                      {(capabilities.reasoning_summary.options.length ? capabilities.reasoning_summary.options : ['auto', 'concise', 'detailed']).map((opt) => (
-                        <option key={opt} value={opt}>{opt}</option>
-                      ))}
-                    </select>
-                  </label>
+                    {openRouterMode === 'effort' ? (
+                      <label className="space-y-1">
+                        <div className="text-zinc-400">thinking effort</div>
+                        <select
+                          value={draft.reasoning_effort ?? ''}
+                          onChange={(e) => update('reasoning_effort', e.target.value || null)}
+                          disabled={!capabilities.reasoning_effort.supported}
+                          title={disabledReason(capabilities.reasoning_effort.supported, capabilities.reasoning_effort.reason)}
+                          className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-zinc-200 disabled:text-zinc-600"
+                        >
+                          <option value="">default</option>
+                          {(capabilities.reasoning_effort.options.length ? capabilities.reasoning_effort.options : ['low', 'medium', 'high']).map((opt) => (
+                            <option key={opt} value={opt}>{opt}</option>
+                          ))}
+                        </select>
+                      </label>
+                    ) : (
+                      <label className="space-y-1">
+                        <div className="text-zinc-400">max thinking tokens</div>
+                        <input
+                          type="number"
+                          min={1}
+                          value={draft.reasoning_max_tokens ?? ''}
+                          onChange={(e) => update('reasoning_max_tokens', e.target.value === '' ? null : Number(e.target.value))}
+                          disabled={!capabilities.reasoning_max_tokens.supported}
+                          title={disabledReason(capabilities.reasoning_max_tokens.supported, capabilities.reasoning_max_tokens.reason)}
+                          className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-zinc-200 disabled:text-zinc-600"
+                        />
+                      </label>
+                    )}
+                  </div>
                 </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <label className="space-y-1">
-                    <div className="text-zinc-400">reasoning max tokens</div>
-                    <input
-                      type="number"
-                      min={1}
-                      value={draft.reasoning_max_tokens ?? ''}
-                      onChange={(e) => update('reasoning_max_tokens', e.target.value === '' ? null : Number(e.target.value))}
-                      disabled={!capabilities.reasoning_max_tokens.supported}
-                      title={disabledReason(capabilities.reasoning_max_tokens.supported, capabilities.reasoning_max_tokens.reason)}
-                      className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-zinc-200 disabled:text-zinc-600"
-                    />
-                  </label>
-
-                  <label className="space-y-1">
-                    <div className="text-zinc-400">reasoning exclude</div>
-                    <select
-                      value={draft.reasoning_exclude == null ? '' : String(draft.reasoning_exclude)}
-                      onChange={(e) => update('reasoning_exclude', e.target.value === '' ? null : e.target.value === 'true')}
-                      disabled={!capabilities.reasoning_exclude.supported}
-                      title={disabledReason(capabilities.reasoning_exclude.supported, capabilities.reasoning_exclude.reason)}
-                      className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-zinc-200 disabled:text-zinc-600"
-                    >
-                      <option value="">default</option>
-                      <option value="true">true</option>
-                      <option value="false">false</option>
-                    </select>
-                  </label>
-                </div>
-              </>
+              ) : null
             )}
 
-            <div className="text-[11px] text-zinc-600">
-              Unsupported controls stay visible and are ignored for providers/models that do not expose them.
-            </div>
+            {!isFireworks && !showReasoningMaxTokens && (
+              <div className="text-[11px] text-zinc-600">
+                This provider has no separate max thinking token setting.
+              </div>
+            )}
 
             <div className="flex justify-end gap-2">
               <button
@@ -648,117 +725,6 @@ function ReasoningSettingsDialog({
   );
 }
 
-function WorkspacePicker({
-  open,
-  onOpenChange,
-  value,
-  onSelect,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  value: string;
-  onSelect: (path: string) => void;
-}) {
-  const [data, setData] = useState<WorkspaceBrowseResponse | null>(null);
-  const [pathInput, setPathInput] = useState(value);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const loadPath = useCallback((path?: string) => {
-    setLoading(true);
-    setError(null);
-    browseWorkspaceDirectories(path || undefined)
-      .then((next) => {
-        setData(next);
-        setPathInput(next.path);
-      })
-      .catch((err: { message?: string }) => setError(err.message || 'Failed to browse path'))
-      .finally(() => setLoading(false));
-  }, []);
-
-  useEffect(() => {
-    if (!open) return;
-    loadPath(value || undefined);
-  }, [open, value, loadPath]);
-
-  const chooseCurrent = () => {
-    if (!data?.path) return;
-    onSelect(data.path);
-    onOpenChange(false);
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogHeader>
-        <DialogTitle className="font-mono text-sm">Choose workspace</DialogTitle>
-      </DialogHeader>
-      <DialogContent>
-        <div className="space-y-3 font-mono text-xs">
-          <div className="flex gap-2">
-            <input
-              value={pathInput}
-              onChange={(e) => setPathInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') loadPath(pathInput);
-              }}
-              className="flex-1 bg-zinc-950 border border-zinc-800 px-2 py-1.5 text-zinc-300 outline-none"
-              placeholder="/path/to/repo"
-            />
-            <button
-              onClick={() => loadPath(pathInput)}
-              className="px-2 py-1.5 text-zinc-400 hover:text-zinc-200 border border-zinc-800"
-            >
-              open
-            </button>
-          </div>
-
-          {error && <p className="text-red-400">{error}</p>}
-
-          <div className="border border-zinc-800 max-h-72 overflow-y-auto">
-            {loading ? (
-              <p className="px-3 py-2 text-zinc-600">Loading...</p>
-            ) : (
-              <>
-                {data?.parent && (
-                  <button
-                    onClick={() => loadPath(data.parent!)}
-                    className="block w-full text-left px-3 py-1.5 text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800/50"
-                  >
-                    ../
-                  </button>
-                )}
-                {data?.entries.map((entry) => (
-                  <button
-                    key={entry.path}
-                    onClick={() => loadPath(entry.path)}
-                    className={cn(
-                      'block w-full text-left px-3 py-1.5 hover:text-zinc-200 hover:bg-zinc-800/50',
-                      entry.hidden ? 'text-zinc-700' : 'text-zinc-400'
-                    )}
-                  >
-                    {entry.name}/
-                  </button>
-                ))}
-              </>
-            )}
-          </div>
-
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-zinc-600 truncate">{data?.path || pathInput}</span>
-            <button
-              onClick={chooseCurrent}
-              disabled={!data?.path}
-              className="text-emerald-500/80 hover:text-emerald-400 disabled:text-zinc-700"
-            >
-              [use this folder]
-            </button>
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 // Empty string constant to avoid creating new references
 const EMPTY_STRING = '';
 
@@ -769,12 +735,20 @@ const RunMessage = memo(function RunMessage({
   canRetry,
 }: {
   run: Run;
-  onShowTrace: () => void;
-  onRetry?: () => void;
+  onShowTrace: (runId: string) => void;
+  onRetry?: (userMessage: string) => void;
   canRetry?: boolean;
 }) {
   const isRunning = run.status === 'running';
   const finalAnswer = run.final_answer ? extractAnswer(run.final_answer) : '';
+  const userMessage = run.user_message || run.prompt;
+  const handleShowTraceClick = useCallback(() => {
+    onShowTrace(run.run_id);
+  }, [onShowTrace, run.run_id]);
+  const handleRetryClick = useCallback(() => {
+    if (!userMessage || !onRetry) return;
+    onRetry(userMessage);
+  }, [onRetry, userMessage]);
   // Use stable selectors - return constant empty string if not found
   const streamingText = useStore((s) => s.streamingText[run.run_id] ?? EMPTY_STRING);
   const streamingThinking = useStore((s) => s.streamingThinking[run.run_id] ?? EMPTY_STRING);
@@ -842,7 +816,7 @@ const RunMessage = memo(function RunMessage({
 
           <div className="mt-2 flex flex-wrap items-center gap-3 font-mono text-xs">
             <button
-              onClick={onShowTrace}
+              onClick={handleShowTraceClick}
               className="text-zinc-600 hover:text-zinc-300 transition-colors"
             >
               [details]
@@ -861,7 +835,7 @@ const RunMessage = memo(function RunMessage({
             {!isRunning && (
               <MessageActions
                 content={finalAnswer || displayText}
-                onRetry={onRetry}
+                onRetry={onRetry ? handleRetryClick : undefined}
                 canRetry={canRetry}
               />
             )}
@@ -947,6 +921,120 @@ function MentionPicker({
   );
 }
 
+function EmptyStatePulse({
+  mode,
+  workspacePath,
+  modelStatus,
+}: {
+  mode: ChatMode;
+  workspacePath: string;
+  modelStatus: ModelStatus | null;
+}) {
+  const workspaceName = workspacePath.trim()
+    ? workspacePath.trim().split('/').filter(Boolean).pop() || workspacePath.trim()
+    : 'no workspace';
+  const provider = modelStatus?.provider || 'provider';
+  const model = modelStatus?.model_name || 'model';
+
+  return (
+    <div className="w-full max-w-xl font-mono text-center space-y-6">
+      <div className="relative mx-auto h-20 w-80 max-w-full overflow-hidden opacity-80">
+        <svg
+          viewBox="0 0 320 80"
+          aria-hidden="true"
+          className="absolute inset-0 h-full w-full text-zinc-800"
+        >
+          <path
+            d="M8 48 C 52 8, 92 72, 136 38 S 224 12, 312 42"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1"
+          />
+          <path
+            d="M8 52 C 58 26, 91 54, 140 34 S 232 62, 312 26"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1"
+            opacity="0.45"
+          />
+        </svg>
+        <div className="fluxion-trace absolute left-0 top-0 h-full w-28 bg-gradient-to-r from-transparent via-zinc-500/20 to-transparent" />
+      </div>
+
+      <div className="grid grid-cols-3 gap-px border border-zinc-900 bg-zinc-900 text-left">
+        <div className="bg-background px-3 py-2">
+          <div className="text-[10px] uppercase text-zinc-700">mode</div>
+          <div className="truncate text-xs text-zinc-500">{mode}</div>
+        </div>
+        <div className="bg-background px-3 py-2">
+          <div className="text-[10px] uppercase text-zinc-700">workspace</div>
+          <div className={cn("truncate text-xs", workspacePath.trim() ? "text-zinc-500" : "text-zinc-700")}>
+            {workspaceName}
+          </div>
+        </div>
+        <div className="bg-background px-3 py-2">
+          <div className="text-[10px] uppercase text-zinc-700">{provider}</div>
+          <div className="truncate text-xs text-zinc-500">{model}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function conversationTitleFromMessage(message: string, maxLen = 64): string {
+  const cleaned = message.trim().replace(/\s+/g, ' ');
+  if (!cleaned) return 'New conversation';
+
+  let normalized = cleaned.toLowerCase();
+  const fillerPatterns = [
+    /^(?:hey|hi|hello|yo|yoo|yup|okay|ok|alright|please)\s+/,
+    /^(?:can|could|would|will)\s+you\s+/,
+    /^i\s+need\s+you\s+to\s+/,
+    /^help\s+me\s+(?:with\s+)?/,
+  ];
+  for (const pattern of fillerPatterns) {
+    normalized = normalized.replace(pattern, '');
+  }
+  normalized = normalized.replace(/^[ .!?,;:-]+|[ .!?,;:-]+$/g, '');
+
+  const issuePhrase = (value: string) => {
+    let next = value.replace(/\bstill\b\s*/g, '').trim();
+    next = next.replace(/\b(?:look|looks|feel|feels)\s+/, '');
+    if (/\bcramped\b/.test(next)) {
+      next = next.replace(/\bcramped\b/, 'too cramped');
+    }
+    return next;
+  };
+
+  const smartTitleFromNormalized = (value: string): string => {
+    const patterns: Array<[RegExp, string]> = [
+      [/^(?:explain\s+why|why\s+(?:is|are|does|do|did))\s+/, 'Issue: '],
+      [/^how\s+(?:do|can|should|would)\s+i\s+/, 'How to '],
+      [/^how\s+to\s+/, 'How to '],
+      [/^what\s+(?:is|are)\s+/, 'About '],
+      [/^explain\s+/, 'About '],
+      [/^tell\s+me\s+(?:about\s+)?/, 'About '],
+    ];
+    for (const [pattern, prefix] of patterns) {
+      const match = value.match(pattern);
+      if (!match) continue;
+      const body = value.slice(match[0].length).trim();
+      if (!body) break;
+      const content = prefix === 'Issue: ' ? issuePhrase(body) : body;
+      return `${prefix}${content ? `${content[0].toUpperCase()}${content.slice(1)}` : content}`;
+    }
+    return value;
+  };
+
+  const smart = smartTitleFromNormalized(normalized) || cleaned;
+  const title = smart.replace(/^[ .!?,;:-]+|[ .!?,;:-]+$/g, '');
+  const sentenceCased = title ? `${title[0].toUpperCase()}${title.slice(1)}` : 'New conversation';
+  if (sentenceCased.length <= maxLen) {
+    return sentenceCased;
+  }
+  return `${sentenceCased.slice(0, maxLen - 3).trim()}...`;
+}
+
 export function ConversationView() {
   const navigate = useNavigate();
   const selectedConversationId = useStore((s) => s.selectedConversationId);
@@ -963,12 +1051,13 @@ export function ConversationView() {
   const terminalState = useConversationTerminal(selectedConversationId);
   const hasActiveRun = useHasActiveRun();
   const updateTerminalState = useStore((s) => s.updateTerminalState);
+  const draftWorkspacePath = useStore((s) => s.draftWorkspacePath);
+  const setDraftWorkspacePath = useStore((s) => s.setDraftWorkspacePath);
+  const rememberWorkspacePath = useStore((s) => s.rememberWorkspacePath);
   const [message, setMessage] = useState('');
+  const [imageAttachments, setImageAttachments] = useState<ImageAttachment[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [mode, setMode] = useState<ChatMode>('agent');
-  const [workspacePath, setWorkspacePath] = useState(
-    () => localStorage.getItem('reasoner_workspace_path') || ''
-  );
   const [workspacePickerOpen, setWorkspacePickerOpen] = useState(false);
   const [mentionResults, setMentionResults] = useState<WorkspaceFileEntry[]>([]);
   const [mentionOpen, setMentionOpen] = useState(false);
@@ -983,6 +1072,7 @@ export function ConversationView() {
   );
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const verticalMoveColumnRef = useRef<number | null>(null);
 
   // Model picker state
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
@@ -1020,12 +1110,14 @@ export function ConversationView() {
   }, []);
 
   useEffect(() => {
-    localStorage.setItem('reasoner_workspace_path', workspacePath);
-  }, [workspacePath]);
-
-  useEffect(() => {
     localStorage.setItem('reasoner_permission_policy', permissionPolicy);
   }, [permissionPolicy]);
+
+  useEffect(() => {
+    if (conversation?.workspace_path) {
+      setDraftWorkspacePath(conversation.workspace_path);
+    }
+  }, [conversation?.workspace_path, setDraftWorkspacePath]);
 
   useEffect(() => {
     const handleResize = () => setIsDesktop(window.innerWidth >= 768);
@@ -1071,6 +1163,48 @@ export function ConversationView() {
   // Clear queued steers when agent confirms injection via SSE.
   // Delay the clear so the chip is visible briefly before disappearing.
   const activeAgentState = useStore((s) => activeRunId ? s.agentRunState[activeRunId] : undefined);
+  const latestContextRun = useMemo(
+    () => [...runs].reverse().find((run) => run.mode === 'agent' || !!run.stored_context),
+    [runs],
+  );
+  const lockedWorkspacePath = (conversation?.workspace_path || '').trim();
+  const hasConversationWorkspace = lockedWorkspacePath.length > 0;
+  const isWorkspaceLocked = selectedConversationId !== null;
+  const effectiveWorkspacePath = isWorkspaceLocked ? lockedWorkspacePath : draftWorkspacePath.trim();
+  const latestRunStoredContext = latestContextRun?.stored_context as
+    | { stored_tokens?: number; utilization_pct?: number; context_window?: number }
+    | undefined;
+  const footerStoredContext = useMemo(() => {
+    return (
+      activeAgentState?.stored_context
+      ?? latestRunStoredContext
+      ?? undefined
+    );
+  }, [activeAgentState?.stored_context, latestRunStoredContext]);
+  const conversationRawTokens = useMemo(() => {
+    return runs.reduce((total, run) => {
+      if (run.run_id === activeRunId && activeAgentState?.usage?.total_tokens !== undefined) {
+        return total + activeAgentState.usage.total_tokens;
+      }
+      const runUsage = run.usage as { total_tokens?: number } | undefined;
+      return total + (runUsage?.total_tokens ?? 0);
+    }, 0);
+  }, [runs, activeRunId, activeAgentState?.usage?.total_tokens]);
+  const footerStoredTokens = footerStoredContext?.stored_tokens ?? 0;
+  const composerContextWindow = (
+    activeAgentState?.context_profile?.context_window
+    ?? modelStatus?.context_window
+    ?? (latestContextRun?.context_profile as { context_window?: number } | undefined)?.context_window
+    ?? footerStoredContext?.context_window
+  );
+  const composerStoredContextUtilizationPct = (
+    footerStoredContext && typeof composerContextWindow === 'number' && composerContextWindow > 0
+      ? (footerStoredTokens / composerContextWindow) * 100
+      : null
+  );
+  const showComposerContextStats = mode === 'agent' && !!composerContextWindow && (
+    !!footerStoredContext || conversationRawTokens > 0
+  );
   const injectedSteerCount = activeAgentState?.injectedSteers?.length ?? 0;
   useEffect(() => {
     if (injectedSteerCount > 0 && queuedSteers.length > 0) {
@@ -1179,14 +1313,41 @@ export function ConversationView() {
     setDetailPanelOpen(true);
   }, [selectRun, setDetailPanelOpen]);
 
+  const focusComposer = useCallback(() => {
+    const textarea = textareaRef.current;
+    if (!textarea || textarea.disabled) return;
+    textarea.focus();
+    const end = textarea.value.length;
+    textarea.setSelectionRange(end, end);
+  }, []);
+
   /** Retry a message: pre-fill the input with the original user message */
   const handleRetry = useCallback((userMessage: string) => {
     if (hasActiveRun) return;
     clearMentionState();
     setMessage(userMessage);
-    // Focus the textarea so user can edit before sending
-    requestAnimationFrame(() => textareaRef.current?.focus());
-  }, [clearMentionState, hasActiveRun]);
+    requestAnimationFrame(focusComposer);
+  }, [clearMentionState, focusComposer, hasActiveRun]);
+
+  const renderRunCard = useCallback((run: Run) => (
+    run.mode === 'agent' ? (
+      <AgentRunMessage
+        key={run.run_id}
+        run={run}
+        onShowTrace={handleShowTrace}
+        onRetry={handleRetry}
+        canRetry={!hasActiveRun}
+      />
+    ) : (
+      <RunMessage
+        key={run.run_id}
+        run={run}
+        onShowTrace={handleShowTrace}
+        onRetry={handleRetry}
+        canRetry={!hasActiveRun}
+      />
+    )
+  ), [handleRetry, handleShowTrace, hasActiveRun]);
 
   const handleSaveReasoningSettings = useCallback(async () => {
     if (!reasoningDraft) return;
@@ -1207,23 +1368,45 @@ export function ConversationView() {
     }
   }, [reasoningDraft]);
 
+  const handleOpenWorkspacePicker = useCallback(() => {
+    if (isWorkspaceLocked) {
+      toast.error(
+        hasConversationWorkspace
+          ? 'This conversation is already bound to its workspace'
+          : 'This conversation has no workspace. Create a new workspace thread from the sidebar.'
+      );
+      return;
+    }
+    setWorkspacePickerOpen(true);
+  }, [hasConversationWorkspace, isWorkspaceLocked]);
+
   const handleOpenTerminal = useCallback(async () => {
     if (mode !== 'agent' || !isDesktop) return;
-    if (!workspacePath.trim()) {
-      toast.error('Select a workspace first');
-      setWorkspacePickerOpen(true);
+    if (!effectiveWorkspacePath) {
+      toast.error(
+        selectedConversationId
+          ? 'Create or open a workspace conversation first'
+          : 'Select a workspace first'
+      );
+      if (!selectedConversationId) {
+        setWorkspacePickerOpen(true);
+      }
       return;
     }
 
     let conversationId = selectedConversationId;
     if (!conversationId) {
-      const response = await createConversation({ title: 'Terminal' });
+      const response = await createConversation({
+        title: 'Terminal',
+        workspace_path: effectiveWorkspacePath,
+      });
       conversationId = response.conversation_id;
       const newConversation: Conversation = {
         conversation_id: conversationId,
         created_at: new Date().toISOString(),
         title: 'Terminal',
         summary: '',
+        workspace_path: effectiveWorkspacePath,
         status: 'active',
         metadata: {},
       };
@@ -1240,15 +1423,23 @@ export function ConversationView() {
     navigate,
     selectedConversationId,
     setRuns,
-    workspacePath,
+    effectiveWorkspacePath,
     updateTerminalState,
   ]);
 
   const handleSubmit = async () => {
-    if (!message.trim() || isSubmitting) return;
+    if ((!message.trim() && imageAttachments.length === 0) || isSubmitting) return;
+    if (imageAttachments.length > 0 && !modelStatus?.supports_vision) {
+      toast.error('Active model does not support images. Select a vision model.');
+      return;
+    }
 
     // If an agent run is active, steer it instead of creating a new run
     if (hasActiveRun && activeRunId) {
+      if (imageAttachments.length > 0) {
+        toast.error('Image paste is only available before starting a run.');
+        return;
+      }
       const steerMsg = message.trim();
       setMessage('');
       clearMentionState();
@@ -1264,13 +1455,26 @@ export function ConversationView() {
 
     if (hasActiveRun) return; // Non-agent active run, block
 
-    const messageToSend = message.trim();
+    let conversationId = selectedConversationId;
+
+    if (!conversationId && !effectiveWorkspacePath) {
+      toast.error('Choose a workspace first');
+      setWorkspacePickerOpen(true);
+      return;
+    }
+
+    const attachmentsToSend = imageAttachments.map(({ name, mime_type, data_url }) => ({
+      name,
+      mime_type,
+      data_url,
+    }));
+    const messageToSend = message.trim() || 'Please analyze the attached image.';
     setIsSubmitting(true);
     setPendingMessage(messageToSend);
     setMessage('');
+    setImageAttachments([]);
     clearMentionState();
     setPendingIsAgent(mode === 'agent');
-    let conversationId = selectedConversationId;
 
     // Track whether we need to navigate after setup (deferred to prevent
     // useEffect from re-subscribing while handleSubmit is still in flight)
@@ -1279,34 +1483,41 @@ export function ConversationView() {
     try {
       // Create conversation if needed
       if (!conversationId) {
-        const response = await createConversation();
+        const response = await createConversation({ workspace_path: effectiveWorkspacePath });
         conversationId = response.conversation_id;
+        rememberWorkspacePath(effectiveWorkspacePath);
         const newConversation: Conversation = {
           conversation_id: conversationId,
           created_at: new Date().toISOString(),
-          title: messageToSend.slice(0, 64),
+          title: conversationTitleFromMessage(messageToSend),
           summary: '',
+          workspace_path: effectiveWorkspacePath,
           status: 'active',
           metadata: {},
         };
         addConversation(newConversation);
         setRuns(conversationId, []);
         needsNavigate = true;
+      } else if (!conversation?.title || conversation.title === 'New conversation') {
+        updateConversation(conversationId, {
+          title: conversationTitleFromMessage(messageToSend),
+        });
       }
 
       if (mode === 'agent') {
         // Agent mode: use agent API
         const response = await createAgentRun({
           query: messageToSend,
+          image_attachments: attachmentsToSend,
           conversation_id: conversationId!,
-          max_steps: 25,
-          workspace_path: workspacePath.trim() || undefined,
-          filesystem_enabled: !!workspacePath.trim(),
+          max_steps: 1000,
+          workspace_path: effectiveWorkspacePath || undefined,
+          filesystem_enabled: !!effectiveWorkspacePath,
           permission_policy: permissionPolicy,
           capabilities: {
             web: true,
-            filesystem: !!workspacePath.trim(),
-            bash: !!workspacePath.trim(),
+            filesystem: !!effectiveWorkspacePath,
+            bash: !!effectiveWorkspacePath,
             python: false,
           },
         });
@@ -1344,6 +1555,7 @@ export function ConversationView() {
         // Chat mode: use regular conversation API
         const response = await createConversationRun(conversationId!, {
           message: messageToSend,
+          image_attachments: attachmentsToSend,
         });
 
         setPendingRunId(response.run_id);
@@ -1384,6 +1596,10 @@ export function ConversationView() {
       }
       // Restore message on error
       setMessage(messageToSend);
+      setImageAttachments(attachmentsToSend.map((attachment, index) => ({
+        ...attachment,
+        id: `${Date.now()}-${index}`,
+      })));
       clearMentionState();
       setPendingMessage('');
       setPendingRunId(null);
@@ -1455,57 +1671,6 @@ export function ConversationView() {
     }
   };
 
-  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (mentionOpen) {
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        setMentionSelectedIndex((prev) => (
-          mentionResults.length ? (prev + 1) % mentionResults.length : 0
-        ));
-        return;
-      }
-      if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        setMentionSelectedIndex((prev) => (
-          mentionResults.length ? (prev - 1 + mentionResults.length) % mentionResults.length : 0
-        ));
-        return;
-      }
-      if (e.key === 'Enter' && !e.metaKey && !e.ctrlKey) {
-        const entry = mentionResults[mentionSelectedIndex];
-        if (entry) {
-          e.preventDefault();
-          handleMentionSelect(entry);
-          return;
-        }
-      }
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        setMentionOpen(false);
-        return;
-      }
-    }
-
-    // Cmd/Ctrl + Enter to send
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-      e.preventDefault();
-      handleSubmit();
-      return;
-    }
-    // Cmd/Ctrl + 1 for Agent mode
-    if (e.key === '1' && (e.metaKey || e.ctrlKey)) {
-      e.preventDefault();
-      setMode('agent');
-      return;
-    }
-    // Cmd/Ctrl + 2 for Chat mode
-    if (e.key === '2' && (e.metaKey || e.ctrlKey)) {
-      e.preventDefault();
-      setMode('chat');
-      return;
-    }
-  };
-
   // Determine if we should show Stop button (active run we started)
   const isGenerating = !!pendingRunId;
   const terminalAvailable = !!selectedConversationId && mode === 'agent' && isDesktop;
@@ -1537,7 +1702,7 @@ export function ConversationView() {
   }, [activeMention, message, resizeTextarea]);
 
   const syncMentionState = useCallback((value: string, selectionStart: number | null) => {
-    if (mode !== 'agent' || !workspacePath.trim()) {
+    if (mode !== 'agent' || !effectiveWorkspacePath) {
       setActiveMention(null);
       setMentionOpen(false);
       return;
@@ -1547,10 +1712,11 @@ export function ConversationView() {
     if (!mention) {
       setMentionOpen(false);
     }
-  }, [mode, workspacePath]);
+  }, [effectiveWorkspacePath, mode]);
 
   const handleMessageChange = useCallback((e: ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value;
+    verticalMoveColumnRef.current = null;
     // Enforce character limit
     if (value.length <= MAX_INPUT_CHARS) {
       setMessage(value);
@@ -1560,11 +1726,276 @@ export function ConversationView() {
     requestAnimationFrame(resizeTextarea);
   }, [resizeTextarea, syncMentionState]);
 
+  const removeImageAttachment = useCallback((id?: string) => {
+    setImageAttachments((prev) => prev.filter((attachment) => attachment.id !== id));
+  }, []);
+
+  const handlePaste = useCallback((e: ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = Array.from(e.clipboardData.files).filter((file) => (
+      file.type === 'image/png' || file.type === 'image/jpeg' || file.type === 'image/webp'
+    ));
+    if (!files.length) return;
+
+    e.preventDefault();
+    if (hasActiveRun) {
+      toast.error('Image paste is only available before starting a run.');
+      return;
+    }
+    if (!modelStatus?.supports_vision) {
+      toast.error('Active model does not support images. Select a vision model.');
+      return;
+    }
+
+    const remaining = MAX_IMAGE_ATTACHMENTS - imageAttachments.length;
+    if (remaining <= 0) {
+      toast.error(`You can attach up to ${MAX_IMAGE_ATTACHMENTS} images.`);
+      return;
+    }
+
+    files.slice(0, remaining).forEach((file) => {
+      if (file.size > MAX_IMAGE_BYTES) {
+        toast.error(`${file.name || 'image'} is larger than 20MB.`);
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = String(reader.result || '');
+        setImageAttachments((prev) => [
+          ...prev,
+          {
+            id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+            name: file.name || `screenshot-${prev.length + 1}.${file.type.split('/')[1] || 'png'}`,
+            mime_type: file.type,
+            data_url: dataUrl,
+          },
+        ].slice(0, MAX_IMAGE_ATTACHMENTS));
+      };
+      reader.readAsDataURL(file);
+    });
+  }, [hasActiveRun, imageAttachments.length, modelStatus?.supports_vision]);
+
   const handleTextareaSelection = useCallback(() => {
     const textarea = textareaRef.current;
     if (!textarea) return;
+    verticalMoveColumnRef.current = null;
     syncMentionState(textarea.value, textarea.selectionStart);
   }, [syncMentionState]);
+
+  const syncTextareaState = useCallback((textarea: HTMLTextAreaElement) => {
+    setMessage(textarea.value);
+    syncMentionState(textarea.value, textarea.selectionStart);
+    requestAnimationFrame(resizeTextarea);
+  }, [resizeTextarea, syncMentionState]);
+
+  const handleMentionKeyDown = useCallback((e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (mentionOpen) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setMentionSelectedIndex((prev) => (
+          mentionResults.length ? (prev + 1) % mentionResults.length : 0
+        ));
+        return true;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setMentionSelectedIndex((prev) => (
+          mentionResults.length ? (prev - 1 + mentionResults.length) % mentionResults.length : 0
+        ));
+        return true;
+      }
+      if (e.key === 'Enter' && !e.metaKey && !e.ctrlKey) {
+        const entry = mentionResults[mentionSelectedIndex];
+        if (entry) {
+          e.preventDefault();
+          handleMentionSelect(entry);
+          return true;
+        }
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setMentionOpen(false);
+        return true;
+      }
+    }
+    return false;
+  }, [handleMentionSelect, mentionOpen, mentionResults, mentionSelectedIndex]);
+
+  const handleComposerCommandKeyDown = useCallback((e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      handleSubmit();
+      return true;
+    }
+    if (e.key === '1' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      setMode('agent');
+      return true;
+    }
+    if (e.key === '2' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      setMode('chat');
+      return true;
+    }
+    return false;
+  }, [handleSubmit]);
+
+  const handleComposerEditingShortcut = useCallback((e: KeyboardEvent<HTMLTextAreaElement>) => {
+    const textarea = e.currentTarget;
+    if (textarea.disabled || e.nativeEvent.isComposing) return false;
+
+    const isMac = isApplePlatform();
+    const key = e.key;
+    const normalizedKey = key.length === 1 ? key.toLowerCase() : key;
+    const hasModifiers = e.metaKey || e.altKey || e.shiftKey || e.ctrlKey;
+    if (!hasModifiers) {
+      verticalMoveColumnRef.current = null;
+      return false;
+    }
+
+    const text = textarea.value;
+    const selectionStart = textarea.selectionStart;
+    const selectionEnd = textarea.selectionEnd;
+    const selectionCollapsed = selectionStart === selectionEnd;
+    const collapseTo = (position: number) => {
+      textarea.setSelectionRange(position, position);
+      verticalMoveColumnRef.current = null;
+      syncMentionState(textarea.value, textarea.selectionStart);
+    };
+
+    if (e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+      if (!isMac && normalizedKey === 'f') {
+        return false;
+      }
+
+      switch (normalizedKey) {
+        case 'a':
+          e.preventDefault();
+          collapseTo(getLineStart(text, selectionStart));
+          return true;
+        case 'e':
+          e.preventDefault();
+          collapseTo(getLineEnd(text, selectionEnd));
+          return true;
+        case 'b':
+          e.preventDefault();
+          collapseTo(selectionCollapsed ? Math.max(0, selectionStart - 1) : selectionStart);
+          return true;
+        case 'f':
+          e.preventDefault();
+          collapseTo(selectionCollapsed ? Math.min(text.length, selectionEnd + 1) : selectionEnd);
+          return true;
+        case 'p': {
+          e.preventDefault();
+          const nextPosition = moveVertical(text, selectionStart, -1, verticalMoveColumnRef.current);
+          verticalMoveColumnRef.current = selectionStart - getLineStart(text, selectionStart);
+          textarea.setSelectionRange(nextPosition, nextPosition);
+          syncMentionState(textarea.value, textarea.selectionStart);
+          return true;
+        }
+        case 'n': {
+          e.preventDefault();
+          const nextPosition = moveVertical(text, selectionEnd, 1, verticalMoveColumnRef.current);
+          verticalMoveColumnRef.current = selectionEnd - getLineStart(text, selectionEnd);
+          textarea.setSelectionRange(nextPosition, nextPosition);
+          syncMentionState(textarea.value, textarea.selectionStart);
+          return true;
+        }
+        case 'k':
+          e.preventDefault();
+          if (hasTextSelection(textarea)) {
+            replaceTextareaRange(textarea, '', selectionStart, selectionEnd, 'start');
+          } else {
+            replaceTextareaRange(textarea, '', selectionStart, getLineEnd(text, selectionStart), 'start');
+          }
+          verticalMoveColumnRef.current = null;
+          syncTextareaState(textarea);
+          return true;
+        case 'u':
+          e.preventDefault();
+          if (hasTextSelection(textarea)) {
+            replaceTextareaRange(textarea, '', selectionStart, selectionEnd, 'start');
+          } else {
+            replaceTextareaRange(textarea, '', getLineStart(text, selectionStart), selectionStart, 'start');
+          }
+          verticalMoveColumnRef.current = null;
+          syncTextareaState(textarea);
+          return true;
+        case 'w':
+          e.preventDefault();
+          if (hasTextSelection(textarea)) {
+            replaceTextareaRange(textarea, '', selectionStart, selectionEnd, 'start');
+          } else {
+            replaceTextareaRange(textarea, '', moveWordLeft(text, selectionStart), selectionStart, 'start');
+          }
+          verticalMoveColumnRef.current = null;
+          syncTextareaState(textarea);
+          return true;
+        default:
+          verticalMoveColumnRef.current = null;
+          return false;
+      }
+    }
+
+    if (isMac && e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey) {
+      if (normalizedKey === 'b') {
+        e.preventDefault();
+        collapseTo(moveWordLeft(text, selectionStart));
+        return true;
+      }
+      if (normalizedKey === 'f') {
+        e.preventDefault();
+        collapseTo(moveWordRight(text, selectionEnd));
+        return true;
+      }
+      if (normalizedKey === 'Backspace') {
+        e.preventDefault();
+        if (hasTextSelection(textarea)) {
+          replaceTextareaRange(textarea, '', selectionStart, selectionEnd, 'start');
+        } else {
+          replaceTextareaRange(textarea, '', moveWordLeft(text, selectionStart), selectionStart, 'start');
+        }
+        verticalMoveColumnRef.current = null;
+        syncTextareaState(textarea);
+        return true;
+      }
+    }
+
+    if (isMac && e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && normalizedKey === 'Backspace') {
+      e.preventDefault();
+      if (hasTextSelection(textarea)) {
+        replaceTextareaRange(textarea, '', selectionStart, selectionEnd, 'start');
+      } else {
+        replaceTextareaRange(textarea, '', getLineStart(text, selectionStart), selectionStart, 'start');
+      }
+      verticalMoveColumnRef.current = null;
+      syncTextareaState(textarea);
+      return true;
+    }
+
+    verticalMoveColumnRef.current = null;
+    return false;
+  }, [syncMentionState, syncTextareaState]);
+
+  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (handleMentionKeyDown(e)) return;
+    if (handleComposerCommandKeyDown(e)) return;
+    handleComposerEditingShortcut(e);
+  };
+
+  useEffect(() => {
+    const handleWindowKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.defaultPrevented || event.isComposing) return;
+      if (event.key !== '/' || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+      if (isTextInputElement(event.target)) return;
+      const textarea = textareaRef.current;
+      if (!textarea || textarea.disabled) return;
+      event.preventDefault();
+      focusComposer();
+    };
+
+    window.addEventListener('keydown', handleWindowKeyDown);
+    return () => window.removeEventListener('keydown', handleWindowKeyDown);
+  }, [focusComposer]);
 
   // Reset textarea height when message is cleared (after submit)
   useEffect(() => {
@@ -1574,7 +2005,7 @@ export function ConversationView() {
   }, [message]);
 
   useEffect(() => {
-    if (mode !== 'agent' || !workspacePath.trim() || !activeMention) {
+    if (mode !== 'agent' || !effectiveWorkspacePath || !activeMention) {
       clearMentionState();
       return;
     }
@@ -1582,7 +2013,7 @@ export function ConversationView() {
     let cancelled = false;
     setMentionLoading(true);
     const timer = window.setTimeout(() => {
-      searchWorkspaceFiles(workspacePath.trim(), activeMention.query, MENTION_RESULT_LIMIT)
+      searchWorkspaceFiles(effectiveWorkspacePath, activeMention.query, MENTION_RESULT_LIMIT)
         .then((response) => {
           if (cancelled) return;
           setMentionResults(response.entries);
@@ -1605,14 +2036,7 @@ export function ConversationView() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [activeMention, clearMentionState, mode, workspacePath]);
-
-  const handlePresetClick = (query: string) => {
-    clearMentionState();
-    setMessage(query);
-    setMode('agent'); // Preset questions are designed for agent mode
-    requestAnimationFrame(resizeTextarea);
-  };
+  }, [activeMention, clearMentionState, effectiveWorkspacePath, mode]);
 
   if (!conversation && runs.length === 0) {
     return (
@@ -1651,7 +2075,7 @@ export function ConversationView() {
                 <button
                   onClick={() => void handleOpenTerminal()}
                   className="text-zinc-600 hover:text-zinc-400 transition-colors"
-                  title={workspacePath.trim() ? 'Open integrated terminal' : 'Select a workspace first'}
+                  title={effectiveWorkspacePath ? 'Open integrated terminal' : 'Select or open a workspace conversation first'}
                 >
                   terminal
                 </button>
@@ -1683,43 +2107,22 @@ export function ConversationView() {
           onSave={handleSaveReasoningSettings}
           saving={reasoningSaving}
         />
-        <WorkspacePicker
+        <WorkspacePickerDialog
           open={workspacePickerOpen}
           onOpenChange={setWorkspacePickerOpen}
-          value={workspacePath}
-          onSelect={setWorkspacePath}
+          value={draftWorkspacePath}
+          onSelect={(workspacePath) => {
+            rememberWorkspacePath(workspacePath);
+            setDraftWorkspacePath(workspacePath);
+          }}
         />
 
         <div className="flex-1 flex flex-col items-center justify-center text-zinc-400 gap-4 sm:gap-6 px-3 sm:px-4 md:px-6 overflow-y-auto min-h-0">
-          <div className="font-mono text-center">
-            <p className="text-sm text-zinc-500">
-              <span className="text-zinc-700">───</span> {mode === 'agent' ? 'agent' : 'chat'} <span className="text-zinc-700">───</span>
-            </p>
-            <p className="text-xs text-zinc-600 mt-1">
-              {mode === 'agent'
-                ? 'workspace tools · bash · web search'
-                : 'reasoning-capable conversation'}
-            </p>
-          </div>
-
-          {/* Preset Questions - only show in agent mode */}
-          {mode === 'agent' && (
-            <div className="w-full max-w-xl font-mono">
-              <p className="text-xs text-zinc-700 mb-2">~ examples</p>
-              <div className="space-y-0.5 border-l border-zinc-800 ml-1">
-                {PRESET_QUESTIONS.map((preset) => (
-                  <button
-                    key={preset.label}
-                    onClick={() => handlePresetClick(preset.query)}
-                    className="block w-full px-3 py-1 text-xs text-zinc-600 hover:text-zinc-300 hover:bg-zinc-800/50 transition-colors text-left font-mono"
-                    title={preset.query}
-                  >
-                    {preset.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
+          <EmptyStatePulse
+            mode={mode}
+            workspacePath={effectiveWorkspacePath}
+            modelStatus={modelStatus}
+          />
         </div>
         <div className="p-3 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-4 sm:pb-[max(1rem,env(safe-area-inset-bottom))] flex-shrink-0 space-y-2">
           {/* Prompt area */}
@@ -1731,6 +2134,7 @@ export function ConversationView() {
                 placeholder={mode === 'agent' ? 'Ask the coding agent...' : 'Ask a question...'}
                 value={message}
                 onChange={handleMessageChange}
+                onPaste={handlePaste}
                 onKeyDown={handleKeyDown}
                 onSelect={handleTextareaSelection}
                 onClick={handleTextareaSelection}
@@ -1748,6 +2152,21 @@ export function ConversationView() {
               onSelect={handleMentionSelect}
             />
           </div>
+          {imageAttachments.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 px-1 font-mono text-[11px]">
+              {imageAttachments.map((attachment, index) => (
+                <button
+                  key={attachment.id || index}
+                  type="button"
+                  onClick={() => removeImageAttachment(attachment.id)}
+                  className="border border-zinc-800 bg-zinc-900 px-2 py-0.5 text-zinc-500 hover:text-zinc-200"
+                  title="Remove image"
+                >
+                  image {index + 1} ×
+                </button>
+              ))}
+            </div>
+          )}
           {/* Toolbar */}
           <div className="flex items-center justify-between px-1">
             <div className="flex items-center gap-3 font-mono text-xs">
@@ -1771,20 +2190,38 @@ export function ConversationView() {
               </button>
               {mode === 'agent' && (
                 <>
-                  <input
-                    value={workspacePath}
-                    onChange={(e) => setWorkspacePath(e.target.value)}
-                    placeholder="/path/to/repo"
-                    className="w-40 sm:w-56 bg-transparent border-none outline-none text-xs font-mono text-zinc-400 placeholder:text-zinc-700"
-                    title="Workspace path for filesystem and bash tools"
-                  />
-                  <button
-                    onClick={() => setWorkspacePickerOpen(true)}
-                    className="text-zinc-600 hover:text-zinc-300 transition-colors"
-                    title="Browse local folders"
-                  >
-                    browse
-                  </button>
+                  {isWorkspaceLocked ? (
+                    <span
+                      className={cn(
+                        'max-w-52 truncate text-xs font-mono',
+                        hasConversationWorkspace ? 'text-zinc-400' : 'text-zinc-700'
+                      )}
+                      title={
+                        hasConversationWorkspace
+                          ? effectiveWorkspacePath
+                          : 'This conversation has no workspace. Create a new workspace thread from the sidebar.'
+                      }
+                    >
+                      {hasConversationWorkspace ? effectiveWorkspacePath : 'no workspace'}
+                    </span>
+                  ) : (
+                    <>
+                      <input
+                        value={draftWorkspacePath}
+                        onChange={(e) => setDraftWorkspacePath(e.target.value)}
+                        placeholder="/path/to/repo"
+                        className="w-40 sm:w-56 bg-transparent border-none outline-none text-xs font-mono text-zinc-400 placeholder:text-zinc-700"
+                        title="Workspace path for filesystem and bash tools"
+                      />
+                      <button
+                        onClick={handleOpenWorkspacePicker}
+                        className="text-zinc-600 hover:text-zinc-300 transition-colors"
+                        title="Browse local folders"
+                      >
+                        browse
+                      </button>
+                    </>
+                  )}
                   <select
                     value={permissionPolicy}
                     onChange={(e) => setPermissionPolicy(e.target.value as 'strict' | 'relaxed' | 'yolo')}
@@ -1802,7 +2239,7 @@ export function ConversationView() {
                 <button
                   onClick={() => void handleOpenTerminal()}
                   className="text-zinc-500 hover:text-zinc-300 transition-colors"
-                  title={workspacePath.trim() ? 'Open integrated terminal' : 'Select a workspace first'}
+                  title={effectiveWorkspacePath ? 'Open integrated terminal' : 'Select or open a workspace conversation first'}
                 >
                   terminal
                 </button>
@@ -1904,35 +2341,22 @@ export function ConversationView() {
         onSave={handleSaveReasoningSettings}
         saving={reasoningSaving}
       />
-      <WorkspacePicker
+      <WorkspacePickerDialog
         open={workspacePickerOpen}
         onOpenChange={setWorkspacePickerOpen}
-        value={workspacePath}
-        onSelect={setWorkspacePath}
+        value={draftWorkspacePath}
+        onSelect={(workspacePath) => {
+          rememberWorkspacePath(workspacePath);
+          setDraftWorkspacePath(workspacePath);
+        }}
       />
 
       <div className="flex-1 overflow-y-auto px-3 sm:px-4 md:px-6 py-4 sm:py-5 md:py-6" ref={scrollRef}>
-        <div className="space-y-8">
-          {runs.map((run) =>
-            run.mode === 'agent' ? (
-              <AgentRunMessage
-                key={run.run_id}
-                run={run}
-                onShowTrace={() => handleShowTrace(run.run_id)}
-                onRetry={() => handleRetry(run.user_message || run.prompt)}
-                canRetry={!hasActiveRun}
-              />
-            ) : (
-              <RunMessage
-                key={run.run_id}
-                run={run}
-                onShowTrace={() => handleShowTrace(run.run_id)}
-                onRetry={() => handleRetry(run.user_message || run.prompt)}
-                canRetry={!hasActiveRun}
-              />
-            )
-          )}
-        </div>
+        <VirtualizedConversationRunList
+          runs={runs}
+          scrollContainerRef={scrollRef}
+          renderRun={renderRunCard}
+        />
       </div>
 
       {/* Scroll-to-bottom pill */}
@@ -1951,7 +2375,7 @@ export function ConversationView() {
         <div style={{ ['--terminal-height' as string]: `${terminalState?.height ?? 260}px` }}>
           <IntegratedTerminal
             conversationId={selectedConversationId}
-            workspacePath={workspacePath}
+            workspacePath={effectiveWorkspacePath}
             active={terminalAvailable}
           />
         </div>
@@ -1980,6 +2404,7 @@ export function ConversationView() {
               placeholder={atLimit ? 'Message limit reached' : hasActiveRun ? 'Steer the agent...' : mode === 'agent' ? 'Ask the coding agent...' : 'Ask a follow-up question...'}
               value={message}
               onChange={handleMessageChange}
+              onPaste={handlePaste}
               onKeyDown={handleKeyDown}
               onSelect={handleTextareaSelection}
               onClick={handleTextareaSelection}
@@ -1997,6 +2422,21 @@ export function ConversationView() {
             onSelect={handleMentionSelect}
           />
         </div>
+        {imageAttachments.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 px-1 font-mono text-[11px]">
+            {imageAttachments.map((attachment, index) => (
+              <button
+                key={attachment.id || index}
+                type="button"
+                onClick={() => removeImageAttachment(attachment.id)}
+                className="border border-zinc-800 bg-zinc-900 px-2 py-0.5 text-zinc-500 hover:text-zinc-200"
+                title="Remove image"
+              >
+                image {index + 1} ×
+              </button>
+            ))}
+          </div>
+        )}
         {/* Toolbar */}
         <div className="flex items-center justify-between px-1">
           <div className="flex items-center gap-3 font-mono text-xs">
@@ -2020,20 +2460,38 @@ export function ConversationView() {
             </button>
             {mode === 'agent' && (
               <>
-                <input
-                  value={workspacePath}
-                  onChange={(e) => setWorkspacePath(e.target.value)}
-                  placeholder="/path/to/repo"
-                  className="w-40 sm:w-56 bg-transparent border-none outline-none text-xs font-mono text-zinc-400 placeholder:text-zinc-700"
-                  title="Workspace path for filesystem and bash tools"
-                />
-                <button
-                  onClick={() => setWorkspacePickerOpen(true)}
-                  className="text-zinc-600 hover:text-zinc-300 transition-colors"
-                  title="Browse local folders"
-                >
-                  browse
-                </button>
+                {isWorkspaceLocked ? (
+                  <span
+                    className={cn(
+                      'max-w-52 truncate text-xs font-mono',
+                      hasConversationWorkspace ? 'text-zinc-400' : 'text-zinc-700'
+                    )}
+                    title={
+                      hasConversationWorkspace
+                        ? effectiveWorkspacePath
+                        : 'This conversation has no workspace. Create a new workspace thread from the sidebar.'
+                    }
+                  >
+                    {hasConversationWorkspace ? effectiveWorkspacePath : 'no workspace'}
+                  </span>
+                ) : (
+                  <>
+                    <input
+                      value={draftWorkspacePath}
+                      onChange={(e) => setDraftWorkspacePath(e.target.value)}
+                      placeholder="/path/to/repo"
+                      className="w-40 sm:w-56 bg-transparent border-none outline-none text-xs font-mono text-zinc-400 placeholder:text-zinc-700"
+                      title="Workspace path for filesystem and bash tools"
+                    />
+                    <button
+                      onClick={handleOpenWorkspacePicker}
+                      className="text-zinc-600 hover:text-zinc-300 transition-colors"
+                      title="Browse local folders"
+                    >
+                      browse
+                    </button>
+                  </>
+                )}
                 <select
                   value={permissionPolicy}
                   onChange={(e) => setPermissionPolicy(e.target.value as 'strict' | 'relaxed' | 'yolo')}
@@ -2056,18 +2514,20 @@ export function ConversationView() {
               {terminalAvailable && selectedConversationId && (
                 <button
                   onClick={() => {
-                    if (!workspacePath.trim()) {
-                      toast.error('Select a workspace first');
-                      setWorkspacePickerOpen(true);
+                    if (!effectiveWorkspacePath) {
+                      toast.error(selectedConversationId ? 'Create or open a workspace conversation first' : 'Select a workspace first');
+                      if (!selectedConversationId) {
+                        setWorkspacePickerOpen(true);
+                      }
                       return;
                     }
                     updateTerminalState(selectedConversationId, { isOpen: !terminalState?.isOpen });
                   }}
                   className="text-zinc-500 hover:text-zinc-300 transition-colors"
                   title={
-                    workspacePath.trim()
+                    effectiveWorkspacePath
                       ? (terminalState?.isOpen ? 'Collapse terminal' : 'Open terminal')
-                      : 'Select a workspace first'
+                      : 'Select or open a workspace conversation first'
                   }
                 >
                   {terminalState?.isOpen ? 'terminal−' : 'terminal+'}
@@ -2094,6 +2554,22 @@ export function ConversationView() {
               >
                 {isSubmitting ? 'sending...' : atLimit ? 'limit reached' : hasActiveRun ? 'steer' : 'send'}
               </button>
+            )}
+            {showComposerContextStats && (
+              <>
+                <span className="text-zinc-700">|</span>
+                <span className="text-zinc-500">
+                  ctx {composerStoredContextUtilizationPct !== null ? `${Math.round(composerStoredContextUtilizationPct)}%` : '—'}
+                </span>
+                <span className="text-zinc-600">
+                  {footerStoredContext && composerContextWindow
+                    ? `${formatContextTokens(footerStoredTokens)}/${formatContextTokens(composerContextWindow)}`
+                    : '—'}
+                </span>
+                <span className="text-zinc-500">
+                  raw {conversationRawTokens > 0 ? formatContextTokens(conversationRawTokens) : '—'}
+                </span>
+              </>
             )}
           </div>
           <div className="flex items-center gap-3 font-mono text-xs text-zinc-600">

@@ -9,14 +9,21 @@ This module provides:
 
 import asyncio
 import hashlib
+import inspect
 import json
 import re
 import time
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
+from orchestrator.agent.coding_context_builder import CodingSessionContextBuilder
+from orchestrator.agent.coding_session import (
+    CodingFileState,
+    CodingSessionEntry,
+    CodingSessionState,
+)
 from orchestrator.agent.context_pruner import ContextPruner
 from orchestrator.agent.permissions import classify_tool_call
 from orchestrator.context.budget import ContextBudget
@@ -29,13 +36,13 @@ from orchestrator.agent.recovery import (
 from orchestrator.agent.state_machine import (
     AgentStateMachine,
     MaxStepsExceededError,
-    RecoveryContext,
 )
 from orchestrator.logging_config import get_logger
 from orchestrator.providers.usage import add_usage, estimate_cost, normalize_usage
 from orchestrator.reasoning_controls import ReasoningSettings, apply_reasoning_settings
 from orchestrator.schemas import AgentStepState
 from orchestrator.utils.sanitize import sanitize_harmony_tokens
+from orchestrator.vision import build_multimodal_user_content, validate_image_attachments
 
 if TYPE_CHECKING:
     from orchestrator.agent.planner import ResearchPlan
@@ -99,6 +106,7 @@ class AgentResult:
     timing_ms: int = 0
     total_tokens: int = 0
     context_usage: Optional[Dict[str, Any]] = None
+    stored_context: Optional[Dict[str, Any]] = None
     context_profile: Optional[Dict[str, Any]] = None
     compaction_count: int = 0
     last_compacted_at_step: Optional[int] = None
@@ -115,12 +123,14 @@ class ParsedToolCall:
         name: Tool name.
         arguments: Parsed arguments dict.
         raw_arguments: Original JSON string (for hashing).
+        parse_error: Validation error when arguments are malformed.
     """
 
     id: str
     name: str
     arguments: Dict[str, Any]
     raw_arguments: str
+    parse_error: Optional[str] = None
 
 
 @dataclass
@@ -128,16 +138,34 @@ class WorkingMemory:
     """Compact agent working memory used for prompt reconstruction."""
 
     objective: str
+    restored_session: bool = False
+    restored_session_updated_at: Optional[str] = None
+    prior_outcomes: List[str] = field(default_factory=list)
     files_inspected: Dict[str, str] = field(default_factory=dict)
     files_changed: Dict[str, str] = field(default_factory=dict)
-    latest_diagnostics: List[str] = field(default_factory=list)
+    stale_file_summaries: Dict[str, str] = field(default_factory=dict)
+    validation_results: List[str] = field(default_factory=list)
+    recent_commands: List[str] = field(default_factory=list)
     current_hypothesis: Optional[str] = None
-    recent_validation: Optional[str] = None
-    discoveries: List[str] = field(default_factory=list)
+    unresolved_tasks: List[str] = field(default_factory=list)
+    recent_raw_evidence: List[str] = field(default_factory=list)
 
     def render(self) -> str:
         """Render compact working memory for model context."""
-        sections = [f"Objective: {self.objective}"]
+        sections = [
+            "This is durable state for the current agent conversation. Continue from it instead of restarting from scratch.",
+            f"Current user request: {self.objective}",
+        ]
+        if self.restored_session:
+            restored = "Persisted coding session state from earlier turns was restored for this conversation."
+            if self.restored_session_updated_at:
+                restored += f" Last updated: {self.restored_session_updated_at}."
+            sections.append(restored)
+        if self.prior_outcomes:
+            sections.append(
+                "Prior outcomes:\n"
+                + "\n".join(f"- {item}" for item in self.prior_outcomes[-6:])
+            )
 
         if self.files_inspected:
             inspected = "\n".join(
@@ -153,29 +181,69 @@ class WorkingMemory:
             )
             sections.append(f"Files changed:\n{changed}")
 
-        if self.discoveries:
-            sections.append(
-                "Recent discoveries:\n"
-                + "\n".join(f"- {item}" for item in self.discoveries[-8:])
+        if self.stale_file_summaries:
+            stale = "\n".join(
+                f"- {path}: {reason}"
+                for path, reason in list(self.stale_file_summaries.items())[-8:]
             )
+            sections.append(f"Stale stored file evidence:\n{stale}")
 
-        if self.latest_diagnostics:
+        if self.validation_results:
             sections.append(
-                "Latest diagnostics:\n"
-                + "\n".join(f"- {item}" for item in self.latest_diagnostics[-6:])
+                "Validation:\n"
+                + "\n".join(f"- {item}" for item in self.validation_results[-6:])
+            )
+        if self.recent_commands:
+            sections.append(
+                "Recent commands:\n"
+                + "\n".join(f"- {item}" for item in self.recent_commands[-6:])
             )
 
         if self.current_hypothesis:
             sections.append(f"Current hypothesis: {self.current_hypothesis}")
 
-        if self.recent_validation:
-            sections.append(f"Recent validation: {self.recent_validation}")
+        if self.unresolved_tasks:
+            sections.append(
+                "Open tasks:\n"
+                + "\n".join(f"- {item}" for item in self.unresolved_tasks[-6:])
+            )
+        if self.recent_raw_evidence:
+            sections.append(
+                "Recent raw evidence:\n"
+                + "\n".join(f"- {item}" for item in self.recent_raw_evidence[-6:])
+            )
 
         sections.append(
             "Use this working memory as the durable state. Raw tool outputs that follow "
-            "are only from the most recent tool step."
+            "are only from the most recent tool step. Continue from the current state, "
+            "do not restate the plan, and answer directly when no tool is needed. "
+            "If stored file evidence is present, reuse it before rereading files. "
+            "Only reread when the stored evidence is stale, insufficient, or you need exact new context."
         )
         return "\n\n".join(sections)
+
+    def render_coding_metadata(self) -> Optional[str]:
+        """Render neutral transcript-supporting metadata for coding prompts."""
+        lines: List[str] = []
+        if self.files_changed:
+            lines.append(
+                "- touched_files: "
+                + ", ".join(list(self.files_changed.keys())[-8:])
+            )
+        if self.files_inspected:
+            lines.append(
+                "- referenced_files: "
+                + ", ".join(list(self.files_inspected.keys())[-8:])
+            )
+        if self.stale_file_summaries:
+            stale = " | ".join(
+                f"{path}: {reason}"
+                for path, reason in list(self.stale_file_summaries.items())[-6:]
+            )
+            lines.append(f"- stale_files: {stale}")
+        if not lines:
+            return None
+        return "CODING SESSION METADATA\n" + "\n".join(lines)
 
 
 # =============================================================================
@@ -397,6 +465,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
             max_output_tokens=max_tokens,
             supports_tools=True,
             supports_reasoning=bool(reasoning_effort),
+            supports_vision=bool(getattr(provider, "_supports_vision", False)),
             pricing={
                 "input_cost_per_million": input_cost_per_million,
                 "cached_input_cost_per_million": cached_input_cost_per_million,
@@ -450,6 +519,12 @@ To provide your final answer, respond WITHOUT calling any tools."""
 
         # Run metrics accumulator
         self._tool_call_log: List[Dict[str, Any]] = []
+        self._tool_state_version = 0
+        self._coding_last_step_structural_failure = False
+        self._last_context_usage: Optional[Dict[str, Any]] = None
+        self._last_stored_context: Optional[Dict[str, Any]] = None
+        self._active_conversation_id: Optional[str] = None
+        self._active_coding_session_state: Optional[CodingSessionState] = None
 
     def _reasoning_provider_kwargs(self) -> tuple[int, Dict[str, Any]]:
         """Resolve provider-specific reasoning kwargs for the active model."""
@@ -468,24 +543,22 @@ To provide your final answer, respond WITHOUT calling any tools."""
     ) -> List[Dict[str, Any]]:
         """Assemble the actual prompt from run transcript and working memory."""
         prompt_messages: List[Dict[str, Any]] = []
+        working_memory_message = (
+            {
+                "role": "system",
+                "content": "WORKING MEMORY\n" + working_memory.render(),
+                "_working_memory": True,
+            }
+            if not self._is_coding_profile()
+            else None
+        )
         if scaffold_messages:
             prompt_messages.append(scaffold_messages[0])
-            prompt_messages.append(
-                {
-                    "role": "system",
-                    "content": "WORKING MEMORY\n" + working_memory.render(),
-                    "_working_memory": True,
-                }
-            )
+            if working_memory_message is not None:
+                prompt_messages.append(working_memory_message)
             prompt_messages.extend(scaffold_messages[1:])
-        else:
-            prompt_messages.append(
-                {
-                    "role": "system",
-                    "content": "WORKING MEMORY\n" + working_memory.render(),
-                    "_working_memory": True,
-                }
-            )
+        elif working_memory_message is not None:
+            prompt_messages.append(working_memory_message)
 
         return prompt_messages
 
@@ -521,6 +594,24 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 trimmed.append(msg)
         return trimmed
 
+    def _prior_outcomes_from_scaffold(
+        self,
+        scaffold_messages: List[Dict[str, Any]],
+    ) -> List[str]:
+        """Extract compact prior outcomes from cross-turn scaffold messages."""
+        outcomes: List[str] = []
+        for msg in scaffold_messages[1:-1]:
+            if msg.get("role") != "assistant":
+                continue
+            content = str(msg.get("content") or "").strip()
+            if not content:
+                continue
+            first_line = content.splitlines()[0].strip()
+            if first_line.startswith("Outcome:"):
+                first_line = first_line.removeprefix("Outcome:").strip()
+            outcomes.append(first_line[:500])
+        return outcomes[-6:]
+
     def _update_working_memory_from_tools(
         self,
         memory: WorkingMemory,
@@ -529,30 +620,173 @@ To provide your final answer, respond WITHOUT calling any tools."""
         """Fold tool results into compact structured memory."""
         for tool_call, result in tool_results:
             summary = result.result_summary.strip()
+            evidence = f"{tool_call.name}: {summary}"[:500]
+            memory.recent_raw_evidence.append(evidence)
+            memory.recent_raw_evidence = memory.recent_raw_evidence[-8:]
             if tool_call.name == "read_file":
-                file_path = str(tool_call.arguments.get("file_path", "unknown"))
+                file_path = self._canonical_workspace_path(
+                    str(tool_call.arguments.get("file_path", "unknown"))
+                )
                 excerpt = self._extract_read_file_excerpt(result.result_data)
                 memory.files_inspected[file_path] = (
                     f"{summary}. Key excerpt: {excerpt}" if excerpt else summary
                 )[:500]
                 memory.current_hypothesis = f"Latest inspected file: {file_path}"
             elif tool_call.name in ("edit_file", "write_file"):
-                file_path = str(tool_call.arguments.get("file_path", "unknown"))
+                file_path = self._canonical_workspace_path(
+                    str(tool_call.arguments.get("file_path", "unknown"))
+                )
                 diff_summary = self._summarize_diff(result.result_data) or summary
                 memory.files_changed[file_path] = diff_summary[:500]
                 memory.current_hypothesis = f"Changed {file_path}"
             elif tool_call.name == "bash":
-                memory.recent_validation = summary
+                memory.validation_results.append(summary[:500])
                 diagnostics = self._extract_bash_diagnostics(result.result_data, summary)
-                memory.latest_diagnostics = diagnostics
-            elif tool_call.name in ("grep", "glob", "list_directory"):
+                memory.validation_results.extend(item[:500] for item in diagnostics)
+                command = str(tool_call.arguments.get("command", "")).strip()
+                if command:
+                    memory.recent_commands.append(command[:500])
+            else:
                 discovery = self._summarize_discovery(tool_call, result)
                 if discovery:
-                    memory.discoveries.append(discovery)
-                    memory.discoveries = memory.discoveries[-12:]
+                    memory.recent_raw_evidence.append(discovery[:500])
+        memory.validation_results = memory.validation_results[-8:]
+        memory.recent_commands = memory.recent_commands[-8:]
+        memory.recent_raw_evidence = memory.recent_raw_evidence[-8:]
+
+    def _record_tool_call_recovery(
+        self,
+        memory: WorkingMemory,
+        recovery_notes: List[str],
+    ) -> None:
+        """Persist malformed tool-call recovery state in durable memory."""
+        if not recovery_notes:
+            return
+        memory.unresolved_tasks.extend(note[:500] for note in recovery_notes)
+        memory.unresolved_tasks = memory.unresolved_tasks[-6:]
+        memory.recent_raw_evidence.extend(note[:500] for note in recovery_notes)
+        memory.recent_raw_evidence = memory.recent_raw_evidence[-8:]
+
+    def _tool_call_recovery_note(self, tool_call: ParsedToolCall) -> Optional[str]:
+        """Return a recovery note when a tool call should not be replayed."""
+        tool = self._registry.get(tool_call.name)
+        if tool is None:
+            return f"Previous tool call '{tool_call.name}' failed because the tool does not exist."
+
+        if tool_call.parse_error:
+            return (
+                f"Previous tool call '{tool_call.name}' was invalid because {tool_call.parse_error}"
+            )
+
+        required_args = tool.schema.parameters.get("required", [])
+        missing_args = [arg for arg in required_args if arg not in tool_call.arguments]
+        if missing_args:
+            missing = ", ".join(sorted(missing_args))
+            return (
+                f"Previous tool call '{tool_call.name}' was invalid because it was missing "
+                f"required arguments: {missing}."
+            )
+
+        return None
+
+    def _should_suppress_assistant_transcript_entry(
+        self,
+        *,
+        tool_results: List[tuple[ParsedToolCall, "ToolResult"]],
+        recovery_notes: List[str],
+    ) -> bool:
+        """Return whether assistant prose for a tool step is structurally unsafe to replay."""
+        if recovery_notes:
+            return True
+        return bool(tool_results) and all(not result.success for _, result in tool_results)
+
+    def _canonical_replay_tool_calls(
+        self,
+        tool_results: List[tuple[ParsedToolCall, "ToolResult"]],
+    ) -> tuple[List[Dict[str, Any]], List[str]]:
+        """Build safe assistant tool-call replay from parsed calls only."""
+        replay_tool_calls: List[Dict[str, Any]] = []
+        recovery_notes: List[str] = []
+        for tool_call, _ in tool_results:
+            recovery_note = self._tool_call_recovery_note(tool_call)
+            if recovery_note:
+                recovery_notes.append(recovery_note)
+                continue
+            replay_tool_calls.append(
+                {
+                    "id": tool_call.id,
+                    "type": "function",
+                    "function": {
+                        "name": tool_call.name,
+                        "arguments": json.dumps(
+                            tool_call.arguments,
+                            ensure_ascii=False,
+                            separators=(",", ":"),
+                            sort_keys=True,
+                        ),
+                    },
+                }
+            )
+        return replay_tool_calls, recovery_notes
+
+    def _image_parts_from_tool_result(self, result: "ToolResult") -> List[Dict[str, Any]]:
+        """Convert view_image result data into multimodal message parts."""
+        data = result.result_data if isinstance(result.result_data, dict) else {}
+        parts: List[Dict[str, Any]] = []
+        for image in (data.get("images") or [])[:8]:
+            data_url = image.get("data_url")
+            if not data_url:
+                continue
+            parts.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": data_url},
+                }
+            )
+        return parts
+
+    def _available_tool_schemas(self) -> List[Dict[str, Any]]:
+        """Return tool schemas valid for the active model/provider."""
+        tool_schemas = self._registry.get_openai_schemas()
+        if bool(getattr(self._provider, "_supports_vision", False)):
+            return tool_schemas
+        return [
+            schema
+            for schema in tool_schemas
+            if schema.get("function", {}).get("name") != "view_image"
+        ]
+
+    def _effective_system_prompt(self, system_prompt: str) -> str:
+        """Remove capability-specific instructions that the active model cannot use."""
+        if bool(getattr(self._provider, "_supports_vision", False)):
+            return system_prompt
+        return system_prompt.replace(
+            "- Use `view_image` for workspace screenshots/images/charts/forms/diagrams when the user asks you to inspect images or visual content. Do not rely on OCR first unless exact text extraction is specifically needed.\n",
+            "",
+        )
+
+    def _normalize_system_messages(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Merge all system messages into one leading system message for strict providers."""
+        system_parts: List[str] = []
+        non_system_messages: List[Dict[str, Any]] = []
+        for message in messages:
+            if message.get("role") == "system":
+                content = message.get("content")
+                if content:
+                    system_parts.append(str(content))
             else:
-                memory.discoveries.append(f"{tool_call.name}: {summary}")
-                memory.discoveries = memory.discoveries[-12:]
+                non_system_messages.append(message)
+
+        if not system_parts:
+            return list(messages)
+
+        return [
+            {
+                "role": "system",
+                "content": "\n\n".join(system_parts),
+            },
+            *non_system_messages,
+        ]
 
     def _extract_read_file_excerpt(self, result_data: Any) -> Optional[str]:
         """Extract a tiny code/text excerpt from read_file output."""
@@ -643,6 +877,1436 @@ To provide your final answer, respond WITHOUT calling any tools."""
             return f"listed {path or '.'}: {result.result_summary}"[:400]
         return None
 
+    def _is_coding_profile(self) -> bool:
+        """Return whether the current agent profile is the coding profile."""
+        return bool(self._profile and self._profile.name == "coding")
+
+    async def _call_repo_async_method(
+        self,
+        method_name: str,
+        *args: Any,
+        **kwargs: Any,
+    ) -> Any:
+        """Call an optional async repo method when available."""
+        method = getattr(self._repo, method_name, None)
+        if method is None or not inspect.iscoroutinefunction(method):
+            return None
+        return await method(*args, **kwargs)
+
+    def _dedupe_tail(self, items: List[str], limit: int) -> List[str]:
+        """Keep only the most recent unique items."""
+        seen: set[str] = set()
+        deduped: List[str] = []
+        for item in reversed([str(item).strip() for item in items if str(item).strip()]):
+            if item in seen:
+                continue
+            seen.add(item)
+            deduped.append(item[:500])
+        deduped.reverse()
+        return deduped[-limit:]
+
+    def _merge_string_maps(
+        self,
+        base: Dict[str, str],
+        incoming: Dict[str, str],
+        limit: Optional[int] = 32,
+    ) -> Dict[str, str]:
+        """Merge ordered string maps and keep the newest entries."""
+        merged = dict(base)
+        for key, value in incoming.items():
+            clean_key = str(key).strip()
+            clean_value = str(value).strip()
+            if not clean_key or not clean_value:
+                continue
+            if clean_key in merged:
+                merged.pop(clean_key)
+            merged[clean_key] = clean_value[:500]
+        if limit is None or len(merged) <= limit:
+            return merged
+        return dict(list(merged.items())[-limit:])
+
+    def _strip_session_render_markers(self, summary: str) -> str:
+        """Remove restore-only prefixes before persisting summaries again."""
+        for prefix in ("[stored, fresh] ", "[stored summary] "):
+            if summary.startswith(prefix):
+                return summary[len(prefix) :]
+        return summary
+
+    def _canonical_workspace_path(self, file_path: str) -> str:
+        """Normalize a workspace file path to a stable relative path when possible."""
+        resolved = self._resolve_workspace_file(file_path)
+        workspace_path = self._get_workspace_path()
+        if resolved is None or workspace_path is None:
+            return str(file_path)
+        try:
+            return str(resolved.relative_to(Path(workspace_path).resolve()))
+        except ValueError:
+            return str(file_path)
+
+    def _resolve_workspace_file(self, file_path: str) -> Optional[Path]:
+        """Resolve a workspace file using tool resolvers when available."""
+        for tool_name in ("read_file", "write_file", "edit_file", "view_image"):
+            tool = self._registry.get(tool_name)
+            resolver = getattr(tool, "_resolve_path", None)
+            if callable(resolver):
+                try:
+                    resolved = resolver(file_path)
+                except Exception:
+                    continue
+                if resolved is not None:
+                    return Path(resolved)
+        workspace_path = self._get_workspace_path()
+        if not workspace_path:
+            return None
+        try:
+            base = Path(workspace_path).resolve()
+            path = Path(file_path)
+            if not path.is_absolute():
+                path = base / path
+            resolved = path.resolve()
+            if resolved.is_relative_to(base):
+                return resolved
+        except Exception:
+            return None
+        return None
+
+    def _hash_file_contents(self, path: Path) -> Optional[str]:
+        """Compute a stable hash for a workspace file."""
+        try:
+            content = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return None
+        return hashlib.sha256(content.encode("utf-8", errors="replace")).hexdigest()
+
+    def _excerpt_from_file(
+        self,
+        path: Path,
+        line_start: Optional[int] = None,
+        line_end: Optional[int] = None,
+    ) -> Optional[str]:
+        """Extract a compact excerpt from a file on disk."""
+        try:
+            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            return None
+        if line_start and line_end and line_start > 0:
+            selected = lines[line_start - 1 : line_end]
+        else:
+            selected = lines
+        cleaned: List[str] = []
+        for line in selected:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            cleaned.append(stripped)
+            if len(cleaned) >= 3:
+                break
+        if not cleaned:
+            return None
+        return " | ".join(cleaned)[:240]
+
+    def _read_file_line_span(
+        self,
+        tool_call: ParsedToolCall,
+        result: "ToolResult",
+    ) -> tuple[Optional[int], Optional[int]]:
+        """Derive the stored line span for a read_file result."""
+        offset = tool_call.arguments.get("offset", 1)
+        try:
+            line_start = max(1, int(offset))
+        except (TypeError, ValueError):
+            line_start = 1
+        lines_read = result.metadata.get("lines_read") if isinstance(result.metadata, dict) else None
+        if isinstance(lines_read, int) and lines_read > 0:
+            return line_start, line_start + lines_read - 1
+        return line_start, None
+
+    def _build_file_state_from_read(
+        self,
+        tool_call: ParsedToolCall,
+        result: "ToolResult",
+        run_id: str,
+    ) -> Optional[CodingFileState]:
+        """Create persisted file evidence from a successful read_file call."""
+        if not result.success:
+            return None
+        file_path = self._canonical_workspace_path(
+            str(tool_call.arguments.get("file_path", "unknown"))
+        )
+        line_start, line_end = self._read_file_line_span(tool_call, result)
+        resolved = self._resolve_workspace_file(file_path)
+        excerpt = self._extract_read_file_excerpt(result.result_data)
+        if excerpt is None and resolved is not None:
+            excerpt = self._excerpt_from_file(resolved, line_start, line_end)
+        file_state = CodingFileState(
+            path=file_path,
+            summary=result.result_summary[:1500],
+            content_hash=self._hash_file_contents(resolved) if resolved else None,
+            source="read_file",
+            captured_at=datetime.now(timezone.utc).isoformat(),
+            last_read_run_id=run_id,
+        )
+        file_state.add_span(
+            line_start=line_start,
+            line_end=line_end,
+            excerpt=excerpt,
+            reason="read",
+        )
+        return file_state
+
+    def _build_file_state_from_write(
+        self,
+        tool_call: ParsedToolCall,
+        result: "ToolResult",
+        run_id: str,
+    ) -> Optional[CodingFileState]:
+        """Create persisted file evidence from a successful edit/write call."""
+        if not result.success:
+            return None
+        file_path = self._canonical_workspace_path(
+            str(tool_call.arguments.get("file_path", "unknown"))
+        )
+        resolved = self._resolve_workspace_file(file_path)
+        excerpt = self._excerpt_from_file(resolved) if resolved else None
+        summary = self._summarize_diff(result.result_data) or result.result_summary
+        file_state = CodingFileState(
+            path=file_path,
+            summary=summary[:1500],
+            content_hash=self._hash_file_contents(resolved) if resolved else None,
+            source=tool_call.name,
+            captured_at=datetime.now(timezone.utc).isoformat(),
+            last_modified_run_id=run_id,
+        )
+        file_state.add_span(
+            line_start=None,
+            line_end=None,
+            excerpt=excerpt,
+            reason="edit-context",
+        )
+        return file_state
+
+    def _merge_working_memory_into_coding_session(
+        self,
+        session_state: CodingSessionState,
+        working_memory: WorkingMemory,
+    ) -> None:
+        """Fold neutral coding metadata into durable coding-session state."""
+        if working_memory.objective:
+            session_state.objective = working_memory.objective
+        session_state.recent_commands = list(
+            dict.fromkeys(session_state.recent_commands + working_memory.recent_commands)
+        )
+        session_state.normalize()
+
+    def _merge_tool_results_into_coding_session(
+        self,
+        session_state: CodingSessionState,
+        tool_results: List[tuple[ParsedToolCall, "ToolResult"]],
+        run_id: str,
+    ) -> None:
+        """Persist concrete file evidence from the current tool step."""
+        for tool_call, result in tool_results:
+            file_state: Optional[CodingFileState] = None
+            if tool_call.name == "read_file":
+                session_state.note_read_file(
+                    self._canonical_workspace_path(
+                        str(tool_call.arguments.get("file_path", "unknown"))
+                    )
+                )
+                file_state = self._build_file_state_from_read(tool_call, result, run_id)
+            elif tool_call.name in ("edit_file", "write_file"):
+                file_path = self._canonical_workspace_path(
+                    str(tool_call.arguments.get("file_path", "unknown"))
+                )
+                session_state.note_modified_file(file_path)
+                file_state = self._build_file_state_from_write(tool_call, result, run_id)
+            elif tool_call.name == "bash":
+                command = str(tool_call.arguments.get("command", "")).strip()
+                if command:
+                    session_state.recent_commands.append(command[:500])
+            if file_state is None:
+                continue
+            existing = session_state.file_evidence.get(file_state.path)
+            if existing is not None:
+                existing.summary = file_state.summary or existing.summary
+                existing.content_hash = file_state.content_hash or existing.content_hash
+                existing.source = file_state.source or existing.source
+                existing.captured_at = file_state.captured_at or existing.captured_at
+                existing.last_read_run_id = (
+                    file_state.last_read_run_id or existing.last_read_run_id
+                )
+                existing.last_modified_run_id = (
+                    file_state.last_modified_run_id or existing.last_modified_run_id
+                )
+                for span in file_state.spans:
+                    existing.add_span(
+                        line_start=span.line_start,
+                        line_end=span.line_end,
+                        excerpt=span.excerpt,
+                        reason=span.reason,
+                    )
+            else:
+                session_state.file_evidence[file_state.path] = file_state
+        session_state.normalize()
+
+    def _stored_file_summary(
+        self,
+        file_state: CodingFileState,
+    ) -> str:
+        """Format stored file evidence for working-memory rendering."""
+        parts = [file_state.summary]
+        latest_span = file_state.spans[-1] if file_state.spans else None
+        if latest_span and latest_span.line_start and latest_span.line_end:
+            parts.append(f"lines {latest_span.line_start}-{latest_span.line_end}")
+        excerpt = file_state.latest_excerpt()
+        if excerpt:
+            parts.append(f"Stored excerpt: {excerpt}")
+        return ". ".join(part for part in parts if part)[:500]
+
+    def _assess_file_freshness(
+        self,
+        file_state: CodingFileState,
+    ) -> tuple[bool, Optional[str], Optional[str]]:
+        """Check whether persisted file evidence can be reused as-is."""
+        resolved = self._resolve_workspace_file(file_state.path)
+        if resolved is None:
+            return True, None, "freshness not revalidated; workspace file resolver unavailable"
+        if not resolved.exists():
+            return False, "missing_evidence", "file is missing from the workspace"
+        if file_state.content_hash is None:
+            return True, None, "freshness not revalidated; no stored file hash"
+        current_hash = self._hash_file_contents(resolved)
+        if current_hash != file_state.content_hash:
+            return (
+                False,
+                "stale_hash",
+                "file content changed since the stored evidence was captured",
+            )
+        return True, None, None
+
+    async def _load_coding_session_state_record(
+        self,
+        conversation_id: str,
+    ) -> tuple[Optional[dict[str, Any]], Optional[CodingSessionState]]:
+        """Load persisted coding-session state for a conversation."""
+        record = await self._call_repo_async_method(
+            "get_coding_session_state", conversation_id
+        )
+        if not isinstance(record, dict):
+            return None, None
+        return record, CodingSessionState.from_dict(record.get("state") or {})
+
+    async def _hydrate_working_memory_from_coding_session(
+        self,
+        *,
+        conversation_id: str,
+        session_state: CodingSessionState,
+        working_memory: WorkingMemory,
+        run_id: str,
+        updated_at: Optional[str] = None,
+    ) -> None:
+        """Restore persisted coding-session state into working memory."""
+        working_memory.restored_session = True
+        if updated_at:
+            working_memory.restored_session_updated_at = str(updated_at)
+        working_memory.recent_commands = self._dedupe_tail(
+            session_state.recent_commands + working_memory.recent_commands,
+            12,
+        )
+
+        reused_files: List[str] = []
+        stale_files: Dict[str, str] = {}
+        for path in session_state.read_files:
+            file_state = session_state.file_evidence.get(path)
+            if file_state is None:
+                stale_files[path] = "Stored read history exists but no concrete evidence spans remain."
+                await self._add_trace_event(
+                    run_id=run_id,
+                    event_type="coding_session_file_reread",
+                    content={
+                        "conversation_id": conversation_id,
+                        "path": path,
+                        "reason": "missing_evidence",
+                        "detail": stale_files[path],
+                    },
+                    actor="system",
+                )
+                continue
+            is_fresh, reason_code, detail = self._assess_file_freshness(file_state)
+            if is_fresh:
+                working_memory.files_inspected[path] = (
+                    f"[stored, fresh] {self._stored_file_summary(file_state)}"
+                )[:500]
+                reused_files.append(path)
+                await self._add_trace_event(
+                    run_id=run_id,
+                    event_type="coding_session_file_reuse",
+                    content={
+                        "conversation_id": conversation_id,
+                        "path": path,
+                        "source": file_state.source,
+                        "line_spans": [
+                            {
+                                "line_start": span.line_start,
+                                "line_end": span.line_end,
+                                "reason": span.reason,
+                            }
+                            for span in file_state.spans
+                        ],
+                    },
+                    actor="system",
+                )
+            else:
+                stale_files[path] = detail or "Stored evidence is stale."
+                await self._add_trace_event(
+                    run_id=run_id,
+                    event_type="coding_session_file_reread",
+                    content={
+                        "conversation_id": conversation_id,
+                        "path": path,
+                        "reason": reason_code or "missing_evidence",
+                        "detail": detail,
+                    },
+                    actor="system",
+                )
+
+        for path in session_state.modified_files:
+            file_state = session_state.file_evidence.get(path)
+            if file_state is None:
+                stale_files[path] = "Stored edit history exists but no concrete evidence spans remain."
+                await self._add_trace_event(
+                    run_id=run_id,
+                    event_type="coding_session_file_reread",
+                    content={
+                        "conversation_id": conversation_id,
+                        "path": path,
+                        "reason": "missing_evidence",
+                        "detail": stale_files[path],
+                    },
+                    actor="system",
+                )
+                continue
+            is_fresh, reason_code, detail = self._assess_file_freshness(file_state)
+            if is_fresh:
+                working_memory.files_changed[path] = (
+                    f"[stored, fresh] {self._stored_file_summary(file_state)}"
+                )[:500]
+                await self._add_trace_event(
+                    run_id=run_id,
+                    event_type="coding_session_file_reuse",
+                    content={
+                        "conversation_id": conversation_id,
+                        "path": path,
+                        "source": file_state.source,
+                        "line_spans": [
+                            {
+                                "line_start": span.line_start,
+                                "line_end": span.line_end,
+                                "reason": span.reason,
+                            }
+                            for span in file_state.spans
+                        ],
+                    },
+                    actor="system",
+                )
+            else:
+                stale_files[path] = detail or "Stored evidence is stale."
+                await self._add_trace_event(
+                    run_id=run_id,
+                    event_type="coding_session_file_reread",
+                    content={
+                        "conversation_id": conversation_id,
+                        "path": path,
+                        "reason": reason_code or "missing_evidence",
+                        "detail": detail,
+                    },
+                    actor="system",
+                )
+
+        working_memory.stale_file_summaries = self._merge_string_maps(
+            working_memory.stale_file_summaries,
+            stale_files,
+            limit=64,
+        )
+
+    def _coding_context_builder(self) -> CodingSessionContextBuilder:
+        """Return the coding-session prompt builder."""
+        from orchestrator.utils.tokens import get_token_counter
+
+        return CodingSessionContextBuilder(
+            token_counter=get_token_counter(),
+            max_context_tokens=self._max_context_tokens,
+            reserve_for_response=self._max_tokens,
+        )
+
+    def _has_coding_session_state(self, session_state: Optional[CodingSessionState]) -> bool:
+        """Return whether a session state contains meaningful durable data."""
+        if session_state is None:
+            return False
+        return bool(
+            session_state.objective
+            or session_state.read_files
+            or session_state.modified_files
+            or session_state.file_evidence
+            or session_state.recent_commands
+        )
+
+    def _message_token_estimate(
+        self,
+        role: str,
+        content_json: dict[str, Any],
+    ) -> int:
+        """Estimate token cost for a persisted replay entry."""
+        from orchestrator.utils.tokens import get_token_counter
+
+        text = json.dumps({"role": role, **content_json}, ensure_ascii=False)
+        return get_token_counter().count_tokens(text) + 4
+
+    async def _append_coding_session_entries(
+        self,
+        *,
+        conversation_id: str,
+        run_id: str,
+        entries: List[dict[str, Any]],
+        step_number: Optional[int] = None,
+    ) -> List[CodingSessionEntry]:
+        """Append normalized coding-session entries and trace the append."""
+        stored = await self._call_repo_async_method(
+            "append_coding_session_entries",
+            conversation_id,
+            entries,
+        )
+        if not isinstance(stored, list):
+            return []
+        appended = [CodingSessionEntry.from_dict(entry) for entry in stored]
+        if appended:
+            await self._add_trace_event(
+                run_id=run_id,
+                event_type="coding_session_entry_append",
+                content={
+                    "conversation_id": conversation_id,
+                    "count": len(appended),
+                    "seq_start": appended[0].seq,
+                    "seq_end": appended[-1].seq,
+                    "entry_types": [entry.entry_type for entry in appended],
+                },
+                actor="system",
+                step_number=step_number,
+            )
+        return appended
+
+    async def _persist_coding_session_user_message(
+        self,
+        *,
+        conversation_id: str,
+        run_id: str,
+        session_state: CodingSessionState,
+        user_content: Any,
+    ) -> None:
+        """Persist the current user turn as a replayable session entry."""
+        entry = {
+            "run_id": run_id,
+            "step_number": 0,
+            "entry_type": "user",
+            "role": "user",
+            "content_json": {"content": user_content},
+            "token_estimate": self._message_token_estimate(
+                "user",
+                {"content": user_content},
+            ),
+        }
+        await self._append_coding_session_entries(
+            conversation_id=conversation_id,
+            run_id=run_id,
+            entries=[entry],
+            step_number=0,
+        )
+        session_state.normalize()
+
+    async def _persist_coding_session_step_entries(
+        self,
+        *,
+        conversation_id: str,
+        run_id: str,
+        step_number: int,
+        assistant_content: Optional[str],
+        tool_results: List[tuple[ParsedToolCall, "ToolResult"]],
+    ) -> None:
+        """Persist normalized assistant/tool history for a coding step."""
+        entries: List[dict[str, Any]] = []
+        clean_content = assistant_content.strip() if assistant_content else ""
+        replay_tool_calls, recovery_notes = self._canonical_replay_tool_calls(tool_results)
+        suppress_assistant_replay = self._should_suppress_assistant_transcript_entry(
+            tool_results=tool_results,
+            recovery_notes=recovery_notes,
+        )
+        self._coding_last_step_structural_failure = suppress_assistant_replay
+        if clean_content:
+            entries.append(
+                {
+                    "run_id": run_id,
+                    "step_number": step_number,
+                    "entry_type": "assistant",
+                    "role": "assistant",
+                    "content_json": {
+                        "content": clean_content,
+                        "replay_eligible": not suppress_assistant_replay,
+                    },
+                    "token_estimate": self._message_token_estimate(
+                        "assistant",
+                        {"content": clean_content},
+                    ),
+                }
+            )
+
+        if replay_tool_calls:
+            content_json = {
+                "content": clean_content,
+                "tool_calls": replay_tool_calls,
+                "replay_eligible": True,
+            }
+            entries.append(
+                {
+                    "run_id": run_id,
+                    "step_number": step_number,
+                    "entry_type": "assistant_tool_calls",
+                    "role": "assistant",
+                    "content_json": content_json,
+                    "token_estimate": self._message_token_estimate("assistant", content_json),
+                }
+            )
+
+        for tool_call, result in tool_results:
+            recovery_note = self._tool_call_recovery_note(tool_call)
+            content_json = {
+                "tool_call_id": tool_call.id,
+                "name": tool_call.name,
+                "content": self._format_tool_result(result, tool_call.name),
+                "success": result.success,
+                "replay_eligible": True,
+            }
+            if recovery_note:
+                content_json["recovery_note"] = (
+                    "Previous tool call was invalid and failed. "
+                    + recovery_note
+                    + " Continue from the current state. Do not repeat malformed or incomplete tool arguments."
+                )
+            entries.append(
+                {
+                    "run_id": run_id,
+                    "step_number": step_number,
+                    "entry_type": "tool_result",
+                    "role": "tool",
+                    "content_json": content_json,
+                    "token_estimate": self._message_token_estimate("tool", content_json),
+                }
+            )
+
+        if entries:
+            await self._append_coding_session_entries(
+                conversation_id=conversation_id,
+                run_id=run_id,
+                entries=entries,
+                step_number=step_number,
+            )
+
+    async def _persist_coding_session_final_answer(
+        self,
+        *,
+        conversation_id: str,
+        run_id: str,
+        step_number: int,
+        final_answer: str,
+        replay_eligible: bool = True,
+    ) -> None:
+        """Persist the final assistant answer as a replayable session entry."""
+        clean_answer = final_answer.strip()
+        if not clean_answer:
+            return
+        await self._append_coding_session_entries(
+            conversation_id=conversation_id,
+            run_id=run_id,
+            entries=[
+                {
+                    "run_id": run_id,
+                    "step_number": step_number,
+                    "entry_type": "assistant",
+                    "role": "assistant",
+                    "content_json": {
+                        "content": clean_answer,
+                        "replay_eligible": replay_eligible,
+                    },
+                    "token_estimate": self._message_token_estimate(
+                        "assistant",
+                        {"content": clean_answer},
+                    ),
+                }
+            ],
+            step_number=step_number,
+        )
+
+    async def _load_coding_session_messages(
+        self,
+        *,
+        conversation_id: str,
+        system_prompt: str,
+        query: str,
+        run_id: str,
+        session_state: CodingSessionState,
+        working_memory: Optional[WorkingMemory] = None,
+        use_session_entries: bool = True,
+    ) -> tuple[List[Dict[str, Any]], ContextBudget]:
+        """Build coding prompt context from transcript entries plus neutral metadata."""
+        transcript_entries: List[CodingSessionEntry] = []
+        if use_session_entries:
+            entry_records = await self._call_repo_async_method(
+                "list_coding_session_entries",
+                conversation_id,
+                include_compacted=False,
+            )
+            transcript_entries = [
+                CodingSessionEntry.from_dict(entry)
+                for entry in (entry_records or [])
+            ]
+        builder = self._coding_context_builder()
+        metadata_message = (
+            working_memory.render_coding_metadata()
+            if working_memory is not None
+            else None
+        )
+        restored_file_messages = self._build_restored_file_messages(
+            session_state=session_state,
+            transcript_entries=transcript_entries,
+            current_query=query,
+        )
+        context = builder.build(
+            system_prompt=system_prompt,
+            session_state=session_state,
+            transcript_entries=transcript_entries,
+            current_query=query,
+            metadata_message=metadata_message,
+            restored_file_messages=restored_file_messages,
+        )
+        stored_context = builder.build_stored_context(
+            session_state=session_state,
+            transcript_entries=transcript_entries,
+            metadata_message=metadata_message,
+            restored_file_messages=restored_file_messages,
+        )
+        self._last_stored_context = self._stored_context_usage_payload(
+            stored_tokens=stored_context.token_count,
+            replayable_entry_count=stored_context.replayable_entry_count,
+        )
+        await self._add_trace_event(
+            run_id=run_id,
+            event_type="coding_session_context_load",
+            content={
+                "conversation_id": conversation_id,
+                "transcript_source": "coding_session_entries",
+                "used_session_entries": context.used_session_entries,
+                "metadata_included": context.metadata_included,
+                "replayed_entry_count": context.replayed_entry_count,
+                "message_count": len(context.messages),
+                "prompt_tokens": builder.estimate_tokens(context.messages),
+                "stored_context_tokens": stored_context.token_count,
+                "checkpoint_present": context.checkpoint_present,
+                "preserved_tail_count": context.preserved_tail_count,
+                "restored_file_count": context.restored_file_count,
+                "replay_source_ranges": context.replay_source_ranges,
+            },
+            actor="system",
+        )
+        return context.messages, context.budget
+
+    def _group_entries_by_turn(
+        self,
+        entries: List[CodingSessionEntry],
+    ) -> List[Dict[str, Any]]:
+        """Group replay entries into coding turns starting at user messages."""
+        groups: List[Dict[str, Any]] = []
+        current: Optional[Dict[str, Any]] = None
+        for entry in entries:
+            if entry.entry_type == "user" or current is None:
+                if current is not None:
+                    groups.append(current)
+                current = {
+                    "start_seq": entry.seq,
+                    "end_seq": entry.seq,
+                    "entries": [entry],
+                    "token_estimate": entry.token_estimate,
+                }
+            else:
+                current["entries"].append(entry)
+                current["end_seq"] = entry.seq
+                current["token_estimate"] += entry.token_estimate
+        if current is not None:
+            groups.append(current)
+        return groups
+
+    def _is_coding_compaction_summary_entry(self, entry: CodingSessionEntry) -> bool:
+        """Return whether an entry is a replayable coding compaction checkpoint."""
+        return (
+            entry.entry_type == "compaction_summary"
+            and entry.content_json.get("replay_eligible", True) is not False
+        )
+
+    def _latest_coding_checkpoint_entry(
+        self,
+        entries: List[CodingSessionEntry],
+    ) -> Optional[CodingSessionEntry]:
+        """Return the latest replayable coding checkpoint entry if present."""
+        for entry in reversed(entries):
+            if self._is_coding_compaction_summary_entry(entry):
+                return entry
+        return None
+
+    def _tail_entries_after_checkpoint(
+        self,
+        entries: List[CodingSessionEntry],
+    ) -> List[CodingSessionEntry]:
+        """Return uncompacted tail entries after the latest checkpoint."""
+        checkpoint = self._latest_coding_checkpoint_entry(entries)
+        if checkpoint is None:
+            return [entry for entry in entries if not self._is_coding_compaction_summary_entry(entry)]
+        return [
+            entry
+            for entry in entries
+            if entry.seq > checkpoint.seq and not self._is_coding_compaction_summary_entry(entry)
+        ]
+
+    def _checkpoint_summary_state(
+        self,
+        entry: Optional[CodingSessionEntry],
+    ) -> dict[str, Any]:
+        """Return structured summary state from a stored checkpoint entry."""
+        if entry is None:
+            return {}
+        state = entry.content_json.get("summary_state")
+        return state if isinstance(state, dict) else {}
+
+    def _entry_text_blob(self, entry: CodingSessionEntry) -> str:
+        """Return normalized free-text content for an entry."""
+        parts: List[str] = []
+        content = entry.content_json.get("content")
+        if isinstance(content, str) and content.strip():
+            parts.append(content)
+        tool_calls = entry.content_json.get("tool_calls") or []
+        if isinstance(tool_calls, list):
+            for tool_call in tool_calls:
+                if not isinstance(tool_call, dict):
+                    continue
+                function = tool_call.get("function") or {}
+                if isinstance(function, dict):
+                    name = function.get("name")
+                    arguments = function.get("arguments")
+                    if name:
+                        parts.append(str(name))
+                    if arguments:
+                        parts.append(str(arguments))
+        return "\n".join(parts)
+
+    def _entry_file_paths(
+        self,
+        entry: CodingSessionEntry,
+        known_paths: Optional[List[str]] = None,
+    ) -> List[str]:
+        """Extract workspace file paths referenced by a coding entry."""
+        explicit: List[str] = []
+        tool_calls = entry.content_json.get("tool_calls") or []
+        if isinstance(tool_calls, list):
+            for tool_call in tool_calls:
+                if not isinstance(tool_call, dict):
+                    continue
+                function = tool_call.get("function") or {}
+                if not isinstance(function, dict):
+                    continue
+                arguments = function.get("arguments")
+                parsed_arguments: Dict[str, Any] = {}
+                if isinstance(arguments, str):
+                    try:
+                        candidate = json.loads(arguments)
+                        if isinstance(candidate, dict):
+                            parsed_arguments = candidate
+                    except json.JSONDecodeError:
+                        parsed_arguments = {}
+                elif isinstance(arguments, dict):
+                    parsed_arguments = arguments
+                file_path = parsed_arguments.get("file_path")
+                if file_path:
+                    explicit.append(self._canonical_workspace_path(str(file_path)))
+        if entry.entry_type == "tool_result":
+            content = str(entry.content_json.get("content") or "")
+            match = re.search(r"(?:from|to)\s+([^\s\(\[]+\.[A-Za-z0-9_./-]+)", content)
+            if match:
+                explicit.append(self._canonical_workspace_path(match.group(1)))
+
+        explicit = list(dict.fromkeys(path for path in explicit if path))
+        if explicit or not known_paths:
+            return explicit
+
+        blob = self._entry_text_blob(entry)
+        return [path for path in known_paths if path and path in blob]
+
+    def _coerce_string_list(self, value: Any) -> List[str]:
+        """Normalize a stored summary list field."""
+        if not isinstance(value, list):
+            return []
+        return [str(item).strip() for item in value if str(item).strip()]
+
+    def _dedupe_summary_items(self, items: List[str], limit: int = 10) -> List[str]:
+        """Keep recent unique summary bullets."""
+        deduped: List[str] = []
+        seen: set[str] = set()
+        for item in items:
+            clean = str(item).strip()
+            if not clean or clean in seen:
+                continue
+            seen.add(clean)
+            deduped.append(clean[:500])
+        if len(deduped) <= limit:
+            return deduped
+        return deduped[-limit:]
+
+    def _extract_constraint_preferences(self, text: str) -> List[str]:
+        """Extract explicit user constraints/preferences from a user message."""
+        if not text:
+            return []
+        sentences = re.split(r"(?<=[.!?])\s+|\n+", text)
+        constraints: List[str] = []
+        for sentence in sentences:
+            clean = sentence.strip(" -")
+            lowered = clean.lower()
+            if not clean:
+                continue
+            if any(
+                marker in lowered
+                for marker in (
+                    "do not",
+                    "don't",
+                    "must",
+                    "should",
+                    "keep",
+                    "preserve",
+                    "use ",
+                    "same branch",
+                    "follow",
+                )
+            ):
+                constraints.append(clean[:500])
+        return constraints[:4]
+
+    def _entry_summary_bullet(self, entry: CodingSessionEntry) -> Optional[str]:
+        """Summarize one compacted entry into a grounded checkpoint bullet."""
+        if entry.entry_type == "user":
+            content = str(entry.content_json.get("content") or "").strip()
+            if content:
+                return f"User asked: {content[:400]}"
+            return None
+        if entry.entry_type == "assistant":
+            content = str(entry.content_json.get("content") or "").strip()
+            if content:
+                return f"Assistant reported: {content[:400]}"
+            return None
+        if entry.entry_type == "assistant_tool_calls":
+            paths = self._entry_file_paths(entry)
+            if paths:
+                return f"Started tool work touching: {', '.join(paths[:4])}"
+            tool_calls = entry.content_json.get("tool_calls") or []
+            if tool_calls:
+                names = [
+                    str((tool_call.get('function') or {}).get('name') or "")
+                    for tool_call in tool_calls
+                    if isinstance(tool_call, dict)
+                ]
+                names = [name for name in names if name]
+                if names:
+                    return f"Started tools: {', '.join(names[:4])}"
+            return None
+        if entry.entry_type == "tool_result":
+            name = str(entry.content_json.get("name") or "").strip()
+            content = str(entry.content_json.get("content") or "").strip()
+            success = entry.content_json.get("success", True) is not False
+            if not success:
+                return f"Tool failed ({name}): {content[:300] or 'see transcript'}"
+            paths = self._entry_file_paths(entry)
+            path_text = f" {paths[0]}" if paths else ""
+            if name == "read_file":
+                return f"Read file{path_text}".strip()
+            if name in {"edit_file", "write_file"}:
+                return f"Modified file{path_text}".strip()
+            if name == "bash":
+                return f"Ran bash and captured output: {content[:220]}"
+            if name:
+                return f"Tool succeeded ({name}): {content[:260]}"
+        return None
+
+    def _build_coding_split_turn_context(
+        self,
+        compacted_entries: List[CodingSessionEntry],
+        preserved_tail: List[CodingSessionEntry],
+    ) -> List[str]:
+        """Describe a turn boundary split so the preserved tail still makes sense."""
+        if not compacted_entries or not preserved_tail:
+            return []
+        last_compacted = compacted_entries[-1]
+        first_tail = preserved_tail[0]
+        if last_compacted.entry_type == "assistant" and first_tail.entry_type == "assistant_tool_calls":
+            content = str(last_compacted.content_json.get("content") or "").strip()
+            if content:
+                return [f"Assistant had already said: {content[:400]}"]
+        if last_compacted.entry_type == "user" and first_tail.entry_type != "user":
+            content = str(last_compacted.content_json.get("content") or "").strip()
+            if content:
+                return [f"Open user request at the cut point: {content[:400]}"]
+        return []
+
+    def _build_coding_checkpoint_payload(
+        self,
+        *,
+        compacted_entries: List[CodingSessionEntry],
+        preserved_tail: List[CodingSessionEntry],
+        session_state: CodingSessionState,
+        covered_through_seq: int,
+        tail_start_seq: int,
+    ) -> dict[str, Any]:
+        """Build the persisted structured summary payload for a coding checkpoint."""
+        prior_checkpoint = next(
+            (
+                entry
+                for entry in reversed(compacted_entries)
+                if self._is_coding_compaction_summary_entry(entry)
+            ),
+            None,
+        )
+        prior_state = self._checkpoint_summary_state(prior_checkpoint)
+        transcript_entries = [
+            entry for entry in compacted_entries if not self._is_coding_compaction_summary_entry(entry)
+        ]
+
+        goal = str(prior_state.get("goal") or "").strip()
+        if not goal:
+            goal = session_state.objective.strip()
+        if not goal:
+            for entry in transcript_entries:
+                if entry.entry_type == "user":
+                    goal = str(entry.content_json.get("content") or "").strip()
+                    if goal:
+                        break
+
+        constraints = self._coerce_string_list(prior_state.get("constraints"))
+        done = self._coerce_string_list(prior_state.get("done"))
+        blocked = self._coerce_string_list(prior_state.get("blocked"))
+        key_decisions = self._coerce_string_list(prior_state.get("key_decisions"))
+        critical_context = self._coerce_string_list(prior_state.get("critical_context"))
+
+        for entry in transcript_entries:
+            if entry.entry_type == "user":
+                constraints.extend(
+                    self._extract_constraint_preferences(
+                        str(entry.content_json.get("content") or "").strip()
+                    )
+                )
+            bullet = self._entry_summary_bullet(entry)
+            if not bullet:
+                continue
+            if entry.entry_type == "tool_result" and entry.content_json.get("success", True) is False:
+                blocked.append(bullet)
+            else:
+                done.append(bullet)
+
+        if session_state.modified_files:
+            key_decisions.append(
+                "Modified files carried forward: "
+                + ", ".join(session_state.modified_files[-6:])
+            )
+        if session_state.read_files:
+            critical_context.append(
+                "Important read files: " + ", ".join(session_state.read_files[-8:])
+            )
+        if session_state.recent_commands:
+            critical_context.append(
+                "Recent commands: " + " | ".join(session_state.recent_commands[-4:])
+            )
+
+        split_turn_context = self._build_coding_split_turn_context(compacted_entries, preserved_tail)
+        in_progress = split_turn_context or ["Continue from the preserved tail below; do not restart."]
+        next_steps = split_turn_context or ["Resume from the preserved tail and finish the active task."]
+
+        payload = {
+            "goal": goal[:500],
+            "constraints": self._dedupe_summary_items(constraints, limit=8),
+            "done": self._dedupe_summary_items(done, limit=12),
+            "in_progress": self._dedupe_summary_items(in_progress, limit=6),
+            "blocked": self._dedupe_summary_items(blocked, limit=8),
+            "key_decisions": self._dedupe_summary_items(key_decisions, limit=8),
+            "next_steps": self._dedupe_summary_items(next_steps, limit=6),
+            "critical_context": self._dedupe_summary_items(critical_context, limit=8),
+            "split_turn_context": self._dedupe_summary_items(split_turn_context, limit=4),
+            "read_files": session_state.read_files[-12:],
+            "modified_files": session_state.modified_files[-12:],
+            "covered_through_seq": covered_through_seq,
+            "tail_start_seq": tail_start_seq,
+        }
+        payload["content"] = self._render_coding_checkpoint_summary(payload)
+        return payload
+
+    def _render_coding_checkpoint_summary(self, payload: Dict[str, Any]) -> str:
+        """Render the replayable checkpoint message content."""
+        def section_items(items: List[str], fallback: str) -> List[str]:
+            return items if items else [fallback]
+
+        lines = [
+            "The earlier part of this coding conversation was compacted into the summary below. Continue from it naturally; do not restart the task.",
+            "",
+            "<summary>",
+            "## Goal",
+            f"- {str(payload.get('goal') or 'Continue the existing coding task.')[:500]}",
+            "",
+            "## Constraints & Preferences",
+        ]
+        lines.extend(f"- {item}" for item in section_items(payload.get("constraints") or [], "No explicit constraints were preserved."))
+        lines.extend(
+            [
+                "",
+                "## Progress",
+                "### Done",
+            ]
+        )
+        lines.extend(f"- {item}" for item in section_items(payload.get("done") or [], "No completed work was preserved."))
+        lines.extend(["", "### In Progress"])
+        lines.extend(f"- {item}" for item in section_items(payload.get("in_progress") or [], "Continue from the preserved tail."))
+        lines.extend(["", "### Blocked"])
+        lines.extend(f"- {item}" for item in section_items(payload.get("blocked") or [], "No explicit blockers were recorded."))
+        lines.extend(["", "## Key Decisions"])
+        lines.extend(f"- {item}" for item in section_items(payload.get("key_decisions") or [], "No durable implementation decisions were preserved."))
+        lines.extend(["", "## Next Steps"])
+        lines.extend(f"- {item}" for item in section_items(payload.get("next_steps") or [], "Continue from the preserved tail below."))
+        lines.extend(["", "## Critical Context"])
+        lines.extend(f"- {item}" for item in section_items(payload.get("critical_context") or [], "No additional critical context was preserved."))
+        split_turn_context = payload.get("split_turn_context") or []
+        if split_turn_context:
+            lines.extend(["", "## Split Turn Context"])
+            lines.extend(f"- {item}" for item in split_turn_context)
+        lines.extend(["", "<read-files>"])
+        lines.extend(payload.get("read_files") or [])
+        lines.extend(["</read-files>", "<modified-files>"])
+        lines.extend(payload.get("modified_files") or [])
+        lines.extend(["</modified-files>", "</summary>"])
+        return "\n".join(lines)
+
+    def _file_restore_line_window(
+        self,
+        file_state: CodingFileState,
+    ) -> tuple[int, int]:
+        """Choose a bounded line window for restored file continuity."""
+        spans_with_lines = [
+            span
+            for span in file_state.spans
+            if span.line_start is not None and span.line_end is not None
+        ]
+        if spans_with_lines:
+            span = spans_with_lines[-1]
+            line_start = max(1, int(span.line_start or 1))
+            line_end = max(line_start, int(span.line_end or line_start))
+            if line_end - line_start + 1 > 160:
+                line_end = line_start + 159
+            return line_start, line_end
+        return 1, 120
+
+    def _format_restored_read_file_output(
+        self,
+        *,
+        path: str,
+        file_state: CodingFileState,
+    ) -> Optional[str]:
+        """Render current workspace file content as synthetic read_file output."""
+        resolved = self._resolve_workspace_file(path)
+        if resolved is None or not resolved.exists() or not resolved.is_file():
+            return None
+        try:
+            lines = resolved.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            return None
+
+        line_start, line_end = self._file_restore_line_window(file_state)
+        selected = lines[line_start - 1 : line_end]
+        numbered_lines: List[str] = []
+        for index, line in enumerate(selected, start=line_start):
+            clean_line = line
+            if len(clean_line) > 300:
+                clean_line = clean_line[:300] + "..."
+            numbered_lines.append(f"{index:>6}\t{clean_line}")
+        if not numbered_lines:
+            return None
+        return self._truncate_text_to_tokens("\n".join(numbered_lines), 3000)
+
+    def _build_restored_file_messages(
+        self,
+        *,
+        session_state: CodingSessionState,
+        transcript_entries: List[CodingSessionEntry],
+        current_query: str,
+    ) -> List[Dict[str, Any]]:
+        """Restore bounded current file evidence after a coding checkpoint."""
+        checkpoint = self._latest_coding_checkpoint_entry(transcript_entries)
+        if checkpoint is None:
+            return []
+
+        checkpoint_state = self._checkpoint_summary_state(checkpoint)
+        tail_entries = self._tail_entries_after_checkpoint(transcript_entries)
+        known_paths = list(dict.fromkeys(
+            session_state.modified_files
+            + session_state.read_files
+            + list(session_state.file_evidence.keys())
+            + self._coerce_string_list(checkpoint_state.get("modified_files"))
+            + self._coerce_string_list(checkpoint_state.get("read_files"))
+        ))
+        visible_paths: set[str] = set()
+        mentioned_paths: set[str] = set()
+        for entry in tail_entries:
+            entry_paths = self._entry_file_paths(entry, known_paths=known_paths)
+            if entry.entry_type in {"assistant_tool_calls", "tool_result"}:
+                visible_paths.update(entry_paths)
+            mentioned_paths.update(entry_paths)
+
+        ranked: List[tuple[int, int, str]] = []
+        for index, path in enumerate(known_paths):
+            if not path or path in visible_paths:
+                continue
+            file_state = session_state.file_evidence.get(path)
+            if file_state is None:
+                continue
+            score = 0
+            if path in session_state.modified_files:
+                score += 100
+            if path in self._coerce_string_list(checkpoint_state.get("modified_files")):
+                score += 80
+            if path in mentioned_paths:
+                score += 45
+            if path in self._coerce_string_list(checkpoint_state.get("read_files")):
+                score += 35
+            if path in current_query:
+                score += 30
+            if file_state.last_modified_run_id:
+                score += 20
+            score += min(len(file_state.spans), 4) * 5
+            ranked.append((score, index, path))
+        ranked.sort(key=lambda item: (-item[0], item[1]))
+        selected_paths = [path for _, _, path in ranked[:3]]
+        if not selected_paths:
+            return []
+
+        tool_calls: List[Dict[str, Any]] = []
+        tool_messages: List[Dict[str, Any]] = []
+        for idx, path in enumerate(selected_paths, start=1):
+            file_state = session_state.file_evidence.get(path)
+            if file_state is None:
+                continue
+            content = self._format_restored_read_file_output(path=path, file_state=file_state)
+            if not content:
+                continue
+            tool_call_id = f"checkpoint-read-{checkpoint.seq}-{idx}"
+            tool_calls.append(
+                {
+                    "id": tool_call_id,
+                    "type": "function",
+                    "function": {
+                        "name": "read_file",
+                        "arguments": json.dumps({"file_path": path}, ensure_ascii=False),
+                    },
+                }
+            )
+            tool_messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tool_call_id,
+                    "name": "read_file",
+                    "content": content,
+                }
+            )
+
+        if not tool_calls:
+            return []
+        return [
+            {
+                "role": "assistant",
+                "content": "Restoring important current file context from the workspace before continuing.",
+                "tool_calls": tool_calls,
+            },
+            *tool_messages,
+        ]
+
+    def _coding_tail_target_tokens(self) -> int:
+        """Return the retained raw-tail token target for coding compaction."""
+        effective_budget = self._context_profile.effective_input_budget
+        return min(20_000, max(2_000, int(effective_budget * 0.25)))
+
+    async def _compact_coding_session_history(
+        self,
+        *,
+        conversation_id: str,
+        run_id: str,
+        step_number: int,
+        session_state: CodingSessionState,
+        working_memory: Optional[WorkingMemory] = None,
+    ) -> bool:
+        """Compact coding-session history into a replayable checkpoint plus raw tail."""
+        entry_records = await self._call_repo_async_method(
+            "list_coding_session_entries",
+            conversation_id,
+            include_compacted=False,
+        )
+        active_entries = [
+            CodingSessionEntry.from_dict(entry)
+            for entry in (entry_records or [])
+        ]
+        if len(active_entries) < 2:
+            return False
+
+        total_raw_tokens = sum(entry.token_estimate for entry in active_entries)
+        tail_target = self._coding_tail_target_tokens()
+        if total_raw_tokens <= tail_target:
+            return False
+
+        tail_entries = self._tail_entries_after_checkpoint(active_entries)
+        if len(tail_entries) < 2:
+            return False
+
+        turn_groups = self._group_entries_by_turn(tail_entries)
+        if not turn_groups:
+            return False
+        keep_two_start = (
+            turn_groups[-2]["start_seq"] if len(turn_groups) >= 2 else turn_groups[0]["start_seq"]
+        )
+
+        suffix_tokens: Dict[int, int] = {}
+        running = 0
+        for entry in reversed(tail_entries):
+            running += entry.token_estimate
+            suffix_tokens[entry.seq] = running
+
+        safe_candidates = [entry.seq for entry in tail_entries if entry.entry_type != "tool_result"]
+        preferred_candidates = [seq for seq in safe_candidates if seq <= keep_two_start]
+        candidate_seq: Optional[int] = next(
+            (seq for seq in preferred_candidates if suffix_tokens.get(seq, 0) <= tail_target),
+            None,
+        )
+        if candidate_seq is None:
+            split_candidates = [seq for seq in safe_candidates if seq >= keep_two_start]
+            candidate_seq = next(
+                (seq for seq in split_candidates if suffix_tokens.get(seq, 0) <= tail_target),
+                None,
+            )
+            if candidate_seq is None and split_candidates:
+                candidate_seq = split_candidates[-1]
+
+        if candidate_seq is None:
+            return False
+
+        compacted_entries = [entry for entry in active_entries if entry.seq < candidate_seq]
+        if not compacted_entries:
+            return False
+
+        preserved_tail = [entry for entry in active_entries if entry.seq >= candidate_seq]
+        if not preserved_tail:
+            return False
+
+        _ = working_memory
+        session_state.normalize()
+        checkpoint_payload = self._build_coding_checkpoint_payload(
+            compacted_entries=compacted_entries,
+            preserved_tail=preserved_tail,
+            session_state=session_state,
+            covered_through_seq=compacted_entries[-1].seq,
+            tail_start_seq=candidate_seq,
+        )
+        checkpoint_entry = {
+            "run_id": run_id,
+            "step_number": step_number,
+            "entry_type": "compaction_summary",
+            "role": "user",
+            "content_json": {
+                "content": checkpoint_payload["content"],
+                "summary_state": {
+                    key: value
+                    for key, value in checkpoint_payload.items()
+                    if key != "content"
+                },
+                "covered_through_seq": checkpoint_payload["covered_through_seq"],
+                "tail_start_seq": checkpoint_payload["tail_start_seq"],
+                "read_files": checkpoint_payload["read_files"],
+                "modified_files": checkpoint_payload["modified_files"],
+                "replay_eligible": True,
+            },
+            "token_estimate": self._message_token_estimate(
+                "user",
+                {"content": checkpoint_payload["content"]},
+            ),
+        }
+        inserted_checkpoint = await self._call_repo_async_method(
+            "insert_coding_session_entry",
+            conversation_id,
+            before_seq=candidate_seq,
+            entry=checkpoint_entry,
+        )
+        await self._call_repo_async_method(
+            "mark_coding_session_entries_compacted",
+            conversation_id,
+            through_seq=candidate_seq - 1,
+        )
+        await self._call_repo_async_method(
+            "upsert_coding_session_state",
+            conversation_id,
+            session_state.to_dict(),
+            last_run_id=run_id,
+        )
+        await self._add_trace_event(
+            run_id=run_id,
+            event_type="coding_session_compaction",
+            content={
+                "conversation_id": conversation_id,
+                "step_number": step_number,
+                "checkpoint_seq": inserted_checkpoint.get("seq") if isinstance(inserted_checkpoint, dict) else candidate_seq,
+                "compacted_through_seq": candidate_seq - 1,
+                "checkpoint_present": True,
+                "preserved_tail_count": len(preserved_tail),
+                "retained_raw_tokens": sum(entry.token_estimate for entry in preserved_tail),
+                "tail_target_tokens": tail_target,
+                "compacted_entry_count": len(compacted_entries),
+                "kept_last_two_turns_raw": candidate_seq <= keep_two_start,
+                "restorable_read_files": checkpoint_payload["read_files"],
+                "restorable_modified_files": checkpoint_payload["modified_files"],
+            },
+            actor="system",
+            step_number=step_number,
+        )
+        return True
+
+    async def _persist_coding_session_state(
+        self,
+        *,
+        conversation_id: str,
+        run_id: str,
+        working_memory: WorkingMemory,
+        session_state: CodingSessionState,
+        tool_results: Optional[List[tuple[ParsedToolCall, "ToolResult"]]] = None,
+        final_answer: Optional[str] = None,
+        reason: str,
+        step_number: Optional[int] = None,
+    ) -> None:
+        """Persist durable coding-session state for the current conversation."""
+        self._merge_working_memory_into_coding_session(session_state, working_memory)
+        if tool_results:
+            self._merge_tool_results_into_coding_session(session_state, tool_results, run_id)
+        session_state.normalize()
+
+        await self._call_repo_async_method(
+            "upsert_coding_session_state",
+            conversation_id,
+            session_state.to_dict(),
+            last_run_id=run_id,
+        )
+
     async def run(
         self,
         run_id: str,
@@ -652,6 +2316,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
         pause_signal: Optional[asyncio.Event] = None,
         resume_signal: Optional[asyncio.Event] = None,
         steer_queue: Optional[List[str]] = None,
+        image_attachments: Optional[List[Dict[str, Any]]] = None,
     ) -> AgentResult:
         """Execute agent loop for a query.
 
@@ -668,6 +2333,9 @@ To provide your final answer, respond WITHOUT calling any tools."""
             AgentResult with answer and citations.
         """
         start_time = time.perf_counter()
+        coding_session_state: Optional[CodingSessionState] = None
+        coding_session_dirty = False
+        ephemeral_messages: List[Dict[str, Any]] = []
 
         # Initialize findings for this run
         self._findings = []
@@ -681,6 +2349,13 @@ To provide your final answer, respond WITHOUT calling any tools."""
             "total_tokens": 0,
         }
         self._tool_call_log = []
+        self._tool_state_version = 0
+        self._coding_last_step_structural_failure = False
+        self._last_context_usage = None
+        self._last_stored_context = None
+        validated_images = validate_image_attachments(image_attachments)
+        if validated_images and not bool(getattr(self._provider, "_supports_vision", False)):
+            raise ValueError("Active model does not support image inputs. Select a vision model.")
 
         # Emit start event
         self._emit(event_callback, "agent_started", run_id=run_id, query=query)
@@ -703,13 +2378,69 @@ To provide your final answer, respond WITHOUT calling any tools."""
 
         try:
             recovery_context = await state_machine.initialize()
-
-            # Build initial scaffold from system prompt + turn summaries.
-            messages, self._context_budget = await self._build_initial_messages(query, conversation_id)
+            current_user_content: Any = (
+                build_multimodal_user_content(query, validated_images)
+                if validated_images
+                else query
+            )
             working_memory = WorkingMemory(objective=query)
+            self._active_conversation_id = conversation_id
+            self._active_coding_session_state = None
+            coding_session_had_entries = False
+            if self._is_coding_profile() and conversation_id:
+                session_record, coding_session_state = await self._load_coding_session_state_record(
+                    conversation_id
+                )
+                latest_entry_seq = await self._call_repo_async_method(
+                    "get_latest_coding_session_entry_seq",
+                    conversation_id,
+                )
+                coding_session_had_entries = bool(latest_entry_seq)
+                if coding_session_state is None:
+                    coding_session_state = CodingSessionState(objective=query)
+                else:
+                    await self._hydrate_working_memory_from_coding_session(
+                        conversation_id=conversation_id,
+                        session_state=coding_session_state,
+                        working_memory=working_memory,
+                        run_id=run_id,
+                        updated_at=session_record.get("updated_at") if session_record else None,
+                    )
+                if not coding_session_state.objective:
+                    coding_session_state.objective = query
+                await self._persist_coding_session_user_message(
+                    conversation_id=conversation_id,
+                    run_id=run_id,
+                    session_state=coding_session_state,
+                    user_content=current_user_content,
+                )
+                await self._persist_coding_session_state(
+                    conversation_id=conversation_id,
+                    run_id=run_id,
+                    working_memory=working_memory,
+                    session_state=coding_session_state,
+                    reason="user_turn_start",
+                )
+                coding_session_dirty = True
+                self._active_coding_session_state = coding_session_state
+
+            # Build initial scaffold from persisted session history or turn summaries.
+            messages, self._context_budget = await self._build_initial_messages(
+                query,
+                conversation_id,
+                run_id=run_id,
+                coding_session_state=coding_session_state,
+                working_memory=working_memory,
+                coding_session_use_entries=coding_session_had_entries,
+            )
+            if not self._is_coding_profile():
+                if validated_images and messages and messages[-1].get("role") == "user":
+                    messages[-1]["content"] = current_user_content
+                working_memory.prior_outcomes = self._prior_outcomes_from_scaffold(messages)
 
             # Handle recovery if needed
             if recovery_context.needs_recovery:
+                ephemeral_messages.extend(recovery_context.hints)
                 messages = build_recovery_messages(recovery_context, messages)
                 logger.info(
                     "Agent recovering from crash",
@@ -755,19 +2486,29 @@ To provide your final answer, respond WITHOUT calling any tools."""
 
             # Step metadata for context pruning (maps tool_call_id -> step_number)
             step_metadata: Dict[str, int] = {}
-            tool_steps_completed = 0
             consecutive_filtered_steps = 0
+            length_only_continuations = 0
 
             # Main agent loop
             while state_machine.can_continue():
                 step = await state_machine.start_step()
                 step_number = step["step_number"]
+                image_parts_for_next_call: List[Dict[str, Any]] = []
 
                 # Drain any pending steering messages before prompt assembly.
                 if steer_queue:
                     while steer_queue:
                         steer_msg = steer_queue.pop(0)
-                        messages.append({"role": "user", "content": steer_msg})
+                        if self._is_coding_profile() and conversation_id and coding_session_state is not None:
+                            await self._persist_coding_session_user_message(
+                                conversation_id=conversation_id,
+                                run_id=run_id,
+                                session_state=coding_session_state,
+                                user_content=steer_msg,
+                            )
+                            coding_session_dirty = True
+                        else:
+                            messages.append({"role": "user", "content": steer_msg})
                         self._emit(
                             event_callback,
                             "steer_injected",
@@ -780,6 +2521,37 @@ To provide your final answer, respond WITHOUT calling any tools."""
                             extra={"run_id": run_id, "step": step_number, "steer_content": steer_msg[:80]},
                         )
 
+                if self._is_coding_profile() and conversation_id and coding_session_state is not None:
+                    compacted_session = await self._compact_coding_session_history(
+                        conversation_id=conversation_id,
+                        run_id=run_id,
+                        step_number=step_number,
+                        session_state=coding_session_state,
+                        working_memory=working_memory,
+                    )
+                    if compacted_session:
+                        await self._persist_coding_session_state(
+                            conversation_id=conversation_id,
+                            run_id=run_id,
+                            working_memory=working_memory,
+                            session_state=coding_session_state,
+                            reason="compaction",
+                            step_number=step_number,
+                        )
+                        coding_session_dirty = True
+                    messages, self._context_budget = await self._build_initial_messages(
+                        query,
+                        conversation_id,
+                        run_id=run_id,
+                        coding_session_state=coding_session_state,
+                        working_memory=working_memory,
+                        coding_session_use_entries=True,
+                    )
+                    if self._current_plan:
+                        messages = self._inject_plan_into_messages(messages, self._current_plan)
+                    if ephemeral_messages:
+                        messages = [*messages, *ephemeral_messages]
+
                 prompt_messages = self._build_prompt_messages(
                     scaffold_messages=messages,
                     working_memory=working_memory,
@@ -788,7 +2560,9 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 pruned_messages, context_usage_payload, compacted_now = self._enforce_prompt_budget(
                     prompt_messages,
                     step_number,
+                    enable_compaction=not self._is_coding_profile(),
                 )
+                self._last_context_usage = context_usage_payload
                 estimated_tokens = context_usage_payload["prompt_tokens_current_call"]
                 context_remaining = context_usage_payload["remaining_tokens"]
 
@@ -811,6 +2585,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     context_remaining=context_remaining,
                     total_tokens_used=self._total_tokens,
                     context_usage=context_usage_payload,
+                    stored_context=self._last_stored_context,
                     context_profile=self._context_profile_dict(),
                     compaction_count=self._compaction_count,
                     last_compacted_at_step=self._last_compacted_at_step,
@@ -825,6 +2600,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         "context_tokens": estimated_tokens,
                         "context_max": self._context_profile.context_window,
                         "context_usage": context_usage_payload,
+                        "stored_context": self._last_stored_context,
                         "context_profile": self._context_profile_dict(),
                     },
                     step_number=step_number,
@@ -834,6 +2610,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     context_usage_payload = self._current_context_usage_payload(
                         self._pruner.estimate_tokens(pruned_messages)
                     )
+                    self._last_context_usage = context_usage_payload
                     self._emit(
                         event_callback,
                         "conversation_compacted",
@@ -841,6 +2618,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         step_number=step_number,
                         message=self.COMPACTION_PREFIX,
                         context_usage=context_usage_payload,
+                        stored_context=self._last_stored_context,
                         context_profile=self._context_profile_dict(),
                         compaction_count=self._compaction_count,
                     )
@@ -851,6 +2629,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                             "step_number": step_number,
                             "message": self.COMPACTION_PREFIX,
                             "context_usage": context_usage_payload,
+                            "stored_context": self._last_stored_context,
                             "context_profile": self._context_profile_dict(),
                             "compaction_count": self._compaction_count,
                         },
@@ -859,7 +2638,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     )
 
                 # Call LLM with tools
-                tool_schemas = self._registry.get_openai_schemas()
+                tool_schemas = self._available_tool_schemas()
 
                 # Trace: llm_request
                 llm_request_event_id = await self._add_trace_event(
@@ -876,22 +2655,13 @@ To provide your final answer, respond WITHOUT calling any tools."""
 
                 llm_start_time = time.perf_counter()
                 try:
-                    # Coding profile: force tool use until model has explored
-                    if (
-                        self._profile
-                        and self._profile.name == "coding"
-                        and tool_steps_completed == 0
-                    ):
-                        step_tool_choice = "required"
-                    elif step_number == 1 and self._tool_choice:
-                        step_tool_choice = self._tool_choice
-                    else:
-                        step_tool_choice = None
+                    step_tool_choice = self._tool_choice if step_number == 1 else None
                     llm_response = await self._call_llm_with_tools(
                         messages=pruned_messages,
                         event_callback=event_callback,
                         run_id=run_id,
                         tool_choice=step_tool_choice,
+                        tool_schemas=tool_schemas,
                     )
                 except Exception as e:
                     logger.error("LLM call failed", extra={"error": str(e)})
@@ -981,6 +2751,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     context_usage=self._current_context_usage_payload(
                         self._pruner.estimate_tokens(pruned_messages)
                     ),
+                    stored_context=self._last_stored_context,
                     context_profile=self._context_profile_dict(),
                     compaction_count=self._compaction_count,
                     last_compacted_at_step=self._last_compacted_at_step,
@@ -989,24 +2760,77 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 # Model was truncated (hit max_tokens) — partial content
                 # is not a final answer, the model may have been mid-tool-call
                 if not tool_calls and llm_response.finish_reason == "length":
+                    length_only = not (llm_response.text or "").strip() and bool(
+                        llm_response.reasoning
+                    )
+                    if length_only and length_only_continuations >= 1:
+                        logger.warning(
+                            "Length-only reasoning repeated; forcing no-tools synthesis",
+                            extra={
+                                "run_id": run_id,
+                                "step_number": step_number,
+                                "reasoning_length": len(llm_response.reasoning or ""),
+                            },
+                        )
+                        await state_machine.complete_step(
+                            decision="length_only_force_synthesis",
+                            thinking_text=thinking_text,
+                        )
+                        final_answer = await self._force_synthesis(
+                            messages=self._build_prompt_messages(
+                                scaffold_messages=messages,
+                                working_memory=working_memory,
+                            ),
+                            event_callback=event_callback,
+                            run_id=run_id,
+                        )
+                        return await self._finalize_successful_run(
+                            final_answer=final_answer,
+                            messages=messages,
+                            state_machine=state_machine,
+                            step_number=step_number,
+                            start_time=start_time,
+                            event_callback=event_callback,
+                            run_id=run_id,
+                            query=query,
+                            conversation_id=conversation_id,
+                            working_memory=working_memory,
+                            coding_session_state=coding_session_state,
+                            coding_session_dirty=coding_session_dirty,
+                            forced_synthesis=True,
+                        )
                     logger.warning(
                         "Model truncated (finish_reason=length), continuing",
                         extra={
                             "run_id": run_id,
                             "step_number": step_number,
                             "text_length": len(llm_response.text) if llm_response.text else 0,
+                            "length_only": length_only,
                         },
                     )
                     if llm_response.text:
-                        messages.append({
+                        partial_message = {
                             "role": "assistant",
                             "content": self._summarize_assistant_content(llm_response.text),
-                        })
-                    messages.append({
+                        }
+                        messages.append(partial_message)
+                        if self._is_coding_profile():
+                            ephemeral_messages.append(partial_message)
+                    if length_only:
+                        length_only_continuations += 1
+                    continuation_message = {
                         "role": "user",
-                        "content": "Continue. Provide your final answer or call a tool.",
-                    })
-                    messages = self._trim_scaffold_messages(messages)
+                        "content": (
+                            "Your last response hit the length limit before producing answer text. "
+                            "Continue once from the compact working memory. "
+                            "Prefer a concise final answer; call a tool only if essential."
+                        ),
+                    }
+                    messages.append(continuation_message)
+                    if self._is_coding_profile():
+                        ephemeral_messages.append(continuation_message)
+                    else:
+                        messages = self._trim_scaffold_messages(messages)
                     await state_machine.complete_step(
                         decision="truncated",
                         thinking_text=thinking_text,
@@ -1017,6 +2841,73 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 if tool_calls:
                     # Check for redundant tool calls before execution
                     parsed_for_check = self._parse_tool_calls(tool_calls)
+                    malformed_calls = [
+                        tc for tc in parsed_for_check if tc.parse_error is not None
+                    ]
+                    if malformed_calls:
+                        valid_ids = {
+                            tc.id for tc in parsed_for_check if tc.parse_error is None
+                        }
+                        malformed_descriptions = "; ".join(
+                            f"{tc.name}: {tc.parse_error}" for tc in malformed_calls
+                        )
+                        logger.warning(
+                            "Filtered malformed tool calls",
+                            extra={
+                                "run_id": run_id,
+                                "step_number": step_number,
+                                "malformed_count": len(malformed_calls),
+                                "valid_count": len(valid_ids),
+                                "finish_reason": llm_response.finish_reason,
+                            },
+                        )
+                        if valid_ids:
+                            tool_calls = [
+                                tc for tc in tool_calls if tc.get("id") in valid_ids
+                            ]
+                            parsed_for_check = [
+                                tc for tc in parsed_for_check if tc.parse_error is None
+                            ]
+                            malformed_notice = {
+                                "role": "system",
+                                "content": (
+                                    "[Malformed tool calls were dropped because their arguments "
+                                    f"were incomplete or invalid JSON: {malformed_descriptions}]"
+                                ),
+                            }
+                            messages.append(malformed_notice)
+                            if self._is_coding_profile():
+                                ephemeral_messages.append(malformed_notice)
+                        else:
+                            malformed_notice = {
+                                "role": "system",
+                                "content": (
+                                    "[Your last tool call was malformed because its arguments "
+                                    f"were incomplete or invalid JSON: {malformed_descriptions}]"
+                                ),
+                            }
+                            retry_prompt = {
+                                "role": "user",
+                                "content": (
+                                    "Retry the intended tool call now. "
+                                    "Return only a valid tool call with complete JSON arguments "
+                                    "for every required field. Do not explain the plan in prose."
+                                ),
+                            }
+                            messages.append(malformed_notice)
+                            messages.append(retry_prompt)
+                            if self._is_coding_profile():
+                                ephemeral_messages.append(malformed_notice)
+                                ephemeral_messages.append(retry_prompt)
+                            else:
+                                messages = self._trim_scaffold_messages(messages)
+                            await state_machine.complete_step(
+                                decision="malformed_tool_call",
+                                thinking_text=thinking_text,
+                            )
+                            consecutive_filtered_steps = 0
+                            continue
+
                     redundant = self._detect_redundant_calls(parsed_for_check)
                     if redundant:
                         redundant_ids = {tc.id for tc, _ in redundant}
@@ -1026,10 +2917,16 @@ To provide your final answer, respond WITHOUT calling any tools."""
                             "Filtered redundant tool calls",
                             extra={"reasons": reasons, "filtered_count": len(redundant)},
                         )
-                        messages.append({
+                        filtered_notice = {
                             "role": "system",
-                            "content": f"[Tool calls filtered — {reasons}. Try a different query or tool.]",
-                        })
+                            "content": (
+                                "[Engine notice: the previous tool call was filtered as redundant — "
+                                f"{reasons}. This is an engine constraint, not a user instruction.]"
+                            ),
+                        }
+                        messages.append(filtered_notice)
+                        if self._is_coding_profile():
+                            ephemeral_messages.append(filtered_notice)
                         if not tool_calls:
                             await state_machine.complete_step(
                                 decision="filtered",
@@ -1063,18 +2960,25 @@ To provide your final answer, respond WITHOUT calling any tools."""
                                     event_callback=event_callback,
                                     run_id=run_id,
                                     query=query,
+                                    conversation_id=conversation_id,
+                                    working_memory=working_memory,
+                                    coding_session_state=coding_session_state,
+                                    coding_session_dirty=coding_session_dirty,
                                     forced_synthesis=True,
                                 )
 
-                        messages.append(
-                            {
-                                "role": "user",
-                                "content": (
-                                    "Do not repeat filtered or duplicate tool calls. "
-                                    "Either provide the final answer now or choose a genuinely different tool call."
-                                ),
-                            }
-                        )
+                        filtered_user_prompt = {
+                            "role": "user",
+                            "content": (
+                                "A tool call was filtered by the engine as redundant. "
+                                "Do not attribute that constraint to the user. "
+                                "Either provide the final answer now or choose a genuinely different tool call. "
+                                "Only retry the same tool if something materially changed since the last identical call."
+                            ),
+                        }
+                        messages.append(filtered_user_prompt)
+                        if self._is_coding_profile():
+                            ephemeral_messages.append(filtered_user_prompt)
                         continue
 
                     # Tool calling step
@@ -1093,24 +2997,45 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     # Add assistant message with tool calls. Historical reasoning stays
                     # in DB/UI only and is never re-injected into future prompts.
                     assistant_content = self._summarize_assistant_content(llm_response.text)
-                    if assistant_content:
-                        messages.append(
-                            {
-                                "role": "assistant",
-                                "content": assistant_content,
-                                "tool_calls": tool_calls,
-                            }
-                        )
-                    else:
-                        messages.append(
-                            {
-                                "role": "assistant",
-                                "content": None,
-                                "tool_calls": tool_calls,
-                            }
-                        )
+                    replay_tool_calls, recovery_notes = self._canonical_replay_tool_calls(
+                        tool_results
+                    )
+                    assistant_message: Dict[str, Any] = {
+                        "role": "assistant",
+                        "content": assistant_content,
+                    }
+                    if replay_tool_calls:
+                        assistant_message["tool_calls"] = replay_tool_calls
+                    messages.append(assistant_message)
                     self._update_working_memory_from_tools(working_memory, tool_results)
+                    self._record_tool_call_recovery(working_memory, recovery_notes)
+                    if coding_session_state is not None and conversation_id:
+                        coding_session_dirty = True
+                        await self._persist_coding_session_step_entries(
+                            conversation_id=conversation_id,
+                            run_id=run_id,
+                            step_number=step_number,
+                            assistant_content=assistant_content,
+                            tool_results=tool_results,
+                        )
+                        await self._persist_coding_session_state(
+                            conversation_id=conversation_id,
+                            run_id=run_id,
+                            working_memory=working_memory,
+                            session_state=coding_session_state,
+                            tool_results=tool_results,
+                            reason="tool_progress",
+                            step_number=step_number,
+                        )
                     for tool_call, result in tool_results:
+                        if (
+                            tool_call.name == "view_image"
+                            and result.success
+                            and bool(getattr(self._provider, "_supports_vision", False))
+                        ):
+                            image_parts_for_next_call.extend(
+                                self._image_parts_from_tool_result(result)
+                            )
                         messages.append(
                             {
                                 "role": "tool",
@@ -1122,29 +3047,50 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         )
                         step_metadata[tool_call.id] = step_number
 
+                    if recovery_notes:
+                        recovery_message = {
+                            "role": "system",
+                            "content": (
+                                "Previous tool call was invalid and failed. "
+                                + " ".join(recovery_notes)
+                                + " Continue from the current state. "
+                                "Do not repeat malformed or incomplete tool arguments. "
+                                "If no tool is needed, answer directly."
+                            ),
+                        }
+                        messages.append(recovery_message)
+                        if self._is_coding_profile():
+                            ephemeral_messages.append(recovery_message)
+
+                    if image_parts_for_next_call:
+                        vision_followup_message = {
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": (
+                                        "Inspect the attached workspace image(s) visually and answer the user's request. "
+                                        "Use the images directly; do not rely on OCR unless you need exact text extraction."
+                                    ),
+                                },
+                                *image_parts_for_next_call,
+                            ],
+                            "_vision_from_tool": True,
+                            "_step": step_number,
+                        }
+                        messages.append(vision_followup_message)
+                        if self._is_coding_profile():
+                            ephemeral_messages.append(vision_followup_message)
+
                     # Update plan progress based on executed tools
                     if self._current_plan:
-                        parsed_calls = []
-                        for tc in tool_calls:
-                            args = tc["function"].get("arguments", {})
-                            if isinstance(args, str):
-                                raw_args = args
-                                try:
-                                    args = json.loads(args)
-                                except json.JSONDecodeError:
-                                    args = {}
-                            else:
-                                raw_args = json.dumps(args)
-                            parsed_calls.append(ParsedToolCall(
-                                id=tc["id"],
-                                name=tc["function"]["name"],
-                                arguments=args,
-                                raw_arguments=raw_args,
-                            ))
-                        self._update_plan_progress(parsed_calls, step_number)
+                        self._update_plan_progress(
+                            [tool_call for tool_call, _ in tool_results],
+                            step_number,
+                        )
 
-                    tool_steps_completed += 1
                     consecutive_filtered_steps = 0
+                    length_only_continuations = 0
 
                     await state_machine.complete_step(
                         decision="call_tool",
@@ -1236,6 +3182,10 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         event_callback=event_callback,
                         run_id=run_id,
                         query=query,
+                        conversation_id=conversation_id,
+                        working_memory=working_memory,
+                        coding_session_state=coding_session_state,
+                        coding_session_dirty=coding_session_dirty,
                     )
 
             # Max steps reached - force synthesis
@@ -1257,6 +3207,10 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 event_callback=event_callback,
                 run_id=run_id,
                 query=query,
+                conversation_id=conversation_id,
+                working_memory=working_memory,
+                coding_session_state=coding_session_state,
+                coding_session_dirty=coding_session_dirty,
                 forced_synthesis=True,
             )
 
@@ -1314,6 +3268,9 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 usage=self._usage_totals.copy(),
                 cost=self._current_cost(),
             )
+        finally:
+            self._active_conversation_id = None
+            self._active_coding_session_state = None
 
     # =========================================================================
     # Private Methods
@@ -1361,6 +3318,63 @@ To provide your final answer, respond WITHOUT calling any tools."""
             "last_compacted_at_step": self._last_compacted_at_step,
         }
 
+    def _stored_context_usage_payload(
+        self,
+        *,
+        stored_tokens: int,
+        replayable_entry_count: int,
+    ) -> Dict[str, Any]:
+        """Build replayable stored-context usage payload."""
+        context_window = self._context_profile.context_window
+        utilization_pct = (stored_tokens / context_window * 100) if context_window else 0.0
+        return {
+            "context_window": context_window,
+            "stored_tokens": stored_tokens,
+            "utilization_pct": round(utilization_pct, 1),
+            "replayable_entry_count": replayable_entry_count,
+        }
+
+    async def _refresh_coding_stored_context(
+        self,
+        *,
+        conversation_id: str,
+        session_state: CodingSessionState,
+        working_memory: Optional[WorkingMemory] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Refresh replayable stored-context metrics for the active coding conversation."""
+        entry_records = await self._call_repo_async_method(
+            "list_coding_session_entries",
+            conversation_id,
+            include_compacted=False,
+        )
+        transcript_entries = [
+            CodingSessionEntry.from_dict(entry)
+            for entry in (entry_records or [])
+        ]
+        builder = self._coding_context_builder()
+        metadata_message = (
+            working_memory.render_coding_metadata()
+            if working_memory is not None
+            else None
+        )
+        restored_file_messages = self._build_restored_file_messages(
+            session_state=session_state,
+            transcript_entries=transcript_entries,
+            current_query=self._current_query or "",
+        )
+        stored_context = builder.build_stored_context(
+            session_state=session_state,
+            transcript_entries=transcript_entries,
+            metadata_message=metadata_message,
+            restored_file_messages=restored_file_messages,
+        )
+        payload = self._stored_context_usage_payload(
+            stored_tokens=stored_context.token_count,
+            replayable_entry_count=stored_context.replayable_entry_count,
+        )
+        self._last_stored_context = payload
+        return payload
+
     def _is_compaction_message(self, message: Dict[str, Any]) -> bool:
         return message.get("role") == "system" and str(message.get("content") or "").startswith(self.COMPACTION_PREFIX)
 
@@ -1378,8 +3392,22 @@ To provide your final answer, respond WITHOUT calling any tools."""
         messages_to_compact: List[Dict[str, Any]],
         step_number: int,
     ) -> str:
-        user_messages = [str(m.get("content") or "").strip() for m in messages_to_compact if m.get("role") == "user" and str(m.get("content") or "").strip()]
-        assistant_messages = [str(m.get("content") or "").strip() for m in messages_to_compact if m.get("role") == "assistant" and str(m.get("content") or "").strip()]
+        user_messages = [
+            str(m.get("content") or "").strip()
+            for m in messages_to_compact
+            if m.get("role") == "user" and str(m.get("content") or "").strip()
+        ]
+        assistant_messages = [
+            str(m.get("content") or "").strip()
+            for m in messages_to_compact
+            if m.get("role") == "assistant" and str(m.get("content") or "").strip()
+        ]
+        working_memory_blocks = [
+            str(m.get("content") or "").strip()
+            for m in messages_to_compact
+            if m.get("role") == "system"
+            and str(m.get("content") or "").startswith("WORKING MEMORY")
+        ]
         tool_entries = self._tool_log_entries_up_to_step(step_number)
 
         files_inspected: List[str] = []
@@ -1427,6 +3455,11 @@ To provide your final answer, respond WITHOUT calling any tools."""
             ]
             if user_messages:
                 sections.append(f"- User goals and constraints: {' | '.join(_uniq(user_messages, 3))[:1200]}")
+            if working_memory_blocks:
+                durable_state = (
+                    working_memory_blocks[-1].replace("WORKING MEMORY", "", 1).strip()
+                )
+                sections.append(f"- Durable working state preserved:\n{durable_state[:2200]}")
             if files_inspected:
                 sections.append(f"- Files inspected: {', '.join(_uniq(files_inspected, 12))}")
             if files_changed:
@@ -1449,6 +3482,11 @@ To provide your final answer, respond WITHOUT calling any tools."""
         ]
         if user_messages:
             sections.append(f"- User intent: {' | '.join(_uniq(user_messages, 3))[:1200]}")
+        if working_memory_blocks:
+            durable_state = (
+                working_memory_blocks[-1].replace("WORKING MEMORY", "", 1).strip()
+            )
+            sections.append(f"- Durable working state preserved:\n{durable_state[:1600]}")
         if findings:
             sections.append(f"- Important facts: {'; '.join(_uniq(findings, 6))[:1200]}")
         if assistant_messages:
@@ -1487,13 +3525,15 @@ To provide your final answer, respond WITHOUT calling any tools."""
         self,
         messages: List[Dict[str, Any]],
         step_number: int,
+        *,
+        enable_compaction: bool = True,
     ) -> tuple[List[Dict[str, Any]], Dict[str, Any], bool]:
         effective_budget = self._context_profile.effective_input_budget
         threshold_tokens = int(effective_budget * self.COMPACTION_THRESHOLD_PCT / 100)
         prompt_tokens = self._pruner.estimate_tokens(messages)
         compacted_now = False
 
-        if prompt_tokens >= threshold_tokens:
+        if enable_compaction and prompt_tokens >= threshold_tokens:
             compacted_messages = self._compact_conversation(messages, step_number)
             if compacted_messages is not messages:
                 messages = compacted_messages
@@ -1765,11 +3805,16 @@ When you complete each step, proceed to the next."""
         self,
         query: str,
         conversation_id: Optional[str] = None,
+        run_id: Optional[str] = None,
+        coding_session_state: Optional[CodingSessionState] = None,
+        working_memory: Optional[WorkingMemory] = None,
+        coding_session_use_entries: bool = True,
     ) -> tuple[List[Dict[str, Any]], ContextBudget]:
         """Build initial message list with system prompt, history, and query.
 
-        Uses HistoryBuilder turn summaries for cross-turn continuity. Agent
-        prompt replay no longer resumes from prior serialized tool transcripts.
+        Non-coding profiles use HistoryBuilder turn summaries. Coding-profile
+        continuity rebuilds prompt context directly from persisted
+        coding-session transcript entries keyed by conversation_id.
 
         Args:
             query: User's research query.
@@ -1794,6 +3839,7 @@ When you complete each step, proceed to the next."""
                 f"Your knowledge cutoff: June 2024. For information after this date, use web_search."
             )
             system_prompt = self._system_prompt.format(date_context=date_context)
+        system_prompt = self._effective_system_prompt(system_prompt)
 
         # Load conversation history
         prior_runs: list[dict] = []
@@ -1801,6 +3847,23 @@ When you complete each step, proceed to the next."""
             prior_runs = await self._trace_repo.list_runs_for_conversation(
                 conversation_id
             )
+
+        if (
+            self._is_coding_profile()
+            and conversation_id
+            and coding_session_state is not None
+            and coding_session_use_entries
+        ):
+            messages, budget = await self._load_coding_session_messages(
+                conversation_id=conversation_id,
+                system_prompt=system_prompt,
+                query=query,
+                run_id=run_id or "coding-session-context",
+                session_state=coding_session_state,
+                working_memory=working_memory,
+                use_session_entries=coding_session_use_entries,
+            )
+            return messages, budget
 
         builder = HistoryBuilder(
             token_counter=get_token_counter(),
@@ -1832,6 +3895,7 @@ When you complete each step, proceed to the next."""
         event_callback: Optional[Callable[[Dict[str, Any]], None]],
         run_id: str,
         tool_choice: Optional[str] = None,
+        tool_schemas: Optional[List[Dict[str, Any]]] = None,
     ) -> "LLMResponse":
         """Call LLM with tool schemas via streaming.
 
@@ -1844,7 +3908,8 @@ When you complete each step, proceed to the next."""
         Returns:
             LLMResponse with text and tool_calls.
         """
-        tool_schemas = self._registry.get_openai_schemas()
+        tool_schemas = tool_schemas if tool_schemas is not None else self._available_tool_schemas()
+        messages = self._normalize_system_messages(messages)
         first_token_received = asyncio.Event()
         llm_complete = asyncio.Event()
 
@@ -2116,12 +4181,27 @@ When you complete each step, proceed to the next."""
                 tc_id = tc.get("id", str(uuid.uuid4()))
                 func = tc.get("function", {})
                 name = func.get("name", "")
-                args_str = func.get("arguments", "{}")
+                raw_arguments_value = func.get("arguments", "{}")
+                parse_error: Optional[str] = None
 
-                # Parse JSON arguments
-                try:
-                    arguments = json.loads(args_str)
-                except json.JSONDecodeError:
+                if isinstance(raw_arguments_value, dict):
+                    arguments = raw_arguments_value
+                    args_str = json.dumps(raw_arguments_value, ensure_ascii=False)
+                else:
+                    args_str = str(raw_arguments_value)
+                    try:
+                        arguments = json.loads(args_str)
+                    except json.JSONDecodeError as exc:
+                        arguments = {}
+                        parse_error = (
+                            "its arguments did not parse into valid JSON "
+                            f"({exc.msg})."
+                        )
+
+                if not parse_error and not isinstance(arguments, dict):
+                    parse_error = (
+                        "its arguments did not parse into a JSON object with named fields."
+                    )
                     arguments = {}
 
                 parsed.append(
@@ -2130,6 +4210,7 @@ When you complete each step, proceed to the next."""
                         name=name,
                         arguments=arguments,
                         raw_arguments=args_str,
+                        parse_error=parse_error,
                     )
                 )
             except Exception as e:
@@ -2140,7 +4221,7 @@ When you complete each step, proceed to the next."""
 
     # Tools safe to execute in parallel (read-only, no side effects)
     PARALLEL_TOOLS = frozenset({
-        "read_file", "grep", "glob", "list_directory",
+        "read_file", "view_image", "grep", "glob", "list_directory",
         "web_search", "web_extract",
     })
 
@@ -2276,6 +4357,10 @@ When you complete each step, proceed to the next."""
 
             results.append((tool_call, result))
 
+            state_changed = self._did_tool_call_change_state(tool_call.name, result)
+            if state_changed:
+                self._tool_state_version += 1
+
             # Log tool call for run metrics
             self._tool_call_log.append({
                 "tool_name": tool_call.name,
@@ -2283,6 +4368,7 @@ When you complete each step, proceed to the next."""
                 "success": result.success,
                 "result_summary": result.result_summary,
                 "step_number": step_number,
+                "state_version_after": self._tool_state_version,
             })
 
         return results
@@ -2409,6 +4495,20 @@ When you complete each step, proceed to the next."""
             )
             return prep
 
+        if tool_call.name == "read_file" and self._active_coding_session_state is not None:
+            reread_payload = self._classify_coding_file_read_reason(tool_call)
+            if reread_payload is not None:
+                await self._add_trace_event(
+                    run_id=run_id,
+                    event_type="coding_session_file_reread",
+                    content={
+                        "conversation_id": self._active_conversation_id,
+                        **reread_payload,
+                    },
+                    actor="system",
+                    step_number=step_number,
+                )
+
         # Permission gate
         permission_level = getattr(tool.schema, "permission_level", "auto")
         workspace_path = self._get_workspace_path()
@@ -2511,6 +4611,87 @@ When you complete each step, proceed to the next."""
             if isinstance(working_dir, Path):
                 return str(working_dir)
         return None
+
+    def _requested_read_span(
+        self,
+        tool_call: ParsedToolCall,
+    ) -> tuple[Optional[int], Optional[int]]:
+        """Return the requested read span from tool arguments."""
+        offset = tool_call.arguments.get("offset", 1)
+        limit = tool_call.arguments.get("limit")
+        try:
+            line_start = max(1, int(offset))
+        except (TypeError, ValueError):
+            line_start = 1
+        try:
+            limit_int = int(limit) if limit is not None else None
+        except (TypeError, ValueError):
+            limit_int = None
+        if limit_int is not None and limit_int > 0:
+            return line_start, line_start + limit_int - 1
+        return line_start, None
+
+    def _classify_coding_file_read_reason(
+        self,
+        tool_call: ParsedToolCall,
+    ) -> Optional[dict[str, Any]]:
+        """Classify why a coding run is rereading a file."""
+        session_state = self._active_coding_session_state
+        if tool_call.name != "read_file" or session_state is None:
+            return None
+        path = self._canonical_workspace_path(
+            str(tool_call.arguments.get("file_path", "unknown"))
+        )
+        file_state = session_state.file_evidence.get(path)
+        line_start, line_end = self._requested_read_span(tool_call)
+        if file_state is None:
+            if path in session_state.read_files or path in session_state.modified_files:
+                return {
+                    "path": path,
+                    "reason": "missing_evidence",
+                    "detail": "Stored file history exists but concrete evidence is missing.",
+                    "line_start": line_start,
+                    "line_end": line_end,
+                }
+            return {
+                "path": path,
+                "reason": "new_file_needed",
+                "detail": "This file has not been captured in the coding session yet.",
+                "line_start": line_start,
+                "line_end": line_end,
+            }
+        is_fresh, reason_code, detail = self._assess_file_freshness(file_state)
+        if not is_fresh:
+            return {
+                "path": path,
+                "reason": reason_code or "stale_hash",
+                "detail": detail,
+                "line_start": line_start,
+                "line_end": line_end,
+            }
+        if not file_state.spans:
+            return {
+                "path": path,
+                "reason": "missing_evidence",
+                "detail": "Stored file state has no reusable spans.",
+                "line_start": line_start,
+                "line_end": line_end,
+            }
+        if not file_state.covers_range(line_start, line_end):
+            return {
+                "path": path,
+                "reason": "span_insufficient",
+                "detail": "Stored evidence does not cover the requested line range.",
+                "line_start": line_start,
+                "line_end": line_end,
+            }
+        return {
+            "path": path,
+            "reason": "explicit_model_request",
+            "detail": "Fresh stored evidence already covered this file span.",
+            "line_start": line_start,
+            "line_end": line_end,
+        }
 
     async def _finalize_tool_call(
         self,
@@ -2789,6 +4970,21 @@ When you complete each step, proceed to the next."""
         if tool_name == "list_directory":
             lines = str(data).splitlines()[:200]
             return self._truncate_text_to_tokens("\n".join(lines), 1500)
+
+        if tool_name == "view_image" and isinstance(data, dict):
+            return self._bounded_json(
+                {
+                    "attached_images": [
+                        {
+                            "name": image.get("name"),
+                            "mime_type": image.get("mime_type"),
+                        }
+                        for image in (data.get("images") or [])[:8]
+                    ],
+                    "instruction": "Images are attached to the following user message for visual inspection.",
+                },
+                1200,
+            )
 
         if tool_name == "web_search" and isinstance(data, dict):
             results = []
@@ -3194,7 +5390,11 @@ When you complete each step, proceed to the next."""
             # Exact duplicate check against history
             if tc.name != "read_file":
                 for prev in self._tool_call_log:
-                    if prev["tool_name"] == tc.name and prev["arguments"] == tc.arguments:
+                    if (
+                        prev["tool_name"] == tc.name
+                        and prev["arguments"] == tc.arguments
+                        and prev.get("state_version_after", 0) == self._tool_state_version
+                    ):
                         redundant.append((tc, f"Duplicate: already called {tc.name} with same arguments"))
                         is_dup = True
                         break
@@ -3215,11 +5415,24 @@ When you complete each step, proceed to the next."""
                 path = tc.arguments.get("path", ".")
                 if path in (".", "./", ""):
                     for prev in self._tool_call_log:
-                        if prev["tool_name"] == "list_directory":
+                        if (
+                            prev["tool_name"] == "list_directory"
+                            and prev.get("state_version_after", 0) == self._tool_state_version
+                        ):
                             redundant.append((tc, "Duplicate: already listed directory"))
                             break
 
         return redundant
+
+    def _did_tool_call_change_state(self, tool_name: str, result: "ToolResult") -> bool:
+        """Return whether a tool call materially changed the agent's working state."""
+        if not result.success:
+            return True
+
+        if tool_name in {"write_file", "edit_file", "web_search", "web_extract"}:
+            return True
+
+        return False
 
     def _compute_run_metrics(self) -> Dict[str, Any]:
         """Compute run metrics from tool call log.
@@ -3308,9 +5521,8 @@ When you complete each step, proceed to the next."""
             metrics["total_tokens"] = self._total_tokens
             metrics["usage"] = self._usage_totals.copy()
             metrics["cost"] = self._current_cost()
-            metrics["context_usage"] = self._current_context_usage_payload(
-                self._pruner.estimate_tokens([{"role": "system", "content": self._system_prompt}])
-            )
+            metrics["context_usage"] = self._last_context_usage
+            metrics["stored_context"] = self._last_stored_context
             metrics["context_profile"] = self._context_profile_dict()
             metrics["compaction_count"] = self._compaction_count
             metrics["last_compacted_at_step"] = self._last_compacted_at_step
@@ -3348,6 +5560,10 @@ When you complete each step, proceed to the next."""
         event_callback: Optional[Callable[[Dict[str, Any]], None]],
         run_id: str,
         query: str,
+        conversation_id: Optional[str] = None,
+        working_memory: Optional[WorkingMemory] = None,
+        coding_session_state: Optional[CodingSessionState] = None,
+        coding_session_dirty: bool = False,
         forced_synthesis: bool = False,
     ) -> AgentResult:
         """Finalize a successful run and persist artifacts/metrics."""
@@ -3370,8 +5586,38 @@ When you complete each step, proceed to the next."""
 
         await state_machine.complete_run(final_answer)
 
+        if (
+            coding_session_dirty
+            and conversation_id
+            and working_memory is not None
+            and coding_session_state is not None
+        ):
+            await self._persist_coding_session_final_answer(
+                conversation_id=conversation_id,
+                run_id=run_id,
+                step_number=step_number,
+                final_answer=final_answer,
+                replay_eligible=not (
+                    forced_synthesis or self._coding_last_step_structural_failure
+                ),
+            )
+            await self._persist_coding_session_state(
+                conversation_id=conversation_id,
+                run_id=run_id,
+                working_memory=working_memory,
+                session_state=coding_session_state,
+                final_answer=final_answer,
+                reason="run_complete",
+            )
+            await self._refresh_coding_stored_context(
+                conversation_id=conversation_id,
+                session_state=coding_session_state,
+                working_memory=working_memory,
+            )
+
         total_timing_ms = int((time.perf_counter() - start_time) * 1000)
         context_usage = self._current_context_usage_payload(self._pruner.estimate_tokens(messages))
+        self._last_context_usage = context_usage
 
         self._emit(
             event_callback,
@@ -3383,6 +5629,7 @@ When you complete each step, proceed to the next."""
             total_steps=step_number,
             timing_ms=total_timing_ms,
             context_usage=context_usage,
+            stored_context=self._last_stored_context,
             context_profile=self._context_profile_dict(),
             compaction_count=self._compaction_count,
             last_compacted_at_step=self._last_compacted_at_step,
@@ -3416,6 +5663,7 @@ When you complete each step, proceed to the next."""
             timing_ms=total_timing_ms,
             total_tokens=self._total_tokens,
             context_usage=context_usage,
+            stored_context=self._last_stored_context,
             context_profile=self._context_profile_dict(),
             compaction_count=self._compaction_count,
             last_compacted_at_step=self._last_compacted_at_step,
@@ -3684,6 +5932,7 @@ When you complete each step, proceed to the next."""
             "content": synthesis_content,
         }
         messages = messages + [force_msg]
+        messages = self._normalize_system_messages(messages)
 
         self._emit(
             event_callback,

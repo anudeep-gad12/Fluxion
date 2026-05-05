@@ -88,6 +88,7 @@ def create_provider_for_model(model_string: str) -> Tuple[LLMProvider, "Resolved
     provider._reasoning_provider_family = resolved.provider_name
     provider._reasoning_request_param = resolved.reasoning_request_param
     provider._supports_reasoning = resolved.reasoning_effort is not None
+    provider._supports_vision = resolved.supports_vision
     provider._max_output_tokens = resolved.max_output_tokens
     provider._context_window = resolved.context_window
     provider._context_profile_provider_name = resolved.provider_name

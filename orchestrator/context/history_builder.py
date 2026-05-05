@@ -94,17 +94,19 @@ class HistoryBuilder:
 
             if turn_summary:
                 # Use compact summary as assistant message.
-                # Strip the "Q: ..." prefix if present — the user message
-                # is already in its own role:user message, so repeating it
-                # in the assistant content causes the model to echo it.
+                # Keep the outcome first. For legacy summaries, strip the
+                # leading "Q: ..." prefix because the user message is already
+                # in its own role:user message.
                 assistant_text = turn_summary
                 if assistant_text.startswith("Q: "):
                     # Remove everything up to " | A: " or " | Tools: "
-                    for sep in (" | A: ", " | Tools: ", " | Findings: "):
+                    for sep in (" | A: ", " | Findings: ", " | Tools: "):
                         idx = assistant_text.find(sep)
                         if idx != -1:
                             assistant_text = assistant_text[idx + len(sep):]
                             break
+                elif " | User asked: " in assistant_text:
+                    assistant_text = assistant_text.split(" | User asked: ", 1)[0]
 
                 pair_tokens = (
                     self._counter.count_tokens(user_msg or "") + self.MSG_OVERHEAD

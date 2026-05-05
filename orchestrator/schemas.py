@@ -20,6 +20,7 @@ class CreateRunRequest(BaseModel):
     prompt: str
     mode: str = "chat"
     profile: str = "chat"
+    image_attachments: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class CreateRunResponse(BaseModel):
@@ -47,6 +48,11 @@ class RunResponse(BaseModel):
     error_detail: Optional[str] = None
     # Thinking data for CoT mode
     thinking_summary: Optional[str] = None
+    usage: Optional[dict[str, Any]] = None
+    cost: Optional[dict[str, Any]] = None
+    context_usage: Optional[dict[str, Any]] = None
+    stored_context: Optional[dict[str, Any]] = None
+    context_profile: Optional[dict[str, Any]] = None
 
 
 class RunListResponse(BaseModel):
@@ -77,6 +83,7 @@ class ConversationResponse(BaseModel):
     created_at: str
     title: Optional[str] = None
     summary: Optional[str] = None
+    workspace_path: Optional[str] = None
     status: str
     metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -92,6 +99,7 @@ class CreateConversationRequest(BaseModel):
     """Request to create a conversation."""
 
     title: Optional[str] = None
+    workspace_path: Optional[str] = None
 
 
 class CreateConversationResponse(BaseModel):
@@ -106,6 +114,7 @@ class CreateConversationRunRequest(BaseModel):
     message: str
     thinking_mode: str = "default"  # "default" or "thinking" (maps to strategy via config)
     reasoning_effort: Optional[str] = None  # "low", "medium", "high" for native reasoning models
+    image_attachments: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class ConversationDetailResponse(BaseModel):
@@ -357,6 +366,7 @@ class CreateAgentRunRequest(BaseModel):
     python_provider: Optional[str] = (
         None  # "local" or "daytona" — overrides PYTHON_PROVIDER env var
     )
+    image_attachments: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class CreateAgentRunResponse(BaseModel):
@@ -383,6 +393,7 @@ class AgentRunStatusResponse(BaseModel):
     usage: Optional[dict[str, Any]] = None
     cost: Optional[dict[str, Any]] = None
     context_usage: Optional[dict[str, Any]] = None
+    stored_context: Optional[dict[str, Any]] = None
     context_profile: Optional[ModelContextProfileResponse] = None
     compaction_count: int = 0
     last_compacted_at_step: Optional[int] = None
@@ -418,6 +429,7 @@ class AgentRunTraceResponse(BaseModel):
     usage: Optional[dict[str, Any]] = None
     cost: Optional[dict[str, Any]] = None
     context_usage: Optional[dict[str, Any]] = None
+    stored_context: Optional[dict[str, Any]] = None
     context_profile: Optional[ModelContextProfileResponse] = None
     compaction_count: int = 0
     last_compacted_at_step: Optional[int] = None
@@ -455,6 +467,7 @@ class ModelStatusResponse(BaseModel):
     effective_input_budget: int = 24576
     supports_tools: bool = True
     supports_reasoning: bool = False
+    supports_vision: bool = False
     provider_family: str = "generic"
     reasoning_capabilities: Optional[ReasoningCapabilities] = None
     source: str = "config_fallback"
@@ -477,6 +490,7 @@ class CustomProviderRequest(BaseModel):
     max_output_tokens: int = 8192
     supports_tools: bool = True
     supports_reasoning: bool = False
+    supports_vision: bool = False
     reasoning_request_param: Optional[str] = None
     input_cost_per_million: Optional[float] = None
     cached_input_cost_per_million: Optional[float] = None
@@ -494,6 +508,16 @@ class UpdateReasoningSettingsRequest(BaseModel):
 
 def trace_to_run(trace: dict) -> RunResponse:
     """Convert a trace dict to RunResponse."""
+    usage_stats = trace.get("usage") or {}
+    normalized_usage = usage_stats.get("usage")
+    if normalized_usage is None and "total_tokens" in usage_stats:
+        normalized_usage = {
+            "input_tokens": usage_stats.get("prompt_tokens", 0),
+            "output_tokens": usage_stats.get("completion_tokens", 0),
+            "reasoning_tokens": usage_stats.get("thinking_tokens", 0),
+            "cached_tokens": 0,
+            "total_tokens": usage_stats.get("total_tokens", 0),
+        }
     return RunResponse(
         run_id=trace.get("run_id", ""),
         created_at=trace.get("created_at", ""),
@@ -506,4 +530,9 @@ def trace_to_run(trace: dict) -> RunResponse:
         final_answer=trace.get("final_answer"),
         error_detail=trace.get("error_message"),
         thinking_summary=trace.get("thinking_summary"),
+        usage=normalized_usage,
+        cost=usage_stats.get("cost"),
+        context_usage=usage_stats.get("context_usage"),
+        stored_context=usage_stats.get("stored_context"),
+        context_profile=usage_stats.get("context_profile"),
     )

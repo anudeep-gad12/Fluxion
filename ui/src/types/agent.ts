@@ -128,6 +128,11 @@ export interface CreateAgentRunRequest {
     bash: boolean;
     python: boolean;
   };
+  image_attachments?: Array<{
+    name: string;
+    mime_type: string;
+    data_url: string;
+  }>;
 }
 
 /** Response from creating agent run */
@@ -151,6 +156,7 @@ export interface AgentRunStatus {
   usage?: TokenUsage;
   cost?: CostUsage | null;
   context_usage?: ContextUsage;
+  stored_context?: StoredContextUsage;
   context_profile?: ModelContextProfile;
   compaction_count: number;
   last_compacted_at_step?: number;
@@ -171,6 +177,7 @@ export interface AgentRunTrace {
   usage?: TokenUsage;
   cost?: CostUsage | null;
   context_usage?: ContextUsage;
+  stored_context?: StoredContextUsage;
   context_profile?: ModelContextProfile;
   compaction_count: number;
   last_compacted_at_step?: number;
@@ -222,6 +229,7 @@ export interface StepStartEvent extends AgentSSEEventBase {
   context_tokens?: number;
   context_remaining?: number;
   context_usage?: ContextUsage;
+  stored_context?: StoredContextUsage;
   context_profile?: ModelContextProfile;
   compaction_count?: number;
   last_compacted_at_step?: number;
@@ -291,6 +299,14 @@ export interface ContextUsage {
   last_compacted_at_step?: number;
 }
 
+/** Replayable stored conversation context usage. */
+export interface StoredContextUsage {
+  context_window: number;
+  stored_tokens: number;
+  utilization_pct: number;
+  replayable_entry_count: number;
+}
+
 /** Normalized token usage. */
 export interface TokenUsage {
   input_tokens: number;
@@ -320,6 +336,7 @@ export interface UsageUpdateEvent extends AgentSSEEventBase {
   latest_usage?: TokenUsage;
   cost?: CostUsage | null;
   context_usage?: ContextUsage;
+  stored_context?: StoredContextUsage;
   context_profile?: ModelContextProfile;
   compaction_count?: number;
   last_compacted_at_step?: number;
@@ -337,6 +354,7 @@ export interface CompleteEvent extends AgentSSEEventBase {
   usage?: TokenUsage;
   cost?: CostUsage | null;
   context_usage?: ContextUsage;
+  stored_context?: StoredContextUsage;
   context_profile?: ModelContextProfile;
   compaction_count?: number;
   last_compacted_at_step?: number;
@@ -366,6 +384,7 @@ export interface ConversationCompactedEvent extends AgentSSEEventBase {
   message: string;
   step_number?: number;
   context_usage?: ContextUsage;
+  stored_context?: StoredContextUsage;
   context_profile?: ModelContextProfile;
   compaction_count?: number;
 }
@@ -405,6 +424,7 @@ export interface AgentUIState {
   timing_ms?: number;
   total_tokens?: number;
   context_usage?: ContextUsage;
+  stored_context?: StoredContextUsage;
   usage?: TokenUsage;
   cost?: CostUsage | null;
   context_tokens?: number;

@@ -37,7 +37,9 @@ from orchestrator.schemas import (
     RunArtifactResponse,
 )
 from orchestrator.storage.db import get_db
+from orchestrator.routes.workspaces import _resolve_workspace_path
 from orchestrator.services.reasoning_settings import get_runtime_reasoning_settings
+from orchestrator.conversation_titles import conversation_title_from_message
 from orchestrator.storage.repositories.agent_repo import AgentRepo
 from orchestrator.storage.repositories.trace_repo import TraceRepo
 
@@ -253,6 +255,7 @@ async def _run_agent_task(
     python_provider: Optional[str] = None,
     agent_capabilities: Optional[dict] = None,
     reasoning_settings: Optional[ReasoningSettings] = None,
+    image_attachments: Optional[list[dict]] = None,
 ) -> None:
     """Background task that runs the agent.
 
@@ -396,6 +399,7 @@ async def _run_agent_task(
                 "context_profile": engine._context_profile_dict(),
                 "compaction_count": 0,
                 "last_compacted_at_step": None,
+                "stored_context": None,
             },
         )
 
@@ -407,6 +411,7 @@ async def _run_agent_task(
             pause_signal=_pause_signals.get(run_id),
             resume_signal=_resume_signals.get(run_id),
             steer_queue=_steer_queues.get(run_id),
+            image_attachments=image_attachments,
         )
 
         if abort_signal and not abort_signal.is_set():
@@ -423,6 +428,7 @@ async def _run_agent_task(
                     "usage": result.usage,
                     "cost": result.cost,
                     "context_usage": result.context_usage,
+                    "stored_context": result.stored_context,
                     "context_profile": result.context_profile,
                     "compaction_count": result.compaction_count,
                     "last_compacted_at_step": result.last_compacted_at_step,
@@ -518,13 +524,21 @@ async def create_agent_run(request: CreateAgentRunRequest, http_request: Request
 
         # Generate conversation_id if not provided, and create ephemeral conversation
         conversation_id = request.conversation_id
+        workspace_path: Optional[str] = None
         if not conversation_id:
             conversation_id = str(uuid.uuid4())
             # Create ephemeral conversation for standalone agent runs
-            title = request.query[:64] + "..." if len(request.query) > 64 else request.query
+            title = conversation_title_from_message(request.query)
+            requested_workspace = request.workspace_path or request.working_dir
+            workspace_path = (
+                str(_resolve_workspace_path(requested_workspace))
+                if requested_workspace
+                else None
+            )
             await conv_repo.create(
                 conversation_id=conversation_id,
                 title=title,
+                workspace_path=workspace_path,
                 session_id=session_id,
             )
         else:
@@ -536,8 +550,13 @@ async def create_agent_run(request: CreateAgentRunRequest, http_request: Request
             )
             if not conversation:
                 raise HTTPException(status_code=404, detail="Conversation not found")
+            workspace_path = conversation.get("workspace_path")
+            if not conversation.get("title") or conversation.get("title") == "New conversation":
+                await conv_repo.update(
+                    conversation_id=conversation_id,
+                    title=conversation_title_from_message(request.query),
+                )
 
-        workspace_path = request.workspace_path or request.working_dir
         capabilities = request.capabilities.model_dump()
         if workspace_path and request.filesystem_enabled:
             capabilities["filesystem"] = True
@@ -551,6 +570,7 @@ async def create_agent_run(request: CreateAgentRunRequest, http_request: Request
             "capabilities": capabilities,
             "permission_policy": request.permission_policy,
             "reasoning_settings": reasoning_settings.model_dump(),
+            "image_attachments_count": len(request.image_attachments),
         }
 
         await trace_repo.create_run(
@@ -591,6 +611,7 @@ async def create_agent_run(request: CreateAgentRunRequest, http_request: Request
                 python_provider=request.python_provider,
                 agent_capabilities=capabilities,
                 reasoning_settings=reasoning_settings,
+                image_attachments=request.image_attachments,
             )
         )
 
@@ -674,6 +695,7 @@ async def get_agent_run_status(run_id: str, http_request: Request):
         usage=usage_stats.get("usage"),
         cost=usage_stats.get("cost"),
         context_usage=usage_stats.get("context_usage"),
+        stored_context=usage_stats.get("stored_context"),
         context_profile=usage_stats.get("context_profile"),
         compaction_count=usage_stats.get("compaction_count", 0),
         last_compacted_at_step=usage_stats.get("last_compacted_at_step"),
@@ -1132,6 +1154,7 @@ async def get_agent_run_trace(run_id: str, http_request: Request):
         usage=usage_stats.get("usage"),
         cost=usage_stats.get("cost"),
         context_usage=usage_stats.get("context_usage"),
+        stored_context=usage_stats.get("stored_context"),
         context_profile=usage_stats.get("context_profile"),
         compaction_count=usage_stats.get("compaction_count", 0),
         last_compacted_at_step=usage_stats.get("last_compacted_at_step"),

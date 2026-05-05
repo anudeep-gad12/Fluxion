@@ -1,14 +1,45 @@
-// Conversation list - shows chats in the sidebar with multi-select
+// Conversation list - grouped by workspace folder
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import type { ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { listConversations, deleteConversation } from '@/api/client';
+import { deleteConversation, listConversations } from '@/api/client';
 import { useStore, useHasActiveRun } from '@/hooks/useStore';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/dialog';
+import { WorkspacePickerDialog } from '@/components/WorkspacePickerDialog';
 import { cn, formatRelativeTime, truncate } from '@/lib/utils';
-import { Plus, Trash2, MessageSquare, CheckSquare, Square, X } from 'lucide-react';
+import {
+  CheckSquare,
+  ChevronDown,
+  ChevronRight,
+  Plus,
+  Square,
+  Trash2,
+  X,
+} from 'lucide-react';
 import type { Conversation } from '@/types';
+
+function workspaceLabel(workspacePath: string): string {
+  return workspacePath.split('/').filter(Boolean).pop() || workspacePath;
+}
+
+function workspacePathPreview(workspacePath: string): string {
+  const normalized = workspacePath.trim();
+  if (!normalized) return '';
+  const parts = normalized.split('/').filter(Boolean);
+  if (parts.length <= 3) {
+    return normalized;
+  }
+  return `…/${parts.slice(-3).join('/')}`;
+}
+
+type WorkspaceGroup = {
+  workspacePath: string;
+  label: string;
+  conversations: Conversation[];
+  latestCreatedAt: string;
+};
 
 function ConversationCard({
   conversation,
@@ -30,16 +61,17 @@ function ConversationCard({
   return (
     <div
       className={cn(
-        'rounded-none border px-3 py-3 sm:py-2 cursor-pointer transition-colors',
-        'min-h-[60px] sm:min-h-0', // Ensure touch-friendly height on mobile
-        isSelected ? 'border-zinc-400 bg-zinc-900' : 'hover:bg-zinc-800',
-        isChecked && 'bg-zinc-800 border-zinc-500'
+        'cursor-pointer rounded-lg border border-zinc-800/80 bg-zinc-950/40 px-3 py-3 transition-all',
+        'min-h-[60px] sm:min-h-0',
+        isSelected && 'border-zinc-600 bg-zinc-900/80 shadow-[0_0_0_1px_rgba(255,255,255,0.04)]',
+        !isSelected && 'hover:border-zinc-700 hover:bg-zinc-900/55',
+        isChecked && 'border-zinc-600 bg-zinc-900/70'
       )}
       onClick={isSelectMode ? onToggleCheck : onClick}
     >
       <div className="flex items-start justify-between gap-3">
         {isSelectMode && (
-          <div className="pt-1">
+          <div className="pt-1.5">
             {isChecked ? (
               <CheckSquare className="h-5 w-5 sm:h-4 sm:w-4 text-zinc-400" />
             ) : (
@@ -48,10 +80,10 @@ function ConversationCard({
           </div>
         )}
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium truncate">
+          <p className="truncate text-sm font-medium text-zinc-100">
             {conversation.title ? truncate(conversation.title, 50) : 'New conversation'}
           </p>
-          <p className="text-xs text-muted-foreground mt-1">
+          <p className="mt-1 text-xs text-zinc-500">
             {formatRelativeTime(conversation.created_at)}
           </p>
         </div>
@@ -59,16 +91,83 @@ function ConversationCard({
           <Button
             variant="ghost"
             size="icon"
-            className="h-9 w-9 sm:h-8 sm:w-8 flex-shrink-0"
+            className="h-8 w-8 flex-shrink-0 rounded-md text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200"
             onClick={(e) => {
               e.stopPropagation();
               onDelete();
             }}
           >
-            <Trash2 className="h-4 w-4 text-zinc-500 hover:text-zinc-200" />
+            <Trash2 className="h-4 w-4" />
           </Button>
         )}
       </div>
+    </div>
+  );
+}
+
+function WorkspaceSection({
+  group,
+  isOpen,
+  onToggle,
+  onNewConversation,
+  children,
+}: {
+  group: WorkspaceGroup;
+  isOpen: boolean;
+  onToggle: () => void;
+  onNewConversation: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <div className="space-y-2.5">
+      <div className="group rounded-xl border border-zinc-800/80 bg-zinc-950/55 px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)] transition-colors hover:border-zinc-700 hover:bg-zinc-900/60">
+        <div className="flex items-start gap-3.5">
+          <button
+            onClick={onToggle}
+            className="mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md border border-zinc-800 bg-zinc-900/80 text-zinc-500 transition-colors hover:border-zinc-700 hover:text-zinc-300"
+            title={isOpen ? 'Collapse workspace' : 'Expand workspace'}
+          >
+            {isOpen ? (
+              <ChevronDown className="h-3.5 w-3.5" />
+            ) : (
+              <ChevronRight className="h-3.5 w-3.5" />
+            )}
+          </button>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <button
+                  onClick={onToggle}
+                  className="block min-w-0 text-left"
+                  title={group.workspacePath}
+                >
+                  <div className="truncate pr-2 text-[15px] font-medium leading-5 text-zinc-100">
+                    {group.label}
+                  </div>
+                </button>
+                <div className="mt-1.5 truncate pr-2 font-mono text-[11px] leading-5 text-zinc-500">
+                  {workspacePathPreview(group.workspacePath)}
+                </div>
+              </div>
+              <div className="flex flex-shrink-0 items-center gap-2 pt-0.5">
+                <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full border border-zinc-800 bg-zinc-900 px-1.5 text-[10px] text-zinc-400">
+                  {group.conversations.length}
+                </span>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-8 w-8 flex-shrink-0 rounded-md text-zinc-500 hover:bg-zinc-800 hover:text-zinc-100"
+                  onClick={onNewConversation}
+                  title="New conversation in this workspace"
+                >
+                  <Plus className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      {isOpen && <div className="space-y-2 pl-4">{children}</div>}
     </div>
   );
 }
@@ -79,14 +178,19 @@ export function ConversationList() {
   const selectedConversationId = useStore((s) => s.selectedConversationId);
   const setConversations = useStore((s) => s.setConversations);
   const removeConversation = useStore((s) => s.removeConversation);
+  const selectConversation = useStore((s) => s.selectConversation);
+  const setDraftWorkspacePath = useStore((s) => s.setDraftWorkspacePath);
+  const rememberWorkspacePath = useStore((s) => s.rememberWorkspacePath);
+  const draftWorkspacePath = useStore((s) => s.draftWorkspacePath);
+  const workspacePaths = useStore((s) => s.workspacePaths);
   const hasActiveRun = useHasActiveRun();
   const [isLoading, setIsLoading] = useState(false);
+  const [workspacePickerOpen, setWorkspacePickerOpen] = useState(false);
+  const [workspaceSectionsOpen, setWorkspaceSectionsOpen] = useState<Record<string, boolean>>({});
 
-  // Delete modal state
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [conversationToDelete, setConversationToDelete] = useState<string | null>(null);
 
-  // Multi-select state
   const [isSelectMode, setIsSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkDeleteModalOpen, setBulkDeleteModalOpen] = useState(false);
@@ -96,7 +200,16 @@ export function ConversationList() {
       setIsLoading(true);
       try {
         const data = await listConversations();
-        setConversations(data.conversations);
+        const workspaceConversations = data.conversations.filter((conversation) =>
+          Boolean(conversation.workspace_path?.trim())
+        );
+        const generalConversationIds = data.conversations
+          .filter((conversation) => !conversation.workspace_path?.trim())
+          .map((conversation) => conversation.conversation_id);
+        setConversations(workspaceConversations);
+        if (generalConversationIds.length > 0) {
+          await Promise.allSettled(generalConversationIds.map((conversationId) => deleteConversation(conversationId)));
+        }
       } catch (error) {
         console.error('Failed to fetch conversations:', error);
       } finally {
@@ -107,11 +220,66 @@ export function ConversationList() {
     fetchConversations();
   }, [setConversations]);
 
-  const handleNewConversation = () => {
-    // Block during active run to prevent queue overflow
+  const workspaceGroups = useMemo(() => {
+    const groups = new Map<string, WorkspaceGroup>();
+    for (const workspacePath of workspacePaths) {
+      const normalized = workspacePath.trim();
+      if (!normalized || groups.has(normalized)) continue;
+      groups.set(normalized, {
+        workspacePath: normalized,
+        label: workspaceLabel(normalized),
+        conversations: [],
+        latestCreatedAt: '',
+      });
+    }
+
+    for (const conversation of conversations) {
+      const workspacePath = conversation.workspace_path?.trim();
+      if (!workspacePath) continue;
+      const existing = groups.get(workspacePath);
+      if (existing) {
+        existing.conversations.push(conversation);
+        if (conversation.created_at > existing.latestCreatedAt) {
+          existing.latestCreatedAt = conversation.created_at;
+        }
+      } else {
+        groups.set(workspacePath, {
+          workspacePath,
+          label: workspaceLabel(workspacePath),
+          conversations: [conversation],
+          latestCreatedAt: conversation.created_at,
+        });
+      }
+    }
+
+    return Array.from(groups.values())
+      .map((group) => ({
+        ...group,
+        conversations: [...group.conversations].sort((a, b) => b.created_at.localeCompare(a.created_at)),
+      }))
+      .sort((a, b) => b.latestCreatedAt.localeCompare(a.latestCreatedAt));
+  }, [conversations, workspacePaths]);
+
+  useEffect(() => {
+    setWorkspaceSectionsOpen((current) => {
+      const next = { ...current };
+      let changed = false;
+      for (const group of workspaceGroups) {
+        if (!(group.workspacePath in next)) {
+          next[group.workspacePath] = false;
+          changed = true;
+        }
+      }
+      return changed ? next : current;
+    });
+  }, [workspaceGroups]);
+
+  const startWorkspaceDraft = (workspacePath: string) => {
     if (hasActiveRun) return;
-    // Just navigate to /conversations to show empty "new conversation" state
-    // The actual conversation will be created when user sends first message
+    selectConversation(null);
+    rememberWorkspacePath(workspacePath);
+    setDraftWorkspacePath(workspacePath);
+    setWorkspaceSectionsOpen((current) => ({ ...current, [workspacePath]: true }));
     navigate('/conversations');
   };
 
@@ -126,7 +294,6 @@ export function ConversationList() {
     try {
       await deleteConversation(conversationToDelete);
       removeConversation(conversationToDelete);
-      // If we deleted the currently selected conversation, navigate away
       if (wasSelected) {
         navigate('/conversations');
       }
@@ -164,66 +331,95 @@ export function ConversationList() {
     setIsSelectMode(false);
   };
 
+  const allWorkspaceSectionsOpen = useMemo(
+    () =>
+      workspaceGroups.length > 0
+      && workspaceGroups.every((group) => workspaceSectionsOpen[group.workspacePath] ?? false),
+    [workspaceGroups, workspaceSectionsOpen]
+  );
+
+  const setAllWorkspaceSections = (isOpen: boolean) => {
+    setWorkspaceSectionsOpen(
+      Object.fromEntries(
+        workspaceGroups.map((group) => [group.workspacePath, isOpen])
+      )
+    );
+  };
+
   return (
     <div className="h-full flex flex-col">
-      <div className="flex items-center justify-between px-3 sm:px-4 py-3 border-b">
-        <div className="flex items-center gap-2">
-          <MessageSquare className="h-4 w-4 text-zinc-400" />
-          <h2 className="font-semibold text-sm">Conversations</h2>
-        </div>
-        <div className="flex items-center gap-1">
-          {isSelectMode && (
+      <div className="border-b border-zinc-900 px-3 py-3 sm:px-4">
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-zinc-500">
+            Workspaces
+          </div>
+          <div className="flex items-center gap-1">
             <Button
               size="sm"
               variant="ghost"
-              onClick={() => {
-                if (selectedIds.size === conversations.length) {
-                  setSelectedIds(new Set());
-                } else {
-                  setSelectedIds(new Set(conversations.map(c => c.conversation_id)));
-                }
-              }}
-              title={selectedIds.size === conversations.length ? "Deselect all" : "Select all"}
-              className="h-9 sm:h-8"
+              onClick={() => setAllWorkspaceSections(!allWorkspaceSectionsOpen)}
+              disabled={workspaceGroups.length === 0}
+              className="h-9 w-9 rounded-md p-0 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
+              title={allWorkspaceSectionsOpen ? 'Collapse all' : 'Expand all'}
             >
-              {selectedIds.size === conversations.length ? 'None' : 'All'}
+              {allWorkspaceSectionsOpen ? (
+                <ChevronDown className="h-4 w-4" />
+              ) : (
+                <ChevronRight className="h-4 w-4" />
+              )}
             </Button>
-          )}
-          <Button
-            size="sm"
-            variant={isSelectMode ? "secondary" : "ghost"}
-            onClick={toggleSelectMode}
-            title={isSelectMode ? "Cancel selection" : "Select conversations"}
-            className="h-9 w-9 sm:h-8 sm:w-8"
-          >
-            {isSelectMode ? <X className="h-4 w-4" /> : <CheckSquare className="h-4 w-4" />}
-          </Button>
-          <span title={hasActiveRun ? "Active run in progress — cannot start new conversation until complete" : "New conversation"}>
             <Button
               size="sm"
               variant="ghost"
-              onClick={handleNewConversation}
+              onClick={() => setWorkspacePickerOpen(true)}
               disabled={hasActiveRun}
-              className="h-9 sm:h-8"
+              className="h-9 w-9 rounded-md p-0 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100"
+              title="Create workspace"
             >
               <Plus className="h-4 w-4" />
-              New
             </Button>
-          </span>
+            {isSelectMode && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  if (selectedIds.size === conversations.length) {
+                    setSelectedIds(new Set());
+                  } else {
+                    setSelectedIds(
+                      new Set(
+                        conversations.map((conversation) => conversation.conversation_id)
+                      )
+                    );
+                  }
+                }}
+                title={selectedIds.size === conversations.length ? 'Deselect all' : 'Select all'}
+                className="h-9 rounded-md px-2 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100 sm:h-8"
+              >
+                {selectedIds.size === conversations.length ? 'None' : 'All'}
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant={isSelectMode ? 'secondary' : 'ghost'}
+              onClick={toggleSelectMode}
+              title={isSelectMode ? 'Cancel selection' : 'Select conversations'}
+              className="h-9 w-9 rounded-md sm:h-8 sm:w-8"
+            >
+              {isSelectMode ? <X className="h-4 w-4" /> : <CheckSquare className="h-4 w-4" />}
+            </Button>
+          </div>
         </div>
       </div>
 
-      {/* Bulk delete bar */}
       {isSelectMode && selectedIds.size > 0 && (
-        <div className="px-3 sm:px-4 py-2 bg-zinc-800 border-b flex items-center justify-between">
-          <span className="text-sm text-zinc-300">
-            {selectedIds.size} selected
-          </span>
+        <div className="flex items-center justify-between border-b border-zinc-800 bg-zinc-900/80 px-3 py-2 sm:px-4">
+          <span className="text-sm text-zinc-300">{selectedIds.size} selected</span>
           <Button
             size="sm"
             variant="destructive"
             onClick={() => setBulkDeleteModalOpen(true)}
-            className="h-9 sm:h-8"
+            className="h-9 rounded-md sm:h-8"
           >
             <Trash2 className="h-4 w-4" />
             Delete
@@ -231,28 +427,65 @@ export function ConversationList() {
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-2">
+      <div className="flex-1 space-y-4 overflow-y-auto bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.03),_transparent_40%)] p-3 sm:p-4">
         {isLoading && conversations.length === 0 ? (
           <div className="text-sm text-muted-foreground">Loading conversations...</div>
-        ) : conversations.length === 0 ? (
-          <div className="text-sm text-muted-foreground">No conversations yet.</div>
+        ) : workspaceGroups.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-zinc-800 bg-zinc-950/40 px-4 py-6 text-sm text-zinc-500">
+            No workspaces yet.
+          </div>
         ) : (
-          conversations.map((conversation) => (
-            <ConversationCard
-              key={conversation.conversation_id}
-              conversation={conversation}
-              isSelected={conversation.conversation_id === selectedConversationId}
-              isSelectMode={isSelectMode}
-              isChecked={selectedIds.has(conversation.conversation_id)}
-              onClick={() => navigate(`/conversations/${conversation.conversation_id}`)}
-              onDelete={() => handleDeleteClick(conversation.conversation_id)}
-              onToggleCheck={() => toggleCheck(conversation.conversation_id)}
-            />
-          ))
+          <>
+            {workspaceGroups.map((group) => (
+              <WorkspaceSection
+                key={group.workspacePath}
+                group={group}
+                isOpen={workspaceSectionsOpen[group.workspacePath] ?? false}
+                onToggle={() => setWorkspaceSectionsOpen((current) => ({
+                  ...current,
+                  [group.workspacePath]: !(current[group.workspacePath] ?? false),
+                }))}
+                onNewConversation={() => startWorkspaceDraft(group.workspacePath)}
+              >
+                {group.conversations.length === 0 ? (
+                  <button
+                    onClick={() => startWorkspaceDraft(group.workspacePath)}
+                    className="w-full rounded-lg border border-dashed border-zinc-800 bg-zinc-950/40 px-3 py-3 text-left text-xs text-zinc-500 transition-colors hover:border-zinc-700 hover:bg-zinc-900/40 hover:text-zinc-300"
+                  >
+                    New conversation
+                  </button>
+                ) : (
+                  group.conversations.map((conversation) => (
+                    <ConversationCard
+                      key={conversation.conversation_id}
+                      conversation={conversation}
+                      isSelected={conversation.conversation_id === selectedConversationId}
+                      isSelectMode={isSelectMode}
+                      isChecked={selectedIds.has(conversation.conversation_id)}
+                      onClick={() => navigate(`/conversations/${conversation.conversation_id}`)}
+                      onDelete={() => handleDeleteClick(conversation.conversation_id)}
+                      onToggleCheck={() => toggleCheck(conversation.conversation_id)}
+                    />
+                  ))
+                )}
+              </WorkspaceSection>
+            ))}
+          </>
         )}
       </div>
 
-      {/* Single delete modal */}
+      <WorkspacePickerDialog
+        open={workspacePickerOpen}
+        onOpenChange={setWorkspacePickerOpen}
+        value={draftWorkspacePath}
+        onSelect={(workspacePath) => {
+          selectConversation(null);
+          rememberWorkspacePath(workspacePath);
+          setDraftWorkspacePath(workspacePath);
+          navigate('/conversations');
+        }}
+      />
+
       <ConfirmDialog
         open={deleteModalOpen}
         onOpenChange={setDeleteModalOpen}
@@ -264,7 +497,6 @@ export function ConversationList() {
         variant="destructive"
       />
 
-      {/* Bulk delete modal */}
       <ConfirmDialog
         open={bulkDeleteModalOpen}
         onOpenChange={setBulkDeleteModalOpen}

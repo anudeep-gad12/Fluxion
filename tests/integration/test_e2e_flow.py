@@ -48,10 +48,12 @@ def test_db():
 
     # Patch get_db everywhere
     with patch("orchestrator.storage.db.get_db", mock_get_db):
-        with patch("orchestrator.routes.conversations.get_db", mock_get_db):
-            with patch("orchestrator.routes.runs.get_db", mock_get_db):
-                with patch("orchestrator.engine.chat_engine.get_db", mock_get_db):
-                    yield database
+        with patch("orchestrator.app.get_db", mock_get_db):
+            with patch("orchestrator.routes.conversations.get_db", mock_get_db):
+                with patch("orchestrator.routes.runs.get_db", mock_get_db):
+                    with patch("orchestrator.engine.chat_engine.get_db", mock_get_db):
+                        with patch("orchestrator.services.reasoning_settings.get_db", mock_get_db):
+                            yield database
 
     # Cleanup - don't close the loop, just the database
     loop.run_until_complete(database.close())
@@ -131,6 +133,20 @@ class TestConversationEndpoints:
         data = response.json()
         assert "conversations" in data
         assert len(data["conversations"]) == 2
+
+    def test_create_conversation_with_workspace_path(self, client, tmp_path):
+        """POST /api/conversations stores normalized workspace path."""
+        response = client.post(
+            "/api/conversations",
+            json={"title": "Workspace", "workspace_path": str(tmp_path)}
+        )
+
+        assert response.status_code == 200
+        conversation_id = response.json()["conversation_id"]
+
+        detail = client.get(f"/api/conversations/{conversation_id}")
+        assert detail.status_code == 200
+        assert detail.json()["conversation"]["workspace_path"] == str(tmp_path.resolve())
 
     def test_get_conversation_detail(self, client):
         """GET /api/conversations/{id} returns conversation with runs."""

@@ -138,6 +138,60 @@ class Database:
             )
             """,
         )
+        # Migration 13: Persistent coding-session state
+        await self._create_table_if_not_exists(
+            "coding_sessions",
+            """
+            CREATE TABLE IF NOT EXISTS coding_sessions (
+                conversation_id TEXT PRIMARY KEY,
+                state_json TEXT NOT NULL,
+                last_run_id TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY(conversation_id) REFERENCES conversations(conversation_id) ON DELETE CASCADE,
+                FOREIGN KEY(last_run_id) REFERENCES runs(run_id) ON DELETE SET NULL
+            )
+            """,
+        )
+        await self._connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_coding_sessions_updated_at ON coding_sessions(updated_at)"
+        )
+        # Migration 14: Replayable coding-session entries
+        await self._create_table_if_not_exists(
+            "coding_session_entries",
+            """
+            CREATE TABLE IF NOT EXISTS coding_session_entries (
+                id TEXT PRIMARY KEY,
+                conversation_id TEXT NOT NULL,
+                seq INTEGER NOT NULL,
+                run_id TEXT NOT NULL,
+                step_number INTEGER,
+                entry_type TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content_json TEXT NOT NULL,
+                token_estimate INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                compacted_at TEXT,
+                UNIQUE(conversation_id, seq),
+                FOREIGN KEY(conversation_id) REFERENCES conversations(conversation_id) ON DELETE CASCADE,
+                FOREIGN KEY(run_id) REFERENCES runs(run_id) ON DELETE CASCADE
+            )
+            """,
+        )
+        await self._connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_coding_session_entries_conversation_seq "
+            "ON coding_session_entries(conversation_id, seq)"
+        )
+        await self._connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_coding_session_entries_compacted "
+            "ON coding_session_entries(conversation_id, compacted_at, seq)"
+        )
+        # Migration 15: Workspace-scoped conversations
+        await self._add_column_if_not_exists("conversations", "workspace_path", "TEXT")
+        await self._connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_conversations_workspace_path "
+            "ON conversations(workspace_path)"
+        )
 
     async def _create_table_if_not_exists(
         self, table: str, create_sql: str

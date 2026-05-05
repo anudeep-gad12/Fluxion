@@ -1296,7 +1296,10 @@ class BaseTool(Protocol):
 
 **Current Agent Context Note**:
 - chat history still uses `HistoryBuilder` / `turn_summary`
-- agent cross-turn continuation now primarily uses persisted `runs.agent_state`
+- coding-profile continuation now rebuilds from persisted `coding_session_entries` as `checkpoint summary + restored file evidence + preserved raw tail`, plus a tiny neutral metadata block from `coding_sessions.state_json`
+- `coding_sessions.state_json` is bookkeeping-only (`objective`, read/modified files, file evidence, recent commands); it is not a narrative truth layer
+- replay-ineligible assistant fallback turns can stay persisted for debugging but are filtered out of future prompt replay
+- `runs.agent_state` remains a trace/debug scaffold snapshot, not the durable coding continuity source
 - agent prompt assembly uses bounded tool-result formatting plus threshold-based compaction in `AgentEngine`
 
 ---
@@ -1327,6 +1330,8 @@ class BaseTool(Protocol):
 - `conversations` - Conversation metadata
 - `runs` - Chat/agent runs
 - `trace_events` - Granular event timeline
+- `coding_sessions` - Persistent coding-profile bookkeeping state per conversation
+- `coding_session_entries` - Replayable coding-session transcript entries used to rebuild future coding prompts in transcript order
 - `agent_steps` - Agent step tracking
 - `agent_tool_calls` - Tool execution records (includes approval fields)
 - `agent_citations` - Evidence sources
@@ -1383,6 +1388,8 @@ async with self._seq_lock:
 - `create_step()`, `update_step()` - Step lifecycle
 - `add_tool_call()`, `update_tool_call()` - Tool tracking
 - `add_citation()`, `get_citations()` - Evidence management
+- `get_coding_session_state()`, `upsert_coding_session_state()` - Per-conversation coding bookkeeping state
+- `append_coding_session_entries()`, `insert_coding_session_entry()`, `list_coding_session_entries()`, `mark_coding_session_entries_compacted()` - Durable coding-session transcript storage and replay/compaction helpers, including checkpoint insertion at a compaction boundary
 - `get_agent_trace()` - Full trace assembly
 
 ### `orchestrator/storage/repositories/terminal_repo.py`
@@ -1464,10 +1471,10 @@ async with self._seq_lock:
 
 | Element | Type | Description |
 |---------|------|-------------|
-| `MODEL_DIRS` | List[Path] | Directories to scan for .gguf files |
+| `MODEL_DIRS` | List[Path] | LM Studio directories to scan for local models |
 | `LLAMA_PORT` | int | Default port (8080) |
 | `LocalModel` | dataclass | Model metadata (path, name, size) |
-| `scan_models()` | function | Scans all MODEL_DIRS for .gguf files |
+| `scan_models()` | function | Scans LM Studio directories and excludes Ollama subfolders |
 | `start()` | async function | Starts llama-server with `--jinja` flag, waits for health |
 | `stop()` | async function | Graceful SIGTERM shutdown |
 | `is_running()` | async function | Health check via HTTP GET |
@@ -1975,6 +1982,10 @@ Built with the [Textual](https://textual.textualize.io/) framework. Always uses 
 - During active agent runs, textarea shows "Steer the agent..." placeholder and send button displays "steer" in amber
 - Queued steer message chips appear above textarea and are cleared after injection
 - Usage counter shows "X left" when message limits are enabled; input disabled at limit with 429 toast handling
+- Agent composer footer shows:
+  - `ctx` = replayable stored conversation context currently persisted for future turns
+  - `stored_tokens/context_window`
+  - `raw` = conversation-lifetime provider token total across all runs in the thread
 
 ### `ui/src/components/IntegratedTerminal.tsx`
 
@@ -2109,6 +2120,7 @@ Built with the [Textual](https://textual.textualize.io/) framework. Always uses 
 - Inline thinking for current step
 - ToolCallCard per tool
 - Auto-expand current step
+- Shows current-call prompt accounting from `context_usage` in the debug panel; this is intentionally distinct from the composer footer `ctx` metric, which uses `stored_context`
 
 **State**: `expandedSteps` Set
 
@@ -2278,6 +2290,7 @@ Loading placeholder.
 - `tool_start` → Create tool call
 - `tool_result` → Update tool call
 - `answer` → Append to `answerBuffer`
+- `usage_update` / `conversation_compacted` / `complete` → Update `usage`, `context_usage`, `stored_context`, and `context_profile`
 
 ### `ui/src/hooks/useAgentRunDetails.ts`
 

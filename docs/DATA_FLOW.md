@@ -627,15 +627,19 @@ Step 2+: MAIN LOOP (while not synthesis and step < max_steps)
     │   ├── Chat flows use turn_summary when available (~10x more history)
     │   │   └── Turn summaries include key_findings from tool results
     │   │       for richer cross-turn context
-    │   ├── Agent flows primarily resume from persisted runs.agent_state
+    │   ├── Coding agent flows rebuild from replayable coding_session_entries
+    │   │   as checkpoint summary + restored file evidence + preserved raw tail
+    │   ├── coding_sessions.state_json is bookkeeping-only, not narrative prompt authority
+    │   ├── Non-coding agent flows fall back to runs.agent_state / summary history
     │   ├── Else use raw user_message + final_answer pairs
     │   └── Apply token budget with sliding window
     │
     ├── 3. COMPACTION CHECK
     │   ├── At 90% of effective_input_budget:
-    │   │   ├── create visible system compaction message
-    │   │   ├── keep only latest compaction summary active
-    │   │   └── future prompt = system + latest summary + post-summary raw msgs
+    │   │   ├── compact older coding transcript into replayable compaction_summary checkpoint entry
+    │   │   ├── insert checkpoint at the compaction boundary
+    │   │   ├── restore bounded current read_file evidence for important files
+    │   │   └── future coding prompt = system + checkpoint + metadata + restored files + preserved raw tail
     │   └── Emergency hard truncation only if still over budget
     │
     ├── 4. LLM CALL with tool schemas
@@ -920,8 +924,8 @@ Connection opened
 | `tool_start` | Tool starting | `{tool_call_id, tool_name, arguments}` |
 | `tool_approval_required` | Approval needed | `{tool_call_id, tool_name, arguments}` |
 | `tool_result` | Tool finished | `{tool_call_id, success, result_summary}` |
-| `usage_update` | Live context/accounting update | `{context_usage, context_profile, compaction_count, last_compacted_at_step}` |
-| `conversation_compacted` | Visible compaction system event | `{message, step_number, context_usage, context_profile}` |
+| `usage_update` | Live context/accounting update | `{usage, cost, context_usage, stored_context, context_profile, compaction_count, last_compacted_at_step}` |
+| `conversation_compacted` | Visible compaction system event | `{message, step_number, context_usage, stored_context, context_profile}` |
 | `answer` | Answer token | `{content: "..."}` |
 | `complete` | Agent done | `{final_answer, citations, total_steps, timing_ms}` |
 | `error` | Error occurred | `{error: "...", step: N}` |

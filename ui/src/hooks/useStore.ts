@@ -5,6 +5,11 @@ import type { Run, Event, Conversation } from '@/types';
 import type { AgentUIState, AgentStep, AgentToolCall, AgentCitation } from '@/types/agent';
 import type { TerminalSessionResponse } from '@/api/client';
 
+const WORKSPACE_STORAGE_KEY = 'reasoner_workspace_path';
+const WORKSPACE_LIST_STORAGE_KEY = 'reasoner_workspace_paths';
+const EMPTY_RUNS: Run[] = [];
+const EMPTY_EVENTS: Event[] = [];
+
 export interface TerminalUIState {
   isOpen: boolean;
   height: number;
@@ -18,6 +23,8 @@ interface AppState {
   // Conversations
   conversations: Conversation[];
   selectedConversationId: string | null;
+  draftWorkspacePath: string;
+  workspacePaths: string[];
 
   // Runs per conversation
   runsByConversation: Record<string, Run[]>;
@@ -53,6 +60,8 @@ interface AppState {
   updateConversation: (conversationId: string, updates: Partial<Conversation>) => void;
   removeConversation: (conversationId: string) => void;
   selectConversation: (conversationId: string | null) => void;
+  setDraftWorkspacePath: (workspacePath: string) => void;
+  rememberWorkspacePath: (workspacePath: string) => void;
 
   // Run actions
   setRuns: (conversationId: string, runs: Run[]) => void;
@@ -107,6 +116,10 @@ export const useStore = create<AppState>((set, get) => ({
   // Initial state
   conversations: [],
   selectedConversationId: null,
+  draftWorkspacePath: typeof window !== 'undefined' ? (localStorage.getItem(WORKSPACE_STORAGE_KEY) || '') : '',
+  workspacePaths: typeof window !== 'undefined'
+    ? JSON.parse(localStorage.getItem(WORKSPACE_LIST_STORAGE_KEY) || '[]')
+    : [],
   runsByConversation: {},
   selectedRunId: null,
   eventsByRun: {},
@@ -151,6 +164,25 @@ export const useStore = create<AppState>((set, get) => ({
     selectedEventSeq: null,
   }),
 
+  setDraftWorkspacePath: (workspacePath) => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(WORKSPACE_STORAGE_KEY, workspacePath);
+    }
+    set({ draftWorkspacePath: workspacePath });
+  },
+
+  rememberWorkspacePath: (workspacePath) => {
+    const normalized = workspacePath.trim();
+    if (!normalized) return;
+    set((state) => {
+      const next = [normalized, ...state.workspacePaths.filter((path) => path !== normalized)];
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(WORKSPACE_LIST_STORAGE_KEY, JSON.stringify(next));
+      }
+      return { workspacePaths: next };
+    });
+  },
+
   // Run actions
   setRuns: (conversationId, runs) => set((state) => ({
     runsByConversation: {
@@ -167,13 +199,21 @@ export const useStore = create<AppState>((set, get) => ({
   })),
 
   updateRun: (runId, updates) => set((state) => {
-    const runsByConversation: Record<string, Run[]> = {};
     for (const [conversationId, runs] of Object.entries(state.runsByConversation)) {
-      runsByConversation[conversationId] = runs.map((run) =>
-        run.run_id === runId ? { ...run, ...updates } : run
-      );
+      const runIndex = runs.findIndex((run) => run.run_id === runId);
+      if (runIndex === -1) continue;
+
+      const nextRuns = [...runs];
+      nextRuns[runIndex] = { ...nextRuns[runIndex], ...updates };
+      return {
+        runsByConversation: {
+          ...state.runsByConversation,
+          [conversationId]: nextRuns,
+        },
+      };
     }
-    return { runsByConversation };
+
+    return state;
   }),
 
   removeRun: (runId) => set((state) => {
@@ -514,8 +554,9 @@ export const useSelectedConversation = () => {
 };
 
 export const useConversationRuns = (conversationId: string | null) => {
-  const runsByConversation = useStore((s) => s.runsByConversation);
-  return conversationId ? runsByConversation[conversationId] || [] : [];
+  return useStore((s) => (
+    conversationId ? s.runsByConversation[conversationId] ?? EMPTY_RUNS : EMPTY_RUNS
+  ));
 };
 
 export const useSelectedRun = () => {
@@ -530,18 +571,17 @@ export const useSelectedRun = () => {
 };
 
 export const useRunEvents = (runId: string | null) => {
-  const eventsByRun = useStore((s) => s.eventsByRun);
-  return runId ? eventsByRun[runId] || [] : [];
+  return useStore((s) => (
+    runId ? s.eventsByRun[runId] ?? EMPTY_EVENTS : EMPTY_EVENTS
+  ));
 };
 
 export const useAgentRunState = (runId: string | null) => {
-  const agentRunState = useStore((s) => s.agentRunState);
-  return runId ? agentRunState[runId] : undefined;
+  return useStore((s) => (runId ? s.agentRunState[runId] : undefined));
 };
 
 export const useConversationTerminal = (conversationId: string | null) => {
-  const terminalByConversation = useStore((s) => s.terminalByConversation);
-  return conversationId ? terminalByConversation[conversationId] : undefined;
+  return useStore((s) => (conversationId ? s.terminalByConversation[conversationId] : undefined));
 };
 
 /** Check if any run is currently active (agent or chat streaming) */

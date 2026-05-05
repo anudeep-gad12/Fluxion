@@ -71,6 +71,8 @@ async def test_schema_properties(tool):
     assert schema.is_idempotent is False
     assert schema.permission_level == "dangerous"
     assert schema.parameters["properties"]["timeout"]["default"] == 300
+    assert "one-off Python or Node scripts" in schema.description
+    assert "curl requests" in schema.description
 
 
 @pytest.mark.asyncio

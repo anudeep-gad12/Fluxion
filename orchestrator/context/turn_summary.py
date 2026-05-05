@@ -24,14 +24,14 @@ class TurnSummary:
 
     def to_context_string(self) -> str:
         """Compact string for injection into context."""
-        parts = [f"Q: {self.query_brief}"]
+        parts = [f"Outcome: {self.answer_brief}"]
+        if self.key_findings:
+            parts.append(f"Findings: {self.key_findings}")
         if self.tools_used:
             parts.append(f"Tools: {', '.join(self.tools_used)}")
         if self.files_touched:
             parts.append(f"Files: {', '.join(self.files_touched[:5])}")
-        if self.key_findings:
-            parts.append(f"Findings: {self.key_findings}")
-        parts.append(f"A: {self.answer_brief}")
+        parts.append(f"User asked: {self.query_brief}")
         return " | ".join(parts)
 
 

@@ -35,6 +35,7 @@ class ModelPreset:
     default_temperature: float = 0.7
     supports_tools: bool = True
     supports_reasoning: bool = False
+    supports_vision: bool = False
     reasoning_request_param: Optional[str] = None
     reasoning_effort: Optional[str] = None
     provider_hint: Optional[str] = None  # Force specific provider
@@ -58,6 +59,7 @@ class ResolvedModel:
     temperature: float
     reasoning_effort: Optional[str]
     supports_tools: bool
+    supports_vision: bool = False
     reasoning_request_param: Optional[str] = None
     input_cost_per_million: Optional[float] = None
     cached_input_cost_per_million: Optional[float] = None
@@ -191,6 +193,7 @@ MODEL_PRESETS: list[ModelPreset] = [
         aliases=["llama4-maverick", "maverick"],
         context_window=1048576,
         max_output_tokens=16384,
+        supports_vision=True,
     ),
     ModelPreset(
         model_id="meta-llama/llama-4-scout",
@@ -199,6 +202,7 @@ MODEL_PRESETS: list[ModelPreset] = [
         aliases=["llama4-scout", "scout"],
         context_window=524288,
         max_output_tokens=16384,
+        supports_vision=True,
     ),
     ModelPreset(
         model_id="meta-llama/llama-3.3-70b-instruct",
@@ -250,6 +254,7 @@ MODEL_PRESETS: list[ModelPreset] = [
         context_window=1048576,
         max_output_tokens=65536,
         supports_reasoning=True,
+        supports_vision=True,
         reasoning_request_param=None,
         reasoning_effort="medium",
     ),
@@ -261,7 +266,29 @@ MODEL_PRESETS: list[ModelPreset] = [
         context_window=1048576,
         max_output_tokens=65536,
         supports_reasoning=True,
+        supports_vision=True,
         reasoning_effort="low",
+    ),
+    # --- DeepInfra vision/OCR ---
+    ModelPreset(
+        model_id="Qwen/Qwen2.5-VL-32B-Instruct",
+        display_name="Qwen 2.5 VL 32B (DeepInfra)",
+        provider="deepinfra",
+        aliases=["deepinfra-qwen2.5-vl-32b", "qwen2.5-vl-32b", "qwen-vl-32b"],
+        context_window=131072,
+        max_output_tokens=8192,
+        supports_vision=True,
+        provider_hint="deepinfra",
+    ),
+    ModelPreset(
+        model_id="Qwen/Qwen2.5-VL-7B-Instruct",
+        display_name="Qwen 2.5 VL 7B (DeepInfra)",
+        provider="deepinfra",
+        aliases=["deepinfra-qwen2.5-vl-7b", "qwen2.5-vl-7b", "qwen-vl-7b"],
+        context_window=32768,
+        max_output_tokens=8192,
+        supports_vision=True,
+        provider_hint="deepinfra",
     ),
     # --- DeepInfra-specific ---
     ModelPreset(
@@ -360,11 +387,50 @@ MODEL_PRESETS: list[ModelPreset] = [
         context_window=262144,
         max_output_tokens=32768,
         supports_reasoning=True,
+        supports_vision=True,
         reasoning_effort="medium",
         provider_hint="fireworks",
         input_cost_per_million=0.60,
         cached_input_cost_per_million=0.10,
         output_cost_per_million=3.00,
+    ),
+    ModelPreset(
+        model_id="accounts/fireworks/models/qwen3p6-plus",
+        display_name="Qwen3.6 Plus (Fireworks)",
+        provider="fireworks",
+        aliases=[
+            "qwen3.6plus",
+            "qwen3.6-plus",
+            "qwen3p6-plus",
+            "fireworks-qwen3p6-plus",
+            "fw-qwen3p6-plus",
+        ],
+        context_window=131072,
+        max_output_tokens=16384,
+        supports_vision=True,
+        provider_hint="fireworks",
+        input_cost_per_million=0.50,
+        cached_input_cost_per_million=0.10,
+        output_cost_per_million=3.00,
+    ),
+    ModelPreset(
+        model_id="accounts/fireworks/models/minimax-m2p7",
+        display_name="MiniMax M2.7 (Fireworks)",
+        provider="fireworks",
+        aliases=[
+            "minimax-m2.7",
+            "minimax-m2p7",
+            "minimax-2.7",
+            "fireworks-minimax-m2p7",
+            "fw-minimax-m2p7",
+        ],
+        context_window=196608,
+        max_output_tokens=16384,
+        supports_vision=True,
+        provider_hint="fireworks",
+        input_cost_per_million=0.30,
+        cached_input_cost_per_million=0.06,
+        output_cost_per_million=1.20,
     ),
     ModelPreset(
         model_id="accounts/fireworks/models/gpt-oss-120b",
@@ -423,10 +489,13 @@ MODEL_PRESETS: list[ModelPreset] = [
         output_cost_per_million=0.20,
     ),
     ModelPreset(
-        model_id="accounts/fireworks/models/glm-5",
-        display_name="GLM-5 (Fireworks)",
+        model_id="accounts/fireworks/models/glm-5p1",
+        display_name="GLM-5.1 (Fireworks)",
         provider="fireworks",
         aliases=[
+            "fireworks-glm-5.1",
+            "fw-glm-5.1",
+            "glm-5.1-fireworks",
             "fireworks-glm-5",
             "fw-glm-5",
             "glm-5-fireworks",
@@ -436,9 +505,9 @@ MODEL_PRESETS: list[ModelPreset] = [
         supports_reasoning=True,
         reasoning_effort="medium",
         provider_hint="fireworks",
-        input_cost_per_million=1.00,
-        cached_input_cost_per_million=0.20,
-        output_cost_per_million=3.20,
+        input_cost_per_million=1.40,
+        cached_input_cost_per_million=0.26,
+        output_cost_per_million=4.40,
     ),
     # --- Local models (common GGUF patterns) ---
     ModelPreset(
@@ -546,6 +615,7 @@ class ModelRegistry:
                 reasoning_effort=preset.reasoning_effort,
                 reasoning_request_param=preset.reasoning_request_param,
                 supports_tools=preset.supports_tools,
+                supports_vision=preset.supports_vision,
                 input_cost_per_million=preset.input_cost_per_million,
                 cached_input_cost_per_million=preset.cached_input_cost_per_million,
                 output_cost_per_million=preset.output_cost_per_million,
@@ -578,6 +648,7 @@ class ModelRegistry:
             reasoning_effort=None,
             reasoning_request_param=None,
             supports_tools=True,
+            supports_vision=False,
             input_cost_per_million=0.0 if provider_name == "local" else None,
             output_cost_per_million=0.0 if provider_name == "local" else None,
         )
@@ -605,6 +676,7 @@ class ModelRegistry:
                     "max_output_tokens": p.max_output_tokens,
                     "supports_tools": p.supports_tools,
                     "supports_reasoning": p.supports_reasoning,
+                    "supports_vision": p.supports_vision,
                     "reasoning_request_param": p.reasoning_request_param,
                     "input_cost_per_million": p.input_cost_per_million,
                     "cached_input_cost_per_million": p.cached_input_cost_per_million,

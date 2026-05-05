@@ -9,6 +9,8 @@ import { getAgentRunTrace } from '@/api/client';
 import type { AgentUIState, AgentStep, AgentToolCall, AgentCitation } from '@/types/agent';
 import { useAgentRunState } from './useStore';
 
+const historicalAgentRunCache = new Map<string, AgentUIState>();
+
 /**
  * Get agent run state, either from streaming state or loaded from API.
  *
@@ -21,7 +23,9 @@ export function useAgentRunDetails(
   isStreaming: boolean
 ): AgentUIState | undefined {
   const streamingState = useAgentRunState(runId);
-  const [historicalState, setHistoricalState] = useState<AgentUIState | undefined>();
+  const [historicalState, setHistoricalState] = useState<AgentUIState | undefined>(
+    () => historicalAgentRunCache.get(runId)
+  );
 
   useEffect(() => {
     // If streaming or already have streaming state, don't load from API
@@ -77,7 +81,7 @@ export function useAgentRunDetails(
           created_at: c.created_at,
         }));
 
-        setHistoricalState({
+        const nextState: AgentUIState = {
           isActive: false,
           currentStep: steps.length,
           maxSteps: 10, // Default, could be stored in run metadata
@@ -94,10 +98,13 @@ export function useAgentRunDetails(
           usage: trace.usage,
           cost: trace.cost,
           context_usage: trace.context_usage,
+          stored_context: trace.stored_context,
           context_profile: trace.context_profile,
           compaction_count: trace.compaction_count,
           last_compacted_at_step: trace.last_compacted_at_step,
-        });
+        };
+        historicalAgentRunCache.set(runId, nextState);
+        setHistoricalState(nextState);
       })
       .catch((error) => {
         if (cancelled) return;

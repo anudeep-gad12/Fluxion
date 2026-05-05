@@ -28,6 +28,7 @@ from orchestrator.reasoning_controls import (
     apply_reasoning_settings,
     infer_provider_family,
 )
+from orchestrator.vision import build_multimodal_user_content, validate_image_attachments
 
 logger = get_logger(__name__)
 from orchestrator.providers import create_provider, LLMProvider
@@ -107,6 +108,7 @@ class ChatEngine:
         reasoning_effort: Optional[str] = None,  # "low", "medium", "high" for native reasoning
         reasoning_settings: Optional[ReasoningSettings] = None,
         session_id: Optional[str] = None,  # Session ID for demo mode isolation
+        image_attachments: Optional[list[dict[str, Any]]] = None,
     ) -> ChatResult:
         """Send a message and get a response.
 
@@ -151,11 +153,20 @@ class ChatEngine:
                 error=f"Conversation not found: {conversation_id}",
             )
 
+        validated_images = validate_image_attachments(image_attachments)
+        image_error = (
+            "Active model does not support image inputs. Select a vision model."
+            if validated_images and not bool(getattr(self._provider, "_supports_vision", False))
+            else None
+        )
+
         # Load conversation history from runs table
         prior_runs = await trace_repo.list_runs_for_conversation(conversation_id)
 
         # Build messages with token-aware history
         messages, context_budget = self._build_messages(prior_runs, message)
+        if validated_images and messages and messages[-1].get("role") == "user":
+            messages[-1]["content"] = build_multimodal_user_content(message, validated_images)
 
         # Log if debug
         if self.config.tracing.log_level == "debug":
@@ -178,6 +189,24 @@ class ChatEngine:
             system_prompt=self.config.system_prompt,
             session_id=session_id,
         )
+        if image_error:
+            await trace_repo.update_conversation_trace(
+                run_id=run_id,
+                status="failed",
+                error_message=image_error,
+                usage_stats={"timing_ms": int((time.time() - start_time) * 1000)},
+            )
+            if event_callback:
+                event_callback({"type": "CHAT_FAILED", "run_id": run_id, "error": image_error})
+            return ChatResult(
+                run_id=run_id,
+                conversation_id=conversation_id,
+                message=message,
+                response="",
+                status="failed",
+                error=image_error,
+                timing_ms=int((time.time() - start_time) * 1000),
+            )
 
         # Emit event
         if event_callback:
@@ -676,7 +705,7 @@ class ChatEngine:
             ),
         )
         effective_max_tokens = provider_kwargs.pop("max_tokens", self.config.model.max_tokens)
-        effort = provider_kwargs.get("reasoning_effort")
+        effort = provider_kwargs.pop("reasoning_effort", None)
 
         response = await self._provider.complete_streaming(
             messages=messages,
