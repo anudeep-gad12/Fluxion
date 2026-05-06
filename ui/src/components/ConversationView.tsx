@@ -1081,6 +1081,7 @@ export function ConversationView() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const verticalMoveColumnRef = useRef<number | null>(null);
+  const composerFocusRafRef = useRef<number | null>(null);
 
   // Model picker state
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
@@ -1338,6 +1339,18 @@ export function ConversationView() {
     textarea.setSelectionRange(end, end);
   }, []);
 
+  const scheduleComposerFocus = useCallback(() => {
+    if (composerFocusRafRef.current !== null) {
+      cancelAnimationFrame(composerFocusRafRef.current);
+    }
+    composerFocusRafRef.current = requestAnimationFrame(() => {
+      composerFocusRafRef.current = requestAnimationFrame(() => {
+        focusComposer();
+        composerFocusRafRef.current = null;
+      });
+    });
+  }, [focusComposer]);
+
   /** Retry a message: pre-fill the input with the original user message */
   const handleRetry = useCallback((userMessage: string) => {
     if (hasActiveRun) return;
@@ -1463,9 +1476,11 @@ export function ConversationView() {
       try {
         await steerAgentRun(activeRunId, steerMsg);
         setQueuedSteers((prev) => [...prev, steerMsg]);
+        scheduleComposerFocus();
       } catch {
         toast.error('Failed to queue steering message');
         setMessage(steerMsg);
+        scheduleComposerFocus();
       }
       return;
     }
@@ -1563,6 +1578,7 @@ export function ConversationView() {
 
         addRun(conversationId!, run);
         setEvents(response.run_id, []);
+        setIsSubmitting(false);
 
         // Navigate AFTER subscription so the useEffect guard works
         if (needsNavigate) {
@@ -1622,8 +1638,11 @@ export function ConversationView() {
       setPendingRunId(null);
       setPendingIsAgent(false);
       setIsSubmitting(false);
+      scheduleComposerFocus();
       return;
     }
+
+    scheduleComposerFocus();
 
     // Refresh usage after successful send
     refreshUsage();
@@ -1677,6 +1696,7 @@ export function ConversationView() {
       setPendingMessage('');
       setPendingIsAgent(false);
       setIsSubmitting(false);
+      scheduleComposerFocus();
     } catch (error) {
       console.error('Failed to abort run:', error);
       toast.error('Failed to stop generation.');
@@ -1685,6 +1705,7 @@ export function ConversationView() {
       setPendingMessage('');
       setPendingIsAgent(false);
       setIsSubmitting(false);
+      scheduleComposerFocus();
     }
   };
 
@@ -2013,6 +2034,14 @@ export function ConversationView() {
     window.addEventListener('keydown', handleWindowKeyDown);
     return () => window.removeEventListener('keydown', handleWindowKeyDown);
   }, [focusComposer]);
+
+  useEffect(() => {
+    return () => {
+      if (composerFocusRafRef.current !== null) {
+        cancelAnimationFrame(composerFocusRafRef.current);
+      }
+    };
+  }, []);
 
   // Reset textarea height when message is cleared (after submit)
   useEffect(() => {
