@@ -154,6 +154,7 @@ Stores conversation metadata.
 | `title` | TEXT | Auto-generated from first message |
 | `summary` | TEXT | Conversation summary |
 | `status` | TEXT | `active`, `archived`, `closed` |
+| `workspace_path` | TEXT | Immutable workspace binding for browser coding conversations |
 | `created_at` | TEXT | ISO 8601 timestamp |
 | `updated_at` | TEXT | ISO 8601 timestamp (Migration 7) |
 | `metadata_json` | TEXT | Additional metadata (JSON) |
@@ -479,6 +480,7 @@ The schema uses `ON DELETE CASCADE` for automatic cleanup when parent records ar
 ```python
 class CreateConversationRequest(BaseModel):
     title: Optional[str] = None
+    workspace_path: Optional[str] = None
 
 class CreateConversationRunRequest(BaseModel):
     message: str
@@ -493,7 +495,15 @@ class CreateRunRequest(BaseModel):
 class CreateAgentRunRequest(BaseModel):
     query: str
     conversation_id: Optional[str] = None
-    max_steps: int = 10
+    max_steps: int = 1000
+    workspace_path: Optional[str] = None
+    capabilities: AgentCapabilities
+    filesystem_enabled: bool = False
+    working_dir: Optional[str] = None
+    permission_policy: str = "strict"
+    profile: Optional[str] = None
+    python_provider: Optional[str] = None
+    image_attachments: list[dict[str, Any]] = Field(default_factory=list)
 
 class CreateAgentRunResponse(BaseModel):
     run_id: str
@@ -509,9 +519,10 @@ class ConversationResponse(BaseModel):
     conversation_id: str
     title: Optional[str]
     summary: Optional[str]
+    workspace_path: Optional[str]
     status: str
     created_at: str
-    metadata: Optional[dict]
+    metadata: dict
 
 class ConversationDetailResponse(BaseModel):
     conversation: ConversationResponse
@@ -577,7 +588,6 @@ class AgentStepState(str, Enum):
     PLANNING = "planning"
     TOOL_CALLING = "tool_calling"
     SYNTHESIZING = "synthesizing"
-    PAUSED = "paused"
     COMPLETE = "complete"
     ERROR = "error"
 
@@ -634,9 +644,18 @@ class AgentRunStatusResponse(BaseModel):
     run_id: str
     status: str
     agent_state: Optional[str]
-    current_step: Optional[int]
-    max_steps: Optional[int]
+    current_step: int = 0
+    total_steps: Optional[int]
+    max_steps: int = 1000
     final_answer: Optional[str]
+    error_message: Optional[str]
+    usage: Optional[dict[str, Any]]
+    cost: Optional[dict[str, Any]]
+    context_usage: Optional[dict[str, Any]]
+    stored_context: Optional[dict[str, Any]]
+    context_profile: Optional[ModelContextProfileResponse]
+    compaction_count: int = 0
+    last_compacted_at_step: Optional[int]
     created_at: str
     updated_at: Optional[str]
 
@@ -665,15 +684,16 @@ class AgentRunTraceResponse(BaseModel):
 
 ```python
 class LocalModelSchema(BaseModel):
-    """A GGUF model available on disk."""
-    path: str              # Full filesystem path to .gguf file
-    name: str              # Display name (derived from filename)
+    """A local model available on disk."""
+    path: str              # Full filesystem path to GGUF file or MLX directory
+    name: str              # Display name derived from parent/model name
     size_bytes: int        # File size in bytes
+    model_type: str = "gguf"
     size_display: str      # Human-readable size ("35.0 GB")
 
 class StartModelRequest(BaseModel):
-    """Request to start llama-server with a local model."""
-    model_path: str                    # Path to GGUF file
+    """Request to start the local-model server."""
+    model_path: str                    # Path to GGUF file or MLX directory
     ctx_size: Optional[int] = None     # Context window (None = use config default)
 
 class ModelStatusResponse(BaseModel):
@@ -687,8 +707,16 @@ class ModelStatusResponse(BaseModel):
     effective_input_budget: int
     supports_tools: bool
     supports_reasoning: bool
+    supports_vision: bool
+    provider_family: str
+    reasoning_capabilities: Optional[ReasoningCapabilities]
     source: str
 ```
+
+`GET /api/models/status` can represent three runtime states:
+- registry-selected preset (`source="registry"`)
+- custom OpenAI-compatible provider (`source="custom"`)
+- started local GGUF/MLX runtime (`source="local"`)
 
 #### Normalized Context Profile (`orchestrator/context/context_profile.py`)
 

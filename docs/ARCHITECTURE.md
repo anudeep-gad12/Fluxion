@@ -18,7 +18,7 @@ Comprehensive technical documentation of the Fluxion system architecture.
 
 ## System Overview
 
-Fluxion is an AI chat application with multi-strategy reasoning capabilities. It consists of a FastAPI backend (orchestrator), a React/Vite frontend (ui), and a Textual-based CLI/TUI (cli), connected to OpenAI-compatible LLM providers. Default configuration uses DeepInfra cloud, but supports local providers (llama-server, vLLM, Ollama) and ChatGPT (via OAuth) as providers.
+Fluxion is an AI chat application with multi-strategy reasoning capabilities. It consists of a FastAPI backend (orchestrator), a React/Vite frontend (ui), and a Textual-based CLI/TUI (cli), connected to OpenAI-compatible LLM providers. Default configuration uses DeepInfra cloud, but supports local OpenAI-compatible runtimes plus managed local GGUF/MLX launches and ChatGPT (via OAuth).
 
 ### High-Level Architecture
 
@@ -73,7 +73,7 @@ Fluxion is an AI chat application with multi-strategy reasoning capabilities. It
 - **Tool Approval Flow**: Permission-gated tool execution (strict/relaxed/yolo policies)
 - **Multi-Provider Support**: DeepInfra, ChatGPT (OAuth), llama-server, vLLM, Ollama
 - **Streaming-First**: Real-time token streaming via Server-Sent Events (SSE)
-- **Context Management**: Model-aware context profiles, threshold-based conversation compaction, bounded tool-result history, turn summaries, transcript-first coding-session replay for coding-profile follow-ups, metadata-only coding session state, stored-context telemetry, and project context injection
+- **Context Management**: Model-aware context profiles, threshold-based conversation compaction, bounded tool-result history, turn summaries, transcript-first coding-session replay for coding-profile follow-ups, metadata-only coding session state, stored-context telemetry, per-file freshness/reread tracking for coding continuity, and project context injection
 - **Full Traceability**: Every LLM call, tool execution, approval, and file change is recorded
 - **Provider Failover**: Circuit breaker pattern with automatic provider switching
 - **Pause/Resume/Steer**: Pause agent between steps, resume later, or inject steering messages mid-run
@@ -160,7 +160,7 @@ orchestrator/                     # Backend (FastAPI)
 │   └── registry.py              # ProviderDef, ModelPreset, ModelRegistry (~25 presets)
 │
 ├── services/
-│   └── local_models.py          # GGUF scanning + llama-server lifecycle
+│   └── local_models.py          # GGUF/MLX scanning + local server lifecycle
 │
 ├── context/
 │   ├── budget.py                # ContextBudget tracking and utilization
@@ -172,7 +172,7 @@ orchestrator/                     # Backend (FastAPI)
 │   ├── conversations.py          # Conversation CRUD
 │   ├── runs.py                   # Chat runs + SSE streaming
 │   ├── agent_runs.py             # Agent runs + SSE + tool approval endpoints
-│   ├── models.py                 # Model registry + local model management
+│   ├── models.py                 # Model registry + custom/local runtime management
 │   ├── auth.py                   # ChatGPT OAuth PKCE flow
 │   └── benchmarks.py             # GAIA benchmark traces API
 │
@@ -586,13 +586,13 @@ The `ChatGPTProvider` (`orchestrator/providers/chatgpt.py`) enables direct acces
 
 ### Local Model Service
 
-The local model service (`orchestrator/services/local_models.py`) manages GGUF models and llama-server lifecycle:
+The local model service (`orchestrator/services/local_models.py`) manages GGUF/MLX discovery and local server lifecycle:
 
 **Model Scanning**: Searches these LM Studio directories for local models:
 - `~/.lmstudio/models`
 - `~/.cache/lm-studio/models`
 
-Ollama subfolders under those roots are intentionally excluded from discovery.
+Ollama subfolders under those roots are intentionally excluded from discovery. GGUF files and MLX model directories are both supported.
 
 **llama-server Management**:
 - Start with selected GGUF model on port 8080
@@ -603,12 +603,16 @@ Ollama subfolders under those roots are intentionally excluded from discovery.
 **API Endpoints** (`orchestrator/routes/models.py`):
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/models/local` | GET | Scan and list available GGUF models |
-| `/api/models/local/start` | POST | Start llama-server with selected model |
+| `/api/models/local` | GET | Scan and list available GGUF/MLX models |
+| `/api/models/local/start` | POST | Start `llama-server` or `mlx_lm.server` with selected model |
 | `/api/models/local/stop` | POST | Stop llama-server, revert to cloud |
 | `/api/models/status` | GET | Current provider info (local vs cloud) |
+| `/api/models/custom/select` | POST | Use a custom OpenAI-compatible endpoint |
+| `/api/models/reasoning-settings` | GET/PUT | Global runtime reasoning controls |
 
-**Provider Override**: Starting a local model sets a runtime provider override via `set_provider_override()` in `factory.py`. All subsequent LLM calls route to `localhost:8080`. Stopping clears the override, reverting to the configured cloud provider.
+**Provider Override**: Starting a local model sets a runtime provider override via `set_provider_override()` in `factory.py`. The override pins the active local model id into request construction so later agent/chat continuations keep sending the real local model name instead of a stale cloud preset. Stopping clears the override, reverting to the configured cloud provider.
+
+**Launch Logging**: Local launches append to `logs/llama.log` or `logs/mlx.log`, rotate oversized active logs into `*.wal.*` segments, and preserve per-start headers with model path, context size, and command line.
 
 ### OpenRouter Support
 
