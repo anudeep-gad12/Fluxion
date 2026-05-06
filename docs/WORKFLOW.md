@@ -24,7 +24,7 @@ reasoner --working-dir /path           # Set filesystem root
 
 # Before merge
 uv run pytest                          # Unit + integration (mocks LLM)
-./scripts/sanity_test.sh --debug       # True E2E (actual LLM, validates all checkpoints)
+./scripts/sanity_test.sh --debug       # Real-provider browser coding smoke test
 
 # Merge
 git checkout test && git merge feature/xxx
@@ -86,12 +86,12 @@ grep '"level":"ERROR"' logs/app.log | jq .
 
 ```bash
 uv run pytest                          # Unit + integration tests (mocks LLM, fast)
-./scripts/sanity_test.sh --debug       # E2E sanity (actual LLM, validates traces/steps/tools)
+./scripts/sanity_test.sh --debug       # Browser coding smoke test (real provider + traces/tools)
 ```
 
 **Test types:**
-- `pytest`: Fast feedback, mocks LLM provider, tests internal flow
-- `sanity_test.sh`: True E2E, actual LLM calls, validates every checkpoint in the flow
+- `pytest`: Fast feedback, mocks LLM/provider behavior, tests internal flow
+- `sanity_test.sh`: Real-provider browser coding smoke test for the current workspace-backed agent path
 
 ### Step 7: Commit and Merge
 
@@ -143,7 +143,7 @@ gh pr create --base main --head test \
 
 ## Verification
 - pytest passes (unit + integration)
-- sanity_test.sh passes (full E2E with actual LLM)
+- sanity_test.sh passes (browser coding smoke test with a real provider)
 - Traces show no errors"
 
 # Request Claude Code review

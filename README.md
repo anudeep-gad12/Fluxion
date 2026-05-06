@@ -323,7 +323,7 @@ fluxion/
 ├── docs/                      # Comprehensive documentation
 ├── tests/                     # Unit + integration tests
 ├── scripts/                   # Dev and test scripts
-│   ├── sanity_test.sh         # E2E integration test
+│   ├── sanity_test.sh         # Browser coding smoke test with a real provider
 │   ├── test_loop.sh           # Watch mode for tests
 │   └── gaia/                  # GAIA benchmark runner
 ├── justfile                   # Dev tasks

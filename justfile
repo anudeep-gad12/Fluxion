@@ -52,11 +52,11 @@ test:
 test-loop *ARGS:
     ./scripts/test_loop.sh {{ARGS}}
 
-# Run sanity tests with log analysis
+# Run the browser coding smoke test
 sanity:
     ./scripts/sanity_test.sh
 
-# Run sanity tests with live log tailing
+# Run the browser coding smoke test with live log tailing
 sanity-debug:
     ./scripts/sanity_test.sh --debug
 
