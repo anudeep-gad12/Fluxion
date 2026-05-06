@@ -4,7 +4,7 @@
  */
 
 import { useEffect, useRef, useCallback } from 'react';
-import { subscribeToAgentRun } from '@/api/client';
+import { getAgentRunStatus, subscribeToAgentRun } from '@/api/client';
 import { useStore } from './useStore';
 import type {
   AgentSSEEvent,
@@ -22,7 +22,7 @@ import type {
   CostUsage,
 } from '@/types/agent';
 
-export function useAgentSSE(runId: string | null, maxSteps: number = 10) {
+export function useAgentSSE(runId: string | null) {
   const unsubscribeRef = useRef<(() => void) | null>(null);
   const lastSeqRef = useRef<number>(0);
   const streamTokenRef = useRef<string | undefined>();
@@ -66,9 +66,19 @@ export function useAgentSSE(runId: string | null, maxSteps: number = 10) {
       // New connection — stale events from previous EventSource are ignored
       const myConnectionId = ++connectionIdRef.current;
 
-      // Initialize agent state in store
-      initAgentRun(id, maxSteps);
+      // Initialize agent state in store; fill maxSteps from backend status.
+      initAgentRun(id, 0);
       lastSeqRef.current = sinceSeq;
+
+      void getAgentRunStatus(id)
+        .then((status) => {
+          if (myConnectionId !== connectionIdRef.current) return;
+          updateAgentState(id, {
+            currentStep: status.current_step,
+            maxSteps: status.max_steps,
+          });
+        })
+        .catch(() => {});
 
       const flushBufferedTokens = () => {
         const thinking = thinkingBufferRef.current[id];
@@ -447,7 +457,6 @@ export function useAgentSSE(runId: string | null, maxSteps: number = 10) {
       updateAgentToolCall,
       setAgentCitations,
       updateRun,
-      maxSteps,
     ]
   );
 

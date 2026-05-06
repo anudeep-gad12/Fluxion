@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { AnswerMarkdown, extractAnswer } from '@/components/AnswerMarkdown';
 import { ThinkingPanel } from '@/components/ThinkingPanel';
 import { AgentRunMessage } from '@/components/AgentRunMessage';
+import { AgentLiveHUD } from '@/components/AgentLiveHUD';
 import { MessageActions } from '@/components/MessageActions';
 import { ShimmerSkeleton, ThinkingTimer } from '@/components/StreamingIndicator';
 import { ScrollToBottom } from '@/components/ScrollToBottom';
@@ -53,6 +54,7 @@ import {
 import { useConversationRuns, useSelectedConversation, useStore, useHasActiveRun, useConversationTerminal } from '@/hooks/useStore';
 import { useSSE } from '@/hooks/useSSE';
 import { useAgentSSE } from '@/hooks/useAgentSSE';
+import { useAgentRunDetails } from '@/hooks/useAgentRunDetails';
 import { cn, formatRelativeTime } from '@/lib/utils';
 import type { Run, Conversation, ImageAttachment } from '@/types';
 
@@ -1165,6 +1167,15 @@ export function ConversationView() {
     }
     return null;
   }, [runs]);
+  const activeAgentRun = useMemo(() => {
+    for (let i = runs.length - 1; i >= 0; i -= 1) {
+      if (runs[i].status === 'running' && runs[i].mode === 'agent') {
+        return runs[i];
+      }
+    }
+    return null;
+  }, [runs]);
+  const activeAgentHudState = useAgentRunDetails(activeAgentRun?.run_id ?? null, !!activeAgentRun);
 
   // Clear queued steers when agent confirms injection via SSE.
   // Delay the clear so the chip is visible briefly before disappearing.
@@ -2372,10 +2383,20 @@ export function ConversationView() {
         className={cn(
           "left-1/2 -translate-x-1/2",
           terminalAvailable && terminalState?.isOpen
-            ? "bottom-[calc(1.5rem+var(--terminal-height,260px))]"
-            : "bottom-28"
+            ? "bottom-[calc(6rem+var(--terminal-height,260px))]"
+            : activeAgentHudState?.isActive
+              ? "bottom-40"
+              : "bottom-28"
         )}
       />
+
+      {activeAgentRun && activeAgentHudState?.isActive && (
+        <AgentLiveHUD
+          runId={activeAgentRun.run_id}
+          runCreatedAt={activeAgentRun.created_at}
+          agentState={activeAgentHudState}
+        />
+      )}
 
       {terminalAvailable && selectedConversationId && (
         <div style={{ ['--terminal-height' as string]: `${terminalState?.height ?? 260}px` }}>

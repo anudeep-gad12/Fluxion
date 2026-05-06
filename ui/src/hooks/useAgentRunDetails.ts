@@ -5,7 +5,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { getAgentRunTrace } from '@/api/client';
+import { getAgentRunStatus, getAgentRunTrace } from '@/api/client';
 import type { AgentUIState, AgentStep, AgentToolCall, AgentCitation } from '@/types/agent';
 import { useAgentRunState } from './useStore';
 
@@ -19,25 +19,28 @@ const historicalAgentRunCache = new Map<string, AgentUIState>();
  * @returns AgentUIState or undefined if not available yet
  */
 export function useAgentRunDetails(
-  runId: string,
+  runId: string | null,
   isStreaming: boolean
 ): AgentUIState | undefined {
   const streamingState = useAgentRunState(runId);
   const [historicalState, setHistoricalState] = useState<AgentUIState | undefined>(
-    () => historicalAgentRunCache.get(runId)
+    () => (runId ? historicalAgentRunCache.get(runId) : undefined)
   );
 
   useEffect(() => {
-    // If streaming or already have streaming state, don't load from API
-    if (isStreaming || streamingState) {
+    setHistoricalState(runId ? historicalAgentRunCache.get(runId) : undefined);
+  }, [runId]);
+
+  useEffect(() => {
+    if (!runId || isStreaming || streamingState) {
       return;
     }
 
     // Load from API for completed runs
     let cancelled = false;
 
-    getAgentRunTrace(runId)
-      .then((trace) => {
+    Promise.all([getAgentRunTrace(runId), getAgentRunStatus(runId)])
+      .then(([trace, status]) => {
         if (cancelled) return;
 
         // Transform API response to AgentUIState format
@@ -84,7 +87,7 @@ export function useAgentRunDetails(
         const nextState: AgentUIState = {
           isActive: false,
           currentStep: steps.length,
-          maxSteps: 10, // Default, could be stored in run metadata
+          maxSteps: status.max_steps,
           agentState: trace.status === 'succeeded' ? 'complete' : trace.status,
           thinkingBuffer: '',
           answerBuffer: trace.final_answer || '',
