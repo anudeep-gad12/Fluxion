@@ -1434,6 +1434,248 @@ class TestCodingSessionPersistence:
         assert payload["replayable_entry_count"] == 1
         assert repo.list_coding_session_entries.await_args.kwargs["include_compacted"] is False
 
+    @pytest.mark.asyncio
+    async def test_prepare_coding_prompt_messages_keeps_full_raw_replay_below_pressure(self):
+        repo = create_mock_repo()
+        repo.list_coding_session_entries.return_value = [
+            CodingSessionEntry(
+                conversation_id="conv-1",
+                seq=1,
+                run_id="run-1",
+                step_number=0,
+                entry_type="user",
+                role="user",
+                content_json={"content": "Earliest exact user request"},
+                token_estimate=20,
+            ).to_dict(),
+            CodingSessionEntry(
+                conversation_id="conv-1",
+                seq=2,
+                run_id="run-1",
+                step_number=1,
+                entry_type="assistant",
+                role="assistant",
+                content_json={"content": "Acknowledged and investigating."},
+                token_estimate=20,
+            ).to_dict(),
+        ]
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=repo,
+            registry=create_mock_registry(),
+        )
+        engine._add_trace_event = AsyncMock()
+        session_state = CodingSessionState(objective="Earliest exact user request")
+
+        with (
+            patch.object(engine, "_is_coding_profile", return_value=True),
+            patch.object(engine._pruner, "estimate_tokens", return_value=100),
+        ):
+            messages, _, usage_payload = await engine._prepare_coding_prompt_messages(
+                conversation_id="conv-1",
+                run_id="run-2",
+                query="follow-up",
+                step_number=2,
+                system_prompt="System prompt",
+                session_state=session_state,
+                working_memory=WorkingMemory(objective="Earliest exact user request"),
+            )
+
+        assert any(
+            message.get("role") == "user"
+            and message.get("content") == "Earliest exact user request"
+            for message in messages
+        )
+        assert usage_payload["reduction_stage"] == "stage0_full_raw_replay"
+        assert usage_payload["checkpoint_fallback_activated"] is False
+        repo.insert_coding_session_entry.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_prepare_coding_prompt_messages_reduces_tool_payloads_before_dialogue(self):
+        repo = create_mock_repo()
+        repo.list_coding_session_entries.return_value = [
+            CodingSessionEntry(
+                conversation_id="conv-1",
+                seq=1,
+                run_id="run-1",
+                step_number=0,
+                entry_type="user",
+                role="user",
+                content_json={"content": "Preserve this exact user request"},
+                token_estimate=20,
+            ).to_dict(),
+            CodingSessionEntry(
+                conversation_id="conv-1",
+                seq=2,
+                run_id="run-1",
+                step_number=1,
+                entry_type="tool_result",
+                role="tool",
+                content_json={
+                    "tool_call_id": "tc-1",
+                    "name": "read_file",
+                    "content": "\n".join(f"{i}\t{'x' * 100}" for i in range(1, 140)),
+                },
+                token_estimate=4000,
+            ).to_dict(),
+            CodingSessionEntry(
+                conversation_id="conv-1",
+                seq=3,
+                run_id="run-1",
+                step_number=2,
+                entry_type="assistant",
+                role="assistant",
+                content_json={"content": "Found the relevant section."},
+                token_estimate=20,
+            ).to_dict(),
+        ]
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=repo,
+            registry=create_mock_registry(),
+        )
+        engine._add_trace_event = AsyncMock()
+        session_state = CodingSessionState(objective="Preserve this exact user request")
+
+        def estimate_tokens(messages):
+            return sum(len(str(message.get("content") or "")) for message in messages) // 20
+
+        with (
+            patch.object(engine, "_is_coding_profile", return_value=True),
+            patch.object(engine, "_coding_pressure_threshold_tokens", return_value=500),
+            patch.object(engine._pruner, "estimate_tokens", side_effect=estimate_tokens),
+        ):
+            messages, _, usage_payload = await engine._prepare_coding_prompt_messages(
+                conversation_id="conv-1",
+                run_id="run-2",
+                query="follow-up",
+                step_number=2,
+                system_prompt="System prompt",
+                session_state=session_state,
+                working_memory=WorkingMemory(objective="Preserve this exact user request"),
+            )
+
+        tool_messages = [message for message in messages if message.get("role") == "tool"]
+        assert tool_messages
+        assert "... [middle omitted under prompt pressure] ..." in tool_messages[0]["content"]
+        assert any(
+            message.get("role") == "user"
+            and message.get("content") == "Preserve this exact user request"
+            for message in messages
+        )
+        assert usage_payload["reduction_stage"] == "stage1_tool_payload_reduced"
+        assert usage_payload["checkpoint_fallback_activated"] is False
+
+    @pytest.mark.asyncio
+    async def test_prepare_coding_prompt_messages_activates_checkpoint_fallback_only_after_staged_reduction(self):
+        repo = create_mock_repo()
+        repo.list_coding_session_entries.return_value = [
+            CodingSessionEntry(
+                conversation_id="conv-1",
+                seq=1,
+                run_id="run-1",
+                step_number=0,
+                entry_type="user",
+                role="user",
+                content_json={"content": "Original user goal"},
+                token_estimate=20,
+            ).to_dict(),
+            CodingSessionEntry(
+                conversation_id="conv-1",
+                seq=2,
+                run_id="run-1",
+                step_number=1,
+                entry_type="assistant",
+                role="assistant",
+                content_json={"content": "Earlier assistant context " * 30},
+                token_estimate=1000,
+            ).to_dict(),
+        ]
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=repo,
+            registry=create_mock_registry(),
+        )
+        engine._add_trace_event = AsyncMock()
+        session_state = CodingSessionState(objective="Original user goal")
+
+        compact_mock = AsyncMock(return_value=True)
+        rebuilt_context = (
+            [
+                {"role": "system", "content": "System prompt"},
+                {"role": "user", "content": "Checkpoint summary"},
+                {"role": "user", "content": "Recent raw tail"},
+            ],
+            MagicMock(),
+            [
+                CodingSessionEntry(
+                    conversation_id="conv-1",
+                    seq=3,
+                    run_id="run-2",
+                    step_number=0,
+                    entry_type="compaction_summary",
+                    role="user",
+                    content_json={"content": "Checkpoint summary"},
+                    token_estimate=20,
+                ),
+            ],
+            {"stored_tokens": 10, "replayable_entry_count": 2, "context_window": 100000, "utilization_pct": 0.0},
+            {
+                "conversation_id": "conv-1",
+                "transcript_source": "coding_session_entries",
+                "used_session_entries": True,
+                "metadata_included": False,
+                "replayed_entry_count": 2,
+                "message_count": 3,
+                "prompt_tokens": 80,
+                "stored_context_tokens": 10,
+                "checkpoint_present": True,
+                "preserved_tail_count": 1,
+                "restored_file_count": 0,
+                "replay_source_ranges": {},
+            },
+        )
+
+        with (
+            patch.object(engine, "_is_coding_profile", return_value=True),
+            patch.object(engine, "_coding_pressure_threshold_tokens", return_value=100),
+            patch.object(
+                engine._pruner,
+                "estimate_tokens",
+                side_effect=[200, 180, 160, 80],
+            ),
+            patch.object(engine, "_compact_coding_session_history", compact_mock),
+            patch.object(
+                engine,
+                "_build_coding_session_context_from_entries",
+                side_effect=[
+                    await engine._build_coding_session_context_from_entries(
+                        conversation_id="conv-1",
+                        system_prompt="System prompt",
+                        query="follow-up",
+                        session_state=session_state,
+                        working_memory=WorkingMemory(objective="Original user goal"),
+                    ),
+                    rebuilt_context,
+                ],
+            ),
+        ):
+            messages, _, usage_payload = await engine._prepare_coding_prompt_messages(
+                conversation_id="conv-1",
+                run_id="run-2",
+                query="follow-up",
+                step_number=2,
+                system_prompt="System prompt",
+                session_state=session_state,
+                working_memory=WorkingMemory(objective="Original user goal"),
+            )
+
+        assert messages[1]["content"] == "Checkpoint summary"
+        assert usage_payload["reduction_stage"] == "stage4_checkpoint_fallback"
+        assert usage_payload["checkpoint_fallback_activated"] is True
+        compact_mock.assert_awaited_once()
+        assert compact_mock.await_args.kwargs["prompt_tokens_before_reduction"] == 200
+
 
 # =============================================================================
 # AgentEngine Run Tests
