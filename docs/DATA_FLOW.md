@@ -174,7 +174,8 @@ Research mode runs an agent loop that plans, calls tools, and synthesizes an ans
      │───────────────>│                │                │                │                │
      │                │                │                │                │                │
      │                │ POST /api/agent/runs            │                │                │
-     │                │ {query, conversation_id, max_steps}              │                │
+     │                │ {query, conversation_id?, max_steps=1000,        │                │
+     │                │  workspace_path?, capabilities, ...}             │                │
      │                │───────────────>│                │                │                │
      │                │                │                │                │                │
      │                │                │ Create run_id  │                │                │
@@ -640,6 +641,7 @@ Step 2+: MAIN LOOP (while not synthesis and step < max_steps)
     │   │   ├── insert checkpoint at the compaction boundary
     │   │   ├── restore bounded current read_file evidence for important files
     │   │   └── future coding prompt = system + checkpoint + metadata + restored files + preserved raw tail
+    │   │      with stored file evidence reused when fresh and explicit reread tracking when stale
     │   └── Emergency hard truncation only if still over budget
     │
     ├── 4. LLM CALL with tool schemas

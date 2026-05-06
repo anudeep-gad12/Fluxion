@@ -68,7 +68,8 @@ POST /api/conversations
 **Body**:
 ```json
 {
-  "title": "Optional conversation title"
+  "title": "Optional conversation title",
+  "workspace_path": "/Users/me/project"
 }
 ```
 
@@ -100,17 +101,20 @@ GET /api/conversations?status=active&limit=50&offset=0
 
 **Response** (200 OK):
 ```json
-[
-  {
-    "conversation_id": "abc12345",
-    "title": "Math questions",
-    "summary": "Discussion about calculus",
-    "status": "active",
-    "created_at": "2024-01-15T10:30:00Z",
-    "metadata": null
-  },
-  ...
-]
+{
+  "conversations": [
+    {
+      "conversation_id": "abc12345",
+      "title": "Math questions",
+      "summary": "Discussion about calculus",
+      "workspace_path": "/Users/me/project",
+      "status": "active",
+      "created_at": "2024-01-15T10:30:00Z",
+      "metadata": {}
+    }
+  ],
+  "total": 1
+}
 ```
 
 ---
@@ -131,9 +135,10 @@ GET /api/conversations/{conversation_id}
     "conversation_id": "abc12345",
     "title": "Math questions",
     "summary": "Discussion about calculus",
+    "workspace_path": "/Users/me/project",
     "status": "active",
     "created_at": "2024-01-15T10:30:00Z",
-    "metadata": null
+    "metadata": {}
   },
   "runs": [
     {
@@ -176,22 +181,22 @@ PATCH /api/conversations/{conversation_id}
 ```json
 {
   "title": "New title",
-  "summary": "Updated summary",
   "status": "archived"
 }
 ```
 
-All fields are optional.
+Both fields are optional. `workspace_path` is immutable after creation.
 
 **Response** (200 OK):
 ```json
 {
   "conversation_id": "abc12345",
   "title": "New title",
-  "summary": "Updated summary",
+  "summary": "Discussion about calculus",
+  "workspace_path": "/Users/me/project",
   "status": "archived",
   "created_at": "2024-01-15T10:30:00Z",
-  "metadata": null
+  "metadata": {}
 }
 ```
 
@@ -671,11 +676,20 @@ POST /api/agent/runs
 {
   "query": "What are the latest developments in quantum computing?",
   "conversation_id": "abc12345",
-  "max_steps": 10,
+  "max_steps": 1000,
   "profile": "coding",
-  "permission_policy": "relaxed",
+  "permission_policy": "strict",
+  "workspace_path": "/Users/me/project",
   "working_dir": "/path/to/project",
-  "filesystem_enabled": true
+  "filesystem_enabled": true,
+  "capabilities": {
+    "web": true,
+    "filesystem": true,
+    "bash": true,
+    "python": true
+  },
+  "python_provider": "local",
+  "image_attachments": []
 }
 ```
 
@@ -683,11 +697,15 @@ POST /api/agent/runs
 |-------|------|----------|---------|-------------|
 | `query` | string | Yes | - | Research query |
 | `conversation_id` | string | No | null | Optional conversation |
-| `max_steps` | int | No | 10 | Maximum agent steps |
+| `max_steps` | int | No | 1000 | Maximum agent steps |
 | `profile` | string | No | `"research"` | Agent profile: `"research"` or `"coding"` |
-| `permission_policy` | string | No | `"relaxed"` | Tool approval: `"strict"`, `"relaxed"`, `"yolo"` |
+| `permission_policy` | string | No | `"strict"` | Tool approval: `"strict"`, `"relaxed"`, `"yolo"` |
+| `workspace_path` | string | No | null | Workspace to bind when auto-creating a conversation |
 | `working_dir` | string | No | null | Filesystem root for coding tools |
 | `filesystem_enabled` | bool | No | false | Enable filesystem tools |
+| `capabilities` | object | No | `{web:true, filesystem:false, bash:false, python:false}` | Browser-owned tool capability switches |
+| `python_provider` | string | No | env/config default | `"local"` or `"daytona"` |
+| `image_attachments` | array | No | `[]` | Optional multimodal image attachments |
 
 **Response** (200 OK):
 ```json
@@ -695,11 +713,14 @@ POST /api/agent/runs
   "run_id": "agent_001",
   "status": "running",
   "stream_url": "/api/agent/runs/agent_001/stream?token=abc123...",
-  "stream_token": "abc123..."
+  "stream_token": "abc123...",
+  "conversation_id": "abc12345"
 }
 ```
 
 The `stream_token` is a per-run secret (`secrets.token_urlsafe(16)`) used to authenticate SSE stream connections. Pass it as the `token` query parameter when connecting to the stream endpoint.
+
+If `conversation_id` is omitted, the backend creates a new conversation automatically, binds the resolved workspace path, and generates a first-message title from `query`.
 
 ---
 
@@ -719,7 +740,7 @@ GET /api/agent/runs/{run_id}
   "status": "running",
   "agent_state": "tool_calling",
   "current_step": 2,
-  "max_steps": 10,
+  "max_steps": 1000,
   "final_answer": null,
   "usage": {
     "input_tokens": 18420,
@@ -1215,6 +1236,10 @@ GET /api/models
 
 The `available` field on each model indicates whether the required API key is set.
 
+Notes:
+- Registry presets still include a generic `local` provider bucket for compatibility.
+- The browser model picker shows scanned local models separately and does not render the generic placeholder local preset row.
+
 ---
 
 ### Select Model
@@ -1264,6 +1289,54 @@ POST /api/models/select
 
 ---
 
+### Select Custom OpenAI-Compatible Provider
+
+Point Fluxion at an arbitrary OpenAI-compatible base URL without adding a registry preset.
+
+**Request**:
+```
+POST /api/models/custom/select
+```
+
+**Body**:
+```json
+{
+  "name": "custom",
+  "base_url": "http://localhost:1234/v1",
+  "api_key": "",
+  "model": "my-model",
+  "context_window": 32768,
+  "max_output_tokens": 8192,
+  "supports_tools": true,
+  "supports_reasoning": false,
+  "supports_vision": false,
+  "reasoning_request_param": null,
+  "input_cost_per_million": null,
+  "cached_input_cost_per_million": null,
+  "output_cost_per_million": null
+}
+```
+
+**Response** (200 OK):
+```json
+{
+  "status": "ok",
+  "name": "custom",
+  "base_url": "http://localhost:1234/v1",
+  "model": "my-model",
+  "context_window": 32768,
+  "max_output_tokens": 8192,
+  "supports_tools": true,
+  "supports_reasoning": false,
+  "supports_vision": false,
+  "provider_family": "custom",
+  "effective_input_budget": 24576,
+  "source": "custom"
+}
+```
+
+---
+
 ### Get Model Status
 
 Get current provider and model info.
@@ -1274,6 +1347,9 @@ Current status payload also includes:
 - `effective_input_budget`
 - `supports_tools`
 - `supports_reasoning`
+- `supports_vision`
+- `provider_family`
+- `reasoning_capabilities`
 - `source`
 
 **Request**:
@@ -1287,7 +1363,19 @@ GET /api/models/status
   "provider": "local",
   "model_name": "Qwen3.5-35B-A3B-Q8_0",
   "base_url": "http://localhost:8080/v1",
-  "local_running": true
+  "local_running": true,
+  "context_window": 100000,
+  "max_output_tokens": 8192,
+  "effective_input_budget": 91808,
+  "supports_tools": true,
+  "supports_reasoning": false,
+  "supports_vision": false,
+  "provider_family": "local",
+  "reasoning_capabilities": {
+    "supports_reasoning_effort": false,
+    "supports_reasoning_summaries": false
+  },
+  "source": "local"
 }
 ```
 
@@ -1297,7 +1385,7 @@ Provider is `"local"` when llama-server is active, `"cloud"` otherwise.
 
 ### List Local Models
 
-Scan disk for available GGUF models.
+Scan disk for available GGUF and MLX models.
 
 **Request**:
 ```
@@ -1311,6 +1399,7 @@ GET /api/models/local
     "path": "/Users/user/.lmstudio/models/Qwen3.5-35B-A3B-Q8_0.gguf",
     "name": "Qwen3.5-35B-A3B-Q8_0",
     "size_bytes": 37580963840,
+    "model_type": "gguf",
     "size_display": "35.0 GB"
   }
 ]
@@ -1322,7 +1411,7 @@ Scans: `~/.lmstudio/models`, `~/.cache/lm-studio/models` (excluding Ollama subfo
 
 ### Start Local Model
 
-Start llama-server with a GGUF model and switch provider.
+Start a local model server and switch provider. GGUF models launch `llama-server`; MLX directories launch `mlx_lm.server`.
 
 **Request**:
 ```
@@ -1339,8 +1428,8 @@ POST /api/models/local/start
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
-| `model_path` | string | Yes | - | Full path to GGUF file |
-| `ctx_size` | int | No | config `context.max_tokens` | Context window size |
+| `model_path` | string | Yes | - | Full path to GGUF file or MLX model directory |
+| `ctx_size` | int | No | config `context.max_tokens` | Context window size for GGUF/llama-server launches |
 
 **Response** (200 OK):
 ```json
@@ -1351,7 +1440,36 @@ POST /api/models/local/start
 ```
 
 **Error** (404): Model file not found
-**Error** (500): llama-server failed to start
+**Error** (500): local model server failed to start; check `logs/llama.log` or `logs/mlx.log`
+
+Startup logs are append-only and rotate into `logs/*.wal.*` segments when the active file grows too large.
+
+---
+
+### Get Runtime Reasoning Settings
+
+**Request**:
+```
+GET /api/models/reasoning-settings
+```
+
+Returns the persisted global reasoning settings plus active-model/provider capabilities.
+
+### Update Runtime Reasoning Settings
+
+**Request**:
+```
+PUT /api/models/reasoning-settings
+```
+
+**Body**:
+```json
+{
+  "settings": {
+    "enabled": true
+  }
+}
+```
 
 ---
 
