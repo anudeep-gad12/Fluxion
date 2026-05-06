@@ -1046,6 +1046,7 @@ function conversationTitleFromMessage(message: string, maxLen = 64): string {
 export function ConversationView() {
   const navigate = useNavigate();
   const selectedConversationId = useStore((s) => s.selectedConversationId);
+  const selectConversation = useStore((s) => s.selectConversation);
   const setRuns = useStore((s) => s.setRuns);
   const updateConversation = useStore((s) => s.updateConversation);
   const addConversation = useStore((s) => s.addConversation);
@@ -1067,6 +1068,7 @@ export function ConversationView() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [mode, setMode] = useState<ChatMode>('agent');
   const [workspacePickerOpen, setWorkspacePickerOpen] = useState(false);
+  const [workspacePickerMode, setWorkspacePickerMode] = useState<'draft' | 'new-conversation'>('draft');
   const [mentionResults, setMentionResults] = useState<WorkspaceFileEntry[]>([]);
   const [mentionOpen, setMentionOpen] = useState(false);
   const [mentionLoading, setMentionLoading] = useState(false);
@@ -1082,6 +1084,8 @@ export function ConversationView() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const verticalMoveColumnRef = useRef<number | null>(null);
   const composerFocusRafRef = useRef<number | null>(null);
+  const pendingWorkspaceShortcutRef = useRef<'workspace-new' | 'workspace-picker' | null>(null);
+  const pendingWorkspaceShortcutTimeoutRef = useRef<number | null>(null);
 
   // Model picker state
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
@@ -1407,6 +1411,7 @@ export function ConversationView() {
       );
       return;
     }
+    setWorkspacePickerMode('draft');
     setWorkspacePickerOpen(true);
   }, [hasConversationWorkspace, isWorkspaceLocked]);
 
@@ -2020,9 +2025,92 @@ export function ConversationView() {
     handleComposerEditingShortcut(e);
   };
 
+  const openWorkspacePickerForNewConversation = useCallback(() => {
+    setWorkspacePickerMode('new-conversation');
+    setWorkspacePickerOpen(true);
+  }, []);
+
+  const startWorkspaceDraftConversation = useCallback((workspacePath: string) => {
+    if (hasActiveRun) return;
+    const normalized = workspacePath.trim();
+    if (!normalized) {
+      openWorkspacePickerForNewConversation();
+      return;
+    }
+    selectConversation(null);
+    rememberWorkspacePath(normalized);
+    setDraftWorkspacePath(normalized);
+    navigate('/conversations');
+  }, [
+    hasActiveRun,
+    navigate,
+    openWorkspacePickerForNewConversation,
+    rememberWorkspacePath,
+    selectConversation,
+    setDraftWorkspacePath,
+  ]);
+
+  const clearPendingWorkspaceShortcut = useCallback(() => {
+    pendingWorkspaceShortcutRef.current = null;
+    if (pendingWorkspaceShortcutTimeoutRef.current !== null) {
+      window.clearTimeout(pendingWorkspaceShortcutTimeoutRef.current);
+      pendingWorkspaceShortcutTimeoutRef.current = null;
+    }
+  }, []);
+
+  const armPendingWorkspaceShortcut = useCallback((action: 'workspace-new' | 'workspace-picker') => {
+    pendingWorkspaceShortcutRef.current = action;
+    if (pendingWorkspaceShortcutTimeoutRef.current !== null) {
+      window.clearTimeout(pendingWorkspaceShortcutTimeoutRef.current);
+    }
+    pendingWorkspaceShortcutTimeoutRef.current = window.setTimeout(() => {
+      pendingWorkspaceShortcutRef.current = null;
+      pendingWorkspaceShortcutTimeoutRef.current = null;
+    }, 1500);
+  }, []);
+
   useEffect(() => {
     const handleWindowKeyDown = (event: globalThis.KeyboardEvent) => {
       if (event.defaultPrevented || event.isComposing) return;
+      const lowerKey = event.key.toLowerCase();
+
+      const pendingWorkspaceShortcut = pendingWorkspaceShortcutRef.current;
+      if (pendingWorkspaceShortcut) {
+        if (event.metaKey || event.ctrlKey || event.altKey) {
+          clearPendingWorkspaceShortcut();
+          return;
+        }
+        if (lowerKey === 'escape') {
+          clearPendingWorkspaceShortcut();
+          return;
+        }
+        if (lowerKey === 'n') {
+          event.preventDefault();
+          clearPendingWorkspaceShortcut();
+          if (hasActiveRun) return;
+          if (effectiveWorkspacePath) {
+            startWorkspaceDraftConversation(effectiveWorkspacePath);
+          } else {
+            openWorkspacePickerForNewConversation();
+          }
+          return;
+        }
+        if (lowerKey === 'w') {
+          event.preventDefault();
+          clearPendingWorkspaceShortcut();
+          openWorkspacePickerForNewConversation();
+          return;
+        }
+        clearPendingWorkspaceShortcut();
+      }
+
+      if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && lowerKey === 'k') {
+        if (isTextInputElement(event.target)) return;
+        event.preventDefault();
+        armPendingWorkspaceShortcut('workspace-new');
+        return;
+      }
+
       if (event.key !== '/' || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
       if (isTextInputElement(event.target)) return;
       const textarea = textareaRef.current;
@@ -2033,12 +2121,23 @@ export function ConversationView() {
 
     window.addEventListener('keydown', handleWindowKeyDown);
     return () => window.removeEventListener('keydown', handleWindowKeyDown);
-  }, [focusComposer]);
+  }, [
+    armPendingWorkspaceShortcut,
+    clearPendingWorkspaceShortcut,
+    effectiveWorkspacePath,
+    focusComposer,
+    hasActiveRun,
+    openWorkspacePickerForNewConversation,
+    startWorkspaceDraftConversation,
+  ]);
 
   useEffect(() => {
     return () => {
       if (composerFocusRafRef.current !== null) {
         cancelAnimationFrame(composerFocusRafRef.current);
+      }
+      if (pendingWorkspaceShortcutTimeoutRef.current !== null) {
+        window.clearTimeout(pendingWorkspaceShortcutTimeoutRef.current);
       }
     };
   }, []);
@@ -2158,6 +2257,10 @@ export function ConversationView() {
           onOpenChange={setWorkspacePickerOpen}
           value={draftWorkspacePath}
           onSelect={(workspacePath) => {
+            if (workspacePickerMode === 'new-conversation') {
+              startWorkspaceDraftConversation(workspacePath);
+              return;
+            }
             rememberWorkspacePath(workspacePath);
             setDraftWorkspacePath(workspacePath);
           }}
@@ -2260,7 +2363,10 @@ export function ConversationView() {
                         title="Workspace path for filesystem and bash tools"
                       />
                       <button
-                        onClick={handleOpenWorkspacePicker}
+                        onClick={() => {
+                          setWorkspacePickerMode('draft');
+                          handleOpenWorkspacePicker();
+                        }}
                         className="text-zinc-600 hover:text-zinc-300 transition-colors"
                         title="Browse local folders"
                       >
@@ -2392,6 +2498,10 @@ export function ConversationView() {
         onOpenChange={setWorkspacePickerOpen}
         value={draftWorkspacePath}
         onSelect={(workspacePath) => {
+          if (workspacePickerMode === 'new-conversation') {
+            startWorkspaceDraftConversation(workspacePath);
+            return;
+          }
           rememberWorkspacePath(workspacePath);
           setDraftWorkspacePath(workspacePath);
         }}
