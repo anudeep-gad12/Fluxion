@@ -45,11 +45,11 @@ export const AgentRunMessage = memo(function AgentRunMessage({
   return (
     <div className="animate-in fade-in slide-in-from-bottom-2 space-y-4">
       <div className="flex gap-3">
-        <div className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center bg-zinc-700">
-          <span className="font-mono text-xs text-zinc-300">U</span>
+        <div className="w-9 flex-shrink-0 pt-0.5">
+          <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-zinc-500">U:</span>
         </div>
         <div className="min-w-0 flex-1">
-          <div className="border border-zinc-800 bg-zinc-800/50 px-4 py-3">
+          <div className="rounded-2xl border border-zinc-800/70 bg-zinc-900/45 px-4 py-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.025)]">
             <span className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-100">
               {run.user_message || run.prompt}
             </span>
@@ -62,11 +62,11 @@ export const AgentRunMessage = memo(function AgentRunMessage({
       </div>
 
       <div className="group/msg flex gap-3">
-        <div className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center border border-cyan-900/50 bg-cyan-950">
-          <span className="font-mono text-[10px] text-cyan-400">R</span>
+        <div className="w-9 flex-shrink-0 pt-0.5">
+          <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-cyan-400/80">R:</span>
         </div>
         <div className="min-w-0 flex-1">
-          <div className="py-2">
+          <div className="rounded-2xl border border-zinc-800/55 bg-zinc-950/36 px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]">
             {agentState && <AgentStepsPanel agentState={agentState} />}
 
             {finalAnswer ? (
@@ -85,10 +85,10 @@ export const AgentRunMessage = memo(function AgentRunMessage({
           </div>
 
           {!isActive && (
-            <div className="mt-2 flex flex-wrap items-center gap-3 font-mono text-xs">
+            <div className="mt-2 flex flex-wrap items-center gap-3 px-1 font-mono text-xs">
               <button
                 onClick={handleShowTraceClick}
-                className="text-zinc-600 transition-colors hover:text-zinc-300"
+                className="text-zinc-500 transition-colors hover:text-zinc-300"
               >
                 [details]
               </button>

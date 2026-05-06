@@ -301,8 +301,9 @@ function deriveAgentDetail(agentState: AgentUIState, phase: AgentLivePhase): Age
   const activeToolCall = findActiveToolCall(agentState);
   if (activeToolCall) {
     const target = extractToolTarget(activeToolCall);
+    const summary = TOOL_VERBS[activeToolCall.tool_name] || prettifyToolName(activeToolCall.tool_name) || 'working';
     return {
-      summary: TOOL_VERBS[activeToolCall.tool_name] || prettifyToolName(activeToolCall.tool_name) || 'working',
+      summary,
       target,
       toolName: prettifyToolName(activeToolCall.tool_name),
     };
@@ -312,9 +313,9 @@ function deriveAgentDetail(agentState: AgentUIState, phase: AgentLivePhase): Age
     case 'synthesizing':
       return { summary: 'assembling response' };
     case 'planning':
-      return { summary: `reasoning through step ${Math.max(agentState.currentStep, 1)}` };
+      return { summary: 'working through context' };
     case 'running':
-      return { summary: `moving through step ${Math.max(agentState.currentStep, 1)}` };
+      return { summary: 'moving through the run' };
     case 'paused':
       return { summary: 'waiting for resume' };
     case 'error':

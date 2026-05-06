@@ -772,11 +772,11 @@ const RunMessage = memo(function RunMessage({
     <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2">
       {/* User message */}
       <div className="flex gap-3">
-        <div className="flex-shrink-0 w-7 h-7 bg-zinc-700 flex items-center justify-center mt-0.5">
-          <span className="text-xs font-mono text-zinc-300">U</span>
+        <div className="w-9 flex-shrink-0 pt-0.5">
+          <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-zinc-500">U:</span>
         </div>
         <div className="flex-1 min-w-0">
-          <div className="bg-zinc-800/50 border border-zinc-800 px-4 py-3">
+          <div className="rounded-2xl border border-zinc-800/70 bg-zinc-900/45 px-4 py-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.025)]">
             <span className="text-zinc-100 whitespace-pre-wrap text-sm leading-relaxed">
               {run.user_message || run.prompt}
             </span>
@@ -789,11 +789,11 @@ const RunMessage = memo(function RunMessage({
 
       {/* AI response */}
       <div className="flex gap-3 group/msg">
-        <div className="flex-shrink-0 w-7 h-7 bg-zinc-800 border border-zinc-700 flex items-center justify-center mt-0.5">
-          <span className="text-xs font-mono text-zinc-400">AI</span>
+        <div className="w-9 flex-shrink-0 pt-0.5">
+          <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-zinc-400/80">AI:</span>
         </div>
         <div className="flex-1 min-w-0">
-          <div className="py-2">
+          <div className="rounded-2xl border border-zinc-800/55 bg-zinc-950/36 px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]">
             {/* Thinking Panel - shows while thinking or after completion with thinking data */}
             <ThinkingPanel
               summary={run.thinking_summary}
@@ -822,10 +822,10 @@ const RunMessage = memo(function RunMessage({
             ) : null}
           </div>
 
-          <div className="mt-2 flex flex-wrap items-center gap-3 font-mono text-xs">
+          <div className="mt-2 flex flex-wrap items-center gap-3 px-1 font-mono text-xs">
             <button
               onClick={handleShowTraceClick}
-              className="text-zinc-600 hover:text-zinc-300 transition-colors"
+              className="text-zinc-500 hover:text-zinc-300 transition-colors"
             >
               [details]
             </button>

@@ -29,14 +29,38 @@ function ElapsedClock({ startedAt }: { startedAt: string }) {
   return <span>{formatElapsedSeconds(elapsedSeconds)}</span>;
 }
 
-function AgentLoader({ gradientClassName, paused }: { gradientClassName: string; paused: boolean }) {
+function AgentLoader({
+  gradientClassName,
+  animated,
+}: {
+  gradientClassName: string;
+  animated: boolean;
+}) {
   return (
-    <span className="relative inline-flex h-8 w-10 shrink-0 items-center justify-center overflow-hidden rounded-sm border border-zinc-800/80 bg-black/50 shadow-[inset_0_0_18px_rgba(255,255,255,0.03)]">
-      <span className="absolute inset-x-1 top-1/2 h-px -translate-y-1/2 bg-zinc-800/90" />
-      {!paused && <span className={cn('agent-scan absolute inset-x-1 top-1/2 h-px -translate-y-1/2 bg-gradient-to-r', gradientClassName)} />}
-      <span className={cn('absolute left-1.5 h-1.5 w-1.5 rounded-full bg-cyan-300', !paused && 'agent-dot agent-dot-a')} />
-      <span className={cn('absolute h-1.5 w-1.5 rounded-full bg-amber-300', !paused && 'agent-dot agent-dot-b')} />
-      <span className={cn('absolute right-1.5 h-1.5 w-1.5 rounded-full bg-emerald-300', !paused && 'agent-dot agent-dot-c')} />
+    <span className="relative inline-flex h-10 w-[3.4rem] shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-zinc-800/80 bg-black/45 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]">
+      <span className="absolute inset-[5px] rounded-[11px] border border-zinc-900/80 bg-zinc-950/88" />
+      <span className="relative z-10 flex w-full flex-col gap-1.5 px-2.5">
+        {[0, 1, 2].map((index) => (
+          <span
+            key={index}
+            className={cn(
+              'relative block h-[3px] overflow-hidden rounded-full bg-zinc-800/85',
+              index === 0 && 'w-[72%]',
+              index === 1 && 'w-full',
+              index === 2 && 'w-[58%]'
+            )}
+          >
+            <span
+              className={cn(
+                'absolute inset-y-0 left-0 w-[40%] rounded-full bg-zinc-600/35',
+                animated && 'agent-loader-stroke bg-gradient-to-r shadow-[0_0_14px_rgba(255,255,255,0.16)]',
+                animated && gradientClassName
+              )}
+              style={animated ? ({ animationDelay: `${index * 150}ms` } as const) : undefined}
+            />
+          </span>
+        ))}
+      </span>
     </span>
   );
 }
@@ -55,8 +79,8 @@ function MetricChip({
   return (
     <div
       className={cn(
-        'inline-flex items-center gap-1.5 rounded-sm border px-2 py-1 whitespace-nowrap',
-        warning ? 'border-amber-500/20 bg-amber-500/8' : 'border-zinc-800 bg-black/35'
+        'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 whitespace-nowrap',
+        warning ? 'border-amber-500/18 bg-amber-500/7' : 'border-zinc-800/70 bg-zinc-950/55'
       )}
     >
       <span className={cn('text-[10px] uppercase tracking-[0.18em]', warning ? 'text-amber-300/70' : 'text-zinc-500')}>
@@ -92,7 +116,7 @@ export const AgentLiveHUD = memo(function AgentLiveHUD({
 }: AgentLiveHUDProps) {
   const phase = useDerivedAgentPhase(agentState, runId);
   const startedAt = agentState.steps[0]?.created_at || runCreatedAt;
-  const isPaused = phase.phase === 'paused';
+  const isStatic = !phase.animated;
   const currentContextPct = agentState.context_usage
     ? `${Math.round(agentState.context_usage.utilization_pct_effective)}%`
     : '—';
@@ -100,29 +124,29 @@ export const AgentLiveHUD = memo(function AgentLiveHUD({
   const currentStep = Math.max(agentState.currentStep, agentState.steps.length);
   const hasLimit = agentState.maxSteps > 0;
 
-
-
-
   return (
     <div className="flex-shrink-0 px-3 pb-2 sm:px-4 md:px-6">
       <div
         className={cn(
-          'animate-in fade-in slide-in-from-bottom-2 relative overflow-hidden rounded-md border bg-zinc-950/92 font-mono text-xs shadow-[0_-14px_36px_rgba(0,0,0,0.28)] backdrop-blur-md',
+          'animate-in fade-in slide-in-from-bottom-2 relative overflow-hidden rounded-2xl border bg-zinc-950/82 font-mono text-xs shadow-[0_-14px_32px_rgba(0,0,0,0.18)] backdrop-blur-md',
           phase.borderClassName,
-          isPaused && 'bg-zinc-950/96'
+          isStatic && 'bg-zinc-950/88'
         )}
       >
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-16 bg-[linear-gradient(180deg,rgba(255,255,255,0.02),transparent)]" />
         <div className={cn('pointer-events-none absolute inset-y-0 left-0 w-px bg-gradient-to-b', phase.glowClassName)} />
         <div className={cn('pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r', phase.glowClassName)} />
 
         <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3 px-3 py-2.5">
-          <div className="flex min-w-0 flex-1 items-start gap-3">
-            <AgentLoader gradientClassName={phase.loaderGradientClassName} paused={isPaused} />
+          <div className="flex min-w-0 flex-1 items-start gap-3.5">
+            <AgentLoader gradientClassName={phase.loaderGradientClassName} animated={phase.animated} />
 
-            <div className="min-w-0 flex-1 space-y-1">
+            <div className="min-w-0 flex-1 space-y-1.5">
               <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-                <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full shadow-[0_0_10px_rgba(255,255,255,0.14)]', phase.indicatorClassName)} />
-                <WordSwap className={cn('truncate text-[13px] leading-none', phase.accentClassName)} value={phase.activeWord} />
+                <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full shadow-[0_0_12px_rgba(255,255,255,0.16)]', phase.indicatorClassName)} />
+                <WordSwap className={cn('truncate text-[13px] font-medium leading-none', phase.accentClassName)} value={phase.activeWord} />
+                <span className="text-[11px] text-zinc-500">·</span>
+                <span className="truncate text-[11px] text-zinc-300">{phase.detail.summary}</span>
                 {phase.detail.toolName && (
                   <span className={cn('rounded-sm border px-1.5 py-0.5 text-[10px] uppercase tracking-[0.18em]', phase.chipClassName)}>
                     {phase.detail.toolName}
@@ -131,21 +155,21 @@ export const AgentLiveHUD = memo(function AgentLiveHUD({
               </div>
 
               <div className="min-w-0 text-[11px] leading-relaxed text-zinc-400">
-                <span key={`${phase.detail.summary}:${phase.detail.target ?? ''}`} className="animate-in fade-in duration-200 inline-flex min-w-0 max-w-full flex-wrap items-center gap-1">
-                  <span>{phase.detail.summary}</span>
+                <span key={`${phase.detail.summary}:${phase.detail.target ?? ''}`} className="animate-in fade-in duration-200 inline-flex min-w-0 max-w-full flex-wrap items-center gap-1.5">
+                  <span className="text-zinc-500">step {currentStep || 1}</span>
                   {phase.detail.target && <span className="text-zinc-600">→</span>}
-                  {phase.detail.target && <span className="truncate text-zinc-300">{phase.detail.target}</span>}
+                  {phase.detail.target && <span className="truncate text-zinc-300/90">{phase.detail.target}</span>}
                 </span>
               </div>
             </div>
           </div>
 
-          <div className="ml-auto flex items-center gap-2 text-[10px] uppercase tracking-[0.18em] text-zinc-600">
-            {isPaused ? 'paused' : 'live'}
+          <div className="ml-auto flex items-center gap-2 self-start rounded-full border border-zinc-900/70 bg-zinc-950/50 px-2 py-1 text-[10px] uppercase tracking-[0.18em] text-zinc-600">
+            {isStatic ? phase.label : 'live'}
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 border-t border-zinc-900/90 px-3 py-2 text-zinc-400">
+        <div className="flex flex-wrap items-center gap-2 border-t border-zinc-900/70 bg-zinc-950/35 px-3 py-2 text-zinc-400">
           <MetricChip label="step" value={currentStep || 0} emphasized />
           {hasLimit ? <MetricChip label="limit" value={agentState.maxSteps} /> : null}
           <MetricChip label="ctx" value={currentContextPct} warning={phase.isContextWarning} />
