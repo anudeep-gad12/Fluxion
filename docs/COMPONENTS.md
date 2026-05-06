@@ -1019,6 +1019,7 @@ class BaseTool(Protocol):
 - Configurable timeout (default 120s, max 600s)
 - Output truncated at 30,000 chars
 - Returns exit code, stdout, stderr in metadata
+- Prompt guidance now explicitly treats `bash` as the general local execution tool for verification, build/test/dev commands, quick scripts, curl, repro steps, and calculations
 
 ### `orchestrator/agent/tools/read_file.py`
 
@@ -1071,7 +1072,7 @@ class BaseTool(Protocol):
 
 ### `orchestrator/agent/tools/edit_file.py`
 
-**Purpose**: Exact string find-and-replace editing.
+**Purpose**: Resilient exact-first string replacement for existing files.
 
 **Class: `EditFileTool`**
 
@@ -1090,9 +1091,11 @@ class BaseTool(Protocol):
 ```
 
 **Features**:
-- `old_string` must appear exactly once (prevents ambiguous edits)
+- Exact match is attempted first and still preferred
+- Recovery matchers can succeed across inline-whitespace, indentation, and nearby-context drift when the intended block is still uniquely identifiable
+- Failure metadata records how the block was matched (or why it was ambiguous/missing)
 - Diff-style summary of changes
-- No regex — exact match only for reliability
+- No regex; deterministic structured matching only
 
 ### `orchestrator/agent/tools/glob_tool.py`
 
@@ -1408,7 +1411,7 @@ async with self._seq_lock:
 
 ### `orchestrator/routes/models.py`
 
-**Purpose**: Model registry and local model management — preset listing, hot-swap, GGUF scanning, llama-server lifecycle.
+**Purpose**: Model registry and runtime model management — preset listing, custom provider selection, GGUF/MLX scanning, and local server lifecycle.
 
 **Endpoints**:
 
@@ -1416,10 +1419,13 @@ async with self._seq_lock:
 |--------|------|-------------|
 | `GET` | `/api/models` | List all registry presets (grouped by provider) |
 | `POST` | `/api/models/select` | Hot-swap active model via registry |
+| `POST` | `/api/models/custom/select` | Point the app at a custom OpenAI-compatible endpoint |
 | `GET` | `/api/models/status` | Current provider info (local vs cloud) |
-| `GET` | `/api/models/local` | Scan disk for GGUF models |
-| `POST` | `/api/models/local/start` | Start llama-server, switch to local provider |
+| `GET` | `/api/models/local` | Scan disk for GGUF and MLX models |
+| `POST` | `/api/models/local/start` | Start `llama-server` or `mlx_lm.server`, switch to local provider |
 | `POST` | `/api/models/local/stop` | Stop llama-server, revert to cloud |
+| `GET` | `/api/models/reasoning-settings` | Get global runtime reasoning settings + active-model capabilities |
+| `PUT` | `/api/models/reasoning-settings` | Update runtime reasoning settings |
 
 **Module State**:
 - `_active_model: Optional[ResolvedModel]` — Currently selected registry model
@@ -1465,7 +1471,7 @@ async with self._seq_lock:
 
 ### `orchestrator/services/local_models.py`
 
-**Purpose**: GGUF model discovery and llama-server process management.
+**Purpose**: GGUF/MLX model discovery and local server process management.
 
 **Key Elements**:
 
@@ -1473,12 +1479,17 @@ async with self._seq_lock:
 |---------|------|-------------|
 | `MODEL_DIRS` | List[Path] | LM Studio directories to scan for local models |
 | `LLAMA_PORT` | int | Default port (8080) |
-| `LocalModel` | dataclass | Model metadata (path, name, size) |
-| `scan_models()` | function | Scans LM Studio directories and excludes Ollama subfolders |
-| `start()` | async function | Starts llama-server with `--jinja` flag, waits for health |
+| `LocalModel` | dataclass | Model metadata (path, name, size, `model_type`) |
+| `scan_models()` | function | Scans LM Studio directories for GGUF files and MLX directories, excluding Ollama subfolders |
+| `start()` | async function | Detects GGUF vs MLX, starts `llama-server` or `mlx_lm.server`, waits for health |
 | `stop()` | async function | Graceful SIGTERM shutdown |
 | `is_running()` | async function | Health check via HTTP GET |
 | `status()` | function | Returns current model name and running state |
+
+**Logging**:
+- Active logs are append-only: `logs/llama.log` or `logs/mlx.log`
+- Large active logs rotate into `*.wal.<timestamp>` segments with bounded retention
+- Each startup writes a metadata header with model path, ctx size, and launch command
 
 ---
 
@@ -1970,6 +1981,10 @@ Built with the [Textual](https://textual.textualize.io/) framework. Always uses 
 - Benchmarks navigation chip in header
 - Desktop agent-mode terminal toggle; embeds a collapsible, resizable terminal pane above the composer
 - Terminal pane is conversation-scoped and preserves shell state across collapse/reopen and conversation switches
+- Bare `/` focuses the main composer unless another editable control owns focus
+- Focused textarea supports terminal/editor-style shortcuts for line/word movement and kill-style deletions
+- Large conversations switch to virtualized transcript rendering; smaller conversations keep the normal full DOM path so browser find still works
+- Model picker dialog is intentionally wider/taller and only shows useful cloud presets plus scanned local entries, not the generic placeholder local row
 
 **State**:
 - Uses `useSSE` for chat streaming (only auto-subscribes to `activeChatRunId`, not agent runs)
@@ -1986,6 +2001,9 @@ Built with the [Textual](https://textual.textualize.io/) framework. Always uses 
   - `ctx` = replayable stored conversation context currently persisted for future turns
   - `stored_tokens/context_window`
   - `raw` = conversation-lifetime provider token total across all runs in the thread
+- Footer context denominator is always resolved from the currently active model/runtime, including started local models
+- New browser coding conversations are lazy-created on first send and inherit the selected workspace path
+- Placeholder `New conversation` titles are upgraded from the first user/agent prompt using the shared smart title generator
 
 ### `ui/src/components/IntegratedTerminal.tsx`
 
@@ -2005,10 +2023,13 @@ Built with the [Textual](https://textual.textualize.io/) framework. Always uses 
 
 ### `ui/src/components/ConversationList.tsx`
 
-**Purpose**: Sidebar list of conversations.
+**Purpose**: Workspace-grouped sidebar for browser conversations.
 
 **Features**:
 - List conversations on mount
+- Groups conversations under their immutable `workspace_path`
+- Workspace sections default collapsed and can create a new conversation directly in that workspace
+- "General" workspace-less conversations are purged from the browser sidebar/API load path
 - Single delete per item
 - Multi-select mode with bulk delete
 - Delete confirmation modal
