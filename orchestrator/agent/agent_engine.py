@@ -618,6 +618,19 @@ To provide your final answer, respond WITHOUT calling any tools."""
             outcomes.append(first_line[:500])
         return outcomes[-6:]
 
+    def _resolved_system_prompt(self) -> str:
+        """Build the effective system prompt for the current run/model."""
+        if self._profile:
+            system_prompt = self._system_prompt
+        else:
+            today = date.today()
+            date_context = (
+                f"Current date: {today.strftime('%B %d, %Y')}\n"
+                f"Your knowledge cutoff: June 2024. For information after this date, use web_search."
+            )
+            system_prompt = self._system_prompt.format(date_context=date_context)
+        return self._effective_system_prompt(system_prompt)
+
     def _update_working_memory_from_tools(
         self,
         memory: WorkingMemory,
@@ -1699,20 +1712,24 @@ To provide your final answer, respond WITHOUT calling any tools."""
             step_number=step_number,
         )
 
-    async def _load_coding_session_messages(
+    async def _build_coding_session_context_from_entries(
         self,
         *,
         conversation_id: str,
         system_prompt: str,
         query: str,
-        run_id: str,
         session_state: CodingSessionState,
         working_memory: Optional[WorkingMemory] = None,
-        use_session_entries: bool = True,
-    ) -> tuple[List[Dict[str, Any]], ContextBudget]:
-        """Build coding prompt context from transcript entries plus neutral metadata."""
-        transcript_entries: List[CodingSessionEntry] = []
-        if use_session_entries:
+        transcript_entries: Optional[List[CodingSessionEntry]] = None,
+    ) -> tuple[
+        List[Dict[str, Any]],
+        ContextBudget,
+        List[CodingSessionEntry],
+        Dict[str, Any],
+        Dict[str, Any],
+    ]:
+        """Build coding prompt context plus observability payloads from transcript entries."""
+        if transcript_entries is None:
             entry_records = await self._call_repo_async_method(
                 "list_coding_session_entries",
                 conversation_id,
@@ -1747,30 +1764,103 @@ To provide your final answer, respond WITHOUT calling any tools."""
             metadata_message=metadata_message,
             restored_file_messages=restored_file_messages,
         )
-        self._last_stored_context = self._stored_context_usage_payload(
+        stored_payload = self._stored_context_usage_payload(
             stored_tokens=stored_context.token_count,
             replayable_entry_count=stored_context.replayable_entry_count,
         )
-        await self._add_trace_event(
-            run_id=run_id,
-            event_type="coding_session_context_load",
-            content={
+        self._last_stored_context = stored_payload
+        context_payload = {
+            "conversation_id": conversation_id,
+            "transcript_source": "coding_session_entries",
+            "used_session_entries": context.used_session_entries,
+            "metadata_included": context.metadata_included,
+            "replayed_entry_count": context.replayed_entry_count,
+            "message_count": len(context.messages),
+            "prompt_tokens": builder.estimate_tokens(context.messages),
+            "stored_context_tokens": stored_context.token_count,
+            "checkpoint_present": context.checkpoint_present,
+            "preserved_tail_count": context.preserved_tail_count,
+            "restored_file_count": context.restored_file_count,
+            "replay_source_ranges": context.replay_source_ranges,
+        }
+        return (
+            context.messages,
+            context.budget,
+            transcript_entries,
+            stored_payload,
+            context_payload,
+        )
+
+    async def _load_coding_session_messages(
+        self,
+        *,
+        conversation_id: str,
+        system_prompt: str,
+        query: str,
+        run_id: str,
+        session_state: CodingSessionState,
+        working_memory: Optional[WorkingMemory] = None,
+        use_session_entries: bool = True,
+    ) -> tuple[List[Dict[str, Any]], ContextBudget]:
+        """Build coding prompt context from transcript entries plus neutral metadata."""
+        transcript_entries: List[CodingSessionEntry] = []
+        if use_session_entries:
+            (
+                messages,
+                budget,
+                transcript_entries,
+                _,
+                context_payload,
+            ) = await self._build_coding_session_context_from_entries(
+                conversation_id=conversation_id,
+                system_prompt=system_prompt,
+                query=query,
+                session_state=session_state,
+                working_memory=working_memory,
+            )
+        else:
+            builder = self._coding_context_builder()
+            context = builder.build(
+                system_prompt=system_prompt,
+                session_state=session_state,
+                transcript_entries=[],
+                current_query=query,
+                metadata_message=working_memory.render_coding_metadata() if working_memory else None,
+                restored_file_messages=[],
+            )
+            messages = context.messages
+            budget = context.budget
+            context_payload = {
                 "conversation_id": conversation_id,
                 "transcript_source": "coding_session_entries",
-                "used_session_entries": context.used_session_entries,
+                "used_session_entries": False,
                 "metadata_included": context.metadata_included,
                 "replayed_entry_count": context.replayed_entry_count,
                 "message_count": len(context.messages),
                 "prompt_tokens": builder.estimate_tokens(context.messages),
-                "stored_context_tokens": stored_context.token_count,
-                "checkpoint_present": context.checkpoint_present,
-                "preserved_tail_count": context.preserved_tail_count,
-                "restored_file_count": context.restored_file_count,
+                "stored_context_tokens": 0,
+                "checkpoint_present": False,
+                "preserved_tail_count": 0,
+                "restored_file_count": 0,
                 "replay_source_ranges": context.replay_source_ranges,
+            }
+        await self._add_trace_event(
+            run_id=run_id,
+            event_type="coding_session_context_load",
+            content={
+                **context_payload,
+                **self._coding_prompt_pressure_metrics(context_payload["prompt_tokens"]),
+                "context_phase": "raw_replay",
+                "reduction_stage": "stage0_full_raw_replay",
+                "checkpoint_fallback_activated": False,
+                "raw_replay_counts": self._coding_replay_counts(
+                    transcript_entries,
+                    messages,
+                ),
             },
             actor="system",
         )
-        return context.messages, context.budget
+        return messages, budget
 
     def _group_entries_by_turn(
         self,
@@ -2293,7 +2383,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
     def _coding_tail_target_tokens(self) -> int:
         """Return the retained raw-tail token target for coding compaction."""
         effective_budget = self._context_profile.effective_input_budget
-        return min(20_000, max(2_000, int(effective_budget * 0.25)))
+        return min(60_000, max(8_000, int(effective_budget * 0.35)))
 
     async def _compact_coding_session_history(
         self,
@@ -2303,6 +2393,9 @@ To provide your final answer, respond WITHOUT calling any tools."""
         step_number: int,
         session_state: CodingSessionState,
         working_memory: Optional[WorkingMemory] = None,
+        prompt_tokens_before_reduction: Optional[int] = None,
+        raw_replay_counts: Optional[Dict[str, int]] = None,
+        reduction_stages_applied: Optional[List[str]] = None,
     ) -> bool:
         """Compact coding-session history into a replayable checkpoint plus raw tail."""
         entry_records = await self._call_repo_async_method(
@@ -2430,6 +2523,10 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 "kept_last_two_turns_raw": candidate_seq <= keep_two_start,
                 "restorable_read_files": checkpoint_payload["read_files"],
                 "restorable_modified_files": checkpoint_payload["modified_files"],
+                "prompt_tokens_before_reduction": prompt_tokens_before_reduction,
+                "raw_replay_counts": raw_replay_counts or {},
+                "reduction_stages_applied": reduction_stages_applied or [],
+                "fallback_stage": "stage4_checkpoint_fallback",
             },
             actor="system",
             step_number=step_number,
@@ -2585,6 +2682,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 self._active_coding_session_state = coding_session_state
 
             # Build initial scaffold from persisted session history or turn summaries.
+            system_prompt = self._resolved_system_prompt()
             messages, self._context_budget = await self._build_initial_messages(
                 query,
                 conversation_id,
@@ -2681,47 +2779,40 @@ To provide your final answer, respond WITHOUT calling any tools."""
                             extra={"run_id": run_id, "step": step_number, "steer_content": steer_msg[:80]},
                         )
 
+                compacted_now = False
                 if self._is_coding_profile() and conversation_id and coding_session_state is not None:
-                    compacted_session = await self._compact_coding_session_history(
-                        conversation_id=conversation_id,
-                        run_id=run_id,
-                        step_number=step_number,
-                        session_state=coding_session_state,
-                        working_memory=working_memory,
-                    )
-                    if compacted_session:
-                        await self._persist_coding_session_state(
+                    pruned_messages, self._context_budget, context_usage_payload = (
+                        await self._prepare_coding_prompt_messages(
                             conversation_id=conversation_id,
                             run_id=run_id,
-                            working_memory=working_memory,
-                            session_state=coding_session_state,
-                            reason="compaction",
+                            query=query,
                             step_number=step_number,
+                            system_prompt=system_prompt,
+                            session_state=coding_session_state,
+                            working_memory=working_memory,
                         )
-                        coding_session_dirty = True
-                    messages, self._context_budget = await self._build_initial_messages(
-                        query,
-                        conversation_id,
-                        run_id=run_id,
-                        coding_session_state=coding_session_state,
-                        working_memory=working_memory,
-                        coding_session_use_entries=True,
                     )
                     if self._current_plan:
-                        messages = self._inject_plan_into_messages(messages, self._current_plan)
+                        pruned_messages = self._inject_plan_into_messages(
+                            pruned_messages,
+                            self._current_plan,
+                        )
                     if ephemeral_messages:
-                        messages = [*messages, *ephemeral_messages]
+                        pruned_messages = [*pruned_messages, *ephemeral_messages]
+                    compacted_now = bool(
+                        context_usage_payload.get("checkpoint_fallback_activated")
+                    )
+                else:
+                    prompt_messages = self._build_prompt_messages(
+                        scaffold_messages=messages,
+                        working_memory=working_memory,
+                    )
 
-                prompt_messages = self._build_prompt_messages(
-                    scaffold_messages=messages,
-                    working_memory=working_memory,
-                )
-
-                pruned_messages, context_usage_payload, compacted_now = self._enforce_prompt_budget(
-                    prompt_messages,
-                    step_number,
-                    enable_compaction=not self._is_coding_profile(),
-                )
+                    pruned_messages, context_usage_payload, compacted_now = self._enforce_prompt_budget(
+                        prompt_messages,
+                        step_number,
+                        enable_compaction=not self._is_coding_profile(),
+                    )
                 self._last_context_usage = context_usage_payload
                 estimated_tokens = context_usage_payload["prompt_tokens_current_call"]
                 context_remaining = context_usage_payload["remaining_tokens"]
@@ -3481,25 +3572,51 @@ To provide your final answer, respond WITHOUT calling any tools."""
     def _current_context_usage_payload(
         self,
         prompt_tokens_current_call: int,
+        *,
+        prompt_tokens_before_reduction: Optional[int] = None,
+        reduction_stage: Optional[str] = None,
+        checkpoint_fallback_activated: bool = False,
+        raw_replay_counts: Optional[Dict[str, int]] = None,
+        reduction_stages_applied: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         effective_budget = self._context_profile.effective_input_budget
         remaining = max(0, effective_budget - prompt_tokens_current_call)
         utilization_pct = (prompt_tokens_current_call / effective_budget * 100) if effective_budget else 0.0
-        return {
+        prompt_tokens_before = (
+            prompt_tokens_current_call
+            if prompt_tokens_before_reduction is None
+            else prompt_tokens_before_reduction
+        )
+        pressure_threshold_tokens = self._coding_pressure_threshold_tokens()
+        payload = {
             "context_window": self._context_profile.context_window,
             "reserved_output_tokens": self._context_profile.max_output_tokens,
             "effective_input_budget": effective_budget,
             "prompt_tokens_current_call": prompt_tokens_current_call,
+            "prompt_tokens_before_reduction": prompt_tokens_before,
             "conversation_tokens_active_history": prompt_tokens_current_call,
             "utilization_pct_effective": round(utilization_pct, 1),
             "utilization_pct": round(utilization_pct, 1),
             "compaction_threshold_pct": self.COMPACTION_THRESHOLD_PCT,
-            "next_compaction_at_tokens": int(effective_budget * self.COMPACTION_THRESHOLD_PCT / 100),
+            "pressure_threshold_tokens": pressure_threshold_tokens,
+            "next_compaction_at_tokens": pressure_threshold_tokens,
             "remaining_tokens": remaining,
             "compactions_so_far": self._compaction_count,
             "compaction_count": self._compaction_count,
             "last_compacted_at_step": self._last_compacted_at_step,
+            "pressure_ratio": round((prompt_tokens_current_call / effective_budget), 4)
+            if effective_budget
+            else 0.0,
+            "pressure_ratio_before_reduction": round((prompt_tokens_before / effective_budget), 4)
+            if effective_budget
+            else 0.0,
+            "reduction_stage": reduction_stage or "standard",
+            "checkpoint_fallback_activated": checkpoint_fallback_activated,
+            "reduction_stages_applied": reduction_stages_applied or [],
         }
+        if raw_replay_counts is not None:
+            payload["raw_replay_counts"] = raw_replay_counts
+        return payload
 
     def _stored_context_usage_payload(
         self,
@@ -3516,6 +3633,72 @@ To provide your final answer, respond WITHOUT calling any tools."""
             "utilization_pct": round(utilization_pct, 1),
             "replayable_entry_count": replayable_entry_count,
         }
+
+    def _coding_pressure_threshold_tokens(self) -> int:
+        """Return the prompt-token threshold that triggers coding pressure reduction."""
+        effective_budget = self._context_profile.effective_input_budget
+        return int(effective_budget * self.COMPACTION_THRESHOLD_PCT / 100)
+
+    def _coding_prompt_pressure_metrics(self, prompt_tokens: int) -> Dict[str, Any]:
+        """Return effective-budget pressure metrics for a coding prompt."""
+        effective_budget = self._context_profile.effective_input_budget
+        threshold_tokens = self._coding_pressure_threshold_tokens()
+        return {
+            "effective_input_budget": effective_budget,
+            "pressure_threshold_tokens": threshold_tokens,
+            "pressure_threshold_ratio": round(self.COMPACTION_THRESHOLD_PCT / 100, 3),
+            "pressure_ratio": round((prompt_tokens / effective_budget), 4)
+            if effective_budget
+            else 0.0,
+        }
+
+    def _coding_replay_counts(
+        self,
+        transcript_entries: List[CodingSessionEntry],
+        prompt_messages: Optional[List[Dict[str, Any]]] = None,
+    ) -> Dict[str, int]:
+        """Count replayed coding transcript/message categories for observability."""
+        counts: Dict[str, int] = {
+            "entries_total": len(transcript_entries),
+            "user_entries": 0,
+            "assistant_entries": 0,
+            "assistant_tool_call_entries": 0,
+            "tool_result_entries": 0,
+            "checkpoint_entries": 0,
+            "prompt_user_messages": 0,
+            "prompt_assistant_messages": 0,
+            "prompt_tool_messages": 0,
+            "prompt_system_messages": 0,
+        }
+        for entry in transcript_entries:
+            if entry.entry_type == "user":
+                counts["user_entries"] += 1
+            elif entry.entry_type == "assistant":
+                counts["assistant_entries"] += 1
+            elif entry.entry_type == "assistant_tool_calls":
+                counts["assistant_tool_call_entries"] += 1
+            elif entry.entry_type == "tool_result":
+                counts["tool_result_entries"] += 1
+            elif self._is_coding_compaction_summary_entry(entry):
+                counts["checkpoint_entries"] += 1
+        for message in prompt_messages or []:
+            role = str(message.get("role") or "")
+            if role == "user":
+                counts["prompt_user_messages"] += 1
+            elif role == "assistant":
+                counts["prompt_assistant_messages"] += 1
+            elif role == "tool":
+                counts["prompt_tool_messages"] += 1
+            elif role == "system":
+                counts["prompt_system_messages"] += 1
+        return counts
+
+    def _clone_prompt_messages(
+        self,
+        messages: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """Return a JSON-safe clone of prompt messages for transient reduction."""
+        return json.loads(json.dumps(messages, ensure_ascii=False))
 
     async def _refresh_coding_stored_context(
         self,
@@ -3557,6 +3740,320 @@ To provide your final answer, respond WITHOUT calling any tools."""
         )
         self._last_stored_context = payload
         return payload
+
+    def _shorten_with_head_tail(
+        self,
+        text: str,
+        *,
+        head_chars: int,
+        tail_chars: int,
+        marker: str = "\n... [truncated] ...\n",
+    ) -> str:
+        """Preserve head/tail evidence from long text."""
+        if len(text) <= head_chars + tail_chars + len(marker):
+            return text
+        return text[:head_chars].rstrip() + marker + text[-tail_chars:].lstrip()
+
+    def _reduce_coding_tool_content(
+        self,
+        *,
+        tool_name: str,
+        content: str,
+        aggressive: bool = False,
+    ) -> str:
+        """Reduce bulky coding tool payloads while keeping grounded evidence."""
+        if not content:
+            return content
+        budget_by_tool = {
+            "read_file": 3200,
+            "web_extract": 2200,
+            "grep": 1800,
+            "bash": 2200,
+            "web_search": 1800,
+        }
+        target_chars = budget_by_tool.get(tool_name, 1600)
+        if aggressive:
+            target_chars = max(600, int(target_chars * 0.5))
+        if len(content) <= target_chars:
+            return content
+        if tool_name in {"read_file", "grep"}:
+            lines = content.splitlines()
+            head_lines = 45 if not aggressive else 20
+            tail_lines = 20 if not aggressive else 10
+            if len(lines) <= head_lines + tail_lines + 4:
+                return content[:target_chars]
+            return "\n".join(
+                [
+                    *lines[:head_lines],
+                    "... [middle omitted under prompt pressure] ...",
+                    *lines[-tail_lines:],
+                ]
+            )
+        return self._shorten_with_head_tail(
+            content,
+            head_chars=int(target_chars * 0.65),
+            tail_chars=int(target_chars * 0.25),
+            marker="\n... [reduced under prompt pressure] ...\n",
+        )
+
+    def _reduce_coding_tool_payloads(
+        self,
+        messages: List[Dict[str, Any]],
+        *,
+        aggressive: bool = False,
+    ) -> tuple[List[Dict[str, Any]], int]:
+        """Stage 1: reduce large tool/file payloads before dialogue."""
+        reduced = self._clone_prompt_messages(messages)
+        changed = 0
+        for message in reduced:
+            if message.get("role") != "tool":
+                continue
+            tool_name = str(message.get("name") or "")
+            content = str(message.get("content") or "")
+            shrunk = self._reduce_coding_tool_content(
+                tool_name=tool_name,
+                content=content,
+                aggressive=aggressive,
+            )
+            if shrunk != content:
+                message["content"] = shrunk
+                changed += 1
+        return reduced, changed
+
+    def _reduce_coding_tool_scaffolding(
+        self,
+        messages: List[Dict[str, Any]],
+    ) -> tuple[List[Dict[str, Any]], int]:
+        """Stage 2: reduce redundant assistant tool scaffolding before dialogue."""
+        reduced = self._clone_prompt_messages(messages)
+        changed = 0
+        assistant_indices = [
+            idx
+            for idx, message in enumerate(reduced)
+            if message.get("role") == "assistant" and message.get("tool_calls")
+        ]
+        protected = set(assistant_indices[-2:])
+        for idx in assistant_indices:
+            if idx in protected:
+                continue
+            message = reduced[idx]
+            tool_calls = message.get("tool_calls") or []
+            names = [
+                str((tool_call.get("function") or {}).get("name") or "").strip()
+                for tool_call in tool_calls
+                if isinstance(tool_call, dict)
+            ]
+            names = [name for name in names if name]
+            concise = (
+                f"Called tool(s): {', '.join(names[:4])}"
+                if names
+                else "Called tool(s)."
+            )
+            if str(message.get("content") or "") != concise:
+                message["content"] = concise
+                changed += 1
+        return reduced, changed
+
+    def _reduce_coding_dialogue_context(
+        self,
+        messages: List[Dict[str, Any]],
+    ) -> tuple[List[Dict[str, Any]], int]:
+        """Stage 3: summarize older assistant/tool context while preserving user turns."""
+        reduced = self._clone_prompt_messages(messages)
+        changed = 0
+        replay_indices = [
+            idx
+            for idx, message in enumerate(reduced)
+            if message.get("role") in {"user", "assistant", "tool"}
+        ]
+        protected = set(replay_indices[-8:])
+        for idx, message in enumerate(reduced):
+            if idx in protected:
+                continue
+            role = message.get("role")
+            if role == "user":
+                continue
+            if role == "assistant":
+                content = str(message.get("content") or "").strip()
+                tool_calls = message.get("tool_calls") or []
+                if tool_calls:
+                    names = [
+                        str((tool_call.get("function") or {}).get("name") or "").strip()
+                        for tool_call in tool_calls
+                        if isinstance(tool_call, dict)
+                    ]
+                    concise = (
+                        f"Earlier tool call: {', '.join(name for name in names[:4] if name)}"
+                        if names
+                        else "Earlier tool call."
+                    )
+                else:
+                    concise = content if len(content) <= 220 else content[:217].rstrip() + "..."
+                if concise != content:
+                    message["content"] = concise
+                    changed += 1
+            elif role == "tool":
+                tool_name = str(message.get("name") or "").strip()
+                content = str(message.get("content") or "").strip()
+                concise = self._reduce_coding_tool_content(
+                    tool_name=tool_name,
+                    content=content,
+                    aggressive=True,
+                )
+                if concise != content:
+                    message["content"] = concise
+                    changed += 1
+        return reduced, changed
+
+    async def _prepare_coding_prompt_messages(
+        self,
+        *,
+        conversation_id: str,
+        run_id: str,
+        query: str,
+        step_number: int,
+        system_prompt: str,
+        session_state: CodingSessionState,
+        working_memory: WorkingMemory,
+    ) -> tuple[List[Dict[str, Any]], ContextBudget, Dict[str, Any]]:
+        """Build coding prompt messages and reduce only under real prompt pressure."""
+        (
+            scaffold_messages,
+            budget,
+            transcript_entries,
+            stored_payload,
+            context_payload,
+        ) = await self._build_coding_session_context_from_entries(
+            conversation_id=conversation_id,
+            system_prompt=system_prompt,
+            query=query,
+            session_state=session_state,
+            working_memory=working_memory,
+        )
+        raw_prompt_messages = self._build_prompt_messages(
+            scaffold_messages=scaffold_messages,
+            working_memory=working_memory,
+        )
+        raw_prompt_tokens = self._pruner.estimate_tokens(raw_prompt_messages)
+        effective_budget = self._context_profile.effective_input_budget
+        threshold_tokens = self._coding_pressure_threshold_tokens()
+        replay_counts = self._coding_replay_counts(transcript_entries, raw_prompt_messages)
+        reduction_stages_applied: List[str] = []
+        reduction_stage = "stage0_full_raw_replay"
+        checkpoint_fallback_activated = False
+
+        prompt_messages = raw_prompt_messages
+        prompt_tokens = raw_prompt_tokens
+        if prompt_tokens >= threshold_tokens:
+            stage1_messages, stage1_changed = self._reduce_coding_tool_payloads(prompt_messages)
+            if stage1_changed:
+                prompt_messages = stage1_messages
+                prompt_tokens = self._pruner.estimate_tokens(prompt_messages)
+                reduction_stage = "stage1_tool_payload_reduced"
+                reduction_stages_applied.append(reduction_stage)
+
+            if prompt_tokens >= threshold_tokens:
+                stage2_messages, stage2_changed = self._reduce_coding_tool_scaffolding(prompt_messages)
+                if stage2_changed:
+                    prompt_messages = stage2_messages
+                    prompt_tokens = self._pruner.estimate_tokens(prompt_messages)
+                    reduction_stage = "stage2_tool_scaffolding_reduced"
+                    reduction_stages_applied.append(reduction_stage)
+
+            if prompt_tokens >= threshold_tokens:
+                stage3_messages, stage3_changed = self._reduce_coding_dialogue_context(prompt_messages)
+                if stage3_changed:
+                    prompt_messages = stage3_messages
+                    prompt_tokens = self._pruner.estimate_tokens(prompt_messages)
+                    reduction_stage = "stage3_context_summarized"
+                    reduction_stages_applied.append(reduction_stage)
+
+            if prompt_tokens >= threshold_tokens:
+                checkpoint_fallback_activated = await self._compact_coding_session_history(
+                    conversation_id=conversation_id,
+                    run_id=run_id,
+                    step_number=step_number,
+                    session_state=session_state,
+                    working_memory=working_memory,
+                    prompt_tokens_before_reduction=raw_prompt_tokens,
+                    raw_replay_counts=replay_counts,
+                    reduction_stages_applied=reduction_stages_applied,
+                )
+                if checkpoint_fallback_activated:
+                    reduction_stage = "stage4_checkpoint_fallback"
+                    reduction_stages_applied.append(reduction_stage)
+                    (
+                        scaffold_messages,
+                        budget,
+                        transcript_entries,
+                        stored_payload,
+                        context_payload,
+                    ) = await self._build_coding_session_context_from_entries(
+                        conversation_id=conversation_id,
+                        system_prompt=system_prompt,
+                        query=query,
+                        session_state=session_state,
+                        working_memory=working_memory,
+                    )
+                    prompt_messages = self._build_prompt_messages(
+                        scaffold_messages=scaffold_messages,
+                        working_memory=working_memory,
+                    )
+                    replay_counts = self._coding_replay_counts(
+                        transcript_entries,
+                        prompt_messages,
+                    )
+                    prompt_tokens = self._pruner.estimate_tokens(prompt_messages)
+                    if prompt_tokens >= threshold_tokens:
+                        prompt_messages, _ = self._reduce_coding_tool_payloads(
+                            prompt_messages,
+                            aggressive=True,
+                        )
+                        prompt_messages, _ = self._reduce_coding_tool_scaffolding(prompt_messages)
+                        prompt_messages, _ = self._reduce_coding_dialogue_context(prompt_messages)
+                        prompt_tokens = self._pruner.estimate_tokens(prompt_messages)
+
+        if prompt_tokens > effective_budget:
+            prune_iterations = 0
+            while prompt_tokens > effective_budget and prune_iterations < 20:
+                prune_iterations += 1
+                prompt_messages = self._force_prune_largest(prompt_messages, {})
+                prompt_tokens = self._pruner.estimate_tokens(prompt_messages)
+            if prune_iterations:
+                reduction_stage = "stage5_emergency_prune"
+                reduction_stages_applied.append(reduction_stage)
+
+        usage_payload = self._current_context_usage_payload(
+            prompt_tokens,
+            prompt_tokens_before_reduction=raw_prompt_tokens,
+            reduction_stage=reduction_stage,
+            checkpoint_fallback_activated=checkpoint_fallback_activated,
+            raw_replay_counts=replay_counts,
+            reduction_stages_applied=reduction_stages_applied,
+        )
+        usage_payload["final_pressure_ratio"] = round(
+            (prompt_tokens / effective_budget), 4
+        ) if effective_budget else 0.0
+
+        await self._add_trace_event(
+            run_id=run_id,
+            event_type="coding_session_context_load",
+            content={
+                **context_payload,
+                **self._coding_prompt_pressure_metrics(raw_prompt_tokens),
+                "context_phase": "final_prompt",
+                "prompt_tokens_before_reduction": raw_prompt_tokens,
+                "prompt_tokens_final": prompt_tokens,
+                "stored_context": stored_payload,
+                "raw_replay_counts": replay_counts,
+                "reduction_stage": reduction_stage,
+                "reduction_stages_applied": reduction_stages_applied,
+                "checkpoint_fallback_activated": checkpoint_fallback_activated,
+            },
+            actor="system",
+            step_number=step_number,
+        )
+        return prompt_messages, budget, usage_payload
 
     def _is_compaction_message(self, message: Dict[str, Any]) -> bool:
         return message.get("role") == "system" and str(message.get("content") or "").startswith(self.COMPACTION_PREFIX)
@@ -4013,16 +4510,7 @@ When you complete each step, proceed to the next."""
         # Build system prompt: if profile is set, the factory already formatted
         # the prompt with date_context and project_context. Otherwise, inject
         # date context for backward compatibility.
-        if self._profile:
-            system_prompt = self._system_prompt
-        else:
-            today = date.today()
-            date_context = (
-                f"Current date: {today.strftime('%B %d, %Y')}\n"
-                f"Your knowledge cutoff: June 2024. For information after this date, use web_search."
-            )
-            system_prompt = self._system_prompt.format(date_context=date_context)
-        system_prompt = self._effective_system_prompt(system_prompt)
+        system_prompt = self._resolved_system_prompt()
 
         # Load conversation history
         prior_runs: list[dict] = []
