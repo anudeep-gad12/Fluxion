@@ -3779,7 +3779,7 @@ class TestCodingContinuationBehavior:
         repo.upsert_coding_session_state.assert_awaited()
 
     @pytest.mark.asyncio
-    async def test_planning_is_not_gated_by_removed_intent_routing(self):
+    async def test_coding_agent_handles_ambiguous_follow_up_without_planner(self):
         provider = create_mock_provider(response_text="Can you clarify what you want changed?")
         mock_sm = create_mock_state_machine()
 
@@ -3794,10 +3794,10 @@ class TestCodingContinuationBehavior:
                 profile=self._coding_profile(),
                 planning_enabled=True,
             )
-            with patch.object(engine, "_create_plan", AsyncMock(return_value=None)) as create_plan:
-                await engine.run(run_id="run-ambiguous", query="that part feels weird")
+            result = await engine.run(run_id="run-ambiguous", query="that part feels weird")
 
-        create_plan.assert_awaited_once()
+        assert result.success is True
+        assert result.final_answer == "Can you clarify what you want changed?"
 
     def test_canonical_replay_tool_calls_serializes_parsed_args(self):
         registry = create_mock_registry()

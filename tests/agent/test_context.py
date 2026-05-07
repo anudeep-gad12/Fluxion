@@ -1,15 +1,9 @@
 """Tests for context gathering strategies."""
 
-import asyncio
-from datetime import date
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
-
 import pytest
 
 from orchestrator.agent.context import (
     CodingContextStrategy,
-    ResearchContextStrategy,
     get_context_strategy,
     _truncate,
     _run_cmd,
@@ -19,21 +13,17 @@ from orchestrator.agent.context import (
 class TestGetContextStrategy:
     """Test strategy resolution."""
 
-    def test_get_research_strategy(self):
-        strategy = get_context_strategy("research")
-        assert isinstance(strategy, ResearchContextStrategy)
-
     def test_get_coding_strategy(self):
         strategy = get_context_strategy("coding")
         assert isinstance(strategy, CodingContextStrategy)
 
     def test_full_strategy_no_longer_exists(self):
         """The full context strategy has been removed."""
-        with pytest.raises(ValueError, match="Unknown context strategy"):
+        with pytest.raises(ValueError, match="Only the 'coding' context strategy exists"):
             get_context_strategy("full")
 
     def test_invalid_strategy_raises(self):
-        with pytest.raises(ValueError, match="Unknown context strategy"):
+        with pytest.raises(ValueError, match="Only the 'coding' context strategy exists"):
             get_context_strategy("invalid")
 
 
@@ -51,25 +41,6 @@ class TestTruncate:
     def test_exact_length_unchanged(self):
         text = "a" * 50
         assert _truncate(text, 50) == text
-
-
-class TestResearchContextStrategy:
-    """Test ResearchContextStrategy."""
-
-    @pytest.mark.asyncio
-    async def test_returns_date_and_cutoff(self):
-        strategy = ResearchContextStrategy()
-        result = await strategy.gather()
-        today = date.today()
-        assert today.strftime("%B %d, %Y") in result
-        assert "knowledge cutoff" in result.lower()
-
-    @pytest.mark.asyncio
-    async def test_ignores_working_dir(self):
-        strategy = ResearchContextStrategy()
-        result1 = await strategy.gather()
-        result2 = await strategy.gather("/some/dir")
-        assert result1 == result2
 
 
 class TestCodingContextStrategy:

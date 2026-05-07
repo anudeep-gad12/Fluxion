@@ -501,7 +501,6 @@ class CreateAgentRunRequest(BaseModel):
     filesystem_enabled: bool = False
     working_dir: Optional[str] = None
     permission_policy: str = "strict"
-    profile: Optional[str] = None
     python_provider: Optional[str] = None
     image_attachments: list[dict[str, Any]] = Field(default_factory=list)
 

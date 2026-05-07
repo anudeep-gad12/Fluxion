@@ -677,7 +677,6 @@ POST /api/agent/runs
   "query": "What are the latest developments in quantum computing?",
   "conversation_id": "abc12345",
   "max_steps": 1000,
-  "profile": "coding",
   "permission_policy": "strict",
   "workspace_path": "/Users/me/project",
   "working_dir": "/path/to/project",
@@ -695,10 +694,9 @@ POST /api/agent/runs
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
-| `query` | string | Yes | - | Research query |
+| `query` | string | Yes | - | Coding-agent task or follow-up |
 | `conversation_id` | string | No | null | Optional conversation |
 | `max_steps` | int | No | 1000 | Maximum agent steps |
-| `profile` | string | No | `"research"` | Agent profile: `"research"` or `"coding"` |
 | `permission_policy` | string | No | `"strict"` | Tool approval: `"strict"`, `"relaxed"`, `"yolo"` |
 | `workspace_path` | string | No | null | Workspace to bind when auto-creating a conversation |
 | `working_dir` | string | No | null | Filesystem root for coding tools |
