@@ -173,7 +173,7 @@ function AppLayout() {
             {(isOwner || !isDemoMode) && (
               <button
                 onClick={() => handleSidebarToggle(false)}
-                className="p-2 -ml-2 hover:bg-accent rounded-none transition-colors"
+                className="p-2 -ml-2 hover:bg-accent rounded-lg transition-colors"
                 aria-label="Open menu"
               >
                 <Menu className="h-6 w-6" />

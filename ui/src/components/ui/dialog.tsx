@@ -20,7 +20,7 @@ export function Dialog({ open, onOpenChange, children, className }: DialogProps)
                 onClick={() => onOpenChange(false)}
             />
             {/* Content - relative z-10 to sit above backdrop */}
-            <div className={cn("relative z-10 bg-card rounded-none shadow-none border border-border w-full max-w-md mx-4", className)}>
+            <div className={cn("relative z-10 bg-card rounded-2xl shadow-[0_18px_50px_rgba(0,0,0,0.28)] border border-border w-full max-w-md mx-4 overflow-hidden", className)}>
                 {children}
             </div>
         </div>

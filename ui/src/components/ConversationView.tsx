@@ -2275,7 +2275,7 @@ export function ConversationView() {
         </div>
         <div className="p-3 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-4 sm:pb-[max(1rem,env(safe-area-inset-bottom))] flex-shrink-0 space-y-2">
           {/* Prompt area */}
-          <div className="relative border border-zinc-700 bg-zinc-900 focus-within:border-zinc-500 transition-colors">
+          <div className="relative overflow-hidden rounded-2xl border border-zinc-700 bg-zinc-900/96 shadow-[inset_0_1px_0_rgba(255,255,255,0.025)] focus-within:border-zinc-500 transition-colors">
             <div className="flex items-start p-3 gap-2">
               <span className="text-zinc-500 font-mono text-sm mt-0.5 select-none">&gt;</span>
               <textarea
@@ -2308,7 +2308,7 @@ export function ConversationView() {
                   key={attachment.id || index}
                   type="button"
                   onClick={() => removeImageAttachment(attachment.id)}
-                  className="border border-zinc-800 bg-zinc-900 px-2 py-0.5 text-zinc-500 hover:text-zinc-200"
+                  className="rounded-lg border border-zinc-800 bg-zinc-900 px-2 py-0.5 text-zinc-500 hover:text-zinc-200"
                   title="Remove image"
                 >
                   image {index + 1} ×
@@ -2554,7 +2554,7 @@ export function ConversationView() {
             {queuedSteers.map((msg, i) => (
               <span
                 key={i}
-                className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-mono bg-amber-500/10 text-amber-400/80 border border-amber-500/20"
+                className="inline-flex items-center gap-1 rounded-lg border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-[11px] font-mono text-amber-400/80"
               >
                 <span className="text-amber-500/50">queued:</span> {msg.length > 40 ? msg.slice(0, 40) + '...' : msg}
               </span>
@@ -2562,7 +2562,7 @@ export function ConversationView() {
           </div>
         )}
         {/* Prompt area */}
-        <div className="relative border border-zinc-700 bg-zinc-900 focus-within:border-zinc-500 transition-colors">
+        <div className="relative overflow-hidden rounded-2xl border border-zinc-700 bg-zinc-900/96 shadow-[inset_0_1px_0_rgba(255,255,255,0.025)] focus-within:border-zinc-500 transition-colors">
           <div className="flex items-start p-3 gap-2">
             <span className="text-zinc-500 font-mono text-sm mt-0.5 select-none">&gt;</span>
             <textarea
@@ -2595,7 +2595,7 @@ export function ConversationView() {
                 key={attachment.id || index}
                 type="button"
                 onClick={() => removeImageAttachment(attachment.id)}
-                className="border border-zinc-800 bg-zinc-900 px-2 py-0.5 text-zinc-500 hover:text-zinc-200"
+                  className="rounded-lg border border-zinc-800 bg-zinc-900 px-2 py-0.5 text-zinc-500 hover:text-zinc-200"
                 title="Remove image"
               >
                 image {index + 1} ×

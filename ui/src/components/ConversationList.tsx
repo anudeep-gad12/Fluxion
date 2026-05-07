@@ -61,7 +61,7 @@ function ConversationCard({
   return (
     <div
       className={cn(
-        'cursor-pointer rounded-lg border border-zinc-800/80 bg-zinc-950/40 px-3 py-3 transition-all',
+        'cursor-pointer rounded-xl border border-zinc-800/80 bg-zinc-950/40 px-3 py-3 transition-all',
         'min-h-[60px] sm:min-h-0',
         isSelected && 'border-zinc-600 bg-zinc-900/80 shadow-[0_0_0_1px_rgba(255,255,255,0.04)]',
         !isSelected && 'hover:border-zinc-700 hover:bg-zinc-900/55',
@@ -91,7 +91,7 @@ function ConversationCard({
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8 flex-shrink-0 rounded-md text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200"
+            className="h-8 w-8 flex-shrink-0 rounded-lg text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200"
             onClick={(e) => {
               e.stopPropagation();
               onDelete();
@@ -134,7 +134,7 @@ function WorkspaceSection({
             onToggle();
           }
         }}
-        className="group block w-full rounded-xl border border-zinc-800/80 bg-zinc-950/55 px-3 py-3 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.02)] transition-colors hover:border-zinc-700 hover:bg-zinc-900/60"
+        className="group block w-full rounded-2xl border border-zinc-800/80 bg-zinc-950/55 px-3 py-3 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.02)] transition-colors hover:border-zinc-700 hover:bg-zinc-900/60"
       >
         <div className="flex items-start gap-3.5">
           <button
@@ -144,7 +144,7 @@ function WorkspaceSection({
               onToggle();
             }}
             onMouseDown={(event) => event.stopPropagation()}
-            className="mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md border border-zinc-800 bg-zinc-900/80 text-zinc-500 transition-colors hover:border-zinc-700 hover:text-zinc-300"
+            className="mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg border border-zinc-800 bg-zinc-900/80 text-zinc-500 transition-colors hover:border-zinc-700 hover:text-zinc-300"
             title={isOpen ? 'Collapse workspace' : 'Expand workspace'}
           >
             {isOpen ? (
@@ -182,7 +182,7 @@ function WorkspaceSection({
                 <Button
                   size="icon"
                   variant="ghost"
-                  className="h-8 w-8 flex-shrink-0 rounded-md text-zinc-500 hover:bg-zinc-800 hover:text-zinc-100"
+                  className="h-8 w-8 flex-shrink-0 rounded-lg text-zinc-500 hover:bg-zinc-800 hover:text-zinc-100"
                   onClick={(event) => {
                     event.stopPropagation();
                     onNewConversation();
@@ -424,7 +424,7 @@ export function ConversationList() {
               variant="ghost"
               onClick={() => setAllWorkspaceSections(!allWorkspaceSectionsOpen)}
               disabled={workspaceGroups.length === 0}
-              className="h-9 w-9 rounded-md p-0 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
+              className="h-9 w-9 rounded-lg p-0 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
               title={allWorkspaceSectionsOpen ? 'Collapse all' : 'Expand all'}
             >
               {allWorkspaceSectionsOpen ? (
@@ -438,7 +438,7 @@ export function ConversationList() {
               variant="ghost"
               onClick={() => setWorkspacePickerOpen(true)}
               disabled={hasActiveRun}
-              className="h-9 w-9 rounded-md p-0 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100"
+              className="h-9 w-9 rounded-lg p-0 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100"
               title="Create workspace"
             >
               <Plus className="h-4 w-4" />
@@ -459,7 +459,7 @@ export function ConversationList() {
                   }
                 }}
                 title={selectedIds.size === conversations.length ? 'Deselect all' : 'Select all'}
-                className="h-9 rounded-md px-2 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100 sm:h-8"
+                className="h-9 rounded-lg px-2 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100 sm:h-8"
               >
                 {selectedIds.size === conversations.length ? 'None' : 'All'}
               </Button>
@@ -469,7 +469,7 @@ export function ConversationList() {
               variant={isSelectMode ? 'secondary' : 'ghost'}
               onClick={toggleSelectMode}
               title={isSelectMode ? 'Cancel selection' : 'Select conversations'}
-              className="h-9 w-9 rounded-md sm:h-8 sm:w-8"
+              className="h-9 w-9 rounded-lg sm:h-8 sm:w-8"
             >
               {isSelectMode ? <X className="h-4 w-4" /> : <CheckSquare className="h-4 w-4" />}
             </Button>
@@ -484,7 +484,7 @@ export function ConversationList() {
             size="sm"
             variant="destructive"
             onClick={() => setBulkDeleteModalOpen(true)}
-            className="h-9 rounded-md sm:h-8"
+            className="h-9 rounded-lg sm:h-8"
           >
             <Trash2 className="h-4 w-4" />
             Delete
@@ -519,7 +519,7 @@ export function ConversationList() {
                 {group.conversations.length === 0 ? (
                   <button
                     onClick={() => startWorkspaceDraft(group.workspacePath)}
-                    className="w-full rounded-lg border border-dashed border-zinc-800 bg-zinc-950/40 px-3 py-3 text-left text-xs text-zinc-500 transition-colors hover:border-zinc-700 hover:bg-zinc-900/40 hover:text-zinc-300"
+                    className="w-full rounded-xl border border-dashed border-zinc-800 bg-zinc-950/40 px-3 py-3 text-left text-xs text-zinc-500 transition-colors hover:border-zinc-700 hover:bg-zinc-900/40 hover:text-zinc-300"
                   >
                     New conversation
                   </button>

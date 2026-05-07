@@ -37,8 +37,8 @@ function AgentLoader({
   animated: boolean;
 }) {
   return (
-    <span className="relative inline-flex h-10 w-[3.4rem] shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-zinc-800/80 bg-black/45 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]">
-      <span className="absolute inset-[5px] rounded-[11px] border border-zinc-900/80 bg-zinc-950/88" />
+    <span className="relative inline-flex h-10 w-[3.4rem] shrink-0 items-center justify-center overflow-hidden rounded-[1.15rem] border border-zinc-800/80 bg-black/45 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]">
+      <span className="absolute inset-[5px] rounded-[0.9rem] border border-zinc-900/80 bg-zinc-950/88" />
       <span className="relative z-10 flex w-full flex-col gap-1.5 px-2.5">
         {[0, 1, 2].map((index) => (
           <span
@@ -128,7 +128,7 @@ export const AgentLiveHUD = memo(function AgentLiveHUD({
     <div className="flex-shrink-0 px-3 pb-2 sm:px-4 md:px-6">
       <div
         className={cn(
-          'animate-in fade-in slide-in-from-bottom-2 relative overflow-hidden rounded-2xl border bg-zinc-950/82 font-mono text-xs shadow-[0_-14px_32px_rgba(0,0,0,0.18)] backdrop-blur-md',
+          'animate-in fade-in slide-in-from-bottom-2 relative overflow-hidden rounded-[1.35rem] border bg-zinc-950/82 font-mono text-xs shadow-[0_-14px_32px_rgba(0,0,0,0.18)] backdrop-blur-md',
           phase.borderClassName,
           isStatic && 'bg-zinc-950/88'
         )}
