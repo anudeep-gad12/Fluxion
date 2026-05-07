@@ -1141,7 +1141,7 @@ Fixed multiple issues to support local llama-server with Ministral-3-14B-Reasoni
 **Status:** done
 
 **Description:**
-Enhanced DEFAULT_SYSTEM_PROMPT with research-based verification protocols to improve GAIA benchmark accuracy (currently ~36%). Based on findings documented in `docs/AGENT_REASONING_RESEARCH.md`.
+Enhanced DEFAULT_SYSTEM_PROMPT with research-based verification protocols to improve GAIA benchmark accuracy (currently ~36%).
 
 **Changes:**
 Added three new protocols to agent system prompt:

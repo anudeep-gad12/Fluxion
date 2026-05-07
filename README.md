@@ -35,7 +35,6 @@ Comprehensive documentation is available in the `docs/` folder:
 | [IMPLEMENTATION_LOG.md](docs/IMPLEMENTATION_LOG.md) | Feature tracking and change history |
 | [WORKFLOW.md](docs/WORKFLOW.md) | Development process guide |
 | [RAILWAY_CLI.md](docs/RAILWAY_CLI.md) | Railway deployment guide (staging/production) |
-| [AGENT_PROFILES_ARCHITECTURE.md](docs/AGENT_PROFILES_ARCHITECTURE.md) | Profile system design |
 | [CHATGPT_OAUTH_INTEGRATION.md](docs/CHATGPT_OAUTH_INTEGRATION.md) | OAuth flow design |
 
 ## Architecture Snapshot
