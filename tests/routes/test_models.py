@@ -361,3 +361,25 @@ async def test_delete_provider_key_falls_back_to_environment():
     assert data["provider"] == "deepinfra"
     assert data["has_key"] is True
     assert data["source"] == "environment"
+
+
+@pytest.mark.asyncio
+async def test_parallel_key_round_trip():
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        save_response = await client.put(
+            "/api/models/provider-keys/parallel",
+            json={"api_key": "parallel-test-key"},
+        )
+        list_response = await client.get("/api/models/provider-keys")
+
+    assert save_response.status_code == 200
+    saved = save_response.json()
+    assert saved["provider"] == "parallel"
+    assert saved["has_key"] is True
+    assert saved["source"] == "database"
+
+    listed = {item["provider"]: item for item in list_response.json()["providers"]}
+    assert listed["parallel"]["api_key_env"] == "PARALLEL_API_KEY"
+    assert listed["parallel"]["has_key"] is True

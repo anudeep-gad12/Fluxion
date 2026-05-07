@@ -5,17 +5,23 @@ from __future__ import annotations
 import os
 from typing import Any
 
+from orchestrator.config import get_chat_config
 from orchestrator.models.registry import PROVIDERS
 from orchestrator.storage.db import get_db
 from orchestrator.storage.repositories.app_settings_repo import AppSettingsRepo
 
 SETTINGS_KEY = "provider_api_keys"
-SUPPORTED_PROVIDERS = tuple(
-    provider_name for provider_name in ("openrouter", "deepinfra", "fireworks")
-)
+KEY_SOURCES = {
+    "openrouter": PROVIDERS["openrouter"].api_key_env,
+    "deepinfra": PROVIDERS["deepinfra"].api_key_env,
+    "fireworks": PROVIDERS["fireworks"].api_key_env,
+    "parallel": "PARALLEL_API_KEY",
+}
+SUPPORTED_PROVIDERS = tuple(KEY_SOURCES.keys())
 _runtime_env_fallbacks = {
-    provider: os.environ.get(PROVIDERS[provider].api_key_env)
+    provider: os.environ.get(env_name)
     for provider in SUPPORTED_PROVIDERS
+    for env_name in [KEY_SOURCES[provider]]
 }
 
 
@@ -52,13 +58,13 @@ async def _store_provider_keys(keys: dict[str, str]) -> None:
 
 
 def _apply_provider_key_to_env(provider: str, api_key: str) -> None:
-    env_name = PROVIDERS[provider].api_key_env
+    env_name = KEY_SOURCES[provider]
     if env_name:
         os.environ[env_name] = api_key
 
 
 def _clear_provider_key_from_env(provider: str) -> None:
-    env_name = PROVIDERS[provider].api_key_env
+    env_name = KEY_SOURCES[provider]
     if env_name:
         original = _runtime_env_fallbacks.get(provider)
         if original:
@@ -75,12 +81,13 @@ async def set_provider_api_key(provider: str, api_key: str) -> None:
         raise ValueError("API key cannot be empty")
 
     keys = await get_persisted_provider_keys()
-    env_name = PROVIDERS[normalized].api_key_env
+    env_name = KEY_SOURCES[normalized]
     if env_name and normalized not in keys:
         _runtime_env_fallbacks[normalized] = os.environ.get(env_name)
     keys[normalized] = trimmed
     await _store_provider_keys(keys)
     _apply_provider_key_to_env(normalized, trimmed)
+    get_chat_config(reload=True)
 
 
 async def clear_provider_api_key(provider: str) -> bool:
@@ -94,6 +101,7 @@ async def clear_provider_api_key(provider: str) -> bool:
     keys.pop(normalized, None)
     await _store_provider_keys(keys)
     _clear_provider_key_from_env(normalized)
+    get_chat_config(reload=True)
     return removed
 
 
@@ -109,8 +117,7 @@ async def get_provider_key_statuses() -> list[dict[str, Any]]:
     persisted = await get_persisted_provider_keys()
     statuses: list[dict[str, Any]] = []
     for provider in SUPPORTED_PROVIDERS:
-        provider_def = PROVIDERS[provider]
-        env_name = provider_def.api_key_env
+        env_name = KEY_SOURCES[provider]
         if provider in persisted:
             source = "database"
             has_key = True
