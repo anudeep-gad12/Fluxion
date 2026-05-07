@@ -542,7 +542,10 @@ class TestAgentFactory:
         mock_registry.tool_names = ["web_search"]
 
         with patch("orchestrator.agent.factory.create_provider", return_value=mock_provider):
-            with patch("orchestrator.agent.factory.create_tool_registry", return_value=mock_registry):
+            with patch(
+                "orchestrator.agent.factory.create_browser_agent_tool_registry",
+                return_value=mock_registry,
+            ):
                 engine = await create_agent_engine(max_steps=5)
 
                 assert engine is not None
@@ -558,12 +561,14 @@ class TestAgentFactory:
         mock_registry.tool_names = []
 
         with patch("orchestrator.agent.factory.create_provider", return_value=mock_provider):
-            with patch("orchestrator.agent.factory.create_tool_registry", return_value=mock_registry):
+            with patch(
+                "orchestrator.agent.factory.create_browser_agent_tool_registry",
+                return_value=mock_registry,
+            ):
                 engine = await create_agent_engine()
 
                 assert engine is not None
-                # Default research profile max_steps is 25
-                assert engine._max_steps == 25
+                assert engine._max_steps == 1000
 
     @pytest.mark.asyncio
     async def test_factory_prefers_provider_override_model_name(self, test_db):
@@ -577,7 +582,10 @@ class TestAgentFactory:
         mock_registry.tool_names = []
 
         with patch("orchestrator.agent.factory.create_provider", return_value=MagicMock()):
-            with patch("orchestrator.agent.factory.create_tool_registry", return_value=mock_registry):
+            with patch(
+                "orchestrator.agent.factory.create_browser_agent_tool_registry",
+                return_value=mock_registry,
+            ):
                 engine = await create_agent_engine(provider_override=mock_provider, filesystem_enabled=True)
 
                 assert engine is not None
@@ -592,7 +600,10 @@ class TestAgentFactory:
         mock_registry.tool_names = []
 
         with patch("orchestrator.agent.factory.create_provider", return_value=mock_provider):
-            with patch("orchestrator.agent.factory.create_tool_registry", return_value=mock_registry):
+            with patch(
+                "orchestrator.agent.factory.create_browser_agent_tool_registry",
+                return_value=mock_registry,
+            ):
                 engine = await create_agent_engine(filesystem_enabled=True)
 
                 assert engine is not None

@@ -1,18 +1,7 @@
-"""Agent module for web research agent.
-
-This module provides:
-- Tool protocol and implementations
-- Tool registry for management
-- Context pruning for token management
-- State machine for agent execution flow
-- Recovery helpers for crash recovery
-- Agent engine for orchestration
-- Factory functions for setup
-"""
+"""Coding-agent runtime module."""
 
 from orchestrator.agent.tools import (
     BaseTool,
-    PythonSandboxTool,
     ToolError,
     ToolExecutionError,
     ToolRegistry,
@@ -21,9 +10,8 @@ from orchestrator.agent.tools import (
     ToolTimeoutError,
     WebExtractTool,
     WebSearchTool,
-    create_tool_registry,
 )
-from orchestrator.agent.context_pruner import ContextPruner, PruneStats
+from orchestrator.agent.context_pruner import ContextPruner
 from orchestrator.agent.state_machine import (
     AgentState,
     AgentStateMachine,
@@ -46,7 +34,7 @@ from orchestrator.agent.agent_engine import (
     ParsedToolCall,
 )
 from orchestrator.agent.factory import create_agent_engine
-from orchestrator.agent.profile import AgentProfile, get_profile
+from orchestrator.agent.profile import AgentProfile, CODING_AGENT_PROFILE, get_profile
 from orchestrator.agent.context import get_context_strategy
 
 __all__ = [
@@ -59,14 +47,11 @@ __all__ = [
     "ToolTimeoutError",
     # Registry
     "ToolRegistry",
-    "create_tool_registry",
     # Tools
     "WebSearchTool",
     "WebExtractTool",
-    "PythonSandboxTool",
     # Context Pruner
     "ContextPruner",
-    "PruneStats",
     # State Machine
     "AgentState",
     "AgentStateMachine",
@@ -89,6 +74,7 @@ __all__ = [
     "create_agent_engine",
     # Profiles
     "AgentProfile",
+    "CODING_AGENT_PROFILE",
     "get_profile",
     # Context
     "get_context_strategy",

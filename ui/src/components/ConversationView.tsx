@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { AnswerMarkdown, extractAnswer } from '@/components/AnswerMarkdown';
 import { ThinkingPanel } from '@/components/ThinkingPanel';
 import { AgentRunMessage } from '@/components/AgentRunMessage';
+import { AgentLiveHUD } from '@/components/AgentLiveHUD';
 import { MessageActions } from '@/components/MessageActions';
 import { ShimmerSkeleton, ThinkingTimer } from '@/components/StreamingIndicator';
 import { ScrollToBottom } from '@/components/ScrollToBottom';
@@ -53,6 +54,8 @@ import {
 import { useConversationRuns, useSelectedConversation, useStore, useHasActiveRun, useConversationTerminal } from '@/hooks/useStore';
 import { useSSE } from '@/hooks/useSSE';
 import { useAgentSSE } from '@/hooks/useAgentSSE';
+import { useAgentRunDetails } from '@/hooks/useAgentRunDetails';
+import { formatAgentCost, formatAgentTokens } from '@/lib/agentLiveState';
 import { cn, formatRelativeTime } from '@/lib/utils';
 import type { Run, Conversation, ImageAttachment } from '@/types';
 
@@ -64,6 +67,41 @@ const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 
 /** Mode: 'chat' for regular conversation, 'agent' for agent */
 type ChatMode = 'chat' | 'agent';
+
+function formatRunStatusLabel(run: Run): string {
+  if (run.status === 'succeeded') return 'done';
+  if (run.status === 'failed') return 'failed';
+  return 'running';
+}
+
+function getRunFooterMetrics(run: Run): string[] {
+  const metrics: string[] = [];
+
+  if (typeof run.usage?.total_tokens === 'number' && run.usage.total_tokens > 0) {
+    metrics.push(`${formatAgentTokens(run.usage.total_tokens)} tok`);
+  }
+  if (run.usage && (
+    typeof run.usage.input_tokens === 'number'
+    || typeof run.usage.output_tokens === 'number'
+  )) {
+    metrics.push(
+      `in ${formatAgentTokens(run.usage.input_tokens ?? 0)} / out ${formatAgentTokens(run.usage.output_tokens ?? 0)}`
+    );
+  }
+  if (run.cost && typeof run.cost.total_cost === 'number' && run.usage?.total_tokens) {
+    metrics.push(`est ${formatAgentCost(run.cost.total_cost)}`);
+  } else if (run.usage) {
+    metrics.push('cost n/a');
+  }
+  if (typeof run.context_usage?.utilization_pct_effective === 'number') {
+    metrics.push(`ctx ${Math.round(run.context_usage.utilization_pct_effective)}%`);
+  }
+  if (run.mode === 'chat') {
+    metrics.push('chat');
+  }
+
+  return metrics;
+}
 
 function isApplePlatform(): boolean {
   if (typeof navigator === 'undefined') return false;
@@ -736,21 +774,16 @@ const EMPTY_STRING = '';
 
 const RunMessage = memo(function RunMessage({
   run,
-  onShowTrace,
   onRetry,
   canRetry,
 }: {
   run: Run;
-  onShowTrace: (runId: string) => void;
   onRetry?: (userMessage: string) => void;
   canRetry?: boolean;
 }) {
   const isRunning = run.status === 'running';
   const finalAnswer = run.final_answer ? extractAnswer(run.final_answer) : '';
   const userMessage = run.user_message || run.prompt;
-  const handleShowTraceClick = useCallback(() => {
-    onShowTrace(run.run_id);
-  }, [onShowTrace, run.run_id]);
   const handleRetryClick = useCallback(() => {
     if (!userMessage || !onRetry) return;
     onRetry(userMessage);
@@ -765,16 +798,17 @@ const RunMessage = memo(function RunMessage({
 
   // Determine if we're in thinking phase (streaming thinking but no answer yet)
   const isThinking = isRunning && streamingThinking.length > 0;
+  const footerMetrics = getRunFooterMetrics(run);
 
   return (
     <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2">
       {/* User message */}
       <div className="flex gap-3">
-        <div className="flex-shrink-0 w-7 h-7 bg-zinc-700 flex items-center justify-center mt-0.5">
-          <span className="text-xs font-mono text-zinc-300">U</span>
+        <div className="w-9 flex-shrink-0 pt-0.5">
+          <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-zinc-500">U:</span>
         </div>
         <div className="flex-1 min-w-0">
-          <div className="bg-zinc-800/50 border border-zinc-800 px-4 py-3">
+          <div className="rounded-2xl border border-zinc-800/70 bg-zinc-900/45 px-4 py-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.025)]">
             <span className="text-zinc-100 whitespace-pre-wrap text-sm leading-relaxed">
               {run.user_message || run.prompt}
             </span>
@@ -787,11 +821,11 @@ const RunMessage = memo(function RunMessage({
 
       {/* AI response */}
       <div className="flex gap-3 group/msg">
-        <div className="flex-shrink-0 w-7 h-7 bg-zinc-800 border border-zinc-700 flex items-center justify-center mt-0.5">
-          <span className="text-xs font-mono text-zinc-400">AI</span>
+        <div className="w-9 flex-shrink-0 pt-0.5">
+          <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-zinc-400/80">AI:</span>
         </div>
         <div className="flex-1 min-w-0">
-          <div className="py-2">
+          <div className="rounded-2xl border border-zinc-800/55 bg-zinc-950/36 px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]">
             {/* Thinking Panel - shows while thinking or after completion with thinking data */}
             <ThinkingPanel
               summary={run.thinking_summary}
@@ -820,29 +854,30 @@ const RunMessage = memo(function RunMessage({
             ) : null}
           </div>
 
-          <div className="mt-2 flex flex-wrap items-center gap-3 font-mono text-xs">
-            <button
-              onClick={handleShowTraceClick}
-              className="text-zinc-600 hover:text-zinc-300 transition-colors"
-            >
-              [details]
-            </button>
-            <span className={cn(
-              run.status === 'succeeded'
-                ? 'text-emerald-600'
-                : run.status === 'failed'
-                  ? 'text-red-500/70'
-                  : 'text-zinc-600'
-            )}>
-              [{run.status}]
-            </span>
-            <span className="text-zinc-700">{run.mode || 'chat'}</span>
-            {/* Copy / Retry actions - visible on hover */}
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-1 font-mono text-xs">
+            <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+              <span className={cn(
+                run.status === 'succeeded'
+                  ? 'text-emerald-600'
+                  : run.status === 'failed'
+                    ? 'text-red-500/70'
+                    : 'text-zinc-600'
+              )}>
+                [{formatRunStatusLabel(run)}]
+              </span>
+              {run.created_at && (
+                <span className="text-zinc-700">{formatRelativeTime(run.created_at)}</span>
+              )}
+              {footerMetrics.map((metric) => (
+                <span key={metric} className="text-zinc-600">{metric}</span>
+              ))}
+            </div>
             {!isRunning && (
               <MessageActions
                 content={finalAnswer || displayText}
                 onRetry={onRetry ? handleRetryClick : undefined}
                 canRetry={canRetry}
+                className="shrink-0 opacity-100 md:opacity-0 md:group-hover/msg:opacity-100"
               />
             )}
           </div>
@@ -1044,14 +1079,13 @@ function conversationTitleFromMessage(message: string, maxLen = 64): string {
 export function ConversationView() {
   const navigate = useNavigate();
   const selectedConversationId = useStore((s) => s.selectedConversationId);
+  const selectConversation = useStore((s) => s.selectConversation);
   const setRuns = useStore((s) => s.setRuns);
   const updateConversation = useStore((s) => s.updateConversation);
   const addConversation = useStore((s) => s.addConversation);
   const addRun = useStore((s) => s.addRun);
   const removeRun = useStore((s) => s.removeRun);
   const setEvents = useStore((s) => s.setEvents);
-  const selectRun = useStore((s) => s.selectRun);
-  const setDetailPanelOpen = useStore((s) => s.setDetailPanelOpen);
   const conversation = useSelectedConversation();
   const runs = useConversationRuns(selectedConversationId);
   const terminalState = useConversationTerminal(selectedConversationId);
@@ -1065,6 +1099,7 @@ export function ConversationView() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [mode, setMode] = useState<ChatMode>('agent');
   const [workspacePickerOpen, setWorkspacePickerOpen] = useState(false);
+  const [workspacePickerMode, setWorkspacePickerMode] = useState<'draft' | 'new-conversation'>('draft');
   const [mentionResults, setMentionResults] = useState<WorkspaceFileEntry[]>([]);
   const [mentionOpen, setMentionOpen] = useState(false);
   const [mentionLoading, setMentionLoading] = useState(false);
@@ -1079,6 +1114,9 @@ export function ConversationView() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const verticalMoveColumnRef = useRef<number | null>(null);
+  const composerFocusRafRef = useRef<number | null>(null);
+  const pendingWorkspaceShortcutRef = useRef<'workspace-new' | 'workspace-picker' | null>(null);
+  const pendingWorkspaceShortcutTimeoutRef = useRef<number | null>(null);
 
   // Model picker state
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
@@ -1165,6 +1203,15 @@ export function ConversationView() {
     }
     return null;
   }, [runs]);
+  const activeAgentRun = useMemo(() => {
+    for (let i = runs.length - 1; i >= 0; i -= 1) {
+      if (runs[i].status === 'running' && runs[i].mode === 'agent') {
+        return runs[i];
+      }
+    }
+    return null;
+  }, [runs]);
+  const activeAgentHudState = useAgentRunDetails(activeAgentRun?.run_id ?? null, !!activeAgentRun);
 
   // Clear queued steers when agent confirms injection via SSE.
   // Delay the clear so the chip is visible briefly before disappearing.
@@ -1314,11 +1361,6 @@ export function ConversationView() {
     }
   }, [lastStreamLen, activeAgentScrollSignal, activeRunId]);
 
-  const handleShowTrace = useCallback((runId: string) => {
-    selectRun(runId);
-    setDetailPanelOpen(true);
-  }, [selectRun, setDetailPanelOpen]);
-
   const focusComposer = useCallback(() => {
     const textarea = textareaRef.current;
     if (!textarea || textarea.disabled) return;
@@ -1326,6 +1368,18 @@ export function ConversationView() {
     const end = textarea.value.length;
     textarea.setSelectionRange(end, end);
   }, []);
+
+  const scheduleComposerFocus = useCallback(() => {
+    if (composerFocusRafRef.current !== null) {
+      cancelAnimationFrame(composerFocusRafRef.current);
+    }
+    composerFocusRafRef.current = requestAnimationFrame(() => {
+      composerFocusRafRef.current = requestAnimationFrame(() => {
+        focusComposer();
+        composerFocusRafRef.current = null;
+      });
+    });
+  }, [focusComposer]);
 
   /** Retry a message: pre-fill the input with the original user message */
   const handleRetry = useCallback((userMessage: string) => {
@@ -1340,7 +1394,6 @@ export function ConversationView() {
       <AgentRunMessage
         key={run.run_id}
         run={run}
-        onShowTrace={handleShowTrace}
         onRetry={handleRetry}
         canRetry={!hasActiveRun}
       />
@@ -1348,12 +1401,11 @@ export function ConversationView() {
       <RunMessage
         key={run.run_id}
         run={run}
-        onShowTrace={handleShowTrace}
         onRetry={handleRetry}
         canRetry={!hasActiveRun}
       />
     )
-  ), [handleRetry, handleShowTrace, hasActiveRun]);
+  ), [handleRetry, hasActiveRun]);
 
   const handleSaveReasoningSettings = useCallback(async () => {
     if (!reasoningDraft) return;
@@ -1383,6 +1435,7 @@ export function ConversationView() {
       );
       return;
     }
+    setWorkspacePickerMode('draft');
     setWorkspacePickerOpen(true);
   }, [hasConversationWorkspace, isWorkspaceLocked]);
 
@@ -1452,9 +1505,11 @@ export function ConversationView() {
       try {
         await steerAgentRun(activeRunId, steerMsg);
         setQueuedSteers((prev) => [...prev, steerMsg]);
+        scheduleComposerFocus();
       } catch {
         toast.error('Failed to queue steering message');
         setMessage(steerMsg);
+        scheduleComposerFocus();
       }
       return;
     }
@@ -1552,6 +1607,7 @@ export function ConversationView() {
 
         addRun(conversationId!, run);
         setEvents(response.run_id, []);
+        setIsSubmitting(false);
 
         // Navigate AFTER subscription so the useEffect guard works
         if (needsNavigate) {
@@ -1611,8 +1667,11 @@ export function ConversationView() {
       setPendingRunId(null);
       setPendingIsAgent(false);
       setIsSubmitting(false);
+      scheduleComposerFocus();
       return;
     }
+
+    scheduleComposerFocus();
 
     // Refresh usage after successful send
     refreshUsage();
@@ -1666,6 +1725,7 @@ export function ConversationView() {
       setPendingMessage('');
       setPendingIsAgent(false);
       setIsSubmitting(false);
+      scheduleComposerFocus();
     } catch (error) {
       console.error('Failed to abort run:', error);
       toast.error('Failed to stop generation.');
@@ -1674,6 +1734,7 @@ export function ConversationView() {
       setPendingMessage('');
       setPendingIsAgent(false);
       setIsSubmitting(false);
+      scheduleComposerFocus();
     }
   };
 
@@ -1988,9 +2049,92 @@ export function ConversationView() {
     handleComposerEditingShortcut(e);
   };
 
+  const openWorkspacePickerForNewConversation = useCallback(() => {
+    setWorkspacePickerMode('new-conversation');
+    setWorkspacePickerOpen(true);
+  }, []);
+
+  const startWorkspaceDraftConversation = useCallback((workspacePath: string) => {
+    if (hasActiveRun) return;
+    const normalized = workspacePath.trim();
+    if (!normalized) {
+      openWorkspacePickerForNewConversation();
+      return;
+    }
+    selectConversation(null);
+    rememberWorkspacePath(normalized);
+    setDraftWorkspacePath(normalized);
+    navigate('/conversations');
+  }, [
+    hasActiveRun,
+    navigate,
+    openWorkspacePickerForNewConversation,
+    rememberWorkspacePath,
+    selectConversation,
+    setDraftWorkspacePath,
+  ]);
+
+  const clearPendingWorkspaceShortcut = useCallback(() => {
+    pendingWorkspaceShortcutRef.current = null;
+    if (pendingWorkspaceShortcutTimeoutRef.current !== null) {
+      window.clearTimeout(pendingWorkspaceShortcutTimeoutRef.current);
+      pendingWorkspaceShortcutTimeoutRef.current = null;
+    }
+  }, []);
+
+  const armPendingWorkspaceShortcut = useCallback((action: 'workspace-new' | 'workspace-picker') => {
+    pendingWorkspaceShortcutRef.current = action;
+    if (pendingWorkspaceShortcutTimeoutRef.current !== null) {
+      window.clearTimeout(pendingWorkspaceShortcutTimeoutRef.current);
+    }
+    pendingWorkspaceShortcutTimeoutRef.current = window.setTimeout(() => {
+      pendingWorkspaceShortcutRef.current = null;
+      pendingWorkspaceShortcutTimeoutRef.current = null;
+    }, 1500);
+  }, []);
+
   useEffect(() => {
     const handleWindowKeyDown = (event: globalThis.KeyboardEvent) => {
       if (event.defaultPrevented || event.isComposing) return;
+      const lowerKey = event.key.toLowerCase();
+
+      const pendingWorkspaceShortcut = pendingWorkspaceShortcutRef.current;
+      if (pendingWorkspaceShortcut) {
+        if (event.metaKey || event.ctrlKey || event.altKey) {
+          clearPendingWorkspaceShortcut();
+          return;
+        }
+        if (lowerKey === 'escape') {
+          clearPendingWorkspaceShortcut();
+          return;
+        }
+        if (lowerKey === 'n') {
+          event.preventDefault();
+          clearPendingWorkspaceShortcut();
+          if (hasActiveRun) return;
+          if (effectiveWorkspacePath) {
+            startWorkspaceDraftConversation(effectiveWorkspacePath);
+          } else {
+            openWorkspacePickerForNewConversation();
+          }
+          return;
+        }
+        if (lowerKey === 'w') {
+          event.preventDefault();
+          clearPendingWorkspaceShortcut();
+          openWorkspacePickerForNewConversation();
+          return;
+        }
+        clearPendingWorkspaceShortcut();
+      }
+
+      if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && lowerKey === 'k') {
+        if (isTextInputElement(event.target)) return;
+        event.preventDefault();
+        armPendingWorkspaceShortcut('workspace-new');
+        return;
+      }
+
       if (event.key !== '/' || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
       if (isTextInputElement(event.target)) return;
       const textarea = textareaRef.current;
@@ -2001,7 +2145,26 @@ export function ConversationView() {
 
     window.addEventListener('keydown', handleWindowKeyDown);
     return () => window.removeEventListener('keydown', handleWindowKeyDown);
-  }, [focusComposer]);
+  }, [
+    armPendingWorkspaceShortcut,
+    clearPendingWorkspaceShortcut,
+    effectiveWorkspacePath,
+    focusComposer,
+    hasActiveRun,
+    openWorkspacePickerForNewConversation,
+    startWorkspaceDraftConversation,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      if (composerFocusRafRef.current !== null) {
+        cancelAnimationFrame(composerFocusRafRef.current);
+      }
+      if (pendingWorkspaceShortcutTimeoutRef.current !== null) {
+        window.clearTimeout(pendingWorkspaceShortcutTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // Reset textarea height when message is cleared (after submit)
   useEffect(() => {
@@ -2088,13 +2251,6 @@ export function ConversationView() {
               </>
             )}
           </div>
-          <button
-            onClick={() => navigate('/benchmarks')}
-            className="text-zinc-600 hover:text-zinc-300 transition-colors"
-            title="View GAIA benchmark results"
-          >
-            [benchmarks]
-          </button>
         </div>
         {modelSelectEnabled && (
           <ModelPicker
@@ -2118,6 +2274,10 @@ export function ConversationView() {
           onOpenChange={setWorkspacePickerOpen}
           value={draftWorkspacePath}
           onSelect={(workspacePath) => {
+            if (workspacePickerMode === 'new-conversation') {
+              startWorkspaceDraftConversation(workspacePath);
+              return;
+            }
             rememberWorkspacePath(workspacePath);
             setDraftWorkspacePath(workspacePath);
           }}
@@ -2132,7 +2292,7 @@ export function ConversationView() {
         </div>
         <div className="p-3 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-4 sm:pb-[max(1rem,env(safe-area-inset-bottom))] flex-shrink-0 space-y-2">
           {/* Prompt area */}
-          <div className="relative border border-zinc-700 bg-zinc-900 focus-within:border-zinc-500 transition-colors">
+          <div className="relative overflow-hidden rounded-2xl border border-zinc-700 bg-zinc-900/96 shadow-[inset_0_1px_0_rgba(255,255,255,0.025)] focus-within:border-zinc-500 transition-colors">
             <div className="flex items-start p-3 gap-2">
               <span className="text-zinc-500 font-mono text-sm mt-0.5 select-none">&gt;</span>
               <textarea
@@ -2165,7 +2325,7 @@ export function ConversationView() {
                   key={attachment.id || index}
                   type="button"
                   onClick={() => removeImageAttachment(attachment.id)}
-                  className="border border-zinc-800 bg-zinc-900 px-2 py-0.5 text-zinc-500 hover:text-zinc-200"
+                  className="rounded-lg border border-zinc-800 bg-zinc-900 px-2 py-0.5 text-zinc-500 hover:text-zinc-200"
                   title="Remove image"
                 >
                   image {index + 1} ×
@@ -2220,7 +2380,10 @@ export function ConversationView() {
                         title="Workspace path for filesystem and bash tools"
                       />
                       <button
-                        onClick={handleOpenWorkspacePicker}
+                        onClick={() => {
+                          setWorkspacePickerMode('draft');
+                          handleOpenWorkspacePicker();
+                        }}
                         className="text-zinc-600 hover:text-zinc-300 transition-colors"
                         title="Browse local folders"
                       >
@@ -2322,13 +2485,6 @@ export function ConversationView() {
             {conversation?.title || 'conversation'}
           </span>
         </div>
-        <button
-          onClick={() => navigate('/benchmarks')}
-          className="text-zinc-600 hover:text-zinc-300 transition-colors flex-shrink-0"
-          title="View GAIA benchmark results"
-        >
-          [benchmarks]
-        </button>
       </div>
       {modelSelectEnabled && (
         <ModelPicker
@@ -2352,6 +2508,10 @@ export function ConversationView() {
         onOpenChange={setWorkspacePickerOpen}
         value={draftWorkspacePath}
         onSelect={(workspacePath) => {
+          if (workspacePickerMode === 'new-conversation') {
+            startWorkspaceDraftConversation(workspacePath);
+            return;
+          }
           rememberWorkspacePath(workspacePath);
           setDraftWorkspacePath(workspacePath);
         }}
@@ -2372,10 +2532,20 @@ export function ConversationView() {
         className={cn(
           "left-1/2 -translate-x-1/2",
           terminalAvailable && terminalState?.isOpen
-            ? "bottom-[calc(1.5rem+var(--terminal-height,260px))]"
-            : "bottom-28"
+            ? "bottom-[calc(6rem+var(--terminal-height,260px))]"
+            : activeAgentHudState?.isActive
+              ? "bottom-40"
+              : "bottom-28"
         )}
       />
+
+      {activeAgentRun && activeAgentHudState?.isActive && (
+        <AgentLiveHUD
+          runId={activeAgentRun.run_id}
+          runCreatedAt={activeAgentRun.created_at}
+          agentState={activeAgentHudState}
+        />
+      )}
 
       {terminalAvailable && selectedConversationId && (
         <div style={{ ['--terminal-height' as string]: `${terminalState?.height ?? 260}px` }}>
@@ -2394,7 +2564,7 @@ export function ConversationView() {
             {queuedSteers.map((msg, i) => (
               <span
                 key={i}
-                className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-mono bg-amber-500/10 text-amber-400/80 border border-amber-500/20"
+                className="inline-flex items-center gap-1 rounded-lg border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-[11px] font-mono text-amber-400/80"
               >
                 <span className="text-amber-500/50">queued:</span> {msg.length > 40 ? msg.slice(0, 40) + '...' : msg}
               </span>
@@ -2402,7 +2572,7 @@ export function ConversationView() {
           </div>
         )}
         {/* Prompt area */}
-        <div className="relative border border-zinc-700 bg-zinc-900 focus-within:border-zinc-500 transition-colors">
+        <div className="relative overflow-hidden rounded-2xl border border-zinc-700 bg-zinc-900/96 shadow-[inset_0_1px_0_rgba(255,255,255,0.025)] focus-within:border-zinc-500 transition-colors">
           <div className="flex items-start p-3 gap-2">
             <span className="text-zinc-500 font-mono text-sm mt-0.5 select-none">&gt;</span>
             <textarea
@@ -2435,7 +2605,7 @@ export function ConversationView() {
                 key={attachment.id || index}
                 type="button"
                 onClick={() => removeImageAttachment(attachment.id)}
-                className="border border-zinc-800 bg-zinc-900 px-2 py-0.5 text-zinc-500 hover:text-zinc-200"
+                  className="rounded-lg border border-zinc-800 bg-zinc-900 px-2 py-0.5 text-zinc-500 hover:text-zinc-200"
                 title="Remove image"
               >
                 image {index + 1} ×

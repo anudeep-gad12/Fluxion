@@ -6,14 +6,13 @@ Complete documentation of request lifecycles, streaming patterns, and data flow 
 
 1. [Chat Mode Flow](#chat-mode-flow)
 2. [Research/Agent Mode Flow](#researchagent-mode-flow)
-3. [CLI Data Flow](#cli-data-flow)
-4. [Tool Approval Flow](#tool-approval-flow)
-5. [Context Pipeline](#context-pipeline)
-6. [Provider Failover Flow](#provider-failover-flow)
-7. [SSE Streaming Protocol](#sse-streaming-protocol)
-8. [Database Operations](#database-operations)
-9. [Model Selection Flow](#model-selection-flow)
-10. [ChatGPT OAuth Flow](#chatgpt-oauth-flow)
+3. [Tool Approval Flow](#tool-approval-flow)
+4. [Context Pipeline](#context-pipeline)
+5. [Provider Failover Flow](#provider-failover-flow)
+6. [SSE Streaming Protocol](#sse-streaming-protocol)
+7. [Database Operations](#database-operations)
+8. [Model Selection Flow](#model-selection-flow)
+9. [ChatGPT OAuth Flow](#chatgpt-oauth-flow)
 
 ---
 
@@ -394,112 +393,6 @@ while not (synthesis_decision or step >= max_steps):
               │ └─────────────────┘ │
               └─────────────────────┘
 ```
-
----
-
-## CLI Data Flow
-
-### Overview
-
-The CLI/TUI communicates with the same FastAPI backend as the web UI, using HTTP for commands and SSE for streaming events. The key difference is the tool approval flow.
-
-### Sequence Diagram
-
-```
-┌──────────┐     ┌──────────┐     ┌──────────┐     ┌──────────┐     ┌──────────┐
-│ Terminal  │     │ Textual  │     │  API     │     │  FastAPI │     │  Agent   │
-│          │     │ Widgets  │     │  Client  │     │  Routes  │     │  Engine  │
-└────┬─────┘     └────┬─────┘     └────┬─────┘     └────┬─────┘     └────┬─────┘
-     │                │                │                │                │
-     │  User types    │                │                │                │
-     │  query         │                │                │                │
-     │───────────────>│                │                │                │
-     │                │                │                │                │
-     │                │ InputArea.     │                │                │
-     │                │ Submitted      │                │                │
-     │                │───────────────>│                │                │
-     │                │                │                │                │
-     │                │                │ POST /api/agent/runs             │
-     │                │                │ {query, profile: "coding",      │
-     │                │                │  permission: "relaxed",         │
-     │                │                │  working_dir: "/path"}          │
-     │                │                │───────────────>│                │
-     │                │                │                │ Start engine   │
-     │                │                │                │───────────────>│
-     │                │                │                │                │
-     │                │                │ {run_id,       │                │
-     │                │                │  stream_token} │                │
-     │                │                │<───────────────│                │
-     │                │                │                │                │
-     │                │                │ GET /stream?token=xxx            │
-     │                │                │───────────────>│                │
-     │                │                │                │                │
-     │                │                │ SSE: step_start│                │
-     │                │ StepStartEvent │<───────────────│<──────────────│
-     │                │<───────────────│                │                │
-     │  StatusBar     │                │                │                │
-     │  "Step 1/25"   │                │                │                │
-     │<───────────────│                │                │                │
-     │                │                │                │                │
-     │                │                │ SSE: tool_start│                │
-     │                │ ToolStartEvent │<───────────────│<──────────────│
-     │                │<───────────────│                │                │
-     │  ToolCallPanel │                │                │                │
-     │  ▸ read_file() │                │                │                │
-     │<───────────────│                │                │                │
-     │                │                │                │                │
-     │                │                │ SSE: tool_approval_required     │
-     │                │ ToolApproval   │<───────────────│<──────────────│
-     │                │ RequiredEvent  │                │  (bash tool)  │
-     │                │<───────────────│                │                │
-     │  InputArea →   │                │                │                │
-     │  approval mode │                │                │                │
-     │  "[y/n] bash..."│               │                │                │
-     │<───────────────│                │                │                │
-     │                │                │                │                │
-     │  User: y       │                │                │                │
-     │───────────────>│                │                │                │
-     │                │ ApprovalDecision                │                │
-     │                │───────────────>│                │                │
-     │                │                │ POST /approve/ │                │
-     │                │                │ {tool_call_id} │                │
-     │                │                │───────────────>│ Future.set(T)  │
-     │                │                │                │───────────────>│
-     │                │                │                │                │
-     │                │                │ SSE: tool_result                │
-     │                │ ToolResultEvent│<───────────────│<──────────────│
-     │                │<───────────────│                │                │
-     │  ToolCallPanel │                │                │                │
-     │  ✓ bash (2.3s) │                │                │                │
-     │<───────────────│                │                │                │
-     │                │                │                │                │
-     │                │                │ SSE: answer    │                │
-     │                │ AnswerToken    │<───────────────│<──────────────│
-     │                │ Event          │                │                │
-     │                │<───────────────│                │                │
-     │  StreamingMD   │                │                │                │
-     │  renders answer │               │                │                │
-     │<───────────────│                │                │                │
-     │                │                │                │                │
-     │                │                │ SSE: complete  │                │
-     │                │ AgentComplete  │<───────────────│<──────────────│
-     │                │ Event          │                │                │
-     │                │<───────────────│                │                │
-     │  Show context  │                │                │                │
-     │  usage in bar  │                │                │                │
-     │<───────────────│                │                │                │
-```
-
-### Key Differences from Web UI
-
-| Aspect | Web UI | CLI/TUI |
-|--------|--------|---------|
-| Profile | `research` (default) | `coding` (always) |
-| Tools | web + python | web + python + filesystem |
-| Approval | Not supported | Permission-gated (strict/relaxed/yolo) |
-| Context | Date only | 5-layer project context |
-| Provider | Request header override | `--provider` flag or `/login` command |
-| Session | Cookie-based | `X-CLI-Session` header |
 
 ---
 

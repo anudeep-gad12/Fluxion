@@ -6,40 +6,39 @@ Comprehensive technical documentation of the Fluxion system architecture.
 
 1. [System Overview](#system-overview)
 2. [Backend Architecture](#backend-architecture)
-3. [CLI/TUI System](#clitui-system)
-4. [Frontend Architecture](#frontend-architecture)
-5. [Provider Layer](#provider-layer)
-6. [Thinking System](#thinking-system)
-7. [Agent Framework](#agent-framework)
-8. [Storage Layer](#storage-layer)
-9. [Configuration System](#configuration-system)
+3. [Frontend Architecture](#frontend-architecture)
+4. [Provider Layer](#provider-layer)
+5. [Thinking System](#thinking-system)
+6. [Agent Framework](#agent-framework)
+7. [Storage Layer](#storage-layer)
+8. [Configuration System](#configuration-system)
 
 ---
 
 ## System Overview
 
-Fluxion is an AI chat application with multi-strategy reasoning capabilities. It consists of a FastAPI backend (orchestrator), a React/Vite frontend (ui), and a Textual-based CLI/TUI (cli), connected to OpenAI-compatible LLM providers. Default configuration uses DeepInfra cloud, but supports local OpenAI-compatible runtimes plus managed local GGUF/MLX launches and ChatGPT (via OAuth).
+Fluxion is an AI chat application with multi-strategy reasoning capabilities. It consists of a FastAPI backend (orchestrator) and a React/Vite frontend (ui), connected to OpenAI-compatible LLM providers. Default configuration uses DeepInfra cloud, but supports local OpenAI-compatible runtimes plus managed local GGUF/MLX launches and ChatGPT (via OAuth).
 
 ### High-Level Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
 │                                    USER                                          │
-│                      ┌──────────┐        ┌──────────┐                            │
-│                      │ Browser  │        │ Terminal │                            │
-│                      └────┬─────┘        └────┬─────┘                            │
-└───────────────────────────┼───────────────────┼─────────────────────────────────┘
-                            │                   │
-┌───────────────────────────▼────────┐  ┌───────▼────────────────────────────────┐
-│  FRONTEND - React + Vite (:3000)   │  │  CLI/TUI - Textual (reasoner command)  │
-│  ┌─────────────┐  ┌─────────────┐  │  │  ┌─────────────┐  ┌────────────────┐  │
-│  │ Conversation │──│ Zustand     │  │  │  │ ChatScreen  │──│ APIClient      │  │
-│  │ Views & UI   │  │ Store       │  │  │  │ + Widgets   │  │ (HTTP + SSE)   │  │
-│  └─────────────┘  └──────┬──────┘  │  │  └──────┬──────┘  └───────┬────────┘  │
-│                   SSE Hooks        │  │         │ Textual msgs     │ REST/SSE  │
-└────────────────────┬───────────────┘  └─────────┼─────────────────┼────────────┘
-                     │ REST API + SSE             │                 │
-                     ▼                            ▼                 ▼
+│                      ┌──────────┐                                            │
+│                      │ Browser  │                                            │
+│                      └────┬─────┘                                            │
+└───────────────────────────┼───────────────────────────────────────────────────┘
+                            │
+┌───────────────────────────▼───────────────────────────────────────────────────┐
+│  FRONTEND - React + Vite (:3000)                                             │
+│  ┌─────────────┐  ┌─────────────┐                                            │
+│  │ Conversation │──│ Zustand     │                                            │
+│  │ Views & UI   │  │ Store       │                                            │
+│  └─────────────┘  └──────┬──────┘                                            │
+│                   SSE Hooks                                                │
+└────────────────────┬──────────────────────────────────────────────────────────┘
+                     │ REST API + SSE
+                     ▼
 ┌──────────────────────────────────────────────────────────────────────────────────┐
 │                          BACKEND - FastAPI (:9000)                               │
 │  ┌──────────────┐   ┌────────────────────┐   ┌────────────────────────────────┐  │
@@ -49,7 +48,7 @@ Fluxion is an AI chat application with multi-strategy reasoning capabilities. It
 │                               │                                                   │
 │  ┌──────────────┐   ┌─────────▼──────────┐   ┌────────────────────────────────┐  │
 │  │ Repositories │   │ ThinkingOrchestrator│   │      Agent Engine             │  │
-│  │ SQLite DAOs  │   │  strategy routing   │   │  profiles + tools + approval  │  │
+│  │ SQLite DAOs  │   │  strategy routing   │   │  coding context + tools       │  │
 │  └──────────────┘   └────────────────────┘   └────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────────────────────────────┘
                                │                              │
@@ -67,8 +66,8 @@ Fluxion is an AI chat application with multi-strategy reasoning capabilities. It
 
 ### Key Features
 
-- **Triple Interface**: Web UI (React), CLI/TUI (Textual), and REST API
-- **Agent Profiles**: Research (web + python) and Coding (filesystem + web + python) modes
+- **Web UI + REST API**: Browser-first product surface plus backend APIs
+- **Chat + Coding Agent**: Plain chat runs and browser coding-agent runs
 - **Filesystem Tools**: bash, glob, grep, read_file, edit_file, write_file, list_directory
 - **Tool Approval Flow**: Permission-gated tool execution (strict/relaxed/yolo policies)
 - **Multi-Provider Support**: DeepInfra, ChatGPT (OAuth), llama-server, vLLM, Ollama
@@ -86,25 +85,6 @@ Fluxion is an AI chat application with multi-strategy reasoning capabilities. It
 ### Directory Structure
 
 ```
-cli/                              # CLI/TUI (Textual framework)
-├── __main__.py                   # Click entry point (reasoner command)
-├── app.py                        # ReasonerApp (Textual App), custom theme
-├── config.py                     # CLIConfig, session persistence (~/.config/reasoner/)
-├── api_client.py                 # APIClient (HTTP + SSE streaming, tool approval)
-├── auth.py                       # ChatGPT OAuth PKCE flow
-├── events.py                     # Textual message classes for SSE→UI routing
-├── screens/
-│   └── chat_screen.py            # ChatScreen (main UI surface, event handlers, approval flow)
-└── widgets/
-    ├── input_area.py             # InputArea (multi-line, approval mode)
-    ├── message_bubble.py         # MessageBubble (user/assistant containers)
-    ├── message_list.py           # MessageList (scrollable, auto-scroll)
-    ├── thinking_panel.py         # ThinkingPanel (expandable, ∴ symbol)
-    ├── tool_call_panel.py        # ToolCallPanel (expandable, approval display)
-    ├── streaming_markdown.py     # StreamingMarkdown (token accumulation)
-    ├── status_bar.py             # StatusBar (mode, model, step, context usage)
-    └── agent_progress.py         # AgentProgress indicator
-
 orchestrator/                     # Backend (FastAPI)
 ├── app.py                        # FastAPI entry point, middleware, routers
 ├── config.py                     # Configuration system (ChatConfig, ProviderConfig)
@@ -133,12 +113,10 @@ orchestrator/                     # Backend (FastAPI)
 │
 ├── agent/
 │   ├── agent_engine.py           # Agent loop with tool calling + approval
-│   ├── profile.py                # AgentProfile (research/coding), system prompts
-│   ├── context.py                # Context strategies (research/coding)
-│   ├── planner.py                # Research plan generation
+│   ├── profile.py                # Coding-agent config + system prompt
+│   ├── context.py                # Coding workspace context strategy
 │   ├── state_machine.py          # Agent state management
-│   ├── context_pruner.py         # Token budget management
-│   ├── query_classifier.py       # Query type classification
+│   ├── context_pruner.py         # Token estimation for prompt budgeting
 │   ├── recovery.py               # Crash recovery support
 │   └── tools/
 │       ├── base.py               # BaseTool protocol, ToolResult, ToolSchema
@@ -154,7 +132,7 @@ orchestrator/                     # Backend (FastAPI)
 │       ├── web_extract.py        # Content extraction
 │       ├── python_local.py       # Local Python execution
 │       ├── python_daytona.py     # Daytona cloud sandbox
-│       └── python_sandbox.py     # E2B sandbox (deprecated)
+│       └── view_image.py         # Local image inspection
 │
 ├── models/
 │   └── registry.py              # ProviderDef, ModelPreset, ModelRegistry (~25 presets)
@@ -268,146 +246,6 @@ class ChatResult:
     token_usage: Optional[dict]
     thinking_summary: str
 ```
-
----
-
-## CLI/TUI System
-
-The CLI provides a terminal-based interface to the Fluxion agent, built with the [Textual](https://textual.textualize.io/) framework.
-
-### Installation & Invocation
-
-```bash
-# Installed via pyproject.toml entry point
-reasoner                          # Default (DeepInfra, agent mode)
-reasoner --provider chatgpt       # ChatGPT OAuth provider
-reasoner --local                  # Interactive local model picker
-reasoner --mode chat              # Chat mode (no tools)
-reasoner --permission strict      # Require approval for all tools
-reasoner --working-dir /path      # Set filesystem root
-reasoner --max-steps 20           # Override max agent steps
-```
-
-### Screen Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  Header (mode + provider/model info)                             │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                   │
-│  MessageList (scrollable, auto-scroll)                            │
-│  ├── MessageBubble (user)                                        │
-│  │   └── "What files handle routing?"                            │
-│  ├── MessageBubble (assistant)                                   │
-│  │   ├── ThinkingPanel (expandable, ∴ symbol)                    │
-│  │   ├── ToolCallPanel (expandable, ▸/▾ toggle)                  │
-│  │   │   └── "read_file(path=orchestrator/routes/runs.py)"       │
-│  │   ├── ToolCallPanel (approval mode)                           │
-│  │   │   └── "[y/n] bash(command=grep -r 'router' ...)"         │
-│  │   └── StreamingMarkdown (answer tokens)                       │
-│  └── ...                                                         │
-│                                                                   │
-├─────────────────────────────────────────────────────────────────┤
-│  InputArea (multi-line, Enter to submit, Shift+Enter newline)    │
-│  [Approval mode: read-only, shows full args, y/n to decide]     │
-├─────────────────────────────────────────────────────────────────┤
-│  StatusBar (mode | model | step N/M | ctx 15% (14.8k))           │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### Tool Approval Flow
-
-The CLI implements a permission-gated approval system for dangerous tool operations:
-
-```
-Agent wants to run bash("rm -rf /tmp/old")
-        │
-        ▼
-┌─────────────────────┐
-│ Check permission     │
-│ policy               │
-└──────────┬──────────┘
-           │
-    ┌──────┴──────┬──────────────┐
-    ▼             ▼              ▼
- "yolo"       "relaxed"      "strict"
- (auto)    (auto for read,  (approve all)
-           confirm writes)
-    │             │              │
-    │      ┌──────┴──────┐      │
-    │      │ permission  │      │
-    │      │ = "auto"?   │      │
-    │      └──┬──────┬───┘      │
-    │     yes │      │ no       │
-    │         │      ▼          │
-    │         │  ┌──────────┐   │
-    │         │  │ Require  │◄──┘
-    │         │  │ approval │
-    │         │  └────┬─────┘
-    │         │       │
-    │         │       ▼
-    │         │  SSE: tool_approval_required
-    │         │       │
-    │         │       ▼
-    │         │  InputArea switches to approval mode
-    │         │  User presses y (approve) or n (deny)
-    │         │       │
-    │         │       ▼
-    │         │  POST /api/agent/runs/{id}/approve/{tool_call_id}
-    │         │  POST /api/agent/runs/{id}/deny/{tool_call_id}
-    │         │       │
-    ▼         ▼       ▼
-       Tool executes (or skipped if denied)
-```
-
-**Permission Levels** (per tool):
-- `auto` — Read-only tools (read_file, glob, grep, list_directory). Always execute.
-- `confirm` — Write tools (edit_file, write_file). Require approval in strict/relaxed.
-- `dangerous` — Shell execution (bash). Require approval unless yolo.
-
-**Approval Timeout**: 5 minutes. Tool is denied if no response.
-
-**Resilience**:
-- If the server restarts mid-approval (POST returns 404), the CLI shows "Run was interrupted (server restarted)" and resets.
-- SSE connection loss (closed/reset/refused) is detected and surfaced as "Connection lost — server may have restarted."
-- After approval, the status bar shows "executing tool…" until the tool result arrives.
-- `_force_reset_run()` cancels the backend run and resets all UI state on unrecoverable failures.
-
-### Slash Commands
-
-| Command | Description |
-|---------|-------------|
-| `/login` | Initiate ChatGPT OAuth (opens browser) |
-| `/logout` | Clear session, revert to default provider |
-| `/status` | Show auth status, provider, and model info |
-| `/switch [provider]` | Switch provider mid-session (default, chatgpt) |
-| `/help` | Show available commands |
-
-### Event System
-
-The CLI uses Textual message classes to bridge SSE events to widget updates:
-
-| SSE Event | Textual Message | Widget Handler |
-|-----------|-----------------|----------------|
-| `step_start` | `StepStartEvent` | StatusBar step counter |
-| `thinking` | `ThinkingEvent` | ThinkingPanel.append_token() |
-| `tool_start` | `ToolStartEvent` | Creates ToolCallPanel |
-| `tool_approval_required` | `ToolApprovalRequiredEvent` | InputArea → approval mode |
-| `tool_result` | `ToolResultEvent` | ToolCallPanel.set_result() |
-| `answer` | `AnswerTokenEvent` | StreamingMarkdown.append_token() |
-| `complete` | `AgentCompleteEvent` | Finalize run, show context usage |
-| `error` | `AgentErrorEvent` | Display error message |
-
-### Configuration
-
-CLI config is stored at `~/.config/reasoner/`:
-- `config.json` — Session cookie, CLI session ID
-- `provider` — Persisted provider preference (survives restarts)
-- `chatgpt_auth.json` — Backed-up ChatGPT OAuth tokens (survives DB wipes/reinstalls)
-- Provider/model selection via CLI flags, `/login`, or `/switch` command
-- Profile is always `coding` for CLI usage
-
-**ChatGPT Auth Persistence**: On login, tokens are backed up to `~/.config/reasoner/chatgpt_auth.json`. On startup, the CLI auto-checks saved auth against the backend. If the session expired but backup tokens exist, it attempts a restore via refresh token.
 
 ---
 

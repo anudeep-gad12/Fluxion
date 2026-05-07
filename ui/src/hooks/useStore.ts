@@ -28,14 +28,9 @@ interface AppState {
 
   // Runs per conversation
   runsByConversation: Record<string, Run[]>;
-  selectedRunId: string | null;
 
   // Events per run
   eventsByRun: Record<string, Event[]>;
-
-  // Detail panel state
-  detailPanelOpen: boolean;
-  selectedEventSeq: number | null;
 
   // Streaming state
   streamingRunId: string | null;
@@ -68,16 +63,10 @@ interface AppState {
   addRun: (conversationId: string, run: Run) => void;
   updateRun: (runId: string, updates: Partial<Run>) => void;
   removeRun: (runId: string) => void;
-  selectRun: (runId: string | null) => void;
 
   // Event actions
   addEvent: (runId: string, event: Event) => void;
   setEvents: (runId: string, events: Event[]) => void;
-
-  // Detail panel actions
-  toggleDetailPanel: () => void;
-  setDetailPanelOpen: (open: boolean) => void;
-  selectEvent: (seq: number | null) => void;
 
   // Connection actions
   setConnected: (connected: boolean) => void;
@@ -121,10 +110,7 @@ export const useStore = create<AppState>((set, get) => ({
     ? JSON.parse(localStorage.getItem(WORKSPACE_LIST_STORAGE_KEY) || '[]')
     : [],
   runsByConversation: {},
-  selectedRunId: null,
   eventsByRun: {},
-  detailPanelOpen: false,
-  selectedEventSeq: null,
   streamingRunId: null,
   streamingText: {},
   streamingThinking: {},
@@ -154,14 +140,11 @@ export const useStore = create<AppState>((set, get) => ({
       conversations: state.conversations.filter((c) => c.conversation_id !== conversationId),
       runsByConversation: remainingRuns,
       selectedConversationId: state.selectedConversationId === conversationId ? null : state.selectedConversationId,
-      selectedRunId: null,
     };
   }),
 
   selectConversation: (conversationId) => set({
     selectedConversationId: conversationId,
-    selectedRunId: null,
-    selectedEventSeq: null,
   }),
 
   setDraftWorkspacePath: (workspacePath) => {
@@ -233,12 +216,9 @@ export const useStore = create<AppState>((set, get) => ({
       streamingText: restStreamingText,
       streamingThinking: restStreamingThinking,
       eventsByRun: restEventsByRun,
-      selectedRunId: state.selectedRunId === runId ? null : state.selectedRunId,
       streamingRunId: state.streamingRunId === runId ? null : state.streamingRunId,
     };
   }),
-
-  selectRun: (runId) => set({ selectedRunId: runId, selectedEventSeq: null }),
 
   // Event actions - with deduplication by seq
   addEvent: (runId, event) => set((state) => {
@@ -273,11 +253,6 @@ export const useStore = create<AppState>((set, get) => ({
       },
     };
   }),
-
-  // Detail panel actions
-  toggleDetailPanel: () => set((state) => ({ detailPanelOpen: !state.detailPanelOpen })),
-  setDetailPanelOpen: (open) => set({ detailPanelOpen: open }),
-  selectEvent: (seq) => set({ selectedEventSeq: seq, detailPanelOpen: seq !== null }),
 
   // Connection actions
   setConnected: (isConnected) => set({ isConnected }),
@@ -557,17 +532,6 @@ export const useConversationRuns = (conversationId: string | null) => {
   return useStore((s) => (
     conversationId ? s.runsByConversation[conversationId] ?? EMPTY_RUNS : EMPTY_RUNS
   ));
-};
-
-export const useSelectedRun = () => {
-  const runsByConversation = useStore((s) => s.runsByConversation);
-  const selectedRunId = useStore((s) => s.selectedRunId);
-  if (!selectedRunId) return undefined;
-  for (const runs of Object.values(runsByConversation)) {
-    const found = runs.find((r) => r.run_id === selectedRunId);
-    if (found) return found;
-  }
-  return undefined;
 };
 
 export const useRunEvents = (runId: string | null) => {

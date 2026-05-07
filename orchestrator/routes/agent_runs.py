@@ -1,6 +1,6 @@
-"""Agent run routes - creation, status, streaming, cancellation, and traces.
+"""Agent run routes for the browser coding agent.
 
-This module provides REST API endpoints for the web research agent:
+This module provides REST API endpoints for the browser coding agent:
 - POST /api/agent/runs - Start a new agent run
 - GET /api/agent/runs/{id} - Get run status
 - GET /api/agent/runs/{id}/stream - SSE event stream with resumption support
@@ -69,8 +69,8 @@ _approval_queues: Dict[str, Dict[str, asyncio.Future]] = {}
 def get_session_context(request: Request) -> Tuple[Optional[str], bool]:
     """Extract session context from request.
 
-    CLI clients pass session ID via X-CLI-Session header (used to look
-    up ChatGPT tokens). Falls back to session middleware cookie.
+    External clients may pass session ID via X-CLI-Session header for
+    ChatGPT token lookup. Falls back to session middleware cookie.
 
     Returns:
         Tuple of (session_id, is_owner).
@@ -251,7 +251,6 @@ async def _run_agent_task(
     filesystem_enabled: bool = False,
     working_dir: Optional[str] = None,
     permission_policy: str = "strict",
-    profile_name: Optional[str] = None,
     python_provider: Optional[str] = None,
     agent_capabilities: Optional[dict] = None,
     reasoning_settings: Optional[ReasoningSettings] = None,
@@ -261,7 +260,7 @@ async def _run_agent_task(
 
     Args:
         run_id: Unique run identifier.
-        query: User's research query.
+        query: User's coding query.
         conversation_id: Optional conversation context.
         max_steps: Maximum steps for agent execution.
         session_id: Optional session ID for provider routing.
@@ -270,7 +269,6 @@ async def _run_agent_task(
         filesystem_enabled: If True, register filesystem tools.
         working_dir: Working directory for filesystem tools.
         permission_policy: Permission policy ("strict", "relaxed", "yolo").
-        profile_name: Agent profile name ("research", "coding").
         python_provider: Python execution provider ("local" or "daytona").
         agent_capabilities: Browser-owned tool capabilities for this run.
     """
@@ -376,7 +374,7 @@ async def _run_agent_task(
             finally:
                 _approval_queues.get(rid, {}).pop(tool_call_id, None)
 
-        # Create engine and run (pass query for classification)
+        # Create engine and run
         engine = await create_agent_engine(
             model_name=model_override,
             max_steps=max_steps,
@@ -386,7 +384,6 @@ async def _run_agent_task(
             working_dir=working_dir,
             approval_callback=approval_callback if permission_policy != "yolo" else None,
             permission_policy=permission_policy,
-            profile_name=profile_name,
             python_provider=python_provider,
             agent_capabilities=agent_capabilities,
             reasoning_settings=reasoning_settings,
@@ -461,7 +458,7 @@ async def _run_agent_task(
 
 @router.post("/runs", response_model=CreateAgentRunResponse)
 async def create_agent_run(request: CreateAgentRunRequest, http_request: Request):
-    """Start a new agent research run.
+    """Start a new browser coding agent run.
 
     The agent executes asynchronously in a background task.
     Use the stream endpoint to receive real-time events.
@@ -607,7 +604,6 @@ async def create_agent_run(request: CreateAgentRunRequest, http_request: Request
                 filesystem_enabled=capabilities.get("filesystem", False),
                 working_dir=workspace_path,
                 permission_policy=request.permission_policy,
-                profile_name=request.profile,
                 python_provider=request.python_provider,
                 agent_capabilities=capabilities,
                 reasoning_settings=reasoning_settings,

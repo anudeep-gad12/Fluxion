@@ -25,7 +25,7 @@
     --border: 240 4% 16%;
     --input: 240 4% 16%;
     --ring: 0 0% 83%;
-    --radius: 0rem;
+    --radius: 0.8rem;
   }
 }
 
@@ -204,47 +204,44 @@ textarea:focus {
   animation: shimmer 1.5s ease-in-out infinite;
 }
 
-@keyframes agent-scan {
-  0% { transform: translateX(-140%) scaleX(0.6); opacity: 0; }
-  20% { opacity: 1; }
-  100% { transform: translateX(140%) scaleX(1); opacity: 0; }
-}
-
-@keyframes agent-dot {
-  0%, 100% { transform: scale(0.55); opacity: 0.25; filter: blur(0); }
-  50% { transform: scale(1); opacity: 1; filter: blur(0.5px); }
-}
-
 @keyframes agent-caret {
   0%, 45% { opacity: 1; }
   46%, 100% { opacity: 0.2; }
 }
 
-.agent-scan {
-  animation: agent-scan 1.15s cubic-bezier(0.65, 0, 0.35, 1) infinite;
-}
-
-.agent-dot {
-  animation: agent-dot 1.2s ease-in-out infinite;
-}
-
-.agent-dot-a {
-  left: 0.15rem;
-  animation-delay: 0ms;
-}
-
-.agent-dot-b {
-  left: 0.95rem;
-  animation-delay: 160ms;
-}
-
-.agent-dot-c {
-  right: 0.15rem;
-  animation-delay: 320ms;
-}
-
 .agent-caret {
   animation: agent-caret 1s steps(1, end) infinite;
+}
+
+@keyframes agent-loader-stroke {
+  0% {
+    transform: translateX(-140%);
+    opacity: 0;
+  }
+  18% {
+    opacity: 0.95;
+  }
+  54% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(255%);
+    opacity: 0;
+  }
+}
+
+.agent-loader-stroke {
+  animation: agent-loader-stroke 1.1s cubic-bezier(0.55, 0, 0.22, 1) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-caret,
+  .agent-loader-stroke,
+  .fluxion-trace,
+  .shimmer,
+  .animate-indeterminate {
+    animation: none !important;
+  }
 }
 
 @keyframes fluxion-trace {
