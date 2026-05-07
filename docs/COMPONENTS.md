@@ -1298,7 +1298,7 @@ async with self._seq_lock:
 
 ### `orchestrator/routes/models.py`
 
-**Purpose**: Model registry and runtime model management — preset listing, custom provider selection, GGUF/MLX scanning, and local server lifecycle.
+**Purpose**: Model registry and runtime model management — preset listing, persisted provider-key management, GGUF/MLX scanning, and local server lifecycle.
 
 **Endpoints**:
 
@@ -1306,7 +1306,9 @@ async with self._seq_lock:
 |--------|------|-------------|
 | `GET` | `/api/models` | List all registry presets (grouped by provider) |
 | `POST` | `/api/models/select` | Hot-swap active model via registry |
-| `POST` | `/api/models/custom/select` | Point the app at a custom OpenAI-compatible endpoint |
+| `GET` | `/api/models/provider-keys` | List provider key availability/status |
+| `PUT` | `/api/models/provider-keys/{provider}` | Save/update a provider API key |
+| `DELETE` | `/api/models/provider-keys/{provider}` | Clear a persisted provider API key |
 | `GET` | `/api/models/status` | Current provider info (local vs cloud) |
 | `GET` | `/api/models/local` | Scan disk for GGUF and MLX models |
 | `POST` | `/api/models/local/start` | Start `llama-server` or `mlx_lm.server`, switch to local provider |
