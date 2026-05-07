@@ -721,27 +721,29 @@ export async function selectModel(model: string): Promise<{
   });
 }
 
-export interface CustomProviderRequest {
-  name: string;
-  base_url: string;
-  api_key?: string;
-  model: string;
-  context_window: number;
-  max_output_tokens: number;
-  supports_tools: boolean;
-  supports_reasoning: boolean;
-  supports_vision: boolean;
-  reasoning_request_param?: string | null;
-  input_cost_per_million?: number | null;
-  cached_input_cost_per_million?: number | null;
-  output_cost_per_million?: number | null;
+export interface ProviderKeyStatus {
+  provider: string;
+  api_key_env: string;
+  has_key: boolean;
+  source: string;
 }
 
-export async function selectCustomProvider(
-  request: CustomProviderRequest
- ): Promise<{ status: string; name: string; model: string; base_url: string; effective_input_budget: number; source: string }> {
-  return fetchJson(`${API_BASE}/models/custom/select`, {
-    method: 'POST',
-    body: JSON.stringify(request),
+export async function listProviderKeys(): Promise<{ providers: ProviderKeyStatus[] }> {
+  return fetchJson(`${API_BASE}/models/provider-keys`);
+}
+
+export async function saveProviderKey(
+  provider: string,
+  apiKey: string,
+): Promise<ProviderKeyStatus> {
+  return fetchJson(`${API_BASE}/models/provider-keys/${provider}`, {
+    method: 'PUT',
+    body: JSON.stringify({ api_key: apiKey }),
+  });
+}
+
+export async function clearProviderKey(provider: string): Promise<ProviderKeyStatus> {
+  return fetchJson(`${API_BASE}/models/provider-keys/${provider}`, {
+    method: 'DELETE',
   });
 }

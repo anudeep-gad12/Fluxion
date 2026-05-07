@@ -478,22 +478,25 @@ class SelectModelRequest(BaseModel):
     model: str  # Model alias, full ID, or "provider:model" string
 
 
-class CustomProviderRequest(BaseModel):
-    """Request to select a custom OpenAI-compatible provider."""
+class ProviderApiKeyRequest(BaseModel):
+    """Request to save or update a provider API key."""
 
-    name: str = "custom"
-    base_url: str
-    api_key: Optional[str] = None
-    model: str
-    context_window: int = 32768
-    max_output_tokens: int = 8192
-    supports_tools: bool = True
-    supports_reasoning: bool = False
-    supports_vision: bool = False
-    reasoning_request_param: Optional[str] = None
-    input_cost_per_million: Optional[float] = None
-    cached_input_cost_per_million: Optional[float] = None
-    output_cost_per_million: Optional[float] = None
+    api_key: str
+
+
+class ProviderKeyStatusResponse(BaseModel):
+    """Provider API key availability metadata."""
+
+    provider: str
+    api_key_env: str
+    has_key: bool
+    source: str
+
+
+class ProviderKeyListResponse(BaseModel):
+    """List of provider API key statuses."""
+
+    providers: list[ProviderKeyStatusResponse]
 
 
 class UpdateReasoningSettingsRequest(BaseModel):

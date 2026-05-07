@@ -26,14 +26,21 @@ from orchestrator.services.reasoning_settings import (
 # Note: set_provider_override is still imported for local model start/stop only
 from orchestrator.providers.openai_compat import OpenAICompatProvider
 from orchestrator.schemas import (
-    CustomProviderRequest,
     LocalModelSchema,
     ModelStatusResponse,
+    ProviderApiKeyRequest,
+    ProviderKeyListResponse,
+    ProviderKeyStatusResponse,
     SelectModelRequest,
     StartModelRequest,
     UpdateReasoningSettingsRequest,
 )
 from orchestrator.services import local_models
+from orchestrator.services.provider_keys import (
+    clear_provider_api_key,
+    get_provider_key_statuses,
+    set_provider_api_key,
+)
 
 logger = get_logger(__name__)
 
@@ -42,7 +49,6 @@ router = APIRouter(prefix="/api/models", tags=["models"])
 # Active model state (set via POST /api/models/select)
 _active_model: Optional[ResolvedModel] = None
 _active_model_name: Optional[str] = None
-_active_custom_model: Optional[dict] = None
 
 
 def get_active_model() -> Optional[ResolvedModel]:
@@ -143,10 +149,8 @@ async def start_local_model(request: StartModelRequest):
 @router.post("/local/stop")
 async def stop_local_model():
     """Stop llama-server and revert to cloud provider."""
-    global _active_custom_model
     await local_models.stop()
     set_provider_override(None)
-    _active_custom_model = None
     logger.info("Provider reverted to cloud")
     return {"status": "ok", "provider": "cloud"}
 
@@ -174,33 +178,6 @@ async def get_model_status():
             model_name=profile.display_name,
             base_url=f"http://localhost:{local_models.LLAMA_PORT}/v1",
             local_running=True,
-            context_window=profile.context_window,
-            max_output_tokens=profile.max_output_tokens,
-            effective_input_budget=profile.effective_input_budget,
-            supports_tools=profile.supports_tools,
-            supports_reasoning=profile.supports_reasoning,
-            supports_vision=profile.supports_vision,
-            provider_family=provider_family,
-            reasoning_capabilities=capabilities,
-            source=profile.source,
-        )
-
-    if override is not None and _active_custom_model:
-        profile = resolve_model_context_profile(
-            model_name=_active_custom_model.get("model"),
-            provider_override=override,
-        )
-        provider_family, capabilities = _resolve_status_reasoning_capabilities(
-            provider_name=_active_custom_model.get("provider_family"),
-            base_url=_active_custom_model.get("base_url"),
-            provider_obj=override,
-            supports_reasoning=profile.supports_reasoning,
-        )
-        return ModelStatusResponse(
-            provider=_active_custom_model.get("name", "custom"),
-            model_name=profile.display_name,
-            base_url=_active_custom_model.get("base_url"),
-            local_running=False,
             context_window=profile.context_window,
             max_output_tokens=profile.max_output_tokens,
             effective_input_budget=profile.effective_input_budget,
@@ -279,6 +256,45 @@ async def list_models():
     }
 
 
+@router.get("/provider-keys", response_model=ProviderKeyListResponse)
+async def list_provider_keys():
+    """List provider API key availability without exposing secrets."""
+    statuses = await get_provider_key_statuses()
+    return ProviderKeyListResponse(
+        providers=[ProviderKeyStatusResponse(**status) for status in statuses]
+    )
+
+
+@router.put("/provider-keys/{provider}", response_model=ProviderKeyStatusResponse)
+async def put_provider_key(provider: str, request: ProviderApiKeyRequest):
+    """Persist a provider API key."""
+    try:
+        await set_provider_api_key(provider, request.api_key)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    statuses = await get_provider_key_statuses()
+    for status in statuses:
+        if status["provider"] == provider.lower():
+            return ProviderKeyStatusResponse(**status)
+    raise HTTPException(status_code=404, detail="Provider not found")
+
+
+@router.delete("/provider-keys/{provider}", response_model=ProviderKeyStatusResponse)
+async def delete_provider_key(provider: str):
+    """Delete a persisted provider API key."""
+    try:
+        await clear_provider_api_key(provider)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    statuses = await get_provider_key_statuses()
+    for status in statuses:
+        if status["provider"] == provider.lower():
+            return ProviderKeyStatusResponse(**status)
+    raise HTTPException(status_code=404, detail="Provider not found")
+
+
 @router.post("/select")
 async def select_model(request: SelectModelRequest):
     """Select a model from the registry and hot-swap the provider.
@@ -290,7 +306,7 @@ async def select_model(request: SelectModelRequest):
     if os.environ.get("SERVE_STATIC", "false").lower() == "true":
         raise HTTPException(status_code=403, detail="Model selection is disabled in production")
 
-    global _active_model, _active_model_name, _active_custom_model
+    global _active_model, _active_model_name
 
     try:
         _provider, resolved = create_provider_for_model(request.model)
@@ -301,7 +317,6 @@ async def select_model(request: SelectModelRequest):
     # Clear any custom/local runtime override so registry resolution applies
     # to subsequent runs.
     set_provider_override(None)
-    _active_custom_model = None
     _active_model = resolved
     _active_model_name = request.model
 
@@ -329,71 +344,6 @@ async def select_model(request: SelectModelRequest):
         "supports_vision": resolved.supports_vision,
         "source": profile.source,
     }
-
-
-@router.post("/custom/select")
-async def select_custom_provider(request: CustomProviderRequest):
-    """Select a custom OpenAI-compatible provider for new runs."""
-    import os
-    if os.environ.get("SERVE_STATIC", "false").lower() == "true":
-        raise HTTPException(status_code=403, detail="Model selection is disabled in production")
-
-    global _active_model, _active_model_name, _active_custom_model
-
-    provider = OpenAICompatProvider(
-        base_url=request.base_url.rstrip("/"),
-        api_key=request.api_key or "not-needed",
-        endpoint="chat_completions",
-        default_model=request.model,
-    )
-    provider._shared = True
-    provider._context_window = request.context_window
-    provider._max_output_tokens = request.max_output_tokens
-    provider._supports_tools = request.supports_tools
-    provider._supports_reasoning = request.supports_reasoning
-    provider._supports_vision = request.supports_vision
-    provider._reasoning_provider_family = request.name or "custom"
-    provider._reasoning_request_param = request.reasoning_request_param
-    provider._input_cost_per_million = request.input_cost_per_million
-    provider._cached_input_cost_per_million = request.cached_input_cost_per_million
-    provider._output_cost_per_million = request.output_cost_per_million
-    provider._context_profile_source = "custom"
-    provider._context_profile_provider_name = request.name or "custom"
-    provider._context_profile_model_id = request.model
-    provider._context_profile_display_name = request.model
-    set_provider_override(provider)
-
-    _active_model = None
-    _active_model_name = request.model
-    _active_custom_model = {
-        "name": request.name or "custom",
-        "base_url": request.base_url.rstrip("/"),
-        "model": request.model,
-        "context_window": request.context_window,
-        "max_output_tokens": request.max_output_tokens,
-        "supports_tools": request.supports_tools,
-        "supports_reasoning": request.supports_reasoning,
-        "supports_vision": request.supports_vision,
-        "provider_family": request.name or "custom",
-    }
-
-    logger.info(
-        "Custom OpenAI-compatible provider selected",
-        extra={
-            "name": _active_custom_model["name"],
-            "base_url": _active_custom_model["base_url"],
-            "model": request.model,
-        },
-    )
-
-    profile = resolve_model_context_profile(model_name=request.model, provider_override=provider)
-    return {
-        "status": "ok",
-        **_active_custom_model,
-        "effective_input_budget": profile.effective_input_budget,
-        "source": profile.source,
-    }
-
 
 @router.get("/reasoning-settings", response_model=ReasoningSettingsResponse)
 async def get_reasoning_settings():

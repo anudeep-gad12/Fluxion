@@ -27,8 +27,10 @@ import {
   getModelStatus,
   getReasoningSettings,
   listRegistryModels,
+  listProviderKeys,
+  saveProviderKey,
+  clearProviderKey,
   selectModel,
-  selectCustomProvider,
   updateReasoningSettings,
   getUsage,
   steerAgentRun,
@@ -37,9 +39,9 @@ import {
 import type {
   LocalModel,
   ModelStatus,
+  ProviderKeyStatus,
   RegistryModelPreset,
   RegistryModelsResponse,
-  CustomProviderRequest,
   UsageInfo,
   WorkspaceFileEntry,
   ReasoningSettingsResponse,
@@ -216,36 +218,29 @@ function ModelPicker({
 }) {
   const [registryData, setRegistryData] = useState<RegistryModelsResponse | null>(null);
   const [localModels, setLocalModels] = useState<LocalModel[]>([]);
+  const [providerKeys, setProviderKeys] = useState<ProviderKeyStatus[]>([]);
+  const [providerKeyDrafts, setProviderKeyDrafts] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [switching, setSwitching] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [customProvider, setCustomProvider] = useState<CustomProviderRequest>({
-    name: 'custom',
-    base_url: 'http://localhost:1234/v1',
-    api_key: '',
-    model: '',
-    context_window: 32768,
-    max_output_tokens: 8192,
-    supports_tools: true,
-    supports_reasoning: false,
-    supports_vision: false,
-    input_cost_per_million: null,
-    cached_input_cost_per_million: null,
-    output_cost_per_million: null,
-  });
+
+  const refreshPickerData = useCallback(async () => {
+    const [registry, local, keys] = await Promise.all([
+      listRegistryModels().catch(() => null),
+      listLocalModels().catch(() => []),
+      listProviderKeys().catch(() => ({ providers: [] })),
+    ]);
+    setRegistryData(registry);
+    setLocalModels(local as LocalModel[]);
+    setProviderKeys(keys.providers);
+  }, []);
 
   useEffect(() => {
     if (!open) return;
     setLoading(true);
     setError(null);
-    Promise.all([
-      listRegistryModels().catch(() => null),
-      listLocalModels().catch(() => []),
-    ]).then(([registry, local]) => {
-      setRegistryData(registry);
-      setLocalModels(local as LocalModel[]);
-    }).finally(() => setLoading(false));
-  }, [open]);
+    refreshPickerData().finally(() => setLoading(false));
+  }, [open, refreshPickerData]);
 
   const handleSelectRegistry = async (modelId: string) => {
     setSwitching(modelId);
@@ -281,25 +276,34 @@ function ModelPicker({
     }
   };
 
-  const handleSelectCustom = async () => {
-    if (!customProvider.base_url.trim() || !customProvider.model.trim()) {
-      setError('Custom provider needs base URL and model slug');
+  const handleSaveProviderKey = async (provider: string) => {
+    const nextKey = (providerKeyDrafts[provider] || '').trim();
+    if (!nextKey) {
+      setError('API key cannot be empty');
       return;
     }
-    setSwitching('custom');
+    setSwitching(`provider-key:${provider}`);
     setError(null);
     try {
-      await selectCustomProvider({
-        ...customProvider,
-        base_url: customProvider.base_url.trim(),
-        api_key: customProvider.api_key?.trim() || undefined,
-        model: customProvider.model.trim(),
-      });
-      const status = await getModelStatus();
-      onModelStatusChange(status);
-      onOpenChange(false);
+      await saveProviderKey(provider, nextKey);
+      setProviderKeyDrafts((drafts) => ({ ...drafts, [provider]: '' }));
+      await refreshPickerData();
     } catch {
-      setError('Failed to switch custom provider');
+      setError(`Failed to save ${provider} API key`);
+    } finally {
+      setSwitching(null);
+    }
+  };
+
+  const handleClearProviderKey = async (provider: string) => {
+    setSwitching(`provider-key:${provider}`);
+    setError(null);
+    try {
+      await clearProviderKey(provider);
+      setProviderKeyDrafts((drafts) => ({ ...drafts, [provider]: '' }));
+      await refreshPickerData();
+    } catch {
+      setError(`Failed to clear ${provider} API key`);
     } finally {
       setSwitching(null);
     }
@@ -441,88 +445,53 @@ function ModelPicker({
               <div className="border-t border-zinc-800 my-2" />
               <div className="px-3 py-2 space-y-2">
                 <p className="text-[10px] text-zinc-600 font-mono uppercase">
-                  custom openai-compatible
+                  provider api keys
                 </p>
-                <input
-                  value={customProvider.base_url}
-                  onChange={(e) => setCustomProvider((p) => ({ ...p, base_url: e.target.value }))}
-                  placeholder="http://localhost:1234/v1"
-                  className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-xs font-mono text-zinc-300"
-                />
-                <input
-                  value={customProvider.model}
-                  onChange={(e) => setCustomProvider((p) => ({ ...p, model: e.target.value }))}
-                  placeholder="model slug"
-                  className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-xs font-mono text-zinc-300"
-                />
-                <input
-                  value={customProvider.api_key || ''}
-                  onChange={(e) => setCustomProvider((p) => ({ ...p, api_key: e.target.value }))}
-                  placeholder="api key (optional for local)"
-                  type="password"
-                  className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-xs font-mono text-zinc-300"
-                />
-                <div className="grid grid-cols-2 gap-2">
-                  <input
-                    value={customProvider.context_window}
-                    onChange={(e) => setCustomProvider((p) => ({ ...p, context_window: Number(e.target.value) || 32768 }))}
-                    type="number"
-                    min={4096}
-                    className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-xs font-mono text-zinc-300"
-                  />
-                  <input
-                    value={customProvider.max_output_tokens}
-                    onChange={(e) => setCustomProvider((p) => ({ ...p, max_output_tokens: Number(e.target.value) || 8192 }))}
-                    type="number"
-                    min={1024}
-                    className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-xs font-mono text-zinc-300"
-                  />
-                </div>
-                <div className="grid grid-cols-3 gap-2">
-                  <input
-                    value={customProvider.input_cost_per_million ?? ''}
-                    onChange={(e) => setCustomProvider((p) => ({
-                      ...p,
-                      input_cost_per_million: e.target.value === '' ? null : Number(e.target.value),
-                    }))}
-                    type="number"
-                    min={0}
-                    step="0.01"
-                    placeholder="$ input/M"
-                    className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-xs font-mono text-zinc-300"
-                  />
-                  <input
-                    value={customProvider.cached_input_cost_per_million ?? ''}
-                    onChange={(e) => setCustomProvider((p) => ({
-                      ...p,
-                      cached_input_cost_per_million: e.target.value === '' ? null : Number(e.target.value),
-                    }))}
-                    type="number"
-                    min={0}
-                    step="0.01"
-                    placeholder="$ cache/M"
-                    className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-xs font-mono text-zinc-300"
-                  />
-                  <input
-                    value={customProvider.output_cost_per_million ?? ''}
-                    onChange={(e) => setCustomProvider((p) => ({
-                      ...p,
-                      output_cost_per_million: e.target.value === '' ? null : Number(e.target.value),
-                    }))}
-                    type="number"
-                    min={0}
-                    step="0.01"
-                    placeholder="$ output/M"
-                    className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-xs font-mono text-zinc-300"
-                  />
-                </div>
-                <button
-                  onClick={handleSelectCustom}
-                  disabled={!!switching}
-                  className="text-xs font-mono text-cyan-400 hover:text-cyan-300 disabled:text-zinc-600"
-                >
-                  {switching === 'custom' ? '[connecting...]' : '[use custom provider]'}
-                </button>
+                {providerKeys.map((providerKey) => {
+                  const busy = switching === `provider-key:${providerKey.provider}`;
+                  return (
+                    <div
+                      key={providerKey.provider}
+                      className="rounded border border-zinc-800 bg-zinc-950/70 px-2 py-2 space-y-2"
+                    >
+                      <div className="flex items-center justify-between gap-3 text-[11px] font-mono">
+                        <div className="min-w-0">
+                          <div className="text-zinc-300 uppercase">{providerKey.provider}</div>
+                          <div className="text-zinc-600">{providerKey.api_key_env}</div>
+                        </div>
+                        <div className="text-zinc-500 flex-shrink-0">
+                          {providerKey.has_key ? `saved · ${providerKey.source}` : 'not set'}
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <input
+                          value={providerKeyDrafts[providerKey.provider] || ''}
+                          onChange={(e) => setProviderKeyDrafts((drafts) => ({
+                            ...drafts,
+                            [providerKey.provider]: e.target.value,
+                          }))}
+                          placeholder={providerKey.has_key ? 'update api key' : 'enter api key'}
+                          type="password"
+                          className="flex-1 bg-zinc-950 border border-zinc-800 px-2 py-1 text-xs font-mono text-zinc-300"
+                        />
+                        <button
+                          onClick={() => handleSaveProviderKey(providerKey.provider)}
+                          disabled={!!switching}
+                          className="text-xs font-mono text-cyan-400 hover:text-cyan-300 disabled:text-zinc-600"
+                        >
+                          {busy ? '[saving...]' : '[save]'}
+                        </button>
+                        <button
+                          onClick={() => handleClearProviderKey(providerKey.provider)}
+                          disabled={!!switching || !providerKey.has_key}
+                          className="text-xs font-mono text-zinc-500 hover:text-zinc-300 disabled:text-zinc-700"
+                        >
+                          [clear]
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </>
           )}

@@ -37,6 +37,7 @@ from orchestrator.routes import (
 )
 from orchestrator.middleware.rate_limit import RateLimitMiddleware
 from orchestrator.middleware.session import SessionMiddleware
+from orchestrator.services.provider_keys import apply_persisted_provider_keys_to_environment
 
 
 logger = get_logger(__name__)
@@ -159,6 +160,7 @@ async def lifespan(app: FastAPI):
     # Startup: ensure database is initialized
     db = await get_db()
     logger.info("Database initialized")
+    await apply_persisted_provider_keys_to_environment()
 
     # Clean up orphaned data (stuck in 'running' state from previous crash/restart)
     # This runs unconditionally to catch any orphaned tool_calls/steps even if runs were already cleaned

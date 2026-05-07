@@ -12,6 +12,7 @@ from httpx import ASGITransport, AsyncClient
 
 from orchestrator.app import app
 import orchestrator.routes.models as models_module
+from orchestrator.storage.db import get_db
 
 
 @pytest.fixture(autouse=True)
@@ -19,11 +20,23 @@ def reset_active_model():
     """Reset active model state between tests."""
     models_module._active_model = None
     models_module._active_model_name = None
-    models_module._active_custom_model = None
     yield
     models_module._active_model = None
     models_module._active_model_name = None
-    models_module._active_custom_model = None
+
+
+@pytest.fixture(autouse=True)
+async def reset_provider_keys():
+    for env_name in ("OPENROUTER_API_KEY", "DEEPINFRA_API_KEY", "FIREWORKS_API_KEY"):
+        os.environ.pop(env_name, None)
+    db = await get_db()
+    await db.conn.execute("DELETE FROM app_settings WHERE setting_key = 'provider_api_keys'")
+    await db.conn.commit()
+    yield
+    for env_name in ("OPENROUTER_API_KEY", "DEEPINFRA_API_KEY", "FIREWORKS_API_KEY"):
+        os.environ.pop(env_name, None)
+    await db.conn.execute("DELETE FROM app_settings WHERE setting_key = 'provider_api_keys'")
+    await db.conn.commit()
 
 
 @pytest.mark.asyncio
@@ -287,3 +300,86 @@ async def test_put_reasoning_settings_persists_round_trip():
     data = second.json()
     assert data["settings"]["max_output_tokens"] == 2048
     assert data["settings"]["reasoning_effort"] == "low"
+
+
+@pytest.mark.asyncio
+async def test_provider_keys_round_trip_masks_secret():
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        save_response = await client.put(
+            "/api/models/provider-keys/openrouter",
+            json={"api_key": "sk-test-openrouter"},
+        )
+        list_response = await client.get("/api/models/provider-keys")
+
+    assert save_response.status_code == 200
+    save_data = save_response.json()
+    assert save_data["provider"] == "openrouter"
+    assert save_data["has_key"] is True
+    assert save_data["source"] == "database"
+    assert "api_key" not in save_data
+
+    listed = {item["provider"]: item for item in list_response.json()["providers"]}
+    assert listed["openrouter"]["has_key"] is True
+    assert listed["openrouter"]["source"] == "database"
+    assert "api_key" not in listed["openrouter"]
+
+
+@pytest.mark.asyncio
+async def test_list_models_availability_uses_persisted_provider_keys():
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        before = await client.get("/api/models")
+        await client.put(
+            "/api/models/provider-keys/fireworks",
+            json={"api_key": "fw-test-key"},
+        )
+        after = await client.get("/api/models")
+
+    assert before.status_code == 200
+    assert after.status_code == 200
+    assert before.json()["providers"]["fireworks"]["available"] is False
+    assert after.json()["providers"]["fireworks"]["available"] is True
+
+
+@pytest.mark.asyncio
+async def test_delete_provider_key_falls_back_to_environment():
+    os.environ["DEEPINFRA_API_KEY"] = "env-deepinfra-key"
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        await client.put(
+            "/api/models/provider-keys/deepinfra",
+            json={"api_key": "db-deepinfra-key"},
+        )
+        response = await client.delete("/api/models/provider-keys/deepinfra")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["provider"] == "deepinfra"
+    assert data["has_key"] is True
+    assert data["source"] == "environment"
+
+
+@pytest.mark.asyncio
+async def test_parallel_key_round_trip():
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        save_response = await client.put(
+            "/api/models/provider-keys/parallel",
+            json={"api_key": "parallel-test-key"},
+        )
+        list_response = await client.get("/api/models/provider-keys")
+
+    assert save_response.status_code == 200
+    saved = save_response.json()
+    assert saved["provider"] == "parallel"
+    assert saved["has_key"] is True
+    assert saved["source"] == "database"
+
+    listed = {item["provider"]: item for item in list_response.json()["providers"]}
+    assert listed["parallel"]["api_key_env"] == "PARALLEL_API_KEY"
+    assert listed["parallel"]["has_key"] is True
