@@ -121,7 +121,6 @@ export interface CreateAgentRunRequest {
   workspace_path?: string;
   filesystem_enabled?: boolean;
   permission_policy?: 'strict' | 'relaxed' | 'yolo';
-  profile?: string;
   capabilities?: {
     web: boolean;
     filesystem: boolean;

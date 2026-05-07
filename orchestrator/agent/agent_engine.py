@@ -45,7 +45,6 @@ from orchestrator.utils.sanitize import sanitize_harmony_tokens
 from orchestrator.vision import build_multimodal_user_content, validate_image_attachments
 
 if TYPE_CHECKING:
-    from orchestrator.agent.planner import ResearchPlan
     from orchestrator.agent.profile import AgentProfile
     from orchestrator.agent.tools.base import ToolResult
     from orchestrator.agent.tools.registry import ToolRegistry
@@ -59,22 +58,6 @@ logger = get_logger(__name__)
 # =============================================================================
 # System Prompt Helpers
 # =============================================================================
-
-
-def get_system_prompt_for_query_type(query_type: "QueryType") -> str:
-    """Get appropriate system prompt based on query classification.
-
-    Args:
-        query_type: Classification result from QueryClassifier.
-
-    Returns:
-        System prompt string for the given query type.
-    """
-    from orchestrator.agent.query_classifier import QueryType
-
-    if query_type == QueryType.CALCULATION:
-        return AgentEngine.CALCULATION_SYSTEM_PROMPT
-    return AgentEngine.DEFAULT_SYSTEM_PROMPT
 
 
 # =============================================================================
@@ -496,10 +479,6 @@ To provide your final answer, respond WITHOUT calling any tools."""
         self._cached_input_cost_per_million = cached_input_cost_per_million
         self._output_cost_per_million = output_cost_per_million
 
-        # Planning configuration
-        self._planning_enabled = planning_enabled
-        self._max_plan_steps = max_plan_steps
-        self._current_plan: Optional["ResearchPlan"] = None
 
         # Permission system
         self._approval_callback = approval_callback
@@ -2709,39 +2688,6 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     },
                 )
 
-            # Planning step - create plan before execution loop
-            self._current_plan = None
-            if self._planning_enabled:
-                plan = await self._create_plan(run_id, query, event_callback)
-                if plan:
-                    self._current_plan = plan
-                    messages_before = len(messages)
-                    messages = self._inject_plan_into_messages(messages, plan)
-
-                    # Trace: plan_injected - verify plan is in messages
-                    await self._add_trace_event(
-                        run_id=run_id,
-                        event_type="plan_injected",
-                        content={
-                            "plan_id": plan.id,
-                            "messages_before": messages_before,
-                            "messages_after": len(messages),
-                            "plan_text_preview": plan.to_injection_text()[:500],
-                        },
-                        actor="system",
-                    )
-
-                    logger.info(
-                        "Plan injected into messages",
-                        extra={
-                            "run_id": run_id,
-                            "plan_id": plan.id,
-                            "messages_before": messages_before,
-                            "messages_after": len(messages),
-                            "plan_step_count": len(plan.steps),
-                        },
-                    )
-
             # Step metadata for context pruning (maps tool_call_id -> step_number)
             step_metadata: Dict[str, int] = {}
             consecutive_filtered_steps = 0
@@ -2792,11 +2738,6 @@ To provide your final answer, respond WITHOUT calling any tools."""
                             working_memory=working_memory,
                         )
                     )
-                    if self._current_plan:
-                        pruned_messages = self._inject_plan_into_messages(
-                            pruned_messages,
-                            self._current_plan,
-                        )
                     if ephemeral_messages:
                         pruned_messages = [*pruned_messages, *ephemeral_messages]
                     compacted_now = bool(
@@ -3355,13 +3296,6 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         messages.append(vision_followup_message)
                         if self._is_coding_profile():
                             ephemeral_messages.append(vision_followup_message)
-
-                    # Update plan progress based on executed tools
-                    if self._current_plan:
-                        self._update_plan_progress(
-                            [tool_call for tool_call, _ in tool_results],
-                            step_number,
-                        )
 
                     consecutive_filtered_steps = 0
                     length_only_continuations = 0
@@ -4305,181 +4239,6 @@ To provide your final answer, respond WITHOUT calling any tools."""
     # =========================================================================
     # Planning Methods
     # =========================================================================
-
-    async def _create_plan(
-        self,
-        run_id: str,
-        query: str,
-        event_callback: Optional[Callable[[Dict[str, Any]], None]],
-    ) -> Optional["ResearchPlan"]:
-        """Create a research plan for the query.
-
-        The planner LLM naturally scales plan complexity:
-        - Simple queries get 1-step plans
-        - Complex queries get 3-5 step plans
-
-        Args:
-            run_id: Current run ID.
-            query: User's query.
-            event_callback: SSE callback.
-
-        Returns:
-            ResearchPlan if created successfully, None otherwise.
-        """
-        from orchestrator.agent.planner import Planner
-
-        planning_start = time.perf_counter()
-
-        # Trace: planning_start
-        await self._add_trace_event(
-            run_id=run_id,
-            event_type="planning_start",
-            content={"query": query[:200]},
-            actor="system",
-        )
-
-        # Use profile-specific planning prompt and step types if available
-        planning_kwargs: Dict[str, Any] = {
-            "provider": self._provider,
-            "model_name": self._model_name,
-            "max_plan_steps": self._max_plan_steps,
-        }
-        if self._profile:
-            if self._profile.planning_prompt_template:
-                planning_kwargs["planning_prompt"] = self._profile.planning_prompt_template
-            if self._profile.plan_step_types:
-                planning_kwargs["valid_step_types"] = self._profile.plan_step_types
-
-        planner = Planner(**planning_kwargs)
-
-        plan = await planner.create_plan(query, self._registry.tool_names)
-
-        planning_duration_ms = int((time.perf_counter() - planning_start) * 1000)
-
-        if plan:
-            # Trace: plan_created
-            await self._add_trace_event(
-                run_id=run_id,
-                event_type="plan_created",
-                content=plan.to_dict(),
-                actor="model",
-                duration_ms=planning_duration_ms,
-            )
-
-            logger.info(
-                "Research plan created",
-                extra={
-                    "run_id": run_id,
-                    "plan_id": plan.id,
-                    "steps": len(plan.steps),
-                    "complexity": plan.estimated_complexity,
-                    "duration_ms": planning_duration_ms,
-                },
-            )
-        else:
-            # Trace: planning_failed
-            await self._add_trace_event(
-                run_id=run_id,
-                event_type="planning_failed",
-                content={"reason": "Planning LLM call failed or returned invalid plan"},
-                actor="system",
-                event_status="error",
-                duration_ms=planning_duration_ms,
-            )
-
-            logger.warning(
-                "Planning failed, agent will proceed without plan",
-                extra={"run_id": run_id, "duration_ms": planning_duration_ms},
-            )
-
-        return plan
-
-    def _inject_plan_into_messages(
-        self,
-        messages: List[Dict[str, Any]],
-        plan: "ResearchPlan",
-    ) -> List[Dict[str, Any]]:
-        """Inject research plan into message list.
-
-        Appends the plan to the existing system message to maintain proper
-        message alternation (required by some models like Mistral).
-
-        Args:
-            messages: Current message list.
-            plan: Research plan to inject.
-
-        Returns:
-            New message list with plan appended to system prompt.
-        """
-        plan_text = plan.to_injection_text()
-        plan_content = f"""
-
-=== RESEARCH PLAN FOR THIS QUERY ===
-
-{plan_text}
-
-Follow this plan as a guide. Adapt as needed based on what you discover.
-When you complete each step, proceed to the next."""
-
-        # Find and modify the system message (should be first)
-        new_messages = []
-        plan_injected = False
-        for msg in messages:
-            if msg.get("role") == "system" and not plan_injected:
-                # Append plan to system message
-                new_msg = msg.copy()
-                new_msg["content"] = msg["content"] + plan_content
-                new_msg["_plan"] = True  # Marker for context pruning
-                new_messages.append(new_msg)
-                plan_injected = True
-            else:
-                new_messages.append(msg)
-
-        return new_messages
-
-    def _update_plan_progress(
-        self,
-        tool_calls: List[Dict[str, Any]],
-        step_number: int,
-    ) -> None:
-        """Update plan progress based on executed tools.
-
-        Maps executed tools to plan steps and marks them complete.
-
-        Args:
-            tool_calls: List of tool calls that were executed.
-            step_number: Current agent step number.
-        """
-        if not self._current_plan:
-            return
-
-        from orchestrator.agent.planner import PlanStepStatus
-
-        # Get tool names from executed calls
-        executed_tools = set()
-        for tc in tool_calls:
-            if isinstance(tc, dict):
-                name = tc.get("function", {}).get("name", "")
-            else:
-                # ParsedToolCall object
-                name = getattr(tc, "name", "")
-            if name:
-                executed_tools.add(name)
-
-        # Find and mark matching plan steps
-        for plan_step in self._current_plan.steps:
-            if plan_step.status == PlanStepStatus.PENDING:
-                if plan_step.expected_tool in executed_tools:
-                    plan_step.status = PlanStepStatus.COMPLETED
-                    logger.debug(
-                        "Plan step completed",
-                        extra={
-                            "plan_step": plan_step.step_number,
-                            "tool": plan_step.expected_tool,
-                            "agent_step": step_number,
-                        },
-                    )
-                    break  # Only mark one step per iteration
 
     async def _build_initial_messages(
         self,

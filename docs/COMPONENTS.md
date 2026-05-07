@@ -16,14 +16,7 @@ Detailed documentation of every component in the Fluxion system.
    - [Storage Layer](#storage-layer)
    - [Routes Layer](#routes-layer)
    - [Utilities](#utilities)
-2. [CLI/TUI Components](#clitui-components)
-   - [Entry Point & App](#entry-point--app)
-   - [Screens](#screens)
-   - [Widgets](#widgets)
-   - [Events](#events)
-   - [CLI API Client](#cli-api-client)
-   - [CLI Configuration](#cli-configuration)
-3. [Frontend Components](#frontend-components)
+2. [Frontend Components](#frontend-components)
    - [Core Components](#core-components)
    - [Message Components](#message-components)
    - [Agent Components](#agent-components)
@@ -587,26 +580,22 @@ async def create_agent_engine(
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `model_name` | str | config | Override model name |
-| `max_steps` | int | 10 | Maximum agent steps |
+| `max_steps` | int | 1000 | Maximum agent steps |
 | `max_tokens` | int | config | Override max tokens |
 | `temperature` | float | config | Override temperature |
 | `system_prompt` | str | None | Override system prompt |
-| `query` | str | None | User query for classification |
+| `query` | str | None | Current coding task text |
 
 **Behavior**:
 1. Loads configuration from `chat_config.yaml`
-2. Resolves profile from `profile_name` (or `filesystem_enabled` flag)
-3. If `query` provided (and classification enabled), classifies query to select appropriate system prompt
+2. Uses the single coding-agent config from `orchestrator/agent/profile.py`
 4. Resolves model from registry **only for known presets** (alias or model_id match); unknown models fall through to `config.provider` (reads `LLM_BASE_URL` + `LLM_API_KEY`)
 5. Creates provider: override > registry-resolved model > config defaults (with chain if configured)
-6. Creates tool registry from profile, repositories (AgentRepo, TraceRepo)
-7. Gathers context via profile's context strategy
-8. Returns configured AgentEngine with `planning_enabled=False` (disabled: extra LLM call adds latency/cost with no benefit)
+6. Creates the browser capability-based tool registry plus repositories (AgentRepo, TraceRepo)
+7. Gathers coding workspace context
+8. Returns configured `AgentEngine` for the coding runtime
 
-**Query Classification**:
-- Uses `QueryClassifier` to detect query type (calculation, research, general)
-- For high-confidence calculation queries, only provides `python_execute` tool
-- Forces code-based solutions for math problems
+There is no query classification, planner, or research-vs-coding profile branching in the live runtime anymore.
 
 **Usage**:
 ```python
@@ -638,34 +627,25 @@ result = await engine.run(run_id, query)
 | `_synthesize()` | Generate final answer |
 | `_force_synthesis()` | Synthesize when hitting max steps |
 | `_extract_finding_from_result()` | Extract key findings from tool results |
-| `_create_plan()` | Generate research plan before execution |
-| `_inject_plan_into_messages()` | Append plan to system message |
 | `_check_pause()` | Block if pause_signal is cleared; resume on resume_signal |
 | `_inject_steer_messages()` | Drain steer queue and inject as user-role messages |
 
 **Agent Execution Flow**:
 ```python
-# 1. Planning Step (optional, if enabled)
-if planning_enabled:
-    plan = await planner.create_plan(query)
-    messages = _inject_plan_into_messages(messages, plan)
-
-# 2. Main Agent Loop
+# Main Agent Loop
 while not (synthesis or step >= max_steps):
-    1. Prune context with LLM summarization (query-aware)
+    1. Rebuild coding context / reduce prompt only under real pressure
     2. Call LLM with tool schemas
     3. Parse response:
        - tool_calls → execute tools
        - synthesize decision → break loop
     4. Extract findings from tool results
-    5. Update plan progress tracking
-    6. Track token usage
-    7. Record step in database
-    8. Emit SSE events
+    5. Track token usage
+    6. Record step in database
+    7. Emit SSE events
 ```
 
 **Message Alternation** (for Mistral compatibility):
-- Plan is appended to system message content, not added as separate message
 - Incomplete runs (no assistant response) are skipped from history
 - Duplicate user queries are filtered out
 
@@ -677,7 +657,7 @@ while not (synthesis or step >= max_steps):
 
 **Token Tracking**:
 - `_total_tokens` accumulates tokens from all LLM calls
-- Includes planning steps, tool calling, and synthesis
+- Includes tool-calling and synthesis turns
 - Returned in `AgentResult.total_tokens`
 - Displayed in UI footer with duration
 
@@ -712,87 +692,14 @@ while not (synthesis or step >= max_steps):
 
 ### `orchestrator/agent/context_pruner.py`
 
-**Purpose**: Manage context within token budget with LLM-based smart summarization.
+**Purpose**: Estimate prompt token usage for coding-session prompt budgeting.
 
 **Class: `ContextPruner`**
 
 **Key Methods**:
-- `prune()` - Synchronous pruning (basic truncation)
-- `prune_async()` - Async pruning with LLM summarization
-- `set_llm(provider, model, query)` - Configure LLM for smart summaries
+- `estimate_tokens()` - Count token usage for a list of prompt messages
 
-**Strategy**:
-1. Calculate current token usage
-2. If over budget, summarize oldest tool results
-3. Use LLM to extract query-relevant facts (content > 500 chars)
-4. Cache summaries to prevent duplicate LLM calls
-5. Fall back to basic truncation on error
-6. Python output keeps head/tail pattern (not LLM summarized)
-
-**Configuration**:
-- `MAX_SUMMARY_TOKENS = 400` - Token limit for summary LLM calls
-- `keep_full_steps` - Number of recent steps to keep detailed (default: 2)
-
-### `orchestrator/agent/query_classifier.py`
-
-**Purpose**: Classify query type for tool selection.
-
-**Class: `QueryClassifier`**
-
-**Categories**:
-- `GENERAL` - General questions
-- `CALCULATION` - Math/computation
-- `WEB_RESEARCH` - Web search needed
-
-**Method**: Keyword-based classification (not LLM).
-
-### `orchestrator/agent/planner.py`
-
-**Purpose**: Generate research plans before agent execution.
-
-**Class: `Planner`**
-
-**Constructor**:
-```python
-def __init__(
-    self,
-    provider: LLMProvider,
-    model_name: str,
-    max_plan_steps: int = 5,
-) -> None
-```
-
-**Key Methods**:
-
-| Method | Description |
-|--------|-------------|
-| `create_plan(query)` | Generate a ResearchPlan for the query |
-| `_parse_plan_response()` | Extract structured plan from LLM response |
-
-**Planning Prompt**:
-- Analyzes query complexity
-- Suggests tool usage per step
-- Limits steps to `max_plan_steps`
-- Returns structured plan with analysis and steps
-
-**Dataclass: `ResearchPlan`**
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `analysis` | str | Brief analysis of the query |
-| `approach` | str | High-level approach description |
-| `steps` | list[PlanStep] | Ordered list of execution steps |
-
-**Dataclass: `PlanStep`**
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `number` | int | Step number (1-indexed) |
-| `description` | str | What to do in this step |
-| `tool_hint` | str | Suggested tool (web_search, python_execute, etc.) |
-
-**Plan Injection**:
-The plan is appended to the system message content (not as a separate message) to maintain strict user/assistant message alternation required by models like Mistral.
+Prompt reduction logic now lives directly in `AgentEngine` so coding-session replay can compact only under real prompt pressure.
 
 ### `orchestrator/agent/recovery.py`
 
@@ -805,44 +712,24 @@ The plan is appended to the system message content (not as a separate message) t
 
 ### `orchestrator/agent/profile.py`
 
-**Purpose**: Agent profile definitions with tool sets, system prompts, and context strategies.
+**Purpose**: Coding-agent configuration and system prompt.
 
 **Dataclass: `AgentProfile`**
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `name` | str | `"research"` or `"coding"` |
+| `name` | str | `"coding"` |
 | `display_name` | str | UI label |
 | `system_prompt_template` | str | With `{date_context}` and `{project_context}` slots |
-| `tool_sets` | list[str] | `["web", "python", "filesystem"]` |
-| `context_strategy` | str | `"research"` or `"coding"` |
-| `planning_prompt_template` | str | Profile-specific planner prompt |
-| `plan_step_types` | list[str] | Valid step types per profile |
+| `context_strategy` | str | `"coding"` |
 | `max_steps` | int | Agent step limit |
-| `max_plan_steps` | int | Planner step limit |
 | `findings_tools` | list[str] | Tools producing findings for synthesis |
 
-**Built-in Profiles**:
-
-| Profile | Tool Sets | Context | Step Types | Max Steps |
-|---------|-----------|---------|------------|-----------|
-| `research` | web, python | Date + cutoff | search, extract, calculate, synthesize | 25 |
-| `coding` | web, python, filesystem | 5-layer project context | read, implement, test, debug, synthesize | 30 |
-
-**System Prompt Structure** (both profiles):
-- UNDERSTAND INTENT section
-- STEP BACK WHEN STUCK rule
-- STAY ON TASK directive
-- TOOLS section (profile-specific tool list)
-- RULES section (quality guardrails)
-- STOPPING CRITERIA (when to synthesize)
+There is only one live agent profile now: the coding agent used by `/api/agent/runs`.
 
 ### `orchestrator/agent/context.py`
 
-**Purpose**: Context strategies that inject profile-specific information into the system prompt.
-
-**Class: `ResearchContextStrategy`**
-- Returns current date + knowledge cutoff message
+**Purpose**: Coding workspace context gathering for the agent system prompt.
 
 **Class: `CodingContextStrategy`**
 - Gathers 5-layer project context concurrently via asyncio:
@@ -1650,272 +1537,6 @@ _EVENT_TYPE_MAP = {
 
 **Functions**:
 - `parse_harmony_response(text)` - Extract channels from Harmony format
-
----
-
-# CLI/TUI Components
-
-Built with the [Textual](https://textual.textualize.io/) framework. Always uses the `coding` profile.
-
-## Entry Point & App
-
-### `cli/__main__.py`
-
-**Purpose**: Click CLI entry point.
-
-**Command**: `reasoner` (installed via pyproject.toml `[project.scripts]`)
-
-**Options**:
-
-| Flag | Type | Default | Description |
-|------|------|---------|-------------|
-| `--api-url` | str | `http://localhost:9000` | Backend API URL |
-| `--provider` | choice | `default` | `default` or `chatgpt` |
-| `--model` | str | None | Override model name |
-| `--mode` | choice | `agent` | `chat` or `agent` |
-| `--permission` | choice | `relaxed` | `strict`, `relaxed`, or `yolo` |
-| `--working-dir` | path | cwd | Filesystem root for tools |
-| `--max-steps` | int | 25 | Max agent steps |
-| `--local` | flag | False | Interactive local model picker |
-
-### `cli/app.py`
-
-**Purpose**: Textual App subclass with custom theme.
-
-**Class: `ReasonerApp(App)`**
-
-**Features**:
-- Custom "reasoner" theme (zinc-based with functional accent colors)
-- Color palette: primary `#60a5fa` (blue), accent colors, warning/error
-- Title displays mode + provider/model info
-- Mounts `ChatScreen` as the main screen
-
-## Screens
-
-### `cli/screens/chat_screen.py`
-
-**Purpose**: Main UI surface handling all user interaction and SSE event consumption.
-
-**Class: `ChatScreen(Screen)`**
-
-**Bindings**:
-- `Escape` — Stop current run
-- `Ctrl+N` — New conversation
-
-**State**:
-
-| Property | Type | Description |
-|----------|------|-------------|
-| `_current_run_id` | str | Active agent run |
-| `_current_stream_token` | str | SSE auth token |
-| `_conversation_id` | str | Multi-turn context |
-| `_is_running` | bool | Run state flag |
-| `_current_step` | int | Step counter |
-| `_pending_approval` | ToolCallPanel | Panel awaiting approval |
-| `_chatgpt_available` | bool | Whether ChatGPT auth is valid |
-| `_cancel_requested` | bool | Signals SSE consumer to stop |
-
-**Message Handlers** (SSE → Widget):
-
-| Handler | Trigger | Action |
-|---------|---------|--------|
-| `on_input_area_submitted` | User submits text | Create agent run, subscribe SSE |
-| `on_step_start_event` | New step | Update StatusBar step counter |
-| `on_thinking_event` | Thinking token | ThinkingPanel.append_token() |
-| `on_tool_start_event` | Tool starting | Create ToolCallPanel |
-| `on_tool_approval_required_event` | Approval needed | Switch InputArea to approval mode |
-| `on_tool_result_event` | Tool finished | ToolCallPanel.set_result() |
-| `on_answer_token_event` | Answer token | StreamingMarkdown.append_token() |
-| `on_agent_complete_event` | Run done | Finalize, show context usage |
-| `on_agent_error_event` | Error | Display error message |
-
-**Slash Commands**: `/login`, `/logout`, `/status`, `/switch [provider]`, `/help`
-
-**Approval Flow**:
-1. `ToolApprovalRequiredEvent` received → stores `_pending_approval` reference
-2. InputArea switches to approval mode (read-only, shows full tool args + diff preview for write/edit)
-3. User presses Enter (approve) or `n` (deny)
-4. StatusBar shows "executing tool…" after approval
-5. Calls `POST /api/agent/runs/{id}/approve/{tool_call_id}` or `/deny/`
-6. On 404 (server restarted): shows clear message, calls `_force_reset_run()`
-7. Restores normal input mode
-
-**SSE Resilience**: The `_consume_events` worker detects connection loss (closed/disconnect/reset/refused/eof) and posts a clear error message instead of a raw exception. The `_cancel_requested` flag lets the cancel action break out of the SSE loop immediately.
-
-**Startup**: On mount, `_check_chatgpt_auth()` validates saved session against backend; if expired, attempts restore from `~/.config/reasoner/chatgpt_auth.json` backup.
-
-## Widgets
-
-### `cli/widgets/input_area.py`
-
-**Purpose**: Multi-line text input with approval mode.
-
-**Class: `InputArea(TextArea)`**
-
-**Modes**:
-- **Normal**: Enter to submit, Shift+Enter for newline
-- **Approval**: Read-only display of full tool arguments, captures `y`/`n` key responses
-
-**Messages**:
-- `Submitted(value: str)` — User submitted text
-- `ApprovalDecision(approved: bool)` — User approved or denied a tool
-
-### `cli/widgets/thinking_panel.py`
-
-**Purpose**: Expandable display of model reasoning tokens.
-
-**Class: `ThinkingPanel`**
-
-**Features**:
-- **Collapsed**: Shows last ~100 chars on single line with ∴ symbol
-- **Expanded**: Full thinking text
-- Click to toggle expand/collapse
-- `append_token(token)` for streaming accumulation
-
-### `cli/widgets/tool_call_panel.py`
-
-**Purpose**: Expandable tool call display with approval support.
-
-**Class: `ToolCallPanel`**
-
-**Features**:
-- **Collapsed**: `▸ ToolName(primary_arg)` — primary argument extraction (path, command, query, etc.)
-- **Expanded**: `▾ ToolName` with full key-value argument pairs
-- Tool icon mapping per tool name
-- Result display with success/error status
-
-**Key Methods**:
-- `show_approval_prompt()` — Display approval UI
-- `set_result(success, summary, error, duration_ms)` — Update with execution result
-- `resolve_approval(approved)` — Mark approval decision
-
-**Properties**: `run_id`, `tool_call_id`
-
-### `cli/widgets/streaming_markdown.py`
-
-**Purpose**: Markdown rendering with streaming token updates.
-
-**Class: `StreamingMarkdown`**
-
-- `append_token(token)` — Accumulate and re-render
-
-### `cli/widgets/message_bubble.py`
-
-**Purpose**: Container for user, assistant, and system messages.
-
-**Class: `MessageBubble`**
-
-- Roles: `user` (renders content), `assistant` (empty shell for children), `system` (dim italic info text)
-- Children (assistant only): ThinkingPanel, ToolCallPanel, StreamingMarkdown
-
-### `cli/widgets/message_list.py`
-
-**Purpose**: Scrollable container for all message bubbles.
-
-**Class: `MessageList`**
-
-- Auto-scroll to bottom on new content
-
-### `cli/widgets/status_bar.py`
-
-**Purpose**: Status information display.
-
-**Class: `StatusBar`**
-
-**Displays**: connection dot (left), mode/provider/model, activity/step, context window fill % (right)
-
-**Context Display**: Shows `ctx 15% (14.8k)` — context window fill percentage with abbreviated token count. Turns yellow at >80% fill. Dropped cumulative API token count (was misleading — input tokens recounted every call).
-
-**Methods**:
-- `set_busy(is_busy)` — Show/hide spinner
-- `set_step(text)` — Update activity text (step count, "executing tool…", etc.)
-- `set_context_live(used, total, _)` — Update context fill during run
-- `set_context_usage(tokens_used, tokens_max)` — Show final context usage
-- `set_connected(connected)` — Connection indicator dot
-- `set_provider(provider)` — Update provider display
-
-### `cli/widgets/agent_progress.py`
-
-**Purpose**: Agent progress indicator widget.
-
-**Class: `AgentProgress`**
-
-## Events
-
-### `cli/events.py`
-
-**Purpose**: Textual message classes that bridge SSE events to widget updates.
-
-**Base Class**: `AgentEvent(Message)` — all events inherit from this
-
-| Event Class | Fields | Description |
-|-------------|--------|-------------|
-| `StepStartEvent` | step_number, steps_remaining | New agent step |
-| `ThinkingEvent` | content | Reasoning token chunk |
-| `ToolStartEvent` | tool_call_id, tool_name, arguments | Tool execution starting |
-| `ToolApprovalRequiredEvent` | tool_call_id, tool_name, arguments | Approval needed before execution |
-| `ToolResultEvent` | tool_call_id, success, result_summary, error_message, duration_ms | Tool completion |
-| `AnswerTokenEvent` | content | Final answer token chunk |
-| `AgentCompleteEvent` | success, final_answer, citations, total_steps, timing_ms, total_tokens, context_usage | Run finished |
-| `AgentErrorEvent` | error, step | Error occurred |
-| `AgentStateEvent` | state, current_step, max_steps | State transition |
-| `HeartbeatEvent` | — | SSE keepalive |
-
-## CLI API Client
-
-### `cli/api_client.py`
-
-**Purpose**: HTTP + SSE client for backend communication.
-
-**Class: `APIClient`**
-
-**Methods**:
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `create_agent_run(query, conversation_id)` | POST /api/agent/runs | Start an agent run |
-| `stream_agent_events(run_id, token, since_seq)` | GET /api/agent/runs/{id}/stream | SSE event stream |
-| `approve_tool(run_id, tool_call_id)` | POST /api/agent/runs/{id}/approve/{tc_id} | Approve pending tool |
-| `deny_tool(run_id, tool_call_id)` | POST /api/agent/runs/{id}/deny/{tc_id} | Deny pending tool |
-| `cancel_run(run_id)` | POST /api/agent/runs/{id}/cancel | Cancel active run |
-| `health_check()` | GET /api/health | Check backend connectivity |
-| `set_session(session_id)` | — | Set CLI session + switch to chatgpt provider |
-| `set_provider(provider)` | — | Switch provider mid-session (updates X-Provider header) |
-
-**Headers**: `X-Provider`, `X-Model`, `X-CLI-Session`
-
-## CLI Configuration
-
-### `cli/config.py`
-
-**Purpose**: CLI configuration with session persistence.
-
-**Class: `CLIConfig`**
-
-**Properties**:
-- `api_url`, `provider`, `model`, `mode`, `permission`, `working_dir`, `max_steps`
-- `session_cookie` — Demo session persistence
-- `session_id` — CLI session for ChatGPT OAuth
-- `profile` — Always `"coding"` for CLI
-
-**Methods**:
-- `from_args()` — Create from Click CLI flags (loads saved provider preference if `--provider` not explicitly set)
-- `save_session()` — Persist to `~/.config/reasoner/config.json`
-- `save_cli_session()` — Persist CLI session ID
-- `clear_cli_session()` — Clear on logout
-- `save_provider_preference(provider)` — Persist provider choice to `~/.config/reasoner/provider`
-
-### `cli/auth.py`
-
-**Purpose**: ChatGPT OAuth PKCE authentication flow with token persistence.
-
-**Functions**:
-- `login(api_url, existing_session)` — Reuses valid session if provided, otherwise opens browser for OAuth
-- `check_auth(api_url, session_id)` — Validate authentication status
-- `backup_tokens(api_url, session_id)` — Export and save tokens to `~/.config/reasoner/chatgpt_auth.json`
-- `try_restore(api_url, session_id)` — Restore tokens from backup file via refresh token
-
----
 
 # Frontend Components
 

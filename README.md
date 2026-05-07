@@ -1,12 +1,11 @@
 # Fluxion
 
-An AI agent application with multi-step research, coding assistance, web search, Python execution, and reasoning capabilities. FastAPI backend + React/Vite frontend + Textual CLI/TUI, backed by SQLite for full traceability.
+An AI agent application with browser-based chat and coding workflows, web search, Python execution, and reasoning capabilities. FastAPI backend + React/Vite frontend, backed by SQLite for full traceability.
 
 ## What It Does
 
-- **Triple Interface**: Web UI (React), CLI/TUI (Textual), and REST API
-- **Dual Mode**: Chat mode (conversational AI) and Agent mode (multi-step tool-using agent)
-- **Agent Profiles**: Research (web + python) and Coding (filesystem + bash + python) modes
+- **Web UI + API**: React frontend with FastAPI backend APIs
+- **Dual Mode**: Chat mode and browser coding-agent mode
 - **10 Tools**: Web search, content extraction, Python execution, file read/write/edit, bash, grep, glob, directory listing
 - **Model Registry**: ~25 presets across OpenRouter, DeepInfra, and local providers with hot-swap
 - **Local Models**: Scan GGUF files, start/stop llama-server, runtime provider switching
@@ -28,7 +27,7 @@ Comprehensive documentation is available in the `docs/` folder:
 | Document | Description |
 |----------|-------------|
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | System architecture with diagrams |
-| [COMPONENTS.md](docs/COMPONENTS.md) | Every backend, frontend, and CLI component |
+| [COMPONENTS.md](docs/COMPONENTS.md) | Every backend and frontend component |
 | [DATA_MODELS.md](docs/DATA_MODELS.md) | Database schema, Pydantic models, TypeScript types |
 | [DATA_FLOW.md](docs/DATA_FLOW.md) | Request lifecycle, streaming, provider failover |
 | [API_REFERENCE.md](docs/API_REFERENCE.md) | Complete REST API and SSE documentation |
@@ -42,17 +41,17 @@ Comprehensive documentation is available in the `docs/` folder:
 ## Architecture Snapshot
 
 ```
-Browser (React + Vite)                    Terminal (Textual CLI)
-  - Conversation list, chat view,           - Chat screen, model picker
-    agent steps panel, model picker          - Tool approval, streaming markdown
-  - Zustand store, SSE hooks                 - StatusBar (model, step, context)
-        |                                           |
-        | HTTP + SSE                                | HTTP + SSE
-        v                                           v
+Browser (React + Vite)
+  - Conversation list, chat view,
+    agent steps panel, model picker
+  - Zustand store, SSE hooks
+        |
+        | HTTP + SSE
+        v
 FastAPI Backend (:9000)
   - Routes: conversations, runs, agent/runs, models, auth, benchmarks
   - ChatEngine: model orchestration + streaming
-  - AgentEngine: profiles, planning, tool calling, approval, synthesis
+  - AgentEngine: coding prompt, tool calling, approval, synthesis
   - ThinkingOrchestrator: strategy selection (direct)
   - Model Registry: ~25 presets, hot-swap, provider resolution
   - Provider layer: LLMProvider protocol + circuit breaker + ChatGPT OAuth
@@ -300,26 +299,6 @@ fluxion/
 │       ├── api/               # REST + SSE client
 │       ├── types/             # Shared TS types
 │       └── lib/               # Utilities, retry logic
-├── cli/                       # CLI/TUI (Textual framework)
-│   ├── __main__.py            # Click entry point (reasoner command)
-│   ├── app.py                 # ReasonerApp (Textual App)
-│   ├── config.py              # CLIConfig, model persistence
-│   ├── api_client.py          # HTTP + SSE client, tool approval
-│   ├── auth.py                # ChatGPT OAuth flow
-│   ├── permission.py          # Tool approval system (strict/relaxed/yolo)
-│   ├── events.py              # Textual message classes for SSE routing
-│   ├── screens/
-│   │   └── chat_screen.py     # Main chat interface
-│   └── widgets/
-│       ├── input_area.py      # User input + approval mode
-│       ├── message_list.py    # Scrollable message history
-│       ├── message_bubble.py  # User/assistant message containers
-│       ├── streaming_markdown.py # Token accumulation + rendering
-│       ├── thinking_panel.py  # Expandable thinking display
-│       ├── tool_call_panel.py # Tool execution + approval display
-│       ├── status_bar.py      # Model, step, context usage
-│       ├── model_picker.py    # Model selection modal (Ctrl+M)
-│       └── agent_progress.py  # Agent step progress indicator
 ├── docs/                      # Comprehensive documentation
 ├── tests/                     # Unit + integration tests
 ├── scripts/                   # Dev and test scripts
