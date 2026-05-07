@@ -122,7 +122,6 @@ export const AgentLiveHUD = memo(function AgentLiveHUD({
     : '—';
   const compactionCount = (agentState.compaction_count ?? agentState.context_usage?.compactions_so_far) ?? 0;
   const currentStep = Math.max(agentState.currentStep, agentState.steps.length);
-  const hasLimit = agentState.maxSteps > 0;
 
   return (
     <div className="flex-shrink-0 px-3 pb-2 sm:px-4 md:px-6">
@@ -171,7 +170,6 @@ export const AgentLiveHUD = memo(function AgentLiveHUD({
 
         <div className="flex flex-wrap items-center gap-2 border-t border-zinc-900/70 bg-zinc-950/35 px-3 py-2 text-zinc-400">
           <MetricChip label="step" value={currentStep || 0} emphasized />
-          {hasLimit ? <MetricChip label="limit" value={agentState.maxSteps} /> : null}
           <MetricChip label="ctx" value={currentContextPct} warning={phase.isContextWarning} />
           <MetricChip label="compact" value={String(compactionCount)} warning={phase.isCompactionWarning} />
           <MetricChip label="elapsed" value={<ElapsedClock startedAt={startedAt} />} />

@@ -15,14 +15,12 @@ import type { Run } from '@/types';
 
 interface AgentRunMessageProps {
   run: Run;
-  onShowTrace: (runId: string) => void;
   onRetry?: (userMessage: string) => void;
   canRetry?: boolean;
 }
 
 export const AgentRunMessage = memo(function AgentRunMessage({
   run,
-  onShowTrace,
   onRetry,
   canRetry,
 }: AgentRunMessageProps) {
@@ -34,9 +32,6 @@ export const AgentRunMessage = memo(function AgentRunMessage({
   const citations = agentState?.citations || [];
   const userMessage = run.user_message || run.prompt;
   const phase = agentState ? deriveAgentPhase(agentState) : null;
-  const handleShowTraceClick = useCallback(() => {
-    onShowTrace(run.run_id);
-  }, [onShowTrace, run.run_id]);
   const handleRetryClick = useCallback(() => {
     if (!userMessage || !onRetry) return;
     onRetry(userMessage);
@@ -85,48 +80,45 @@ export const AgentRunMessage = memo(function AgentRunMessage({
           </div>
 
           {!isActive && (
-            <div className="mt-2 flex flex-wrap items-center gap-3 px-1 font-mono text-xs">
-              <button
-                onClick={handleShowTraceClick}
-                className="text-zinc-500 transition-colors hover:text-zinc-300"
-              >
-                [details]
-              </button>
-              <span
-                className={cn(
-                  phase?.accentClassName || 'text-zinc-500',
-                  run.status === 'failed' && 'text-red-400/80'
+            <div className="mt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-1 font-mono text-xs">
+              <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+                <span
+                  className={cn(
+                    phase?.accentClassName || 'text-zinc-500',
+                    run.status === 'failed' && 'text-red-400/80'
+                  )}
+                >
+                  [{phase?.label || (run.status === 'succeeded' ? 'done' : run.status)}]
+                </span>
+                {agentState?.timing_ms && (
+                  <span className="text-zinc-600">{formatAgentDuration(agentState.timing_ms)}</span>
                 )}
-              >
-                [{phase?.label || (run.status === 'succeeded' ? 'done' : run.status)}]
-              </span>
-              {agentState?.timing_ms && (
-                <span className="text-zinc-600">{formatAgentDuration(agentState.timing_ms)}</span>
-              )}
-              {agentState?.total_tokens && (
-                <span className="text-zinc-600">{formatAgentTokens(agentState.total_tokens)} tok</span>
-              )}
-              {agentState?.usage && (
-                <span className="text-zinc-600">
-                  in {formatAgentTokens(agentState.usage.input_tokens)} / out {formatAgentTokens(agentState.usage.output_tokens)}
-                </span>
-              )}
-              {agentState?.cost && agentState?.usage?.total_tokens ? (
-                <span className="text-zinc-600">est {formatAgentCost(agentState.cost.total_cost)}</span>
-              ) : agentState?.usage ? (
-                <span className="text-zinc-600">cost n/a</span>
-              ) : null}
-              {agentState?.context_usage && (
-                <span className="text-zinc-600">
-                  ctx {Math.round(agentState.context_usage.utilization_pct_effective)}%
-                  {typeof agentState.compaction_count === 'number' ? ` · compact ${agentState.compaction_count}` : ''}
-                </span>
-              )}
+                {agentState?.total_tokens && (
+                  <span className="text-zinc-600">{formatAgentTokens(agentState.total_tokens)} tok</span>
+                )}
+                {agentState?.usage && (
+                  <span className="text-zinc-600">
+                    in {formatAgentTokens(agentState.usage.input_tokens)} / out {formatAgentTokens(agentState.usage.output_tokens)}
+                  </span>
+                )}
+                {agentState?.cost && agentState?.usage?.total_tokens ? (
+                  <span className="text-zinc-600">est {formatAgentCost(agentState.cost.total_cost)}</span>
+                ) : agentState?.usage ? (
+                  <span className="text-zinc-600">cost n/a</span>
+                ) : null}
+                {agentState?.context_usage && (
+                  <span className="text-zinc-600">
+                    ctx {Math.round(agentState.context_usage.utilization_pct_effective)}%
+                    {typeof agentState.compaction_count === 'number' ? ` · compact ${agentState.compaction_count}` : ''}
+                  </span>
+                )}
+              </div>
               {finalAnswer && (
                 <MessageActions
                   content={finalAnswer}
                   onRetry={onRetry ? handleRetryClick : undefined}
                   canRetry={canRetry}
+                  className="shrink-0 opacity-100 md:opacity-0 md:group-hover/msg:opacity-100"
                 />
               )}
             </div>

@@ -5,8 +5,6 @@ import { Routes, Route, Navigate, useParams, useSearchParams, useNavigate } from
 import { Toaster } from 'sonner';
 import { ConversationList } from '@/components/ConversationList';
 import { ConversationView } from '@/components/ConversationView';
-import { DetailPanel } from '@/components/DetailPanel';
-import { BenchmarksPage } from '@/components/BenchmarksPage';
 import { useStore, useHasActiveRun } from '@/hooks/useStore';
 import { cn } from '@/lib/utils';
 import { PanelLeftClose, PanelLeft, GripVertical, Plus, Menu, X } from 'lucide-react';
@@ -48,7 +46,6 @@ function NewConversationView() {
 }
 
 function AppLayout() {
-  const detailPanelOpen = useStore((s) => s.detailPanelOpen);
   const hasActiveRun = useHasActiveRun();
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -279,9 +276,7 @@ function AppLayout() {
         className={cn(
           "flex-1 overflow-hidden transition-all duration-300 flex flex-col",
           // Mobile: add top padding for fixed header
-          isMobile && "pt-14",
-          // Desktop: add right margin when detail panel is open
-          detailPanelOpen && "lg:mr-[400px]"
+          isMobile && "pt-14"
         )}
       >
         <Routes>
@@ -290,9 +285,6 @@ function AppLayout() {
           <Route path="/conversations/:conversationId" element={<ConversationSync />} />
         </Routes>
       </main>
-
-      {/* Right Detail Panel - Trace JSON */}
-      <DetailPanel />
     </div>
   );
 }
@@ -302,7 +294,6 @@ function App() {
     <>
       <Toaster position="top-right" richColors closeButton duration={4000} theme="dark" />
       <Routes>
-        <Route path="/benchmarks" element={<BenchmarksPage />} />
         <Route path="/*" element={<AppLayout />} />
       </Routes>
     </>

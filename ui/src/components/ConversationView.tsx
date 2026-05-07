@@ -55,6 +55,7 @@ import { useConversationRuns, useSelectedConversation, useStore, useHasActiveRun
 import { useSSE } from '@/hooks/useSSE';
 import { useAgentSSE } from '@/hooks/useAgentSSE';
 import { useAgentRunDetails } from '@/hooks/useAgentRunDetails';
+import { formatAgentCost, formatAgentTokens } from '@/lib/agentLiveState';
 import { cn, formatRelativeTime } from '@/lib/utils';
 import type { Run, Conversation, ImageAttachment } from '@/types';
 
@@ -66,6 +67,41 @@ const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 
 /** Mode: 'chat' for regular conversation, 'agent' for agent */
 type ChatMode = 'chat' | 'agent';
+
+function formatRunStatusLabel(run: Run): string {
+  if (run.status === 'succeeded') return 'done';
+  if (run.status === 'failed') return 'failed';
+  return 'running';
+}
+
+function getRunFooterMetrics(run: Run): string[] {
+  const metrics: string[] = [];
+
+  if (typeof run.usage?.total_tokens === 'number' && run.usage.total_tokens > 0) {
+    metrics.push(`${formatAgentTokens(run.usage.total_tokens)} tok`);
+  }
+  if (run.usage && (
+    typeof run.usage.input_tokens === 'number'
+    || typeof run.usage.output_tokens === 'number'
+  )) {
+    metrics.push(
+      `in ${formatAgentTokens(run.usage.input_tokens ?? 0)} / out ${formatAgentTokens(run.usage.output_tokens ?? 0)}`
+    );
+  }
+  if (run.cost && typeof run.cost.total_cost === 'number' && run.usage?.total_tokens) {
+    metrics.push(`est ${formatAgentCost(run.cost.total_cost)}`);
+  } else if (run.usage) {
+    metrics.push('cost n/a');
+  }
+  if (typeof run.context_usage?.utilization_pct_effective === 'number') {
+    metrics.push(`ctx ${Math.round(run.context_usage.utilization_pct_effective)}%`);
+  }
+  if (run.mode === 'chat') {
+    metrics.push('chat');
+  }
+
+  return metrics;
+}
 
 function isApplePlatform(): boolean {
   if (typeof navigator === 'undefined') return false;
@@ -738,21 +774,16 @@ const EMPTY_STRING = '';
 
 const RunMessage = memo(function RunMessage({
   run,
-  onShowTrace,
   onRetry,
   canRetry,
 }: {
   run: Run;
-  onShowTrace: (runId: string) => void;
   onRetry?: (userMessage: string) => void;
   canRetry?: boolean;
 }) {
   const isRunning = run.status === 'running';
   const finalAnswer = run.final_answer ? extractAnswer(run.final_answer) : '';
   const userMessage = run.user_message || run.prompt;
-  const handleShowTraceClick = useCallback(() => {
-    onShowTrace(run.run_id);
-  }, [onShowTrace, run.run_id]);
   const handleRetryClick = useCallback(() => {
     if (!userMessage || !onRetry) return;
     onRetry(userMessage);
@@ -767,6 +798,7 @@ const RunMessage = memo(function RunMessage({
 
   // Determine if we're in thinking phase (streaming thinking but no answer yet)
   const isThinking = isRunning && streamingThinking.length > 0;
+  const footerMetrics = getRunFooterMetrics(run);
 
   return (
     <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2">
@@ -822,29 +854,30 @@ const RunMessage = memo(function RunMessage({
             ) : null}
           </div>
 
-          <div className="mt-2 flex flex-wrap items-center gap-3 px-1 font-mono text-xs">
-            <button
-              onClick={handleShowTraceClick}
-              className="text-zinc-500 hover:text-zinc-300 transition-colors"
-            >
-              [details]
-            </button>
-            <span className={cn(
-              run.status === 'succeeded'
-                ? 'text-emerald-600'
-                : run.status === 'failed'
-                  ? 'text-red-500/70'
-                  : 'text-zinc-600'
-            )}>
-              [{run.status}]
-            </span>
-            <span className="text-zinc-700">{run.mode || 'chat'}</span>
-            {/* Copy / Retry actions - visible on hover */}
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-1 font-mono text-xs">
+            <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+              <span className={cn(
+                run.status === 'succeeded'
+                  ? 'text-emerald-600'
+                  : run.status === 'failed'
+                    ? 'text-red-500/70'
+                    : 'text-zinc-600'
+              )}>
+                [{formatRunStatusLabel(run)}]
+              </span>
+              {run.created_at && (
+                <span className="text-zinc-700">{formatRelativeTime(run.created_at)}</span>
+              )}
+              {footerMetrics.map((metric) => (
+                <span key={metric} className="text-zinc-600">{metric}</span>
+              ))}
+            </div>
             {!isRunning && (
               <MessageActions
                 content={finalAnswer || displayText}
                 onRetry={onRetry ? handleRetryClick : undefined}
                 canRetry={canRetry}
+                className="shrink-0 opacity-100 md:opacity-0 md:group-hover/msg:opacity-100"
               />
             )}
           </div>
@@ -1053,8 +1086,6 @@ export function ConversationView() {
   const addRun = useStore((s) => s.addRun);
   const removeRun = useStore((s) => s.removeRun);
   const setEvents = useStore((s) => s.setEvents);
-  const selectRun = useStore((s) => s.selectRun);
-  const setDetailPanelOpen = useStore((s) => s.setDetailPanelOpen);
   const conversation = useSelectedConversation();
   const runs = useConversationRuns(selectedConversationId);
   const terminalState = useConversationTerminal(selectedConversationId);
@@ -1330,11 +1361,6 @@ export function ConversationView() {
     }
   }, [lastStreamLen, activeAgentScrollSignal, activeRunId]);
 
-  const handleShowTrace = useCallback((runId: string) => {
-    selectRun(runId);
-    setDetailPanelOpen(true);
-  }, [selectRun, setDetailPanelOpen]);
-
   const focusComposer = useCallback(() => {
     const textarea = textareaRef.current;
     if (!textarea || textarea.disabled) return;
@@ -1368,7 +1394,6 @@ export function ConversationView() {
       <AgentRunMessage
         key={run.run_id}
         run={run}
-        onShowTrace={handleShowTrace}
         onRetry={handleRetry}
         canRetry={!hasActiveRun}
       />
@@ -1376,12 +1401,11 @@ export function ConversationView() {
       <RunMessage
         key={run.run_id}
         run={run}
-        onShowTrace={handleShowTrace}
         onRetry={handleRetry}
         canRetry={!hasActiveRun}
       />
     )
-  ), [handleRetry, handleShowTrace, hasActiveRun]);
+  ), [handleRetry, hasActiveRun]);
 
   const handleSaveReasoningSettings = useCallback(async () => {
     if (!reasoningDraft) return;
@@ -2227,13 +2251,6 @@ export function ConversationView() {
               </>
             )}
           </div>
-          <button
-            onClick={() => navigate('/benchmarks')}
-            className="text-zinc-600 hover:text-zinc-300 transition-colors"
-            title="View GAIA benchmark results"
-          >
-            [benchmarks]
-          </button>
         </div>
         {modelSelectEnabled && (
           <ModelPicker
@@ -2468,13 +2485,6 @@ export function ConversationView() {
             {conversation?.title || 'conversation'}
           </span>
         </div>
-        <button
-          onClick={() => navigate('/benchmarks')}
-          className="text-zinc-600 hover:text-zinc-300 transition-colors flex-shrink-0"
-          title="View GAIA benchmark results"
-        >
-          [benchmarks]
-        </button>
       </div>
       {modelSelectEnabled && (
         <ModelPicker
