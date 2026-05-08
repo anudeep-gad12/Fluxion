@@ -37,14 +37,14 @@ function AgentLoader({
   animated: boolean;
 }) {
   return (
-    <span className="relative inline-flex h-10 w-[3.4rem] shrink-0 items-center justify-center overflow-hidden rounded-[1.15rem] border border-zinc-800/80 bg-black/45 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]">
-      <span className="absolute inset-[5px] rounded-[0.9rem] border border-zinc-900/80 bg-zinc-950/88" />
+    <span className="relative inline-flex h-10 w-[3.4rem] shrink-0 items-center justify-center overflow-hidden rounded-[1.15rem] border border-zinc-700/80 bg-black/45 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]">
+      <span className="absolute inset-[5px] rounded-[0.9rem] border border-zinc-700/85 bg-black/90" />
       <span className="relative z-10 flex w-full flex-col gap-1.5 px-2.5">
         {[0, 1, 2].map((index) => (
           <span
             key={index}
             className={cn(
-              'relative block h-[3px] overflow-hidden rounded-full bg-zinc-800/85',
+              'relative block h-[3px] overflow-hidden rounded-full bg-zinc-700/85',
               index === 0 && 'w-[72%]',
               index === 1 && 'w-full',
               index === 2 && 'w-[58%]'
@@ -52,7 +52,7 @@ function AgentLoader({
           >
             <span
               className={cn(
-                'absolute inset-y-0 left-0 w-[40%] rounded-full bg-zinc-600/35',
+                'absolute inset-y-0 left-0 w-[40%] rounded-full bg-zinc-400/40',
                 animated && 'agent-loader-stroke bg-gradient-to-r shadow-[0_0_14px_rgba(255,255,255,0.16)]',
                 animated && gradientClassName
               )}
@@ -80,10 +80,10 @@ function MetricChip({
     <div
       className={cn(
         'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 whitespace-nowrap',
-        warning ? 'border-amber-500/18 bg-amber-500/7' : 'border-zinc-800/70 bg-zinc-950/55'
+        warning ? 'border-amber-500/18 bg-amber-500/7' : 'border-zinc-700/75 bg-zinc-950/75'
       )}
     >
-      <span className={cn('text-[10px] uppercase tracking-[0.18em]', warning ? 'text-amber-300/70' : 'text-zinc-500')}>
+      <span className={cn('text-[10px] uppercase tracking-[0.18em]', warning ? 'text-amber-300/70' : 'text-zinc-300')}>
         {label}
       </span>
       <span className={cn('tabular-nums text-zinc-300', emphasized && 'text-zinc-100')}>
@@ -127,9 +127,9 @@ export const AgentLiveHUD = memo(function AgentLiveHUD({
     <div className="flex-shrink-0 px-3 pb-2 sm:px-4 md:px-6">
       <div
         className={cn(
-          'animate-in fade-in slide-in-from-bottom-2 relative overflow-hidden rounded-[1.35rem] border bg-zinc-950/82 font-mono text-xs shadow-[0_-14px_32px_rgba(0,0,0,0.18)] backdrop-blur-md',
+          'animate-in fade-in slide-in-from-bottom-2 relative overflow-hidden rounded-[1.35rem] border bg-black/88 font-mono text-xs shadow-[0_-14px_32px_rgba(0,0,0,0.18)] backdrop-blur-md',
           phase.borderClassName,
-          isStatic && 'bg-zinc-950/88'
+          isStatic && 'bg-black/90'
         )}
       >
         <div className="pointer-events-none absolute inset-x-0 top-0 h-16 bg-[linear-gradient(180deg,rgba(255,255,255,0.02),transparent)]" />
@@ -144,7 +144,7 @@ export const AgentLiveHUD = memo(function AgentLiveHUD({
               <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
                 <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full shadow-[0_0_12px_rgba(255,255,255,0.16)]', phase.indicatorClassName)} />
                 <WordSwap className={cn('truncate text-[13px] font-medium leading-none', phase.accentClassName)} value={phase.activeWord} />
-                <span className="text-[11px] text-zinc-500">·</span>
+                <span className="text-[11px] text-zinc-300">·</span>
                 <span className="truncate text-[11px] text-zinc-300">{phase.detail.summary}</span>
                 {phase.detail.toolName && (
                   <span className={cn('rounded-sm border px-1.5 py-0.5 text-[10px] uppercase tracking-[0.18em]', phase.chipClassName)}>
@@ -155,20 +155,20 @@ export const AgentLiveHUD = memo(function AgentLiveHUD({
 
               <div className="min-w-0 text-[11px] leading-relaxed text-zinc-400">
                 <span key={`${phase.detail.summary}:${phase.detail.target ?? ''}`} className="animate-in fade-in duration-200 inline-flex min-w-0 max-w-full flex-wrap items-center gap-1.5">
-                  <span className="text-zinc-500">step {currentStep || 1}</span>
-                  {phase.detail.target && <span className="text-zinc-600">→</span>}
+                  <span className="text-zinc-300">step {currentStep || 1}</span>
+                  {phase.detail.target && <span className="text-zinc-400">→</span>}
                   {phase.detail.target && <span className="truncate text-zinc-300/90">{phase.detail.target}</span>}
                 </span>
               </div>
             </div>
           </div>
 
-          <div className="ml-auto flex items-center gap-2 self-start rounded-full border border-zinc-900/70 bg-zinc-950/50 px-2 py-1 text-[10px] uppercase tracking-[0.18em] text-zinc-600">
+          <div className="ml-auto flex items-center gap-2 self-start rounded-full border border-zinc-700/75 bg-zinc-950/72 px-2 py-1 text-[10px] uppercase tracking-[0.18em] text-zinc-400">
             {isStatic ? phase.label : 'live'}
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 border-t border-zinc-900/70 bg-zinc-950/35 px-3 py-2 text-zinc-400">
+        <div className="flex flex-wrap items-center gap-2 border-t border-zinc-700/75 bg-zinc-950/60 px-3 py-2 text-zinc-400">
           <MetricChip label="step" value={currentStep || 0} emphasized />
           <MetricChip label="ctx" value={currentContextPct} warning={phase.isContextWarning} />
           <MetricChip label="compact" value={String(compactionCount)} warning={phase.isCompactionWarning} />

@@ -52,21 +52,21 @@ function ThinkingBlock({
       <button
         type="button"
         onClick={onToggle}
-        className="flex items-center gap-2 text-left text-zinc-500 transition-colors hover:text-zinc-300"
+        className="flex items-center gap-2 text-left text-zinc-300 transition-colors hover:text-zinc-300"
       >
-        <span className="select-none text-zinc-700">{expanded ? '▼' : '▶'}</span>
+        <span className="select-none text-zinc-300">{expanded ? '▼' : '▶'}</span>
         <span>{isLive ? 'thinking...' : 'thinking'}</span>
         {isLive && <span className="text-cyan-400/70">live</span>}
       </button>
       {expanded && (
-        <div className="rounded-sm border border-zinc-900 bg-zinc-950/50 px-3 py-2 text-zinc-500">
+        <div className="rounded-sm border border-zinc-700 bg-zinc-950/82 px-3 py-2 text-zinc-300">
           <AnswerMarkdown content={content} />
           {isLive && (
             <span className="agent-caret ml-1 inline-block h-3 w-1.5 translate-y-0.5 bg-cyan-400/70" />
           )}
         </div>
       )}
-      {!expanded && isLive && <div className="text-[11px] text-zinc-700">step {stepNumber}</div>}
+      {!expanded && isLive && <div className="text-[11px] text-zinc-300">step {stepNumber}</div>}
     </div>
   );
 }
@@ -207,7 +207,7 @@ export function AgentStepsPanel({ agentState }: AgentStepsPanelProps) {
 
               {itemsCount === 0 && isCurrentStep && isActive && (
                 <TimelineItem dotClassName="bg-cyan-400" isLast>
-                  <div className="text-zinc-600">step {step.step_number}</div>
+                  <div className="text-zinc-400">step {step.step_number}</div>
                 </TimelineItem>
               )}
             </div>
@@ -216,7 +216,7 @@ export function AgentStepsPanel({ agentState }: AgentStepsPanelProps) {
 
         {steps.length === 0 && isActive && (
           <TimelineItem dotClassName="bg-zinc-600" isLast>
-            <div className="text-zinc-600">awaiting first step</div>
+            <div className="text-zinc-400">awaiting first step</div>
           </TimelineItem>
         )}
       </div>

@@ -42,7 +42,7 @@ export function MessageActions({
     >
       <button
         onClick={handleCopy}
-        className="px-1.5 py-0.5 text-zinc-600 hover:text-zinc-200 hover:bg-zinc-800 transition-colors"
+        className="px-1.5 py-0.5 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/80 transition-colors"
         title="Copy response"
       >
         {copied ? '✓ copied' : 'copy'}
@@ -54,8 +54,8 @@ export function MessageActions({
           className={cn(
             'px-1.5 py-0.5 transition-colors',
             canRetry
-              ? 'text-zinc-600 hover:text-zinc-200 hover:bg-zinc-800'
-              : 'text-zinc-800 cursor-not-allowed',
+              ? 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/80'
+              : 'text-zinc-600 cursor-not-allowed',
           )}
           title={canRetry ? 'Retry this message' : 'Cannot retry during active run'}
         >

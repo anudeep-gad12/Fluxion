@@ -6,25 +6,25 @@
 
 @layer base {
   :root {
-    --background: 240 6% 4%;
-    --foreground: 0 0% 98%;
-    --card: 240 6% 6%;
-    --card-foreground: 0 0% 98%;
-    --popover: 240 6% 8%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 0 0% 98%;
-    --primary-foreground: 240 6% 4%;
-    --secondary: 240 4% 12%;
-    --secondary-foreground: 0 0% 70%;
-    --muted: 240 4% 12%;
-    --muted-foreground: 240 4% 46%;
+    --background: 240 8% 3%;
+    --foreground: 0 0% 99%;
+    --card: 240 7% 5%;
+    --card-foreground: 0 0% 99%;
+    --popover: 240 7% 6%;
+    --popover-foreground: 0 0% 99%;
+    --primary: 0 0% 99%;
+    --primary-foreground: 240 8% 3%;
+    --secondary: 240 5% 11%;
+    --secondary-foreground: 0 0% 82%;
+    --muted: 240 5% 10%;
+    --muted-foreground: 240 5% 68%;
     --accent: 240 4% 15%;
-    --accent-foreground: 0 0% 98%;
+    --accent-foreground: 0 0% 99%;
     --destructive: 0 0% 60%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 240 4% 16%;
-    --input: 240 4% 16%;
-    --ring: 0 0% 83%;
+    --destructive-foreground: 0 0% 99%;
+    --border: 240 5% 24%;
+    --input: 240 5% 24%;
+    --ring: 0 0% 92%;
     --radius: 0.8rem;
   }
 }
@@ -50,7 +50,7 @@
 
 @layer components {
   .markdown {
-    @apply text-sm leading-relaxed text-zinc-200;
+    @apply text-sm leading-relaxed text-zinc-100;
   }
 
   .markdown h1 {
@@ -90,7 +90,7 @@
   }
 
   .markdown blockquote {
-    @apply my-4 border-l-4 border-zinc-700 pl-4 text-zinc-400;
+    @apply my-4 border-l-4 border-zinc-600 pl-4 text-zinc-300;
   }
 
   .markdown table {
@@ -99,11 +99,11 @@
 
   .markdown th,
   .markdown td {
-    @apply border border-zinc-700 px-3 py-2 align-top;
+    @apply border border-zinc-600 px-3 py-2 align-top;
   }
 
   .markdown a {
-    @apply text-zinc-300 underline-offset-2 hover:underline;
+    @apply text-zinc-100 underline-offset-2 hover:underline;
   }
 
   /* KaTeX math styling */
@@ -128,7 +128,7 @@
 @layer base {
   * {
     scrollbar-width: thin;
-    scrollbar-color: hsl(240 4% 20%) transparent;
+    scrollbar-color: hsl(240 5% 34%) transparent;
   }
 
   *::-webkit-scrollbar {
@@ -141,22 +141,22 @@
   }
 
   *::-webkit-scrollbar-thumb {
-    background-color: hsl(240 4% 20%);
+    background-color: hsl(240 5% 34%);
     border-radius: 2px;
   }
 
   *::-webkit-scrollbar-thumb:hover {
-    background-color: hsl(240 4% 30%);
+    background-color: hsl(240 5% 46%);
   }
 }
 
 /* Terminal-style block caret */
 textarea {
-  caret-color: #a1a1aa; /* zinc-400 */
+  caret-color: #d4d4d8; /* zinc-300 */
 }
 
 textarea:focus {
-  caret-color: #e4e4e7; /* zinc-200 — brightens on focus */
+  caret-color: #fafafa; /* near-white */
 }
 
 /* Collapsible panel animation */
@@ -196,9 +196,9 @@ textarea:focus {
 .shimmer {
   background: linear-gradient(
     90deg,
-    hsl(240 4% 12%) 25%,
-    hsl(240 4% 18%) 50%,
-    hsl(240 4% 12%) 75%
+    hsl(240 5% 10%) 25%,
+    hsl(240 5% 18%) 50%,
+    hsl(240 5% 10%) 75%
   );
   background-size: 200% 100%;
   animation: shimmer 1.5s ease-in-out infinite;
