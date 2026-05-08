@@ -143,12 +143,12 @@ export function WorkspacePickerDialog({
                   focusRow(visibleEntries.length - 1);
                 }
               }}
-              className="flex-1 bg-zinc-950 border border-zinc-800 px-2 py-1.5 text-zinc-300 outline-none"
+              className="flex-1 bg-zinc-950 border border-zinc-700 px-2 py-1.5 text-zinc-300 outline-none"
               placeholder="/path/to/repo"
             />
             <button
               onClick={() => loadPath(pathInput, 'input')}
-              className="px-2 py-1.5 text-zinc-400 hover:text-zinc-200 border border-zinc-800"
+              className="px-2 py-1.5 text-zinc-300 hover:text-zinc-200 border border-zinc-700"
             >
               open
             </button>
@@ -156,9 +156,9 @@ export function WorkspacePickerDialog({
 
           {error && <p className="text-red-400">{error}</p>}
 
-          <div className="border border-zinc-800 max-h-72 overflow-y-auto">
+          <div className="border border-zinc-700 max-h-72 overflow-y-auto">
             {loading ? (
-              <p className="px-3 py-2 text-zinc-600">Loading...</p>
+              <p className="px-3 py-2 text-zinc-400">Loading...</p>
             ) : (
               <>
                 {visibleEntries.map((entry, index) => (
@@ -206,7 +206,7 @@ export function WorkspacePickerDialog({
                     className={cn(
                       'block w-full text-left px-3 py-1.5 outline-none hover:text-zinc-200 hover:bg-zinc-800/50 focus:bg-zinc-800/60',
                       activeIndex === index && 'bg-zinc-800/60 text-zinc-200',
-                      entry.hidden ? 'text-zinc-700' : 'text-zinc-400'
+                      entry.hidden ? 'text-zinc-500' : 'text-zinc-300'
                     )}
                   >
                     {entry.label}
@@ -217,11 +217,11 @@ export function WorkspacePickerDialog({
           </div>
 
           <div className="flex items-center justify-between gap-3">
-            <span className="text-zinc-600 truncate">{data?.path || pathInput}</span>
+            <span className="text-zinc-400 truncate">{data?.path || pathInput}</span>
             <button
               onClick={chooseCurrent}
               disabled={!data?.path}
-              className="text-emerald-500/80 hover:text-emerald-400 disabled:text-zinc-700"
+              className="text-emerald-500/80 hover:text-emerald-400 disabled:text-zinc-600"
             >
               [use this folder]
             </button>

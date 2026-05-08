@@ -332,13 +332,13 @@ function ModelPicker({
         )}
         <div className="space-y-1 max-h-[70vh] overflow-y-auto pr-1">
           {loading ? (
-            <p className="text-xs text-zinc-600 font-mono px-3 py-2">Loading models...</p>
+            <p className="text-xs text-zinc-400 font-mono px-3 py-2">Loading models...</p>
           ) : (
             <>
               {/* Registry models by provider */}
               {registryProviders.map(([providerName, info]) => (
                 <div key={providerName}>
-                  <p className="text-[10px] text-zinc-600 font-mono px-3 pt-2 pb-1 uppercase">
+                  <p className="text-[10px] text-zinc-400 font-mono px-3 pt-2 pb-1 uppercase">
                     {providerName}
                   </p>
                   {info.models.map((model: RegistryModelPreset) => {
@@ -360,7 +360,7 @@ function ModelPicker({
                       >
                         <div className="flex justify-between items-center">
                           <span className="truncate mr-2">{model.display_name}</span>
-                          <span className="text-zinc-600 flex-shrink-0">
+                          <span className="text-zinc-400 flex-shrink-0">
                             {model.input_cost_per_million != null && model.output_cost_per_million != null
                               ? `$${model.input_cost_per_million}/$${model.output_cost_per_million}M · `
                               : ''}
@@ -377,8 +377,8 @@ function ModelPicker({
               {/* Local GGUF models */}
               {localModels.filter(m => m.model_type === 'gguf').length > 0 && (
                 <>
-                  <div className="border-t border-zinc-800 my-1" />
-                  <p className="text-[10px] text-zinc-600 font-mono px-3 pt-2 pb-1 uppercase">
+                  <div className="border-t border-zinc-600 my-1" />
+                  <p className="text-[10px] text-zinc-400 font-mono px-3 pt-2 pb-1 uppercase">
                     local
                   </p>
                   {localModels.filter(m => m.model_type === 'gguf').map((model) => {
@@ -400,7 +400,7 @@ function ModelPicker({
                       >
                         <div className="flex justify-between items-center">
                           <span className="truncate mr-2">{model.name}</span>
-                          <span className="text-zinc-600 flex-shrink-0">{model.size_display}</span>
+                          <span className="text-zinc-400 flex-shrink-0">{model.size_display}</span>
                         </div>
                       </button>
                     );
@@ -411,8 +411,8 @@ function ModelPicker({
               {/* MLX models */}
               {localModels.filter(m => m.model_type === 'mlx').length > 0 && (
                 <>
-                  <div className="border-t border-zinc-800 my-1" />
-                  <p className="text-[10px] text-zinc-600 font-mono px-3 pt-2 pb-1 uppercase">
+                  <div className="border-t border-zinc-600 my-1" />
+                  <p className="text-[10px] text-zinc-400 font-mono px-3 pt-2 pb-1 uppercase">
                     mlx
                   </p>
                   {localModels.filter(m => m.model_type === 'mlx').map((model) => {
@@ -434,7 +434,7 @@ function ModelPicker({
                       >
                         <div className="flex justify-between items-center">
                           <span className="truncate mr-2">{model.name}</span>
-                          <span className="text-zinc-600 flex-shrink-0">{model.size_display}</span>
+                          <span className="text-zinc-400 flex-shrink-0">{model.size_display}</span>
                         </div>
                       </button>
                     );
@@ -442,9 +442,9 @@ function ModelPicker({
                 </>
               )}
 
-              <div className="border-t border-zinc-800 my-2" />
+              <div className="border-t border-zinc-600 my-2" />
               <div className="px-3 py-2 space-y-2">
-                <p className="text-[10px] text-zinc-600 font-mono uppercase">
+                <p className="text-[10px] text-zinc-400 font-mono uppercase">
                   provider api keys
                 </p>
                 {providerKeys.map((providerKey) => {
@@ -452,14 +452,14 @@ function ModelPicker({
                   return (
                     <div
                       key={providerKey.provider}
-                      className="rounded border border-zinc-800 bg-zinc-950/70 px-2 py-2 space-y-2"
+                      className="rounded border border-zinc-600 bg-zinc-950/85 px-2 py-2 space-y-2"
                     >
                       <div className="flex items-center justify-between gap-3 text-[11px] font-mono">
                         <div className="min-w-0">
                           <div className="text-zinc-300 uppercase">{providerKey.provider}</div>
-                          <div className="text-zinc-600">{providerKey.api_key_env}</div>
+                          <div className="text-zinc-400">{providerKey.api_key_env}</div>
                         </div>
-                        <div className="text-zinc-500 flex-shrink-0">
+                        <div className="text-zinc-300 flex-shrink-0">
                           {providerKey.has_key ? `saved · ${providerKey.source}` : 'not set'}
                         </div>
                       </div>
@@ -472,19 +472,19 @@ function ModelPicker({
                           }))}
                           placeholder={providerKey.has_key ? 'update api key' : 'enter api key'}
                           type="password"
-                          className="flex-1 bg-zinc-950 border border-zinc-800 px-2 py-1 text-xs font-mono text-zinc-300"
+                          className="flex-1 bg-zinc-950 border border-zinc-600 px-2 py-1 text-xs font-mono text-zinc-300"
                         />
                         <button
                           onClick={() => handleSaveProviderKey(providerKey.provider)}
                           disabled={!!switching}
-                          className="text-xs font-mono text-cyan-400 hover:text-cyan-300 disabled:text-zinc-600"
+                          className="text-xs font-mono text-cyan-400 hover:text-cyan-300 disabled:text-zinc-400"
                         >
                           {busy ? '[saving...]' : '[save]'}
                         </button>
                         <button
                           onClick={() => handleClearProviderKey(providerKey.provider)}
                           disabled={!!switching || !providerKey.has_key}
-                          className="text-xs font-mono text-zinc-500 hover:text-zinc-300 disabled:text-zinc-700"
+                          className="text-xs font-mono text-zinc-300 hover:text-zinc-300 disabled:text-zinc-300"
                         >
                           [clear]
                         </button>
@@ -548,10 +548,10 @@ function ReasoningSettingsDialog({
       </DialogHeader>
       <DialogContent>
         {!draft || !capabilities ? (
-          <p className="text-xs text-zinc-500 font-mono">Loading reasoning settings...</p>
+          <p className="text-xs text-zinc-300 font-mono">Loading reasoning settings...</p>
         ) : (
           <div className="space-y-4 font-mono text-xs">
-            <div className="text-zinc-500">
+            <div className="text-zinc-300">
               <div>{modelName}</div>
               <div className="uppercase text-[10px] mt-1">{providerFamily}</div>
             </div>
@@ -564,7 +564,7 @@ function ReasoningSettingsDialog({
                   min={1}
                   value={draft.max_output_tokens ?? ''}
                   onChange={(e) => update('max_output_tokens', e.target.value === '' ? null : Number(e.target.value))}
-                  className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-zinc-200"
+                  className="w-full bg-zinc-950 border border-zinc-600 px-2 py-1 text-zinc-200"
                 />
               </label>
               {showReasoningEffort && !showReasoningMaxTokens && (
@@ -575,7 +575,7 @@ function ReasoningSettingsDialog({
                     onChange={(e) => update('reasoning_effort', e.target.value || null)}
                     disabled={!capabilities.reasoning_effort.supported}
                     title={disabledReason(capabilities.reasoning_effort.supported, capabilities.reasoning_effort.reason)}
-                    className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-zinc-200 disabled:text-zinc-600"
+                    className="w-full bg-zinc-950 border border-zinc-600 px-2 py-1 text-zinc-200 disabled:text-zinc-400"
                   >
                     <option value="">default</option>
                     {(capabilities.reasoning_effort.options.length ? capabilities.reasoning_effort.options : ['low', 'medium', 'high']).map((opt) => (
@@ -587,8 +587,8 @@ function ReasoningSettingsDialog({
             </div>
 
             {isFireworks ? (
-              <div className="border-t border-zinc-800 pt-3 space-y-3">
-                <div className="text-zinc-500 uppercase text-[10px]">Fireworks controls</div>
+              <div className="border-t border-zinc-600 pt-3 space-y-3">
+                <div className="text-zinc-300 uppercase text-[10px]">Fireworks controls</div>
                 <div className="grid grid-cols-2 gap-3">
                   <label className="space-y-1">
                     <div className="text-zinc-400">control</div>
@@ -606,7 +606,7 @@ function ReasoningSettingsDialog({
                       }}
                       disabled={!capabilities.fireworks_reasoning_mode.supported}
                       title={disabledReason(capabilities.fireworks_reasoning_mode.supported, capabilities.fireworks_reasoning_mode.reason)}
-                      className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-zinc-200 disabled:text-zinc-600"
+                      className="w-full bg-zinc-950 border border-zinc-600 px-2 py-1 text-zinc-200 disabled:text-zinc-400"
                     >
                       <option value="effort">effort-based</option>
                       <option value="thinking">budget-based</option>
@@ -621,7 +621,7 @@ function ReasoningSettingsDialog({
                         onChange={(e) => update('reasoning_effort', e.target.value || null)}
                         disabled={!capabilities.reasoning_effort.supported}
                         title={disabledReason(capabilities.reasoning_effort.supported, capabilities.reasoning_effort.reason)}
-                        className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-zinc-200 disabled:text-zinc-600"
+                        className="w-full bg-zinc-950 border border-zinc-600 px-2 py-1 text-zinc-200 disabled:text-zinc-400"
                       >
                         <option value="">default</option>
                         {(capabilities.reasoning_effort.options.length ? capabilities.reasoning_effort.options : ['low', 'medium', 'high']).map((opt) => (
@@ -640,13 +640,13 @@ function ReasoningSettingsDialog({
                         onBlur={(e) => update('fireworks_thinking_budget_tokens', Math.max(Number(e.target.value) || minFireworksThinkingBudget, minFireworksThinkingBudget))}
                         disabled={!capabilities.fireworks_thinking_budget_tokens.supported}
                         title={disabledReason(capabilities.fireworks_thinking_budget_tokens.supported, capabilities.fireworks_thinking_budget_tokens.reason)}
-                        className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-zinc-200 disabled:text-zinc-600"
+                        className="w-full bg-zinc-950 border border-zinc-600 px-2 py-1 text-zinc-200 disabled:text-zinc-400"
                       />
                     </label>
                   )}
                 </div>
 
-                <div className="text-[11px] text-zinc-600">
+                <div className="text-[11px] text-zinc-400">
                   {fireworksMode === 'effort'
                     ? 'Sends reasoning_effort only.'
                     : 'Sends thinking.budget_tokens only.'}
@@ -654,8 +654,8 @@ function ReasoningSettingsDialog({
               </div>
             ) : (
               showReasoningMaxTokens ? (
-                <div className="border-t border-zinc-800 pt-3 space-y-3">
-                  <div className="text-zinc-500 uppercase text-[10px]">OpenRouter controls</div>
+                <div className="border-t border-zinc-600 pt-3 space-y-3">
+                  <div className="text-zinc-300 uppercase text-[10px]">OpenRouter controls</div>
                   <div className="grid grid-cols-2 gap-3">
                     <label className="space-y-1">
                       <div className="text-zinc-400">control</div>
@@ -668,7 +668,7 @@ function ReasoningSettingsDialog({
                             updateMany({ reasoning_max_tokens: draft.reasoning_max_tokens ?? 1024 });
                           }
                         }}
-                        className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-zinc-200"
+                        className="w-full bg-zinc-950 border border-zinc-600 px-2 py-1 text-zinc-200"
                       >
                         <option value="effort">effort-based</option>
                         <option value="budget">budget-based</option>
@@ -683,7 +683,7 @@ function ReasoningSettingsDialog({
                           onChange={(e) => update('reasoning_effort', e.target.value || null)}
                           disabled={!capabilities.reasoning_effort.supported}
                           title={disabledReason(capabilities.reasoning_effort.supported, capabilities.reasoning_effort.reason)}
-                          className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-zinc-200 disabled:text-zinc-600"
+                          className="w-full bg-zinc-950 border border-zinc-600 px-2 py-1 text-zinc-200 disabled:text-zinc-400"
                         >
                           <option value="">default</option>
                           {(capabilities.reasoning_effort.options.length ? capabilities.reasoning_effort.options : ['low', 'medium', 'high']).map((opt) => (
@@ -701,7 +701,7 @@ function ReasoningSettingsDialog({
                           onChange={(e) => update('reasoning_max_tokens', e.target.value === '' ? null : Number(e.target.value))}
                           disabled={!capabilities.reasoning_max_tokens.supported}
                           title={disabledReason(capabilities.reasoning_max_tokens.supported, capabilities.reasoning_max_tokens.reason)}
-                          className="w-full bg-zinc-950 border border-zinc-800 px-2 py-1 text-zinc-200 disabled:text-zinc-600"
+                          className="w-full bg-zinc-950 border border-zinc-600 px-2 py-1 text-zinc-200 disabled:text-zinc-400"
                         />
                       </label>
                     )}
@@ -711,7 +711,7 @@ function ReasoningSettingsDialog({
             )}
 
             {!isFireworks && !showReasoningMaxTokens && (
-              <div className="text-[11px] text-zinc-600">
+              <div className="text-[11px] text-zinc-400">
                 This provider has no separate max thinking token setting.
               </div>
             )}
@@ -719,7 +719,7 @@ function ReasoningSettingsDialog({
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => onOpenChange(false)}
-                className="px-3 py-1 text-zinc-500 hover:text-zinc-300"
+                className="px-3 py-1 text-zinc-300 hover:text-zinc-300"
               >
                 cancel
               </button>
@@ -774,15 +774,15 @@ const RunMessage = memo(function RunMessage({
       {/* User message */}
       <div className="flex gap-3">
         <div className="w-9 flex-shrink-0 pt-0.5">
-          <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-zinc-500">U:</span>
+          <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-zinc-300">U:</span>
         </div>
         <div className="flex-1 min-w-0">
-          <div className="rounded-2xl border border-zinc-800/70 bg-zinc-900/45 px-4 py-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.025)]">
+          <div className="rounded-2xl border border-zinc-600/80 bg-zinc-950/80 px-4 py-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.025)]">
             <span className="text-zinc-100 whitespace-pre-wrap text-sm leading-relaxed">
               {run.user_message || run.prompt}
             </span>
           </div>
-          <p className="text-[11px] text-zinc-600 mt-1.5 px-1">
+          <p className="text-[11px] text-zinc-400 mt-1.5 px-1">
             {formatRelativeTime(run.created_at)}
           </p>
         </div>
@@ -794,7 +794,7 @@ const RunMessage = memo(function RunMessage({
           <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-zinc-400/80">AI:</span>
         </div>
         <div className="flex-1 min-w-0">
-          <div className="rounded-2xl border border-zinc-800/55 bg-zinc-950/36 px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]">
+          <div className="rounded-2xl border border-zinc-600/70 bg-zinc-950/72 px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]">
             {/* Thinking Panel - shows while thinking or after completion with thinking data */}
             <ThinkingPanel
               summary={run.thinking_summary}
@@ -819,7 +819,7 @@ const RunMessage = memo(function RunMessage({
                 )}
               </div>
             ) : !isThinking ? (
-              <div className="text-sm text-zinc-600">No response.</div>
+              <div className="text-sm text-zinc-400">No response.</div>
             ) : null}
           </div>
 
@@ -830,15 +830,15 @@ const RunMessage = memo(function RunMessage({
                   ? 'text-emerald-600'
                   : run.status === 'failed'
                     ? 'text-red-500/70'
-                    : 'text-zinc-600'
+                    : 'text-zinc-400'
               )}>
                 [{formatRunStatusLabel(run)}]
               </span>
               {run.created_at && (
-                <span className="text-zinc-700">{formatRelativeTime(run.created_at)}</span>
+                <span className="text-zinc-300">{formatRelativeTime(run.created_at)}</span>
               )}
               {footerMetrics.map((metric) => (
-                <span key={metric} className="text-zinc-600">{metric}</span>
+                <span key={metric} className="text-zinc-400">{metric}</span>
               ))}
             </div>
             {!isRunning && (
@@ -898,11 +898,11 @@ function MentionPicker({
   if (!open) return null;
 
   return (
-    <div className="absolute left-0 right-0 bottom-full mb-2 border border-zinc-800 bg-zinc-950 shadow-2xl z-20 max-h-64 overflow-y-auto">
+    <div className="absolute left-0 right-0 bottom-full mb-2 border border-zinc-600 bg-zinc-950 shadow-2xl z-20 max-h-64 overflow-y-auto">
       {loading ? (
-        <div className="px-3 py-2 text-xs font-mono text-zinc-500">searching files...</div>
+        <div className="px-3 py-2 text-xs font-mono text-zinc-300">searching files...</div>
       ) : entries.length === 0 ? (
-        <div className="px-3 py-2 text-xs font-mono text-zinc-500">no matching files</div>
+        <div className="px-3 py-2 text-xs font-mono text-zinc-300">no matching files</div>
       ) : (
         entries.map((entry, index) => (
           <button
@@ -923,7 +923,7 @@ function MentionPicker({
             )}
           >
             <div className="truncate">{entry.path}</div>
-            <div className="truncate text-[10px] text-zinc-600">{entry.name}</div>
+            <div className="truncate text-[10px] text-zinc-400">{entry.name}</div>
           </button>
         ))
       )}
@@ -971,20 +971,20 @@ function EmptyStatePulse({
         <div className="fluxion-trace absolute left-0 top-0 h-full w-28 bg-gradient-to-r from-transparent via-zinc-500/20 to-transparent" />
       </div>
 
-      <div className="grid grid-cols-3 gap-px border border-zinc-900 bg-zinc-900 text-left">
+      <div className="grid grid-cols-3 gap-px border border-zinc-600 bg-zinc-900 text-left">
         <div className="bg-background px-3 py-2">
-          <div className="text-[10px] uppercase text-zinc-700">mode</div>
-          <div className="truncate text-xs text-zinc-500">{mode}</div>
+          <div className="text-[10px] uppercase text-zinc-300">mode</div>
+          <div className="truncate text-xs text-zinc-300">{mode}</div>
         </div>
         <div className="bg-background px-3 py-2">
-          <div className="text-[10px] uppercase text-zinc-700">workspace</div>
-          <div className={cn("truncate text-xs", workspacePath.trim() ? "text-zinc-500" : "text-zinc-700")}>
+          <div className="text-[10px] uppercase text-zinc-300">workspace</div>
+          <div className={cn("truncate text-xs", workspacePath.trim() ? "text-zinc-300" : "text-zinc-300")}>
             {workspaceName}
           </div>
         </div>
         <div className="bg-background px-3 py-2">
-          <div className="text-[10px] uppercase text-zinc-700">{provider}</div>
-          <div className="truncate text-xs text-zinc-500">{model}</div>
+          <div className="text-[10px] uppercase text-zinc-300">{provider}</div>
+          <div className="truncate text-xs text-zinc-300">{model}</div>
         </div>
       </div>
     </div>
@@ -1186,23 +1186,24 @@ export function ConversationView() {
   // Delay the clear so the chip is visible briefly before disappearing.
   const activeAgentState = useStore((s) => activeRunId ? s.agentRunState[activeRunId] : undefined);
   const latestContextRun = useMemo(
-    () => [...runs].reverse().find((run) => run.mode === 'agent' || !!run.stored_context),
+    () => [...runs].reverse().find((run) => (
+      run.mode === 'agent'
+      || !!run.context_usage
+      || !!run.context_profile
+      || !!run.stored_context
+    )),
     [runs],
   );
   const lockedWorkspacePath = (conversation?.workspace_path || '').trim();
   const hasConversationWorkspace = lockedWorkspacePath.length > 0;
   const isWorkspaceLocked = selectedConversationId !== null;
   const effectiveWorkspacePath = isWorkspaceLocked ? lockedWorkspacePath : draftWorkspacePath.trim();
-  const latestRunStoredContext = latestContextRun?.stored_context as
-    | { stored_tokens?: number; utilization_pct?: number; context_window?: number }
-    | undefined;
-  const footerStoredContext = useMemo(() => {
-    return (
-      activeAgentState?.stored_context
-      ?? latestRunStoredContext
-      ?? undefined
-    );
-  }, [activeAgentState?.stored_context, latestRunStoredContext]);
+  const latestRunContextUsage = latestContextRun?.context_usage;
+  const footerContextUsage = useMemo(() => (
+    activeAgentState?.context_usage
+    ?? latestRunContextUsage
+    ?? undefined
+  ), [activeAgentState?.context_usage, latestRunContextUsage]);
   const conversationRawTokens = useMemo(() => {
     return runs.reduce((total, run) => {
       if (run.run_id === activeRunId && activeAgentState?.usage?.total_tokens !== undefined) {
@@ -1212,20 +1213,22 @@ export function ConversationView() {
       return total + (runUsage?.total_tokens ?? 0);
     }, 0);
   }, [runs, activeRunId, activeAgentState?.usage?.total_tokens]);
-  const footerStoredTokens = footerStoredContext?.stored_tokens ?? 0;
   const composerContextWindow = (
     activeAgentState?.context_profile?.context_window
     ?? modelStatus?.context_window
     ?? (latestContextRun?.context_profile as { context_window?: number } | undefined)?.context_window
-    ?? footerStoredContext?.context_window
+    ?? footerContextUsage?.context_window
   );
-  const composerStoredContextUtilizationPct = (
-    footerStoredContext && typeof composerContextWindow === 'number' && composerContextWindow > 0
-      ? (footerStoredTokens / composerContextWindow) * 100
+  const composerPromptTokens = footerContextUsage?.prompt_tokens_current_call;
+  const composerContextUtilizationPct = (
+    typeof composerPromptTokens === 'number'
+    && typeof composerContextWindow === 'number'
+    && composerContextWindow > 0
+      ? (composerPromptTokens / composerContextWindow) * 100
       : null
   );
   const showComposerContextStats = mode === 'agent' && !!composerContextWindow && (
-    !!footerStoredContext || conversationRawTokens > 0
+    !!footerContextUsage || conversationRawTokens > 0
   );
   const injectedSteerCount = activeAgentState?.injectedSteers?.length ?? 0;
   useEffect(() => {
@@ -2180,39 +2183,39 @@ export function ConversationView() {
     return (
       <div className="h-full flex flex-col">
         {/* Status bar */}
-        <div className="border-b border-zinc-800 px-3 sm:px-4 py-2 flex items-center justify-between bg-transparent font-mono text-xs">
+        <div className="border-b border-zinc-600 px-3 sm:px-4 py-2 flex items-center justify-between bg-transparent font-mono text-xs">
           <div className="flex items-center gap-3">
             {modelSelectEnabled ? (
               <button
                 onClick={() => setModelPickerOpen(true)}
-                className="text-zinc-600 hover:text-zinc-400 transition-colors"
+                className="text-zinc-400 hover:text-zinc-400 transition-colors"
                 title="Switch model"
               >
                 {modelStatus?.model_name || 'model'}
                 {modelStatus?.context_window ? (
-                  <span className="text-zinc-700 ml-1">({Math.round(modelStatus.context_window / 1024)}k)</span>
+                  <span className="text-zinc-300 ml-1">({Math.round(modelStatus.context_window / 1024)}k)</span>
                 ) : null}
                 {modelStatus?.provider === 'local' && (
-                  <span className="text-zinc-700 ml-1">(local)</span>
+                  <span className="text-zinc-300 ml-1">(local)</span>
                 )}
               </button>
             ) : (
-              <span className="text-zinc-600">{modelStatus?.model_name || 'model'}{modelStatus?.context_window ? ` (${Math.round(modelStatus.context_window / 1024)}k)` : ''}</span>
+              <span className="text-zinc-400">{modelStatus?.model_name || 'model'}{modelStatus?.context_window ? ` (${Math.round(modelStatus.context_window / 1024)}k)` : ''}</span>
             )}
-            <span className="text-zinc-700">|</span>
+            <span className="text-zinc-300">|</span>
             <button
               onClick={() => setReasoningSettingsOpen(true)}
-              className="text-zinc-600 hover:text-zinc-400 transition-colors"
+              className="text-zinc-400 hover:text-zinc-400 transition-colors"
               title="Open reasoning settings"
             >
               reasoning
             </button>
             {mode === 'agent' && isDesktop && (
               <>
-                <span className="text-zinc-700">|</span>
+                <span className="text-zinc-300">|</span>
                 <button
                   onClick={() => void handleOpenTerminal()}
-                  className="text-zinc-600 hover:text-zinc-400 transition-colors"
+                  className="text-zinc-400 hover:text-zinc-400 transition-colors"
                   title={effectiveWorkspacePath ? 'Open integrated terminal' : 'Select or open a workspace conversation first'}
                 >
                   terminal
@@ -2261,9 +2264,9 @@ export function ConversationView() {
         </div>
         <div className="p-3 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-4 sm:pb-[max(1rem,env(safe-area-inset-bottom))] flex-shrink-0 space-y-2">
           {/* Prompt area */}
-          <div className="relative overflow-hidden rounded-2xl border border-zinc-700 bg-zinc-900/96 shadow-[inset_0_1px_0_rgba(255,255,255,0.025)] focus-within:border-zinc-500 transition-colors">
+          <div className="relative overflow-visible rounded-2xl border border-zinc-600 bg-zinc-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.025)] focus-within:border-zinc-500 transition-colors">
             <div className="flex items-start p-3 gap-2">
-              <span className="text-zinc-500 font-mono text-sm mt-0.5 select-none">&gt;</span>
+              <span className="text-zinc-300 font-mono text-sm mt-0.5 select-none">&gt;</span>
               <textarea
                 ref={textareaRef}
                 placeholder={mode === 'agent' ? 'Ask the coding agent...' : 'Ask a question...'}
@@ -2274,7 +2277,7 @@ export function ConversationView() {
                 onSelect={handleTextareaSelection}
                 onClick={handleTextareaSelection}
                 rows={2}
-                className="flex-1 bg-transparent border-none outline-none resize-none text-sm font-mono text-zinc-100 placeholder:text-zinc-600"
+                className="flex-1 bg-transparent border-none outline-none resize-none text-sm font-mono text-zinc-100 placeholder:text-zinc-400"
                 disabled={isSubmitting || hasActiveRun}
                 style={{ maxHeight: '200px' }}
               />
@@ -2294,7 +2297,7 @@ export function ConversationView() {
                   key={attachment.id || index}
                   type="button"
                   onClick={() => removeImageAttachment(attachment.id)}
-                  className="rounded-lg border border-zinc-800 bg-zinc-900 px-2 py-0.5 text-zinc-500 hover:text-zinc-200"
+                  className="rounded-lg border border-zinc-600 bg-zinc-900 px-2 py-0.5 text-zinc-400 hover:text-zinc-100"
                   title="Remove image"
                 >
                   image {index + 1} ×
@@ -2309,7 +2312,7 @@ export function ConversationView() {
                 onClick={() => setMode('agent')}
                 className={cn(
                   'transition-colors',
-                  mode === 'agent' ? 'text-zinc-200' : 'text-zinc-600 hover:text-zinc-400'
+                  mode === 'agent' ? 'text-zinc-100' : 'text-zinc-400 hover:text-zinc-200'
                 )}
               >
                 agent
@@ -2318,7 +2321,7 @@ export function ConversationView() {
                 onClick={() => setMode('chat')}
                 className={cn(
                   'transition-colors',
-                  mode === 'chat' ? 'text-zinc-200' : 'text-zinc-600 hover:text-zinc-400'
+                  mode === 'chat' ? 'text-zinc-100' : 'text-zinc-400 hover:text-zinc-200'
                 )}
               >
                 chat
@@ -2329,7 +2332,7 @@ export function ConversationView() {
                     <span
                       className={cn(
                         'max-w-52 truncate text-xs font-mono',
-                        hasConversationWorkspace ? 'text-zinc-400' : 'text-zinc-700'
+                        hasConversationWorkspace ? 'text-zinc-400' : 'text-zinc-500'
                       )}
                       title={
                         hasConversationWorkspace
@@ -2345,7 +2348,7 @@ export function ConversationView() {
                         value={draftWorkspacePath}
                         onChange={(e) => setDraftWorkspacePath(e.target.value)}
                         placeholder="/path/to/repo"
-                        className="w-40 sm:w-56 bg-transparent border-none outline-none text-xs font-mono text-zinc-400 placeholder:text-zinc-700"
+                        className="w-40 sm:w-56 bg-transparent border-none outline-none text-xs font-mono text-zinc-400 placeholder:text-zinc-500"
                         title="Workspace path for filesystem and bash tools"
                       />
                       <button
@@ -2353,7 +2356,7 @@ export function ConversationView() {
                           setWorkspacePickerMode('draft');
                           handleOpenWorkspacePicker();
                         }}
-                        className="text-zinc-600 hover:text-zinc-300 transition-colors"
+                        className="text-zinc-400 hover:text-zinc-200 transition-colors"
                         title="Browse local folders"
                       >
                         browse
@@ -2363,7 +2366,7 @@ export function ConversationView() {
                   <select
                     value={permissionPolicy}
                     onChange={(e) => setPermissionPolicy(e.target.value as 'strict' | 'relaxed' | 'yolo')}
-                    className="bg-transparent border-none outline-none text-xs font-mono text-zinc-500 cursor-pointer"
+                    className="bg-transparent border-none outline-none text-xs font-mono text-zinc-400 cursor-pointer"
                     title="Tool permission policy"
                   >
                     <option value="strict">strict</option>
@@ -2372,17 +2375,17 @@ export function ConversationView() {
                   </select>
                 </>
               )}
-              <span className="text-zinc-700">|</span>
+              <span className="text-zinc-500">|</span>
               {mode === 'agent' && isDesktop && (
                 <button
                   onClick={() => void handleOpenTerminal()}
-                  className="text-zinc-500 hover:text-zinc-300 transition-colors"
+                  className="text-zinc-400 hover:text-zinc-200 transition-colors"
                   title={effectiveWorkspacePath ? 'Open integrated terminal' : 'Select or open a workspace conversation first'}
                 >
                   terminal
                 </button>
               )}
-              {mode === 'agent' && isDesktop && <span className="text-zinc-700">|</span>}
+              {mode === 'agent' && isDesktop && <span className="text-zinc-500">|</span>}
               {isGenerating ? (
                 <button onClick={handleStop} className="text-red-400 hover:text-red-300 transition-colors">
                   stop
@@ -2394,7 +2397,7 @@ export function ConversationView() {
                   className={cn(
                     'transition-colors',
                     !message.trim() || isSubmitting || hasActiveRun
-                      ? 'text-zinc-700 cursor-not-allowed'
+                      ? 'text-zinc-500 cursor-not-allowed'
                       : 'text-zinc-400 hover:text-zinc-200'
                   )}
                   title={hasActiveRun ? 'Active run in progress' : undefined}
@@ -2403,7 +2406,7 @@ export function ConversationView() {
                 </button>
               )}
             </div>
-            <div className="flex items-center gap-3 font-mono text-xs text-zinc-600">
+            <div className="flex items-center gap-3 font-mono text-xs text-zinc-400">
               <span className="hidden md:inline">⌘+Enter send</span>
               <span className={message.length > MAX_INPUT_CHARS * 0.9 ? 'text-zinc-400' : ''}>
                 {message.length.toLocaleString()}/{MAX_INPUT_CHARS.toLocaleString()}
@@ -2417,40 +2420,40 @@ export function ConversationView() {
 
   return (
     <div className="h-full flex flex-col">
-      <div className="border-b border-zinc-800 px-3 sm:px-4 md:px-6 py-2 flex items-center justify-between font-mono text-xs">
+      <div className="border-b border-zinc-600 px-3 sm:px-4 md:px-6 py-2 flex items-center justify-between font-mono text-xs">
         <div className="flex items-center gap-3 truncate mr-4">
           {modelSelectEnabled ? (
             <>
               <button
                 onClick={() => setModelPickerOpen(true)}
-                className="text-zinc-600 hover:text-zinc-400 transition-colors flex-shrink-0"
+                className="text-zinc-400 hover:text-zinc-200 transition-colors flex-shrink-0"
                 title="Switch model"
               >
                 {modelStatus?.model_name || 'model'}
                 {modelStatus?.context_window ? (
-                  <span className="text-zinc-700 ml-1">({Math.round(modelStatus.context_window / 1024)}k)</span>
+                  <span className="text-zinc-500 ml-1">({Math.round(modelStatus.context_window / 1024)}k)</span>
                 ) : null}
                 {modelStatus?.provider === 'local' && (
-                  <span className="text-zinc-700 ml-1">(local)</span>
+                  <span className="text-zinc-500 ml-1">(local)</span>
                 )}
               </button>
-              <span className="text-zinc-700">|</span>
+              <span className="text-zinc-500">|</span>
             </>
           ) : (
             <>
-              <span className="text-zinc-600 flex-shrink-0">{modelStatus?.model_name || 'model'}{modelStatus?.context_window ? ` (${Math.round(modelStatus.context_window / 1024)}k)` : ''}</span>
-              <span className="text-zinc-700">|</span>
+              <span className="text-zinc-400 flex-shrink-0">{modelStatus?.model_name || 'model'}{modelStatus?.context_window ? ` (${Math.round(modelStatus.context_window / 1024)}k)` : ''}</span>
+              <span className="text-zinc-500">|</span>
             </>
           )}
           <button
             onClick={() => setReasoningSettingsOpen(true)}
-            className="text-zinc-600 hover:text-zinc-400 transition-colors flex-shrink-0"
+            className="text-zinc-400 hover:text-zinc-200 transition-colors flex-shrink-0"
             title="Open reasoning settings"
           >
             reasoning
           </button>
-          <span className="text-zinc-700">|</span>
-          <span className="text-zinc-600 truncate">
+          <span className="text-zinc-500">|</span>
+          <span className="text-zinc-400 truncate">
             {conversation?.title || 'conversation'}
           </span>
         </div>
@@ -2541,9 +2544,9 @@ export function ConversationView() {
           </div>
         )}
         {/* Prompt area */}
-        <div className="relative overflow-hidden rounded-2xl border border-zinc-700 bg-zinc-900/96 shadow-[inset_0_1px_0_rgba(255,255,255,0.025)] focus-within:border-zinc-500 transition-colors">
+        <div className="relative overflow-visible rounded-2xl border border-zinc-600 bg-zinc-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.025)] focus-within:border-zinc-500 transition-colors">
           <div className="flex items-start p-3 gap-2">
-            <span className="text-zinc-500 font-mono text-sm mt-0.5 select-none">&gt;</span>
+            <span className="text-zinc-300 font-mono text-sm mt-0.5 select-none">&gt;</span>
             <textarea
               ref={textareaRef}
               placeholder={atLimit ? 'Message limit reached' : hasActiveRun ? 'Steer the agent...' : mode === 'agent' ? 'Ask the coding agent...' : 'Ask a follow-up question...'}
@@ -2554,7 +2557,7 @@ export function ConversationView() {
               onSelect={handleTextareaSelection}
               onClick={handleTextareaSelection}
               rows={2}
-              className="flex-1 bg-transparent border-none outline-none resize-none text-sm font-mono text-zinc-100 placeholder:text-zinc-600"
+              className="flex-1 bg-transparent border-none outline-none resize-none text-sm font-mono text-zinc-100 placeholder:text-zinc-400"
               disabled={isSubmitting || atLimit}
               style={{ maxHeight: '200px' }}
             />
@@ -2574,7 +2577,7 @@ export function ConversationView() {
                 key={attachment.id || index}
                 type="button"
                 onClick={() => removeImageAttachment(attachment.id)}
-                  className="rounded-lg border border-zinc-800 bg-zinc-900 px-2 py-0.5 text-zinc-500 hover:text-zinc-200"
+                  className="rounded-lg border border-zinc-600 bg-zinc-900 px-2 py-0.5 text-zinc-400 hover:text-zinc-100"
                 title="Remove image"
               >
                 image {index + 1} ×
@@ -2589,7 +2592,7 @@ export function ConversationView() {
               onClick={() => setMode('agent')}
               className={cn(
                 'transition-colors',
-                mode === 'agent' ? 'text-zinc-200' : 'text-zinc-600 hover:text-zinc-400'
+                mode === 'agent' ? 'text-zinc-100' : 'text-zinc-400 hover:text-zinc-200'
               )}
             >
               agent
@@ -2598,7 +2601,7 @@ export function ConversationView() {
               onClick={() => setMode('chat')}
               className={cn(
                 'transition-colors',
-                mode === 'chat' ? 'text-zinc-200' : 'text-zinc-600 hover:text-zinc-400'
+                mode === 'chat' ? 'text-zinc-100' : 'text-zinc-400 hover:text-zinc-200'
               )}
             >
               chat
@@ -2609,7 +2612,7 @@ export function ConversationView() {
                   <span
                     className={cn(
                       'max-w-52 truncate text-xs font-mono',
-                      hasConversationWorkspace ? 'text-zinc-400' : 'text-zinc-700'
+                      hasConversationWorkspace ? 'text-zinc-400' : 'text-zinc-500'
                     )}
                     title={
                       hasConversationWorkspace
@@ -2625,12 +2628,12 @@ export function ConversationView() {
                       value={draftWorkspacePath}
                       onChange={(e) => setDraftWorkspacePath(e.target.value)}
                       placeholder="/path/to/repo"
-                      className="w-40 sm:w-56 bg-transparent border-none outline-none text-xs font-mono text-zinc-400 placeholder:text-zinc-700"
+                      className="w-40 sm:w-56 bg-transparent border-none outline-none text-xs font-mono text-zinc-400 placeholder:text-zinc-500"
                       title="Workspace path for filesystem and bash tools"
                     />
                     <button
                       onClick={handleOpenWorkspacePicker}
-                      className="text-zinc-600 hover:text-zinc-300 transition-colors"
+                      className="text-zinc-400 hover:text-zinc-200 transition-colors"
                       title="Browse local folders"
                     >
                       browse
@@ -2640,7 +2643,7 @@ export function ConversationView() {
                 <select
                   value={permissionPolicy}
                   onChange={(e) => setPermissionPolicy(e.target.value as 'strict' | 'relaxed' | 'yolo')}
-                  className="bg-transparent border-none outline-none text-xs font-mono text-zinc-500 cursor-pointer"
+                  className="bg-transparent border-none outline-none text-xs font-mono text-zinc-400 cursor-pointer"
                   title="Tool permission policy"
                 >
                   <option value="strict">strict</option>
@@ -2651,7 +2654,7 @@ export function ConversationView() {
               )}
               <button
                 onClick={() => setReasoningSettingsOpen(true)}
-                className="text-zinc-500 hover:text-zinc-300 transition-colors"
+                className="text-zinc-400 hover:text-zinc-200 transition-colors"
                 title="Configure reasoning settings"
               >
                 reasoning
@@ -2668,7 +2671,7 @@ export function ConversationView() {
                     }
                     updateTerminalState(selectedConversationId, { isOpen: !terminalState?.isOpen });
                   }}
-                  className="text-zinc-500 hover:text-zinc-300 transition-colors"
+                  className="text-zinc-400 hover:text-zinc-200 transition-colors"
                   title={
                     effectiveWorkspacePath
                       ? (terminalState?.isOpen ? 'Collapse terminal' : 'Open terminal')
@@ -2678,7 +2681,7 @@ export function ConversationView() {
                   {terminalState?.isOpen ? 'terminal−' : 'terminal+'}
                 </button>
               )}
-              <span className="text-zinc-700">|</span>
+              <span className="text-zinc-500">|</span>
               {isGenerating ? (
                 <button onClick={handleStop} className="text-red-400 hover:text-red-300 transition-colors">
                   stop
@@ -2690,7 +2693,7 @@ export function ConversationView() {
                 className={cn(
                   'transition-colors',
                   !message.trim() || isSubmitting || atLimit
-                    ? 'text-zinc-700 cursor-not-allowed'
+                    ? 'text-zinc-500 cursor-not-allowed'
                     : hasActiveRun
                       ? 'text-amber-400/80 hover:text-amber-300'
                       : 'text-zinc-400 hover:text-zinc-200'
@@ -2702,22 +2705,22 @@ export function ConversationView() {
             )}
             {showComposerContextStats && (
               <>
-                <span className="text-zinc-700">|</span>
-                <span className="text-zinc-500">
-                  ctx {composerStoredContextUtilizationPct !== null ? `${Math.round(composerStoredContextUtilizationPct)}%` : '—'}
+                <span className="text-zinc-500">|</span>
+                <span className="text-zinc-400">
+                  ctx {composerContextUtilizationPct !== null ? `${Math.round(composerContextUtilizationPct)}%` : '—'}
                 </span>
-                <span className="text-zinc-600">
-                  {footerStoredContext && composerContextWindow
-                    ? `${formatContextTokens(footerStoredTokens)}/${formatContextTokens(composerContextWindow)}`
+                <span className="text-zinc-400">
+                  {typeof composerPromptTokens === 'number' && composerContextWindow
+                    ? `${formatContextTokens(composerPromptTokens)}/${formatContextTokens(composerContextWindow)}`
                     : '—'}
                 </span>
-                <span className="text-zinc-500">
+                <span className="text-zinc-400">
                   raw {conversationRawTokens > 0 ? formatContextTokens(conversationRawTokens) : '—'}
                 </span>
               </>
             )}
           </div>
-          <div className="flex items-center gap-3 font-mono text-xs text-zinc-600">
+          <div className="flex items-center gap-3 font-mono text-xs text-zinc-400">
             {hasLimit && (
               <span className={cn(
                 atLimit ? 'text-red-500/70' : usage.remaining <= 3 ? 'text-amber-500' : ''

@@ -10,9 +10,9 @@ import { useState, useEffect, useRef } from 'react';
 export function ShimmerSkeleton() {
   return (
     <div className="space-y-2.5 py-1">
-      <div className="h-3 w-3/4 bg-zinc-800 shimmer" />
-      <div className="h-3 w-1/2 bg-zinc-800 shimmer" />
-      <div className="h-3 w-5/6 bg-zinc-800 shimmer" />
+      <div className="h-3 w-3/4 bg-zinc-700 shimmer" />
+      <div className="h-3 w-1/2 bg-zinc-700 shimmer" />
+      <div className="h-3 w-5/6 bg-zinc-700 shimmer" />
     </div>
   );
 }
@@ -31,10 +31,10 @@ export function ThinkingTimer({ label }: { label?: string }) {
   }, []);
 
   return (
-    <div className="flex items-center gap-2 py-1 text-xs font-mono text-zinc-500">
+    <div className="flex items-center gap-2 py-1 text-xs font-mono text-zinc-300">
       <span className="inline-block w-1.5 h-1.5 rounded-full bg-zinc-400 animate-pulse" />
       <span>{label || 'Thinking'}</span>
-      <span className="text-zinc-600 tabular-nums">{elapsed}s</span>
+      <span className="text-zinc-400 tabular-nums">{elapsed}s</span>
     </div>
   );
 }

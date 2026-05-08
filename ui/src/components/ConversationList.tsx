@@ -61,11 +61,11 @@ function ConversationCard({
   return (
     <div
       className={cn(
-        'cursor-pointer rounded-xl border border-zinc-800/80 bg-zinc-950/40 px-3 py-3 transition-all',
+        'cursor-pointer rounded-xl border border-zinc-600/85 bg-zinc-950/70 px-3 py-3 transition-all',
         'min-h-[60px] sm:min-h-0',
-        isSelected && 'border-zinc-600 bg-zinc-900/80 shadow-[0_0_0_1px_rgba(255,255,255,0.04)]',
-        !isSelected && 'hover:border-zinc-700 hover:bg-zinc-900/55',
-        isChecked && 'border-zinc-600 bg-zinc-900/70'
+        isSelected && 'border-zinc-600 bg-zinc-950/92 shadow-[0_0_0_1px_rgba(255,255,255,0.04)]',
+        !isSelected && 'hover:border-zinc-600 hover:bg-zinc-950/78',
+        isChecked && 'border-zinc-600 bg-zinc-950/88'
       )}
       onClick={isSelectMode ? onToggleCheck : onClick}
     >
@@ -75,7 +75,7 @@ function ConversationCard({
             {isChecked ? (
               <CheckSquare className="h-5 w-5 sm:h-4 sm:w-4 text-zinc-400" />
             ) : (
-              <Square className="h-5 w-5 sm:h-4 sm:w-4 text-zinc-600" />
+              <Square className="h-5 w-5 sm:h-4 sm:w-4 text-zinc-400" />
             )}
           </div>
         )}
@@ -83,7 +83,7 @@ function ConversationCard({
           <p className="truncate text-sm font-medium text-zinc-100">
             {conversation.title ? truncate(conversation.title, 50) : 'New conversation'}
           </p>
-          <p className="mt-1 text-xs text-zinc-500">
+          <p className="mt-1 text-xs text-zinc-300">
             {formatRelativeTime(conversation.created_at)}
           </p>
         </div>
@@ -91,7 +91,7 @@ function ConversationCard({
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8 flex-shrink-0 rounded-lg text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200"
+            className="h-8 w-8 flex-shrink-0 rounded-lg text-zinc-300 hover:bg-zinc-800 hover:text-zinc-200"
             onClick={(e) => {
               e.stopPropagation();
               onDelete();
@@ -134,7 +134,7 @@ function WorkspaceSection({
             onToggle();
           }
         }}
-        className="group block w-full rounded-2xl border border-zinc-800/80 bg-zinc-950/55 px-3 py-3 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.02)] transition-colors hover:border-zinc-700 hover:bg-zinc-900/60"
+        className="group block w-full rounded-2xl border border-zinc-600/85 bg-zinc-950/82 px-3 py-3 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.02)] transition-colors hover:border-zinc-600 hover:bg-zinc-950/82"
       >
         <div className="flex items-start gap-3.5">
           <button
@@ -144,7 +144,7 @@ function WorkspaceSection({
               onToggle();
             }}
             onMouseDown={(event) => event.stopPropagation()}
-            className="mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg border border-zinc-800 bg-zinc-900/80 text-zinc-500 transition-colors hover:border-zinc-700 hover:text-zinc-300"
+            className="mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg border border-zinc-600 bg-zinc-950/92 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-zinc-300"
             title={isOpen ? 'Collapse workspace' : 'Expand workspace'}
           >
             {isOpen ? (
@@ -171,18 +171,18 @@ function WorkspaceSection({
                     {group.label}
                   </div>
                 </button>
-                <div className="mt-1.5 truncate pr-2 font-mono text-[11px] leading-5 text-zinc-500">
+                <div className="mt-1.5 truncate pr-2 font-mono text-[11px] leading-5 text-zinc-300">
                   {workspacePathPreview(group.workspacePath)}
                 </div>
               </div>
               <div className="flex flex-shrink-0 items-center gap-2 pt-0.5">
-                <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full border border-zinc-800 bg-zinc-900 px-1.5 text-[10px] text-zinc-400">
+                <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full border border-zinc-600 bg-zinc-950/92 px-1.5 text-[10px] text-zinc-400">
                   {group.conversations.length}
                 </span>
                 <Button
                   size="icon"
                   variant="ghost"
-                  className="h-8 w-8 flex-shrink-0 rounded-lg text-zinc-500 hover:bg-zinc-800 hover:text-zinc-100"
+                  className="h-8 w-8 flex-shrink-0 rounded-lg text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100"
                   onClick={(event) => {
                     event.stopPropagation();
                     onNewConversation();
@@ -415,7 +415,7 @@ export function ConversationList() {
     <div className="h-full flex flex-col">
       <div className="border-b border-zinc-900 px-3 py-3 sm:px-4">
         <div className="flex items-center justify-between gap-3">
-          <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-zinc-500">
+          <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-zinc-300">
             Workspaces
           </div>
           <div className="flex items-center gap-1">
@@ -478,7 +478,7 @@ export function ConversationList() {
       </div>
 
       {isSelectMode && selectedIds.size > 0 && (
-        <div className="flex items-center justify-between border-b border-zinc-800 bg-zinc-900/80 px-3 py-2 sm:px-4">
+        <div className="flex items-center justify-between border-b border-zinc-600 bg-zinc-950/92 px-3 py-2 sm:px-4">
           <span className="text-sm text-zinc-300">{selectedIds.size} selected</span>
           <Button
             size="sm"
@@ -496,7 +496,7 @@ export function ConversationList() {
         {isLoading && conversations.length === 0 ? (
           <div className="text-sm text-muted-foreground">Loading conversations...</div>
         ) : workspaceGroups.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-zinc-800 bg-zinc-950/40 px-4 py-6 text-sm text-zinc-500">
+          <div className="rounded-xl border border-dashed border-zinc-600 bg-zinc-950/70 px-4 py-6 text-sm text-zinc-300">
             No workspaces yet.
           </div>
         ) : (
@@ -519,7 +519,7 @@ export function ConversationList() {
                 {group.conversations.length === 0 ? (
                   <button
                     onClick={() => startWorkspaceDraft(group.workspacePath)}
-                    className="w-full rounded-xl border border-dashed border-zinc-800 bg-zinc-950/40 px-3 py-3 text-left text-xs text-zinc-500 transition-colors hover:border-zinc-700 hover:bg-zinc-900/40 hover:text-zinc-300"
+                    className="w-full rounded-xl border border-dashed border-zinc-600 bg-zinc-950/70 px-3 py-3 text-left text-xs text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-950/72 hover:text-zinc-300"
                   >
                     New conversation
                   </button>

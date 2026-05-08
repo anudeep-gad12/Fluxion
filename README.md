@@ -135,3 +135,7 @@ Useful debugging:
 ./dev.sh debug
 ./dev.sh applogs
 ```
+
+## License
+
+Apache-2.0
