@@ -445,7 +445,8 @@ Ollama subfolders under those roots are intentionally excluded from discovery. G
 | `/api/models/local/start` | POST | Start `llama-server` or `mlx_lm.server` with selected model |
 | `/api/models/local/stop` | POST | Stop llama-server, revert to cloud |
 | `/api/models/status` | GET | Current provider info (local vs cloud) |
-| `/api/models/custom/select` | POST | Use a custom OpenAI-compatible endpoint |
+| `/api/models/provider-keys` | GET | List persisted provider-key availability/status |
+| `/api/models/provider-keys/{provider}` | PUT/DELETE | Save or clear a persisted provider API key |
 | `/api/models/reasoning-settings` | GET/PUT | Global runtime reasoning controls |
 
 **Provider Override**: Starting a local model sets a runtime provider override via `set_provider_override()` in `factory.py`. The override pins the active local model id into request construction so later agent/chat continuations keep sending the real local model name instead of a stale cloud preset. Stopping clears the override, reverting to the configured cloud provider.

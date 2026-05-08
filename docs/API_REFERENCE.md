@@ -1287,51 +1287,47 @@ POST /api/models/select
 
 ---
 
-### Select Custom OpenAI-Compatible Provider
+### Provider API Keys
 
-Point Fluxion at an arbitrary OpenAI-compatible base URL without adding a registry preset.
+Persist provider API keys in SQLite so the model picker can unlock registry providers without shell env vars.
 
-**Request**:
+**List statuses**:
 ```
-POST /api/models/custom/select
+GET /api/models/provider-keys
+```
+
+**Response**:
+```json
+{
+  "providers": [
+    {
+      "provider": "openrouter",
+      "api_key_env": "OPENROUTER_API_KEY",
+      "has_key": true,
+      "source": "database"
+    }
+  ]
+}
+```
+
+**Save/update a key**:
+```
+PUT /api/models/provider-keys/{provider}
 ```
 
 **Body**:
 ```json
 {
-  "name": "custom",
-  "base_url": "http://localhost:1234/v1",
-  "api_key": "",
-  "model": "my-model",
-  "context_window": 32768,
-  "max_output_tokens": 8192,
-  "supports_tools": true,
-  "supports_reasoning": false,
-  "supports_vision": false,
-  "reasoning_request_param": null,
-  "input_cost_per_million": null,
-  "cached_input_cost_per_million": null,
-  "output_cost_per_million": null
+  "api_key": "sk-..."
 }
 ```
 
-**Response** (200 OK):
-```json
-{
-  "status": "ok",
-  "name": "custom",
-  "base_url": "http://localhost:1234/v1",
-  "model": "my-model",
-  "context_window": 32768,
-  "max_output_tokens": 8192,
-  "supports_tools": true,
-  "supports_reasoning": false,
-  "supports_vision": false,
-  "provider_family": "custom",
-  "effective_input_budget": 24576,
-  "source": "custom"
-}
+**Clear a key**:
 ```
+DELETE /api/models/provider-keys/{provider}
+```
+
+Returned payloads never include the raw API key; only availability metadata is exposed.
 
 ---
 

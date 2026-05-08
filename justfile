@@ -7,7 +7,7 @@ default:
 
 # Install all dependencies
 install:
-    uv sync --extra cli
+    uv sync
     cd ui && pnpm install
 
 # Start development servers (UI + Orchestrator)
@@ -26,23 +26,13 @@ ui:
 build:
     cd ui && pnpm build
 
-# Launch the CLI TUI (starts API if not running)
-cli *ARGS:
-    #!/usr/bin/env bash
-    if ! curl -sf http://127.0.0.1:9000/api/health > /dev/null 2>&1; then
-        echo "Starting API server..."
-        ./dev.sh api
-        sleep 2
-    fi
-    uv run python -m cli --working-dir "$(pwd)" {{ARGS}}
-
 # Run Python linting
 lint:
-    uv run ruff check orchestrator cli
+    uv run ruff check orchestrator
 
 # Run Python formatting
 fmt:
-    uv run ruff format orchestrator cli
+    uv run ruff format orchestrator
 
 # Run tests
 test:
@@ -59,6 +49,10 @@ sanity:
 # Run the browser coding smoke test with live log tailing
 sanity-debug:
     ./scripts/sanity_test.sh --debug
+
+# Install Fluxion as a local browser app service
+install-service:
+    ./scripts/install_local_service.sh
 
 # Clean generated files
 clean:
