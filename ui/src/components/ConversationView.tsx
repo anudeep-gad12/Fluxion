@@ -1186,23 +1186,24 @@ export function ConversationView() {
   // Delay the clear so the chip is visible briefly before disappearing.
   const activeAgentState = useStore((s) => activeRunId ? s.agentRunState[activeRunId] : undefined);
   const latestContextRun = useMemo(
-    () => [...runs].reverse().find((run) => run.mode === 'agent' || !!run.stored_context),
+    () => [...runs].reverse().find((run) => (
+      run.mode === 'agent'
+      || !!run.context_usage
+      || !!run.context_profile
+      || !!run.stored_context
+    )),
     [runs],
   );
   const lockedWorkspacePath = (conversation?.workspace_path || '').trim();
   const hasConversationWorkspace = lockedWorkspacePath.length > 0;
   const isWorkspaceLocked = selectedConversationId !== null;
   const effectiveWorkspacePath = isWorkspaceLocked ? lockedWorkspacePath : draftWorkspacePath.trim();
-  const latestRunStoredContext = latestContextRun?.stored_context as
-    | { stored_tokens?: number; utilization_pct?: number; context_window?: number }
-    | undefined;
-  const footerStoredContext = useMemo(() => {
-    return (
-      activeAgentState?.stored_context
-      ?? latestRunStoredContext
-      ?? undefined
-    );
-  }, [activeAgentState?.stored_context, latestRunStoredContext]);
+  const latestRunContextUsage = latestContextRun?.context_usage;
+  const footerContextUsage = useMemo(() => (
+    activeAgentState?.context_usage
+    ?? latestRunContextUsage
+    ?? undefined
+  ), [activeAgentState?.context_usage, latestRunContextUsage]);
   const conversationRawTokens = useMemo(() => {
     return runs.reduce((total, run) => {
       if (run.run_id === activeRunId && activeAgentState?.usage?.total_tokens !== undefined) {
@@ -1212,20 +1213,22 @@ export function ConversationView() {
       return total + (runUsage?.total_tokens ?? 0);
     }, 0);
   }, [runs, activeRunId, activeAgentState?.usage?.total_tokens]);
-  const footerStoredTokens = footerStoredContext?.stored_tokens ?? 0;
   const composerContextWindow = (
     activeAgentState?.context_profile?.context_window
     ?? modelStatus?.context_window
     ?? (latestContextRun?.context_profile as { context_window?: number } | undefined)?.context_window
-    ?? footerStoredContext?.context_window
+    ?? footerContextUsage?.context_window
   );
-  const composerStoredContextUtilizationPct = (
-    footerStoredContext && typeof composerContextWindow === 'number' && composerContextWindow > 0
-      ? (footerStoredTokens / composerContextWindow) * 100
+  const composerPromptTokens = footerContextUsage?.prompt_tokens_current_call;
+  const composerContextUtilizationPct = (
+    typeof composerPromptTokens === 'number'
+    && typeof composerContextWindow === 'number'
+    && composerContextWindow > 0
+      ? (composerPromptTokens / composerContextWindow) * 100
       : null
   );
   const showComposerContextStats = mode === 'agent' && !!composerContextWindow && (
-    !!footerStoredContext || conversationRawTokens > 0
+    !!footerContextUsage || conversationRawTokens > 0
   );
   const injectedSteerCount = activeAgentState?.injectedSteers?.length ?? 0;
   useEffect(() => {
@@ -2261,7 +2264,7 @@ export function ConversationView() {
         </div>
         <div className="p-3 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-4 sm:pb-[max(1rem,env(safe-area-inset-bottom))] flex-shrink-0 space-y-2">
           {/* Prompt area */}
-          <div className="relative overflow-hidden rounded-2xl border border-zinc-600 bg-zinc-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.025)] focus-within:border-zinc-500 transition-colors">
+          <div className="relative overflow-visible rounded-2xl border border-zinc-600 bg-zinc-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.025)] focus-within:border-zinc-500 transition-colors">
             <div className="flex items-start p-3 gap-2">
               <span className="text-zinc-300 font-mono text-sm mt-0.5 select-none">&gt;</span>
               <textarea
@@ -2541,7 +2544,7 @@ export function ConversationView() {
           </div>
         )}
         {/* Prompt area */}
-        <div className="relative overflow-hidden rounded-2xl border border-zinc-600 bg-zinc-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.025)] focus-within:border-zinc-500 transition-colors">
+        <div className="relative overflow-visible rounded-2xl border border-zinc-600 bg-zinc-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.025)] focus-within:border-zinc-500 transition-colors">
           <div className="flex items-start p-3 gap-2">
             <span className="text-zinc-300 font-mono text-sm mt-0.5 select-none">&gt;</span>
             <textarea
@@ -2704,11 +2707,11 @@ export function ConversationView() {
               <>
                 <span className="text-zinc-500">|</span>
                 <span className="text-zinc-400">
-                  ctx {composerStoredContextUtilizationPct !== null ? `${Math.round(composerStoredContextUtilizationPct)}%` : '—'}
+                  ctx {composerContextUtilizationPct !== null ? `${Math.round(composerContextUtilizationPct)}%` : '—'}
                 </span>
                 <span className="text-zinc-400">
-                  {footerStoredContext && composerContextWindow
-                    ? `${formatContextTokens(footerStoredTokens)}/${formatContextTokens(composerContextWindow)}`
+                  {typeof composerPromptTokens === 'number' && composerContextWindow
+                    ? `${formatContextTokens(composerPromptTokens)}/${formatContextTokens(composerContextWindow)}`
                     : '—'}
                 </span>
                 <span className="text-zinc-400">
