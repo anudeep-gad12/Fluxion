@@ -9,6 +9,7 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| feature/ui-readability-motion-pass | Terminal default dock tweak — changed first-open integrated terminal behavior to default new conversation terminal state to the right dock while still preserving each conversation’s saved dock preference and desktop narrow-width bottom fallback | done | 2026-05-09 |
 | feature/ui-readability-motion-pass | Transcript flattening pass — removed the remaining outer transcript shells from active agent runs, converted step/thinking/tool/system/source surfaces from nested cards into mostly divider-and-left-rule sections, and flattened inline/source citation chrome so the conversation view reads as one continuous feed instead of stacked boxes | done | 2026-05-09 |
 | feature/ui-readability-motion-pass | Agent approval HUD + forced live follow pass — moved pending tool approval controls out of the timeline and into the sticky live HUD, removed step-number chrome from the visible activity stream/HUD, and made active agent runs auto-follow the latest activity so approval prompts stay in view while the run progresses | done | 2026-05-09 |
 | feature/ui-readability-motion-pass | Active agent duplicate status cleanup — removed the redundant top in-message live loading surface from active agent responses so the transcript relies on the sticky live HUD plus the refined steps timeline instead of showing the same live-status context twice | done | 2026-05-09 |

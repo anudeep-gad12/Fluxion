@@ -455,7 +455,7 @@ export const useStore = create<AppState>((set, get) => ({
     set((state) => {
       const base: TerminalUIState = {
         isOpen: false,
-        dock: 'bottom',
+        dock: 'right',
         height: 260,
         width: 420,
         session: null,
@@ -479,7 +479,7 @@ export const useStore = create<AppState>((set, get) => ({
     set((state) => {
       const current = state.terminalByConversation[conversationId] ?? {
         isOpen: false,
-        dock: 'bottom' as const,
+        dock: 'right' as const,
         height: 260,
         width: 420,
         session: null,
@@ -499,7 +499,7 @@ export const useStore = create<AppState>((set, get) => ({
     set((state) => {
       const current = state.terminalByConversation[conversationId] ?? {
         isOpen: false,
-        dock: 'bottom' as const,
+        dock: 'right' as const,
         height: 260,
         width: 420,
         session: null,

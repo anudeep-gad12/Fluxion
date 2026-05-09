@@ -1163,7 +1163,7 @@ export function ConversationView() {
 
     initTerminalState(selectedConversationId, {
       isOpen: savedState.isOpen ?? false,
-      dock: savedState.dock === 'right' ? 'right' : 'bottom',
+      dock: savedState.dock === 'bottom' ? 'bottom' : 'right',
       height: Number(savedState.height || 260),
       width: Number(savedState.width || 420),
     });
