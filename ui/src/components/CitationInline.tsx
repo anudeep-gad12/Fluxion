@@ -28,7 +28,7 @@ export function CitationInline({ index, citation }: CitationInlineProps) {
         onClick={() => window.open(citation.source_url, '_blank', 'noopener,noreferrer')}
         onMouseEnter={() => setShowTooltip(true)}
         onMouseLeave={() => setShowTooltip(false)}
-        className="ui-transition inline-flex h-5 min-w-5 items-center justify-center rounded-full border border-cyan-500/22 bg-cyan-500/[0.08] px-1.5 font-mono text-[10px] text-cyan-200 hover:border-cyan-400/35 hover:bg-cyan-500/[0.14] hover:text-cyan-100"
+        className="ui-transition inline-flex h-5 min-w-5 items-center justify-center rounded-full border border-cyan-500/18 bg-transparent px-1.5 font-mono text-[10px] text-cyan-200 hover:border-cyan-400/28 hover:bg-cyan-500/[0.05] hover:text-cyan-100"
         title={citation.title || citation.source_url}
       >
         {index}

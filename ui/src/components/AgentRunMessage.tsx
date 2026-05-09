@@ -42,7 +42,7 @@ export const AgentRunMessage = memo(function AgentRunMessage({
           <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-zinc-500">you</span>
         </div>
         <div className="min-w-0 flex-1">
-          <div className="ui-panel rounded-[1.1rem] border border-zinc-800/90 px-5 py-4">
+          <div className="px-1 py-1">
             <span className="whitespace-pre-wrap text-[14px] leading-[1.9] text-zinc-50">
               {run.user_message || run.prompt}
             </span>
@@ -59,7 +59,7 @@ export const AgentRunMessage = memo(function AgentRunMessage({
           <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-cyan-200/80">AI</span>
         </div>
         <div className="min-w-0 flex-1">
-          <div className="rounded-[1.1rem] border border-zinc-800/85 bg-zinc-950/72 px-5 py-4">
+          <div className="border-t border-zinc-900/90 pt-5">
             {agentState && <AgentStepsPanel agentState={agentState} />}
 
             {finalAnswer ? (
@@ -69,7 +69,7 @@ export const AgentRunMessage = memo(function AgentRunMessage({
                 isStreaming={!!isActive}
               />
             ) : isActive ? null : run.status === 'failed' ? (
-              <div className="rounded-[1rem] border border-red-500/16 bg-red-500/[0.06] px-4 py-3 text-sm text-red-200/90">
+              <div className="border-l border-red-500/35 pl-4 text-sm text-red-200/90">
                 [error] {run.error_detail || 'Agent failed. Please try again.'}
               </div>
             ) : null}
@@ -80,7 +80,7 @@ export const AgentRunMessage = memo(function AgentRunMessage({
               <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-zinc-500">
                 <span
                   className={cn(
-                    'rounded-full border border-zinc-800/85 bg-zinc-950/72 px-2.5 py-1',
+                    'rounded-full border border-zinc-900/90 bg-transparent px-2.5 py-1',
                     phase?.accentClassName || 'text-zinc-300',
                     run.status === 'failed' && 'border-red-500/15 text-red-400/85'
                   )}
