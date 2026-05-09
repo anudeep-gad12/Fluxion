@@ -1375,16 +1375,23 @@ export function ConversationView() {
   });
 
   useEffect(() => {
-    if (!scrollRef.current || !activeRunId) return;
+    if (!scrollRef.current || !activeRunId || !activeAgentRun) return;
     const el = scrollRef.current;
-    // Only auto-scroll if user is near the bottom (within 150px)
+    requestAnimationFrame(() => {
+      el.scrollTop = el.scrollHeight;
+    });
+  }, [activeAgentScrollSignal, activeRunId, activeAgentRun]);
+
+  useEffect(() => {
+    if (!scrollRef.current || !activeRunId || activeAgentRun) return;
+    const el = scrollRef.current;
     const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 150;
     if (isNearBottom) {
       requestAnimationFrame(() => {
         el.scrollTop = el.scrollHeight;
       });
     }
-  }, [lastStreamLen, activeAgentScrollSignal, activeRunId]);
+  }, [lastStreamLen, activeRunId, activeAgentRun]);
 
   const focusComposer = useCallback(() => {
     const textarea = textareaRef.current;

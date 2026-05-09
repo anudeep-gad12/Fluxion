@@ -7,7 +7,6 @@ import { cn, formatRelativeTime } from '@/lib/utils';
 import { AgentStepsPanel } from '@/components/AgentStepsPanel';
 import { AnswerWithCitations } from '@/components/AnswerWithCitations';
 import { MessageActions } from '@/components/MessageActions';
-import { ShimmerSkeleton } from '@/components/StreamingIndicator';
 import { useAgentRunDetails } from '@/hooks/useAgentRunDetails';
 import { deriveAgentPhase, formatAgentCost, formatAgentDuration, formatAgentTokens } from '@/lib/agentLiveState';
 import type { Run } from '@/types';
@@ -69,8 +68,6 @@ export const AgentRunMessage = memo(function AgentRunMessage({
                 citations={citations}
                 isStreaming={!!isActive}
               />
-            ) : isActive && !agentState?.steps.length ? (
-              <ShimmerSkeleton />
             ) : isActive ? null : run.status === 'failed' ? (
               <div className="rounded-[1rem] border border-red-500/16 bg-red-500/[0.06] px-4 py-3 text-sm text-red-200/90">
                 [error] {run.error_detail || 'Agent failed. Please try again.'}

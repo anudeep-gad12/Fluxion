@@ -3,9 +3,7 @@
  * Displays tool execution as terminal command output.
  */
 
-import { useState } from 'react';
 import { cn } from '@/lib/utils';
-import { approveAgentToolCall, denyAgentToolCall } from '@/api/client';
 import type { AgentToolCall, AgentToolCallStatus } from '@/types/agent';
 
 interface ToolCallCardProps {
@@ -215,8 +213,6 @@ function BashOutputBlock({
 }
 
 export function ToolCallCard({ toolCall }: ToolCallCardProps) {
-  const [deciding, setDeciding] = useState<'approve' | 'deny' | null>(null);
-
   const status = STATUS_MARKERS[toolCall.status];
   const prefix = TOOL_PREFIXES[toolCall.tool_name] || toolCall.tool_name;
   const isRunning = toolCall.status === 'running';
@@ -232,19 +228,6 @@ export function ToolCallCard({ toolCall }: ToolCallCardProps) {
   const pythonOutput = isPython && hasResult ? toolCall.result_summary : undefined;
   const argStr = formatArguments(toolCall.tool_name, toolCall.arguments);
   const needsApproval = toolCall.status === 'pending' && toolCall.approval_required;
-
-  const decide = async (decision: 'approve' | 'deny') => {
-    setDeciding(decision);
-    try {
-      if (decision === 'approve') {
-        await approveAgentToolCall(toolCall.run_id, toolCall.id);
-      } else {
-        await denyAgentToolCall(toolCall.run_id, toolCall.id);
-      }
-    } finally {
-      setDeciding(null);
-    }
-  };
 
   return (
     <div className="font-mono text-xs space-y-1">
@@ -274,31 +257,13 @@ export function ToolCallCard({ toolCall }: ToolCallCardProps) {
 
       {/* Approval prompt */}
       {needsApproval && (
-        <div className="ml-4 border border-amber-500/20 bg-amber-500/5 p-2 space-y-2">
+        <div className="ml-4 rounded-[0.9rem] border border-amber-500/16 bg-amber-500/[0.05] px-3 py-2">
           <div className="text-amber-300/80">
             approval required
             {toolCall.permission_level && (
               <span className="text-amber-500/50"> · {toolCall.permission_level}</span>
             )}
-          </div>
-          {typeof toolCall.diff_preview === 'string' && toolCall.diff_preview && (
-            <DiffBlock diff={toolCall.diff_preview} />
-          )}
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => decide('approve')}
-              disabled={deciding !== null}
-              className="text-emerald-400 hover:text-emerald-300 disabled:text-zinc-600"
-            >
-              {deciding === 'approve' ? '[approving...]' : '[approve]'}
-            </button>
-            <button
-              onClick={() => decide('deny')}
-              disabled={deciding !== null}
-              className="text-red-400 hover:text-red-300 disabled:text-zinc-600"
-            >
-              {deciding === 'deny' ? '[denying...]' : '[deny]'}
-            </button>
+            <span className="text-zinc-500"> · use HUD</span>
           </div>
         </div>
       )}
