@@ -3,7 +3,7 @@ import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 
 import { browseWorkspaceDirectories, type WorkspaceBrowseResponse } from '@/api/client';
 import { cn } from '@/lib/utils';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 export function WorkspacePickerDialog({
   open,
@@ -26,9 +26,9 @@ export function WorkspacePickerDialog({
   const rowRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
   const visibleEntries = useMemo(() => {
-    const rows: Array<{ key: string; path: string; label: string; hidden?: boolean }> = [];
+    const rows: Array<{ key: string; path: string; label: string; hidden?: boolean; isParent?: boolean }> = [];
     if (data?.parent) {
-      rows.push({ key: '__parent__', path: data.parent, label: '../' });
+      rows.push({ key: '__parent__', path: data.parent, label: '../', isParent: true });
     }
     for (const entry of data?.entries ?? []) {
       rows.push({
@@ -116,12 +116,15 @@ export function WorkspacePickerDialog({
   }, [onOpenChange, chooseCurrent]);
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={onOpenChange} className="max-w-3xl">
       <DialogHeader>
-        <DialogTitle className="font-mono text-sm">Choose workspace</DialogTitle>
+        <DialogTitle className="font-mono text-sm text-zinc-100">Choose workspace</DialogTitle>
+        <DialogDescription className="font-mono text-[12px] leading-6 text-zinc-500">
+          Browse to the repo root. Enter opens a folder. Cmd/Ctrl+Enter selects the current path.
+        </DialogDescription>
       </DialogHeader>
       <DialogContent>
-        <div className="space-y-3 font-mono text-xs" onKeyDown={handleDialogKeyDown}>
+        <div className="space-y-4 font-mono text-xs" onKeyDown={handleDialogKeyDown}>
           <div className="flex gap-2">
             <input
               ref={inputRef}
@@ -143,87 +146,101 @@ export function WorkspacePickerDialog({
                   focusRow(visibleEntries.length - 1);
                 }
               }}
-              className="flex-1 bg-zinc-950 border border-zinc-700 px-2 py-1.5 text-zinc-300 outline-none"
+              className="premium-field flex-1"
               placeholder="/path/to/repo"
             />
             <button
               onClick={() => loadPath(pathInput, 'input')}
-              className="px-2 py-1.5 text-zinc-300 hover:text-zinc-200 border border-zinc-700"
+              className="premium-subtle-button px-4"
+              type="button"
             >
               open
             </button>
           </div>
 
-          {error && <p className="text-red-400">{error}</p>}
+          {error && <p className="rounded-xl border border-red-500/20 bg-red-500/[0.08] px-3 py-2 text-red-300">{error}</p>}
 
-          <div className="border border-zinc-700 max-h-72 overflow-y-auto">
+          <div className="premium-panel max-h-[24rem] overflow-y-auto p-1.5">
             {loading ? (
-              <p className="px-3 py-2 text-zinc-400">Loading...</p>
+              <p className="px-3 py-3 text-zinc-400">Loading directories...</p>
+            ) : visibleEntries.length === 0 ? (
+              <p className="px-3 py-3 text-zinc-500">No subdirectories found here.</p>
             ) : (
-              <>
-                {visibleEntries.map((entry, index) => (
-                  <button
-                    key={entry.key}
-                    ref={(node) => {
-                      rowRefs.current[index] = node;
-                    }}
-                    onClick={() => loadPath(entry.path, 'list')}
-                    onFocus={() => {
-                      setActiveIndex(index);
-                      setPendingFocusTarget('list');
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'ArrowDown') {
-                        e.preventDefault();
-                        focusRow(index + 1);
-                        return;
-                      }
-                      if (e.key === 'ArrowUp') {
-                        e.preventDefault();
-                        focusRow(index - 1);
-                        return;
-                      }
-                      if (e.key === 'Home') {
-                        e.preventDefault();
-                        focusRow(0);
-                        return;
-                      }
-                      if (e.key === 'End') {
-                        e.preventDefault();
-                        focusRow(visibleEntries.length - 1);
-                        return;
-                      }
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        openActiveRow(index);
-                        return;
-                      }
-                      if (e.key === 'Backspace' || (e.altKey && e.key === 'ArrowUp')) {
-                        e.preventDefault();
-                        navigateParent();
-                      }
-                    }}
-                    className={cn(
-                      'block w-full text-left px-3 py-1.5 outline-none hover:text-zinc-200 hover:bg-zinc-800/50 focus:bg-zinc-800/60',
-                      activeIndex === index && 'bg-zinc-800/60 text-zinc-200',
-                      entry.hidden ? 'text-zinc-500' : 'text-zinc-300'
-                    )}
-                  >
-                    {entry.label}
-                  </button>
-                ))}
-              </>
+              visibleEntries.map((entry, index) => (
+                <button
+                  key={entry.key}
+                  ref={(node) => {
+                    rowRefs.current[index] = node;
+                  }}
+                  onClick={() => loadPath(entry.path, 'list')}
+                  onFocus={() => {
+                    setActiveIndex(index);
+                    setPendingFocusTarget('list');
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'ArrowDown') {
+                      e.preventDefault();
+                      focusRow(index + 1);
+                      return;
+                    }
+                    if (e.key === 'ArrowUp') {
+                      e.preventDefault();
+                      focusRow(index - 1);
+                      return;
+                    }
+                    if (e.key === 'Home') {
+                      e.preventDefault();
+                      focusRow(0);
+                      return;
+                    }
+                    if (e.key === 'End') {
+                      e.preventDefault();
+                      focusRow(visibleEntries.length - 1);
+                      return;
+                    }
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      openActiveRow(index);
+                      return;
+                    }
+                    if (e.key === 'Backspace' || (e.altKey && e.key === 'ArrowUp')) {
+                      e.preventDefault();
+                      navigateParent();
+                    }
+                  }}
+                  className={cn(
+                    'ui-transition block w-full rounded-[0.95rem] px-3 py-2.5 text-left outline-none',
+                    activeIndex === index
+                      ? 'border border-cyan-500/28 bg-cyan-500/[0.10] text-zinc-50'
+                      : 'border border-transparent text-zinc-300 hover:border-zinc-800/80 hover:bg-zinc-900/75 hover:text-cyan-100',
+                    entry.hidden ? 'text-zinc-500' : '',
+                  )}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="truncate">{entry.label}</span>
+                    {entry.isParent ? (
+                      <span className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">parent</span>
+                    ) : entry.hidden ? (
+                      <span className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">hidden</span>
+                    ) : null}
+                  </div>
+                </button>
+              ))
             )}
           </div>
 
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-zinc-400 truncate">{data?.path || pathInput}</span>
+          <div className="premium-panel flex items-center justify-between gap-3 px-4 py-3">
+            <div className="min-w-0">
+              <div className="premium-section-label">selected path</div>
+              <div className="mt-1 truncate text-zinc-300">{data?.path || pathInput}</div>
+            </div>
             <button
               onClick={chooseCurrent}
               disabled={!data?.path}
-              className="text-emerald-500/80 hover:text-emerald-400 disabled:text-zinc-600"
+              className="premium-primary-button shrink-0"
+              type="button"
             >
-              [use this folder]
+              use folder
             </button>
           </div>
         </div>

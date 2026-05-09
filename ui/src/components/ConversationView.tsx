@@ -246,7 +246,6 @@ function ModelPicker({
     setSwitching(modelId);
     setError(null);
     try {
-      // Stop local model if running
       if (modelStatus?.provider === 'local') {
         await stopLocalModel();
       }
@@ -309,7 +308,6 @@ function ModelPicker({
     }
   };
 
-  // Flatten registry models by provider, only show available providers
   const registryProviders = registryData
     ? Object.entries(registryData.providers)
         .filter(([providerName, info]) => (
@@ -317,182 +315,191 @@ function ModelPicker({
         ))
     : [];
 
+  const providerSections = [
+    {
+      key: 'local-gguf',
+      label: 'local',
+      models: localModels.filter((model) => model.model_type === 'gguf'),
+    },
+    {
+      key: 'local-mlx',
+      label: 'mlx',
+      models: localModels.filter((model) => model.model_type === 'mlx'),
+    },
+  ].filter((section) => section.models.length > 0);
+
   return (
     <Dialog
       open={open}
       onOpenChange={onOpenChange}
-      className="max-w-5xl max-h-[88vh] flex flex-col"
+      className="max-h-[90vh] max-w-6xl"
     >
       <DialogHeader>
-        <DialogTitle className="font-mono text-sm">Select Model</DialogTitle>
+        <DialogTitle className="font-mono text-sm text-zinc-100">Select model</DialogTitle>
       </DialogHeader>
-      <DialogContent className="flex-1 overflow-hidden">
+      <DialogContent className="space-y-4 overflow-hidden">
         {error && (
-          <p className="text-xs text-red-400 mb-2 font-mono">{error}</p>
+          <p className="rounded-xl border border-red-500/20 bg-red-500/[0.08] px-3 py-2 text-xs font-mono text-red-300">{error}</p>
         )}
-        <div className="space-y-1 max-h-[70vh] overflow-y-auto pr-1">
+        <div className="max-h-[72vh] space-y-4 overflow-y-auto pr-1">
           {loading ? (
-            <p className="px-3 py-2 font-mono text-xs text-zinc-300">Loading models...</p>
+            <p className="px-3 py-3 font-mono text-xs text-zinc-300">Loading models...</p>
           ) : (
             <>
-              {/* Registry models by provider */}
               {registryProviders.map(([providerName, info]) => (
-                <div key={providerName}>
-                  <p className="px-3 pt-2 pb-1 font-mono text-[10px] uppercase text-zinc-500">
-                    {providerName}
-                  </p>
-                  {info.models.map((model: RegistryModelPreset) => {
-                    const isActive = registryData?.active_model_id === model.model_id
-                      || modelStatus?.model_name === model.display_name
-                      || modelStatus?.model_name === model.model_id;
+                <section key={providerName} className="premium-panel overflow-hidden">
+                  <div className="flex items-center justify-between border-b border-zinc-800/80 px-4 py-3">
+                    <div>
+                      <p className="premium-section-label">{providerName}</p>
+                      <p className="mt-1 text-[12px] text-zinc-500">{info.models.length} cloud preset{info.models.length !== 1 ? 's' : ''}</p>
+                    </div>
+                  </div>
+                  <div className="p-2">
+                    {info.models.map((model: RegistryModelPreset) => {
+                      const alias = model.aliases[0] || model.model_id;
+                      const isActive = registryData?.active_model_id === model.model_id
+                        || modelStatus?.model_name === model.display_name
+                        || modelStatus?.model_name === model.model_id;
+                      const isBusy = switching === alias || switching === model.model_id;
+                      return (
+                        <button
+                          key={model.model_id}
+                          onClick={() => handleSelectRegistry(alias)}
+                          disabled={!!switching}
+                          className={cn(
+                            'ui-transition mb-1 block w-full rounded-[1rem] border px-4 py-3 text-left last:mb-0',
+                            isActive
+                              ? 'border-cyan-500/28 bg-cyan-500/[0.10] text-zinc-50'
+                              : 'border-transparent bg-transparent text-zinc-300 hover:border-zinc-800/80 hover:bg-zinc-900/75 hover:text-cyan-100',
+                            isBusy && 'opacity-60',
+                          )}
+                        >
+                          <div className="flex items-start justify-between gap-4">
+                            <div className="min-w-0">
+                              <div className="truncate text-[13px] font-medium text-inherit">{model.display_name}</div>
+                              <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-zinc-500">
+                                <span>{Math.round(model.context_window / 1024)}k ctx</span>
+                                {model.supports_vision && <span>vision</span>}
+                                {model.input_cost_per_million != null && model.output_cost_per_million != null && (
+                                  <span>${model.input_cost_per_million}/$${model.output_cost_per_million}M</span>
+                                )}
+                              </div>
+                            </div>
+                            {isActive && (
+                              <span className="rounded-full border border-cyan-500/26 bg-cyan-500/[0.12] px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-cyan-100">
+                                active
+                              </span>
+                            )}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </section>
+              ))}
+
+              {providerSections.map((section) => (
+                <section key={section.key} className="premium-panel overflow-hidden">
+                  <div className="border-b border-zinc-800/80 px-4 py-3">
+                    <p className="premium-section-label">{section.label}</p>
+                    <p className="mt-1 text-[12px] text-zinc-500">{section.models.length} local runtime{section.models.length !== 1 ? 's' : ''}</p>
+                  </div>
+                  <div className="p-2">
+                    {section.models.map((model) => {
+                      const isActive = modelStatus?.provider === 'local' && (
+                        section.key === 'local-gguf'
+                          ? modelStatus.model_name === model.name.replace(/.*\//, '').replace(/\.gguf$/, '')
+                          : modelStatus.model_name === model.name.replace(/.*\//, '')
+                      );
+                      const isBusy = switching === model.path;
+                      return (
+                        <button
+                          key={model.path}
+                          onClick={() => handleSelectLocal(model)}
+                          disabled={!!switching}
+                          className={cn(
+                            'ui-transition mb-1 block w-full rounded-[1rem] border px-4 py-3 text-left last:mb-0',
+                            isActive
+                              ? 'border-cyan-500/28 bg-cyan-500/[0.10] text-zinc-50'
+                              : 'border-transparent text-zinc-300 hover:border-zinc-800/80 hover:bg-zinc-900/75 hover:text-cyan-100',
+                            isBusy && 'opacity-60',
+                          )}
+                        >
+                          <div className="flex items-start justify-between gap-4">
+                            <div className="min-w-0">
+                              <div className="truncate text-[13px] font-medium text-inherit">{model.name}</div>
+                              <div className="mt-1 text-[11px] text-zinc-500">{model.size_display}</div>
+                            </div>
+                            {isActive && (
+                              <span className="rounded-full border border-cyan-500/26 bg-cyan-500/[0.12] px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-cyan-100">
+                                active
+                              </span>
+                            )}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </section>
+              ))}
+
+              <section className="premium-panel overflow-hidden">
+                <div className="border-b border-zinc-800/80 px-4 py-3">
+                  <p className="premium-section-label">provider api keys</p>
+                  <p className="mt-1 text-[12px] text-zinc-500">Persisted for cloud providers and loaded into runtime on startup.</p>
+                </div>
+                <div className="space-y-3 p-3">
+                  {providerKeys.map((providerKey) => {
+                    const busy = switching === `provider-key:${providerKey.provider}`;
                     return (
-                      <button
-                        key={model.model_id}
-                        onClick={() => handleSelectRegistry(model.aliases[0] || model.model_id)}
-                        disabled={!!switching}
-                        className={cn(
-                          'w-full text-left px-3 py-1.5 text-xs font-mono transition-colors',
-                          isActive
-                            ? 'text-zinc-200 bg-zinc-800'
-                            : 'text-zinc-300 hover:text-cyan-100 hover:bg-cyan-500/[0.08]',
-                          switching === model.model_id && 'opacity-50',
-                        )}
+                      <div
+                        key={providerKey.provider}
+                        className="rounded-[1rem] border border-zinc-800/85 bg-zinc-950/72 px-3.5 py-3"
                       >
-                        <div className="flex justify-between items-center">
-                          <span className="truncate mr-2">{model.display_name}</span>
-                          <span className="text-zinc-500 flex-shrink-0">
-                            {model.input_cost_per_million != null && model.output_cost_per_million != null
-                              ? `$${model.input_cost_per_million}/$${model.output_cost_per_million}M · `
-                              : ''}
-                            {model.supports_vision ? 'vision · ' : ''}
-                            {Math.round(model.context_window / 1024)}k
-                          </span>
+                        <div className="mb-3 flex items-start justify-between gap-3 text-[11px] font-mono">
+                          <div className="min-w-0">
+                            <div className="uppercase text-zinc-300">{providerKey.provider}</div>
+                            <div className="mt-1 truncate text-zinc-500">{providerKey.api_key_env}</div>
+                          </div>
+                          <div className="shrink-0 rounded-full border border-zinc-800/90 bg-zinc-900/85 px-2.5 py-1 text-[10px] uppercase tracking-[0.16em] text-zinc-400">
+                            {providerKey.has_key ? `saved · ${providerKey.source}` : 'not set'}
+                          </div>
                         </div>
-                      </button>
+                        <div className="flex flex-col gap-2 sm:flex-row">
+                          <input
+                            value={providerKeyDrafts[providerKey.provider] || ''}
+                            onChange={(e) => setProviderKeyDrafts((drafts) => ({
+                              ...drafts,
+                              [providerKey.provider]: e.target.value,
+                            }))}
+                            placeholder={providerKey.has_key ? 'update api key' : 'enter api key'}
+                            type="password"
+                            className="premium-field flex-1"
+                          />
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => handleSaveProviderKey(providerKey.provider)}
+                              disabled={!!switching}
+                              className="premium-primary-button"
+                              type="button"
+                            >
+                              {busy ? 'saving...' : 'save'}
+                            </button>
+                            <button
+                              onClick={() => handleClearProviderKey(providerKey.provider)}
+                              disabled={!!switching || !providerKey.has_key}
+                              className="premium-subtle-button"
+                              type="button"
+                            >
+                              clear
+                            </button>
+                          </div>
+                        </div>
+                      </div>
                     );
                   })}
                 </div>
-              ))}
-
-              {/* Local GGUF models */}
-              {localModels.filter(m => m.model_type === 'gguf').length > 0 && (
-                <>
-                  <div className="border-t border-zinc-600 my-1" />
-                  <p className="px-3 pt-2 pb-1 font-mono text-[10px] uppercase text-zinc-500">
-                    local
-                  </p>
-                  {localModels.filter(m => m.model_type === 'gguf').map((model) => {
-                    const isActive =
-                      modelStatus?.provider === 'local' &&
-                      modelStatus.model_name === model.name.replace(/.*\//, '').replace(/\.gguf$/, '');
-                    return (
-                      <button
-                        key={model.path}
-                        onClick={() => handleSelectLocal(model)}
-                        disabled={!!switching}
-                        className={cn(
-                          'w-full text-left px-3 py-1.5 text-xs font-mono transition-colors',
-                          isActive
-                            ? 'text-zinc-200 bg-zinc-800'
-                            : 'text-zinc-300 hover:text-cyan-100 hover:bg-cyan-500/[0.08]',
-                          switching === model.path && 'opacity-50',
-                        )}
-                      >
-                        <div className="flex justify-between items-center">
-                          <span className="truncate mr-2">{model.name}</span>
-                          <span className="text-zinc-500 flex-shrink-0">{model.size_display}</span>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </>
-              )}
-
-              {/* MLX models */}
-              {localModels.filter(m => m.model_type === 'mlx').length > 0 && (
-                <>
-                  <div className="border-t border-zinc-600 my-1" />
-                  <p className="px-3 pt-2 pb-1 font-mono text-[10px] uppercase text-zinc-500">
-                    mlx
-                  </p>
-                  {localModels.filter(m => m.model_type === 'mlx').map((model) => {
-                    const isActive =
-                      modelStatus?.provider === 'local' &&
-                      modelStatus.model_name === model.name.replace(/.*\//, '');
-                    return (
-                      <button
-                        key={model.path}
-                        onClick={() => handleSelectLocal(model)}
-                        disabled={!!switching}
-                        className={cn(
-                          'w-full text-left px-3 py-1.5 text-xs font-mono transition-colors',
-                          isActive
-                            ? 'text-zinc-200 bg-zinc-800'
-                            : 'text-zinc-300 hover:text-cyan-100 hover:bg-cyan-500/[0.08]',
-                          switching === model.path && 'opacity-50',
-                        )}
-                      >
-                        <div className="flex justify-between items-center">
-                          <span className="truncate mr-2">{model.name}</span>
-                          <span className="text-zinc-500 flex-shrink-0">{model.size_display}</span>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </>
-              )}
-
-              <div className="border-t border-zinc-600 my-2" />
-              <div className="px-3 py-2 space-y-2">
-                <p className="font-mono text-[10px] uppercase text-zinc-500">
-                  provider api keys
-                </p>
-                {providerKeys.map((providerKey) => {
-                  const busy = switching === `provider-key:${providerKey.provider}`;
-                  return (
-                    <div
-                      key={providerKey.provider}
-                      className="rounded border border-zinc-600 bg-zinc-950/85 px-2 py-2 space-y-2"
-                    >
-                      <div className="flex items-center justify-between gap-3 text-[11px] font-mono">
-                        <div className="min-w-0">
-                          <div className="text-zinc-300 uppercase">{providerKey.provider}</div>
-                          <div className="text-zinc-500">{providerKey.api_key_env}</div>
-                        </div>
-                        <div className="text-zinc-300 flex-shrink-0">
-                          {providerKey.has_key ? `saved · ${providerKey.source}` : 'not set'}
-                        </div>
-                      </div>
-                      <div className="flex gap-2">
-                        <input
-                          value={providerKeyDrafts[providerKey.provider] || ''}
-                          onChange={(e) => setProviderKeyDrafts((drafts) => ({
-                            ...drafts,
-                            [providerKey.provider]: e.target.value,
-                          }))}
-                          placeholder={providerKey.has_key ? 'update api key' : 'enter api key'}
-                          type="password"
-                          className="flex-1 bg-zinc-950 border border-zinc-600 px-2 py-1 text-xs font-mono text-zinc-300"
-                        />
-                        <button
-                          onClick={() => handleSaveProviderKey(providerKey.provider)}
-                          disabled={!!switching}
-                          className="text-xs font-mono text-cyan-400 hover:text-cyan-300 disabled:text-zinc-400"
-                        >
-                          {busy ? '[saving...]' : '[save]'}
-                        </button>
-                        <button
-                          onClick={() => handleClearProviderKey(providerKey.provider)}
-                          disabled={!!switching || !providerKey.has_key}
-                          className="text-xs font-mono text-zinc-300 hover:text-cyan-100 disabled:text-zinc-500"
-                        >
-                          [clear]
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+              </section>
             </>
           )}
         </div>
@@ -527,6 +534,8 @@ function ReasoningSettingsDialog({
   const fireworksMode = draft?.fireworks_reasoning_mode ?? 'effort';
   const openRouterMode = draft?.reasoning_max_tokens == null ? 'effort' : 'budget';
   const minFireworksThinkingBudget = 1024;
+  const inputClassName = 'premium-field';
+  const selectClassName = 'premium-field appearance-none';
 
   const disabledReason = (supported?: boolean, reason?: string | null) =>
     supported ? undefined : (reason || 'Unsupported by active provider/model');
@@ -542,56 +551,65 @@ function ReasoningSettingsDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={onOpenChange} className="max-w-3xl">
       <DialogHeader>
-        <DialogTitle className="font-mono text-sm">Reasoning Settings</DialogTitle>
+        <DialogTitle className="font-mono text-sm text-zinc-100">Reasoning settings</DialogTitle>
       </DialogHeader>
-      <DialogContent>
+      <DialogContent className="space-y-4">
         {!draft || !capabilities ? (
           <p className="text-xs font-mono text-zinc-200">Loading reasoning settings...</p>
         ) : (
           <div className="space-y-4 font-mono text-xs">
-            <div className="text-zinc-300">
-              <div>{modelName}</div>
-              <div className="uppercase text-[10px] mt-1">{providerFamily}</div>
-            </div>
+            <section className="premium-panel px-4 py-3.5">
+              <div className="premium-section-label">active model</div>
+              <div className="mt-2 text-sm text-zinc-100">{modelName}</div>
+              <div className="mt-1 text-[11px] uppercase tracking-[0.16em] text-zinc-500">{providerFamily}</div>
+            </section>
 
-            <div className="grid grid-cols-2 gap-3">
-              <label className="space-y-1">
-                <div className="text-zinc-500">max output</div>
-                <input
-                  type="number"
-                  min={1}
-                  value={draft.max_output_tokens ?? ''}
-                  onChange={(e) => update('max_output_tokens', e.target.value === '' ? null : Number(e.target.value))}
-                  className="w-full bg-zinc-950 border border-zinc-600 px-2 py-1 text-zinc-200"
-                />
-              </label>
-              {showReasoningEffort && !showReasoningMaxTokens && (
-                <label className="space-y-1">
-                  <div className="text-zinc-500">thinking effort</div>
-                  <select
-                    value={draft.reasoning_effort ?? ''}
-                    onChange={(e) => update('reasoning_effort', e.target.value || null)}
-                    disabled={!capabilities.reasoning_effort.supported}
-                    title={disabledReason(capabilities.reasoning_effort.supported, capabilities.reasoning_effort.reason)}
-                    className="w-full bg-zinc-950 border border-zinc-600 px-2 py-1 text-zinc-200 disabled:text-zinc-400"
-                  >
-                    <option value="">default</option>
-                    {(capabilities.reasoning_effort.options.length ? capabilities.reasoning_effort.options : ['low', 'medium', 'high']).map((opt) => (
-                      <option key={opt} value={opt}>{opt}</option>
-                    ))}
-                  </select>
+            <section className="premium-panel px-4 py-4">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="space-y-2">
+                  <div>
+                    <div className="text-zinc-300">max output</div>
+                    <div className="mt-1 text-[11px] leading-5 text-zinc-500">Upper bound for answer tokens.</div>
+                  </div>
+                  <input
+                    type="number"
+                    min={1}
+                    value={draft.max_output_tokens ?? ''}
+                    onChange={(e) => update('max_output_tokens', e.target.value === '' ? null : Number(e.target.value))}
+                    className={inputClassName}
+                  />
                 </label>
-              )}
-            </div>
+                {showReasoningEffort && !showReasoningMaxTokens && (
+                  <label className="space-y-2">
+                    <div>
+                      <div className="text-zinc-300">thinking effort</div>
+                      <div className="mt-1 text-[11px] leading-5 text-zinc-500">Provider-managed reasoning depth.</div>
+                    </div>
+                    <select
+                      value={draft.reasoning_effort ?? ''}
+                      onChange={(e) => update('reasoning_effort', e.target.value || null)}
+                      disabled={!capabilities.reasoning_effort.supported}
+                      title={disabledReason(capabilities.reasoning_effort.supported, capabilities.reasoning_effort.reason)}
+                      className={selectClassName}
+                    >
+                      <option value="">default</option>
+                      {(capabilities.reasoning_effort.options.length ? capabilities.reasoning_effort.options : ['low', 'medium', 'high']).map((opt) => (
+                        <option key={opt} value={opt}>{opt}</option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+              </div>
+            </section>
 
             {isFireworks ? (
-              <div className="border-t border-zinc-600 pt-3 space-y-3">
-                <div className="text-zinc-300 uppercase text-[10px]">Fireworks controls</div>
-                <div className="grid grid-cols-2 gap-3">
-                  <label className="space-y-1">
-                    <div className="text-zinc-500">control</div>
+              <section className="premium-panel px-4 py-4">
+                <div className="premium-section-label">Fireworks controls</div>
+                <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                  <label className="space-y-2">
+                    <div className="text-zinc-300">control mode</div>
                     <select
                       value={draft.fireworks_reasoning_mode}
                       onChange={(e) => {
@@ -606,7 +624,7 @@ function ReasoningSettingsDialog({
                       }}
                       disabled={!capabilities.fireworks_reasoning_mode.supported}
                       title={disabledReason(capabilities.fireworks_reasoning_mode.supported, capabilities.fireworks_reasoning_mode.reason)}
-                      className="w-full bg-zinc-950 border border-zinc-600 px-2 py-1 text-zinc-200 disabled:text-zinc-400"
+                      className={selectClassName}
                     >
                       <option value="effort">effort-based</option>
                       <option value="thinking">budget-based</option>
@@ -614,14 +632,14 @@ function ReasoningSettingsDialog({
                   </label>
 
                   {fireworksMode === 'effort' ? (
-                    <label className="space-y-1">
-                      <div className="text-zinc-500">thinking effort</div>
+                    <label className="space-y-2">
+                      <div className="text-zinc-300">thinking effort</div>
                       <select
                         value={draft.reasoning_effort ?? ''}
                         onChange={(e) => update('reasoning_effort', e.target.value || null)}
                         disabled={!capabilities.reasoning_effort.supported}
                         title={disabledReason(capabilities.reasoning_effort.supported, capabilities.reasoning_effort.reason)}
-                        className="w-full bg-zinc-950 border border-zinc-600 px-2 py-1 text-zinc-200 disabled:text-zinc-400"
+                        className={selectClassName}
                       >
                         <option value="">default</option>
                         {(capabilities.reasoning_effort.options.length ? capabilities.reasoning_effort.options : ['low', 'medium', 'high']).map((opt) => (
@@ -630,8 +648,8 @@ function ReasoningSettingsDialog({
                       </select>
                     </label>
                   ) : (
-                    <label className="space-y-1">
-                      <div className="text-zinc-500">max thinking tokens</div>
+                    <label className="space-y-2">
+                      <div className="text-zinc-300">max thinking tokens</div>
                       <input
                         type="number"
                         min={1024}
@@ -640,93 +658,90 @@ function ReasoningSettingsDialog({
                         onBlur={(e) => update('fireworks_thinking_budget_tokens', Math.max(Number(e.target.value) || minFireworksThinkingBudget, minFireworksThinkingBudget))}
                         disabled={!capabilities.fireworks_thinking_budget_tokens.supported}
                         title={disabledReason(capabilities.fireworks_thinking_budget_tokens.supported, capabilities.fireworks_thinking_budget_tokens.reason)}
-                        className="w-full bg-zinc-950 border border-zinc-600 px-2 py-1 text-zinc-200 disabled:text-zinc-400"
+                        className={inputClassName}
                       />
                     </label>
                   )}
                 </div>
-
-                <div className="text-[11px] text-zinc-500">
+                <p className="mt-3 text-[11px] leading-5 text-zinc-500">
                   {fireworksMode === 'effort'
                     ? 'Sends reasoning_effort only.'
                     : 'Sends thinking.budget_tokens only.'}
-                </div>
-              </div>
-            ) : (
-              showReasoningMaxTokens ? (
-                <div className="border-t border-zinc-600 pt-3 space-y-3">
-                  <div className="text-zinc-300 uppercase text-[10px]">OpenRouter controls</div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <label className="space-y-1">
-                      <div className="text-zinc-500">control</div>
+                </p>
+              </section>
+            ) : showReasoningMaxTokens ? (
+              <section className="premium-panel px-4 py-4">
+                <div className="premium-section-label">OpenRouter controls</div>
+                <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                  <label className="space-y-2">
+                    <div className="text-zinc-300">control mode</div>
+                    <select
+                      value={openRouterMode}
+                      onChange={(e) => {
+                        if (e.target.value === 'effort') {
+                          updateMany({ reasoning_max_tokens: null });
+                        } else {
+                          updateMany({ reasoning_max_tokens: draft.reasoning_max_tokens ?? 1024 });
+                        }
+                      }}
+                      className={selectClassName}
+                    >
+                      <option value="effort">effort-based</option>
+                      <option value="budget">budget-based</option>
+                    </select>
+                  </label>
+
+                  {openRouterMode === 'effort' ? (
+                    <label className="space-y-2">
+                      <div className="text-zinc-300">thinking effort</div>
                       <select
-                        value={openRouterMode}
-                        onChange={(e) => {
-                          if (e.target.value === 'effort') {
-                            updateMany({ reasoning_max_tokens: null });
-                          } else {
-                            updateMany({ reasoning_max_tokens: draft.reasoning_max_tokens ?? 1024 });
-                          }
-                        }}
-                        className="w-full bg-zinc-950 border border-zinc-600 px-2 py-1 text-zinc-200"
+                        value={draft.reasoning_effort ?? ''}
+                        onChange={(e) => update('reasoning_effort', e.target.value || null)}
+                        disabled={!capabilities.reasoning_effort.supported}
+                        title={disabledReason(capabilities.reasoning_effort.supported, capabilities.reasoning_effort.reason)}
+                        className={selectClassName}
                       >
-                        <option value="effort">effort-based</option>
-                        <option value="budget">budget-based</option>
+                        <option value="">default</option>
+                        {(capabilities.reasoning_effort.options.length ? capabilities.reasoning_effort.options : ['low', 'medium', 'high']).map((opt) => (
+                          <option key={opt} value={opt}>{opt}</option>
+                        ))}
                       </select>
                     </label>
-
-                    {openRouterMode === 'effort' ? (
-                      <label className="space-y-1">
-                        <div className="text-zinc-500">thinking effort</div>
-                        <select
-                          value={draft.reasoning_effort ?? ''}
-                          onChange={(e) => update('reasoning_effort', e.target.value || null)}
-                          disabled={!capabilities.reasoning_effort.supported}
-                          title={disabledReason(capabilities.reasoning_effort.supported, capabilities.reasoning_effort.reason)}
-                          className="w-full bg-zinc-950 border border-zinc-600 px-2 py-1 text-zinc-200 disabled:text-zinc-400"
-                        >
-                          <option value="">default</option>
-                          {(capabilities.reasoning_effort.options.length ? capabilities.reasoning_effort.options : ['low', 'medium', 'high']).map((opt) => (
-                            <option key={opt} value={opt}>{opt}</option>
-                          ))}
-                        </select>
-                      </label>
-                    ) : (
-                      <label className="space-y-1">
-                        <div className="text-zinc-500">max thinking tokens</div>
-                        <input
-                          type="number"
-                          min={1}
-                          value={draft.reasoning_max_tokens ?? ''}
-                          onChange={(e) => update('reasoning_max_tokens', e.target.value === '' ? null : Number(e.target.value))}
-                          disabled={!capabilities.reasoning_max_tokens.supported}
-                          title={disabledReason(capabilities.reasoning_max_tokens.supported, capabilities.reasoning_max_tokens.reason)}
-                          className="w-full bg-zinc-950 border border-zinc-600 px-2 py-1 text-zinc-200 disabled:text-zinc-400"
-                        />
-                      </label>
-                    )}
-                  </div>
+                  ) : (
+                    <label className="space-y-2">
+                      <div className="text-zinc-300">max thinking tokens</div>
+                      <input
+                        type="number"
+                        min={1}
+                        value={draft.reasoning_max_tokens ?? ''}
+                        onChange={(e) => update('reasoning_max_tokens', e.target.value === '' ? null : Number(e.target.value))}
+                        disabled={!capabilities.reasoning_max_tokens.supported}
+                        title={disabledReason(capabilities.reasoning_max_tokens.supported, capabilities.reasoning_max_tokens.reason)}
+                        className={inputClassName}
+                      />
+                    </label>
+                  )}
                 </div>
-              ) : null
-            )}
-
-            {!isFireworks && !showReasoningMaxTokens && (
-              <div className="text-[11px] text-zinc-500">
+              </section>
+            ) : (
+              <section className="premium-panel px-4 py-3.5 text-[11px] leading-5 text-zinc-500">
                 This provider has no separate max thinking token setting.
-              </div>
+              </section>
             )}
 
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => onOpenChange(false)}
-                className="px-3 py-1 text-zinc-300 hover:text-cyan-100"
+                className="premium-subtle-button"
+                type="button"
               >
                 cancel
               </button>
               <button
                 onClick={onSave}
                 disabled={saving}
-                className="px-3 py-1 bg-zinc-200 text-zinc-900 disabled:opacity-60"
+                className="premium-primary-button"
+                type="button"
               >
                 {saving ? 'saving...' : 'save'}
               </button>
@@ -757,45 +772,38 @@ const RunMessage = memo(function RunMessage({
     if (!userMessage || !onRetry) return;
     onRetry(userMessage);
   }, [onRetry, userMessage]);
-  // Use stable selectors - return constant empty string if not found
   const streamingText = useStore((s) => s.streamingText[run.run_id] ?? EMPTY_STRING);
   const streamingThinking = useStore((s) => s.streamingThinking[run.run_id] ?? EMPTY_STRING);
 
-  // Use streaming text while running, final answer when complete
   const displayText = isRunning ? streamingText : finalAnswer;
   const isStreaming = isRunning && streamingText.length > 0;
-
-  // Determine if we're in thinking phase (streaming thinking but no answer yet)
   const isThinking = isRunning && streamingThinking.length > 0;
   const footerMetrics = getRunFooterMetrics(run);
 
   return (
-    <div className="animate-in fade-in slide-in-from-bottom-2 space-y-4 duration-200">
-      {/* User message */}
-      <div className="flex gap-3.5">
-        <div className="w-10 flex-shrink-0 pt-1">
-          <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-500">you</span>
+    <div className="animate-in fade-in slide-in-from-bottom-2 space-y-5 duration-200">
+      <div className="flex gap-4">
+        <div className="w-11 flex-shrink-0 pt-1.5">
+          <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-zinc-500">you</span>
         </div>
-        <div className="flex-1 min-w-0">
-          <div className="ui-panel rounded-[1.35rem] border border-zinc-800/95 px-4.5 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.025)]">
-            <span className="whitespace-pre-wrap text-[13px] leading-7 text-zinc-50">
+        <div className="min-w-0 flex-1">
+          <div className="ui-panel rounded-[1.55rem] border border-zinc-800/90 px-6 py-5 shadow-[0_18px_38px_rgba(0,0,0,0.16),inset_0_1px_0_rgba(255,255,255,0.025)]">
+            <span className="whitespace-pre-wrap text-[14px] leading-[1.9] text-zinc-50">
               {run.user_message || run.prompt}
             </span>
           </div>
-          <p className="mt-1.5 px-1 text-[11px] text-zinc-500">
+          <p className="mt-2 px-1 text-[11px] text-zinc-500">
             {formatRelativeTime(run.created_at)}
           </p>
         </div>
       </div>
 
-      {/* AI response */}
-      <div className="group/msg flex gap-3.5">
-        <div className="w-10 flex-shrink-0 pt-1">
-          <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-500">reply</span>
+      <div className="group/msg flex gap-4">
+        <div className="w-11 flex-shrink-0 pt-1.5">
+          <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-zinc-500">reply</span>
         </div>
-        <div className="flex-1 min-w-0">
-          <div className="rounded-[1.35rem] border border-zinc-800/90 bg-zinc-950/74 px-4.5 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]">
-            {/* Thinking Panel - shows while thinking or after completion with thinking data */}
+        <div className="min-w-0 flex-1">
+          <div className="rounded-[1.55rem] border border-zinc-800/85 bg-zinc-950/78 px-6 py-5 shadow-[0_24px_44px_rgba(0,0,0,0.18),inset_0_1px_0_rgba(255,255,255,0.02)]">
             <ThinkingPanel
               summary={run.thinking_summary}
               isStreaming={isThinking}
@@ -808,14 +816,14 @@ const RunMessage = memo(function RunMessage({
             ) : isRunning && !displayText && isThinking ? (
               <ThinkingTimer label="Thinking" />
             ) : run.status === 'failed' ? (
-                <div className="text-sm text-red-200/90">
+              <div className="rounded-[1rem] border border-red-500/16 bg-red-500/[0.06] px-4 py-3 text-sm text-red-200/90">
                 [error] {run.error_detail || 'Request failed. Please try again.'}
               </div>
             ) : displayText ? (
               <div>
                 <AnswerMarkdown content={extractAnswer(displayText)} />
                 {isStreaming && (
-                  <span className="inline-block w-2 h-4 bg-zinc-400 animate-pulse ml-0.5" />
+                  <span className="inline-block h-4 w-2 animate-pulse bg-zinc-400 align-[-0.2em] ml-0.5" />
                 )}
               </div>
             ) : !isThinking ? (
@@ -824,21 +832,22 @@ const RunMessage = memo(function RunMessage({
           </div>
 
           <div className="mt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-1 font-mono text-[11px]">
-            <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+            <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-zinc-500">
               <span className={cn(
+                'rounded-full border border-zinc-800/85 bg-zinc-950/72 px-2.5 py-1',
                 run.status === 'succeeded'
-                  ? 'text-emerald-600'
+                  ? 'text-emerald-300'
                   : run.status === 'failed'
-                    ? 'text-red-500/70'
-                    : 'text-zinc-500'
+                    ? 'border-red-500/15 text-red-400/85'
+                    : 'text-zinc-400'
               )}>
-                [{formatRunStatusLabel(run)}]
+                {formatRunStatusLabel(run)}
               </span>
               {run.created_at && (
-                <span className="text-zinc-500">{formatRelativeTime(run.created_at)}</span>
+                <span>{formatRelativeTime(run.created_at)}</span>
               )}
               {footerMetrics.map((metric) => (
-                <span key={metric} className="text-zinc-500">{metric}</span>
+                <span key={metric}>{metric}</span>
               ))}
             </div>
             {!isRunning && (
@@ -2255,17 +2264,17 @@ export function ConversationView() {
           }}
         />
 
-        <div className="flex-1 flex flex-col items-center justify-center text-zinc-300 gap-4 sm:gap-6 px-3 sm:px-4 md:px-6 overflow-y-auto min-h-0">
+        <div className="flex-1 flex flex-col items-center justify-center gap-4 overflow-y-auto px-3 text-zinc-300 sm:gap-6 sm:px-4 md:px-6 min-h-0">
           <EmptyStatePulse
             mode={mode}
             workspacePath={effectiveWorkspacePath}
             modelStatus={modelStatus}
           />
         </div>
-        <div className="flex-shrink-0 space-y-2.5 p-3 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-4 sm:pb-[max(1rem,env(safe-area-inset-bottom))]">
+        <div className="flex-shrink-0 space-y-3 p-3 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-4 sm:pb-[max(1rem,env(safe-area-inset-bottom))]">
           {/* Prompt area */}
-          <div className="ui-panel ui-transition relative overflow-visible rounded-[1.35rem] border border-zinc-800/95 px-1 shadow-[0_20px_44px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.025)] focus-within:border-cyan-500/35 focus-within:shadow-[0_20px_44px_rgba(0,0,0,0.2),0_0_0_1px_rgba(103,232,249,0.08)]">
-            <div className="flex items-start gap-3 p-3.5">
+          <div className="ui-panel ui-transition relative overflow-visible rounded-[1.5rem] border border-zinc-800/90 px-1 shadow-[0_24px_48px_rgba(0,0,0,0.22),inset_0_1px_0_rgba(255,255,255,0.025)] focus-within:border-cyan-500/35 focus-within:shadow-[0_24px_48px_rgba(0,0,0,0.22),0_0_0_1px_rgba(103,232,249,0.08)]">
+            <div className="flex items-start gap-3 p-4">
               <span className="mt-0.5 select-none font-mono text-sm text-cyan-200/80">&gt;</span>
               <textarea
                 ref={textareaRef}
@@ -2277,7 +2286,7 @@ export function ConversationView() {
                 onSelect={handleTextareaSelection}
                 onClick={handleTextareaSelection}
                 rows={2}
-                className="flex-1 resize-none border-none bg-transparent text-[13px] leading-7 text-zinc-50 outline-none placeholder:text-zinc-500"
+                className="flex-1 resize-none border-none bg-transparent text-[14px] leading-[1.9] text-zinc-50 outline-none placeholder:text-zinc-500"
                 disabled={isSubmitting || hasActiveRun}
                 style={{ maxHeight: '200px' }}
               />
@@ -2489,12 +2498,14 @@ export function ConversationView() {
         }}
       />
 
-      <div className="flex-1 overflow-y-auto px-4 py-5 sm:px-6 md:px-8 md:py-6" ref={scrollRef}>
-        <VirtualizedConversationRunList
-          runs={runs}
-          scrollContainerRef={scrollRef}
-          renderRun={renderRunCard}
-        />
+      <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-6 md:px-8 md:py-8" ref={scrollRef}>
+        <div className="w-full max-w-[62rem]">
+          <VirtualizedConversationRunList
+            runs={runs}
+            scrollContainerRef={scrollRef}
+            renderRun={renderRunCard}
+          />
+        </div>
       </div>
 
       {/* Scroll-to-bottom pill */}
@@ -2529,7 +2540,7 @@ export function ConversationView() {
         </div>
       )}
 
-      <div className="flex-shrink-0 space-y-2.5 p-3 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-4 sm:pb-[max(1rem,env(safe-area-inset-bottom))]">
+      <div className="flex-shrink-0 space-y-3 p-3 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-4 sm:pb-[max(1rem,env(safe-area-inset-bottom))]">
         {/* Queued steering messages */}
         {queuedSteers.length > 0 && (
           <div className="flex flex-wrap gap-1.5 px-1">
@@ -2544,8 +2555,8 @@ export function ConversationView() {
           </div>
         )}
         {/* Prompt area */}
-        <div className="ui-panel ui-transition relative overflow-visible rounded-[1.35rem] border border-zinc-800/95 px-1 shadow-[0_20px_44px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.025)] focus-within:border-cyan-500/35 focus-within:shadow-[0_20px_44px_rgba(0,0,0,0.2),0_0_0_1px_rgba(103,232,249,0.08)]">
-          <div className="flex items-start gap-3 p-3.5">
+        <div className="ui-panel ui-transition relative overflow-visible rounded-[1.5rem] border border-zinc-800/90 px-1 shadow-[0_24px_48px_rgba(0,0,0,0.22),inset_0_1px_0_rgba(255,255,255,0.025)] focus-within:border-cyan-500/35 focus-within:shadow-[0_24px_48px_rgba(0,0,0,0.22),0_0_0_1px_rgba(103,232,249,0.08)]">
+          <div className="flex items-start gap-3 p-4">
             <span className="mt-0.5 select-none font-mono text-sm text-cyan-200/80">&gt;</span>
             <textarea
               ref={textareaRef}
@@ -2557,7 +2568,7 @@ export function ConversationView() {
               onSelect={handleTextareaSelection}
               onClick={handleTextareaSelection}
               rows={2}
-              className="flex-1 resize-none border-none bg-transparent text-[13px] leading-7 text-zinc-50 outline-none placeholder:text-zinc-500"
+              className="flex-1 resize-none border-none bg-transparent text-[14px] leading-[1.9] text-zinc-50 outline-none placeholder:text-zinc-500"
               disabled={isSubmitting || atLimit}
               style={{ maxHeight: '200px' }}
             />

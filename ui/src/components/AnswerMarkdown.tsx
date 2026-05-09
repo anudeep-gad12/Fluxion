@@ -161,12 +161,12 @@ const codeTheme = {
   ...oneDark,
   'pre[class*="language-"]': {
     ...oneDark['pre[class*="language-"]'],
-    background: '#18181b', // zinc-900
+    background: '#09090b',
     margin: 0,
-    padding: '1rem',
-    borderRadius: 0,
+    padding: '1.1rem 1rem',
+    borderRadius: '0 0 1rem 1rem',
     fontSize: '0.8125rem',
-    lineHeight: '1.6',
+    lineHeight: '1.75',
   },
   'code[class*="language-"]': {
     ...oneDark['code[class*="language-"]'],
@@ -192,15 +192,15 @@ function SyntaxCodeBlock({
   }, [code]);
 
   return (
-    <div className="group relative my-4 border border-zinc-800 overflow-hidden">
+    <div className="group relative my-5 overflow-hidden rounded-[1.15rem] border border-zinc-800/90 bg-zinc-950/88 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]">
       {/* Language label + copy button */}
-      <div className="flex items-center justify-between bg-zinc-800/80 px-3 py-1.5">
-        <span className="text-[11px] font-mono text-zinc-500">
+      <div className="flex items-center justify-between border-b border-zinc-800/90 bg-zinc-900/88 px-3.5 py-2">
+        <span className="text-[10px] font-mono uppercase tracking-[0.16em] text-zinc-500">
           {language || 'text'}
         </span>
         <button
           onClick={handleCopy}
-          className="text-zinc-500 text-[11px] font-mono hover:text-zinc-200 transition-colors"
+          className="ui-transition text-[10px] font-mono uppercase tracking-[0.16em] text-zinc-500 hover:text-cyan-100"
           title="Copy code"
         >
           {copied ? '✓ copied' : 'copy'}
@@ -231,18 +231,18 @@ function PlainCodeBlock({ children }: { children: React.ReactNode }) {
   }, [children]);
 
   return (
-    <div className="group relative my-4 border border-zinc-800 overflow-hidden">
-      <div className="flex items-center justify-between bg-zinc-800/80 px-3 py-1.5">
-        <span className="text-[11px] font-mono text-zinc-500">text</span>
+    <div className="group relative my-5 overflow-hidden rounded-[1.15rem] border border-zinc-800/90 bg-zinc-950/88 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]">
+      <div className="flex items-center justify-between border-b border-zinc-800/90 bg-zinc-900/88 px-3.5 py-2">
+        <span className="text-[10px] font-mono uppercase tracking-[0.16em] text-zinc-500">text</span>
         <button
           onClick={handleCopy}
-          className="text-zinc-500 text-[11px] font-mono hover:text-zinc-200 transition-colors"
+          className="ui-transition text-[10px] font-mono uppercase tracking-[0.16em] text-zinc-500 hover:text-cyan-100"
           title="Copy code"
         >
           {copied ? '✓ copied' : 'copy'}
         </button>
       </div>
-      <pre className="overflow-x-auto bg-zinc-900 p-4 text-[13px] leading-relaxed text-zinc-100">
+      <pre className="overflow-x-auto rounded-b-[1rem] bg-zinc-950 px-4 py-3.5 text-[12px] leading-7 text-zinc-100">
         {children}
       </pre>
     </div>
@@ -278,7 +278,7 @@ export function AnswerMarkdown({ content }: { content: string }) {
 
             if (isInline) {
               return (
-                <code className="rounded-none bg-zinc-800 px-1 py-0.5 text-sm text-zinc-300" {...props}>
+                <code className="rounded-md border border-zinc-800/90 bg-zinc-950/90 px-1.5 py-0.5 text-[12px] text-zinc-200" {...props}>
                   {children}
                 </code>
               );

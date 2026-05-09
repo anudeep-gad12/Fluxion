@@ -1,6 +1,6 @@
 // ThinkingPanel - Collapsible panel showing AI thinking process
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { cn, sanitizeThinking } from '@/lib/utils';
 import type { ThinkingStep } from '@/types';
 
@@ -18,12 +18,8 @@ interface ThinkingPanelProps {
   defaultExpanded?: boolean;
 }
 
-/** Alias for backward compat within this file */
 const stripThinkTags = sanitizeThinking;
 
-/**
- * Fix common LaTeX issues that cause KaTeX parsing errors.
- */
 function fixLatexIssues(content: string): string {
   let result = content;
   result = result.replace(/\\\\\s*\\end\{/g, '\\end{');
@@ -31,9 +27,6 @@ function fixLatexIssues(content: string): string {
   return result;
 }
 
-/**
- * Normalize various LaTeX math delimiter formats to standard $$ and $ delimiters.
- */
 function normalizeMathDelimiters(content: string): string {
   let result = content;
 
@@ -44,31 +37,21 @@ function normalizeMathDelimiters(content: string): string {
 
   const toInlineMath = (math: string) => `$${math.trim()}$`;
 
-  // Normalize $$ ... $$ to fenced block math with line breaks
   result = result.replace(/\$\$([\s\S]*?)\$\$/g, (_, math) => toBlockMath(math));
-
-  // Handle JSON-escaped delimiters (\\[ ... \\] and \\( ... \\))
   result = result.replace(/\\\\\[((?:.|\n)*?)\\\\\]/g, (_, math) => toBlockMath(math));
   result = result.replace(/\\\\\(((?:.|\n)*?)\\\\\)/g, (_, math) => toInlineMath(math));
-
-  // Convert \[ ... \] to $$ ... $$ (display math)
   result = result.replace(/\\\[([\s\S]*?)\\\]/g, (_, math) => toBlockMath(math));
-
-  // Convert \( ... \) to $ ... $ (inline math)
   result = result.replace(/\\\(([\s\S]*?)\\\)/g, (_, math) => toInlineMath(math));
 
   return result;
 }
 
-/**
- * Render thinking content with markdown and LaTeX support.
- */
 function ThinkingMarkdown({ content }: { content: string }) {
   const cleanContent = stripThinkTags(content);
   const normalizedContent = normalizeMathDelimiters(cleanContent);
 
   return (
-    <div className="thinking-markdown text-sm text-zinc-500">
+    <div className="thinking-markdown">
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkMath]}
         rehypePlugins={[rehypeKatex]}
@@ -77,7 +60,7 @@ function ThinkingMarkdown({ content }: { content: string }) {
             const isInline = !className;
             if (isInline) {
               return (
-                <code className="rounded-none bg-zinc-800 px-1 py-0.5 text-xs text-zinc-300" {...props}>
+                <code className="rounded-md border border-zinc-800/90 bg-zinc-950/90 px-1.5 py-0.5 text-[11px] text-zinc-200" {...props}>
                   {children}
                 </code>
               );
@@ -90,13 +73,13 @@ function ThinkingMarkdown({ content }: { content: string }) {
           },
           pre({ children }) {
             return (
-              <pre className="my-2 overflow-x-auto rounded-none bg-zinc-900 p-2 text-xs text-zinc-300 border border-zinc-800">
+              <pre className="my-3 overflow-x-auto rounded-xl border border-zinc-800/95 bg-zinc-950/92 px-3 py-2.5 text-[12px] text-zinc-200 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]">
                 {children}
               </pre>
             );
           },
           p({ children }) {
-            return <p className="mb-2 last:mb-0">{children}</p>;
+            return <p className="mb-2.5 last:mb-0">{children}</p>;
           },
         }}
       >
@@ -104,6 +87,14 @@ function ThinkingMarkdown({ content }: { content: string }) {
       </ReactMarkdown>
     </div>
   );
+}
+
+function excerpt(content: string): string {
+  const firstLine = content
+    .split('\n')
+    .map((line) => line.trim())
+    .find(Boolean) || '';
+  return firstLine.length > 92 ? `${firstLine.slice(0, 89)}...` : firstLine;
 }
 
 export function ThinkingPanel({
@@ -115,11 +106,18 @@ export function ThinkingPanel({
 }: ThinkingPanelProps) {
   const [expanded, setExpanded] = useState(defaultExpanded);
 
-  // Clean content for display
-  const cleanStreamingContent = stripThinkTags(streamingContent);
-  const cleanSummary = stripThinkTags(summary || '');
+  const cleanStreamingContent = stripThinkTags(streamingContent).trim();
+  const cleanSummary = stripThinkTags(summary || '').trim();
+  const displaySummary = useMemo(() => {
+    if (cleanStreamingContent) return excerpt(cleanStreamingContent);
+    if (cleanSummary) return excerpt(cleanSummary);
+    for (const step of steps) {
+      const next = stripThinkTags(step.summary || '').trim();
+      if (next) return excerpt(next);
+    }
+    return '';
+  }, [cleanStreamingContent, cleanSummary, steps]);
 
-  // Don't render if no thinking content
   if (!cleanSummary && steps.length === 0 && !cleanStreamingContent && !isStreaming) {
     return null;
   }
@@ -127,86 +125,101 @@ export function ThinkingPanel({
   const hasContent = cleanSummary || steps.length > 0 || cleanStreamingContent;
 
   return (
-    <div className="mb-3 rounded-none border border-zinc-800 bg-zinc-900 overflow-hidden">
-      {/* Header - always visible */}
+    <div className="mb-5 rounded-[1.25rem] border border-zinc-800/85 bg-zinc-950/48 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]">
       <button
-        onClick={() => setExpanded(!expanded)}
+        type="button"
+        onClick={() => setExpanded((value) => !value)}
         className={cn(
-          'w-full px-3 py-2 flex items-center gap-2 text-xs font-mono text-zinc-400 hover:bg-zinc-800',
-          expanded && 'border-b border-zinc-800'
+          'ui-transition flex w-full items-start gap-3 px-4 py-3.5 text-left',
+          expanded ? 'border-b border-zinc-800/75' : 'hover:bg-zinc-900/28'
         )}
       >
-        <span className="text-zinc-600 select-none">{expanded ? '▼' : '▶'}</span>
-
-        <span className="font-medium">[thinking]</span>
-
-        {isStreaming && (
-          <span className="text-zinc-500">[streaming...]</span>
-        )}
-
-        {steps.length > 0 && (
-          <span className="text-zinc-600">
-            ({steps.length} step{steps.length !== 1 ? 's' : ''})
-          </span>
-        )}
-
-        {!expanded && hasContent && (
-          <span className="ml-auto text-zinc-600 truncate max-w-[200px]">
-            {cleanSummary?.split('\n')[0] || cleanStreamingContent?.slice(0, 50) || ''}
-          </span>
-        )}
+        <span className="mt-0.5 text-zinc-500">{expanded ? '▾' : '▸'}</span>
+        <div className="min-w-0 flex-1 space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-full border border-zinc-800/90 bg-zinc-950/80 px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.18em] text-zinc-300">
+              thinking
+            </span>
+            {isStreaming && (
+              <span className="rounded-full border border-cyan-500/25 bg-cyan-500/[0.10] px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.18em] text-cyan-200">
+                live
+              </span>
+            )}
+          </div>
+          {displaySummary ? (
+            <p className="truncate text-[12px] leading-6 text-zinc-400">{displaySummary}</p>
+          ) : isStreaming ? (
+            <p className="text-[12px] leading-6 text-zinc-500">Thinking in progress...</p>
+          ) : null}
+        </div>
       </button>
 
-      {/* Animated collapsible content */}
       <div className="collapsible-content" data-expanded={expanded}>
         <div>
-          <div className="px-3 py-3 space-y-3 max-h-[300px] overflow-y-auto">
-            {/* Streaming content (live) */}
+          <div className="max-h-[26rem] space-y-4 overflow-y-auto px-4 py-4">
             {cleanStreamingContent && (
-              <div>
-                <ThinkingMarkdown content={cleanStreamingContent} />
-                {isStreaming && (
-                  <span className="inline-block w-2 h-3 bg-zinc-400 animate-pulse ml-0.5" />
-                )}
-              </div>
+              <section className="space-y-2">
+                <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.18em] text-cyan-200/85">
+                  <span className="h-1.5 w-1.5 rounded-full bg-cyan-400" />
+                  Live reasoning
+                </div>
+                <div className="rounded-[1rem] border border-cyan-500/16 bg-cyan-500/[0.06] px-3.5 py-3">
+                  <ThinkingMarkdown content={cleanStreamingContent} />
+                  {isStreaming && (
+                    <span className="agent-caret ml-1 inline-block h-3.5 w-1.5 translate-y-0.5 bg-cyan-400/75" />
+                  )}
+                </div>
+              </section>
             )}
 
-            {/* Completed steps */}
+            {!cleanStreamingContent && cleanSummary && (
+              <section className="space-y-2">
+                <div className="premium-section-label">summary</div>
+                <div className="rounded-[1rem] border border-zinc-800/85 bg-zinc-950/78 px-3.5 py-3">
+                  <ThinkingMarkdown content={cleanSummary} />
+                </div>
+              </section>
+            )}
+
             {steps.length > 0 && (
-              <div className="space-y-2">
-                {steps.map((step) => (
-                  <div key={step.seq} className="text-xs">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className={cn(
-                        'text-[10px] font-medium uppercase font-mono',
-                        step.status === 'done'
-                          ? 'text-zinc-400'
-                          : step.status === 'thinking'
-                            ? 'text-zinc-500'
-                            : 'text-zinc-600'
-                      )}>
-                        {step.step_type}
-                      </span>
-                      <span className="text-zinc-600">Step {step.seq}</span>
-                    </div>
-                    <div className="text-zinc-600 pl-2 border-l-2 border-zinc-800">
-                      <ThinkingMarkdown content={step.summary} />
-                    </div>
-                  </div>
-                ))}
-              </div>
+              <section className="space-y-3">
+                <div className="premium-section-label">timeline</div>
+                <div className="space-y-3">
+                  {steps.map((step) => {
+                    const stepSummary = stripThinkTags(step.summary || '').trim();
+                    return (
+                      <div
+                        key={step.seq}
+                        className="rounded-[1rem] border border-zinc-800/85 bg-zinc-950/62 px-3.5 py-3"
+                      >
+                        <div className="mb-2 flex flex-wrap items-center gap-2">
+                          <span
+                            className={cn(
+                              'rounded-full px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.14em]',
+                              step.status === 'done'
+                                ? 'bg-zinc-900 text-zinc-300'
+                                : step.status === 'thinking'
+                                  ? 'bg-cyan-500/[0.10] text-cyan-200'
+                                  : 'bg-zinc-900 text-zinc-500'
+                            )}
+                          >
+                            {step.step_type}
+                          </span>
+                        </div>
+                        {stepSummary ? (
+                          <ThinkingMarkdown content={stepSummary} />
+                        ) : (
+                          <p className="text-[12px] text-zinc-500">No summary captured.</p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
             )}
 
-            {/* Summary (if no steps) */}
-            {!cleanStreamingContent && steps.length === 0 && cleanSummary && (
-              <ThinkingMarkdown content={cleanSummary} />
-            )}
-
-            {/* Empty state */}
             {!hasContent && isStreaming && (
-              <div className="text-xs text-zinc-500 font-mono">
-                [thinking...]
-              </div>
+              <div className="text-[12px] font-mono text-zinc-500">Thinking...</div>
             )}
           </div>
         </div>

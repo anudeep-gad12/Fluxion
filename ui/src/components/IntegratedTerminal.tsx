@@ -21,6 +21,15 @@ interface IntegratedTerminalProps {
   active: boolean;
 }
 
+const STATUS_STYLES: Record<string, string> = {
+  connecting: 'border-cyan-500/25 bg-cyan-500/[0.10] text-cyan-200',
+  running: 'border-emerald-500/22 bg-emerald-500/[0.10] text-emerald-300',
+  stale: 'border-amber-500/22 bg-amber-500/[0.10] text-amber-300',
+  error: 'border-red-500/22 bg-red-500/[0.10] text-red-300',
+  idle: 'border-zinc-800/90 bg-zinc-950/70 text-zinc-400',
+  closed: 'border-zinc-800/90 bg-zinc-950/70 text-zinc-400',
+};
+
 export function IntegratedTerminal({
   conversationId,
   workspacePath,
@@ -265,64 +274,69 @@ export function IntegratedTerminal({
     return null;
   }
 
+  const statusClassName = STATUS_STYLES[terminalState.status] || STATUS_STYLES.idle;
+
   return (
     <div
-      className="flex-shrink-0 border-t border-zinc-800 bg-black flex flex-col"
+      className="flex flex-shrink-0 flex-col border-t border-zinc-800/90 bg-black/96"
       style={{ height: terminalState.height }}
     >
       <div
-        className="h-1 cursor-row-resize bg-zinc-900 hover:bg-zinc-700 transition-colors"
+        className="ui-transition h-2 cursor-row-resize bg-zinc-950 hover:bg-zinc-900"
         onMouseDown={handleMouseDown}
       />
-      <div className="h-9 px-3 border-b border-zinc-800 flex items-center justify-between font-mono text-xs">
-        <div className="flex items-center gap-3 min-w-0">
-          <span className="text-zinc-300">terminal</span>
-          <span className={cn(
-            terminalState.status === 'running' && 'text-emerald-400',
-            terminalState.status === 'stale' && 'text-amber-400',
-            terminalState.status === 'error' && 'text-red-400',
-            (terminalState.status === 'idle' || terminalState.status === 'closed') && 'text-zinc-500',
-          )}>
-            {terminalState.status}
-          </span>
-          <span className="truncate text-zinc-500">
-            {terminalState.session?.workspace_path || workspacePath || '~'}
-          </span>
-          {workspaceMismatch && (
-            <span className="truncate text-amber-400">
-              workspace changed — restart terminal to use new path
-            </span>
-          )}
+      <div className="border-b border-zinc-800/85 bg-zinc-950/88 px-3.5 py-3 font-mono text-xs">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0 space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="rounded-full border border-zinc-800/90 bg-zinc-900/85 px-2.5 py-1 text-[10px] uppercase tracking-[0.18em] text-zinc-300">
+                terminal
+              </span>
+              <span className={cn('rounded-full px-2.5 py-1 text-[10px] uppercase tracking-[0.18em]', statusClassName)}>
+                {terminalState.status}
+              </span>
+            </div>
+            <div className="truncate text-[11px] text-zinc-500">
+              {terminalState.session?.workspace_path || workspacePath || '~'}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleClear}
+              className="premium-subtle-button px-3 py-1"
+              type="button"
+            >
+              clear
+            </button>
+            <button
+              onClick={handleRestart}
+              className="premium-subtle-button px-3 py-1"
+              type="button"
+              disabled={isRestarting}
+            >
+              {isRestarting ? 'restarting...' : 'restart'}
+            </button>
+            <button
+              onClick={() => updateTerminalState(conversationId, { isOpen: false })}
+              className="premium-subtle-button px-3 py-1"
+              type="button"
+            >
+              collapse
+            </button>
+          </div>
         </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={handleClear}
-            className="text-zinc-500 hover:text-zinc-300 transition-colors"
-            type="button"
-          >
-            clear
-          </button>
-          <button
-            onClick={handleRestart}
-            className="text-zinc-500 hover:text-zinc-300 transition-colors"
-            type="button"
-            disabled={isRestarting}
-          >
-            {isRestarting ? 'restarting...' : 'restart'}
-          </button>
-          <button
-            onClick={() => updateTerminalState(conversationId, { isOpen: false })}
-            className="text-zinc-500 hover:text-zinc-300 transition-colors"
-            type="button"
-          >
-            collapse
-          </button>
-        </div>
+
+        {workspaceMismatch && (
+          <div className="mt-3 rounded-[0.95rem] border border-amber-500/22 bg-amber-500/[0.08] px-3 py-2 text-[11px] leading-5 text-amber-200/85">
+            Workspace changed. Restart the terminal to attach it to the new path.
+          </div>
+        )}
       </div>
-      <div className="flex-1 min-h-0">
+      <div className="min-h-0 flex-1 bg-black">
         <div
           ref={containerRef}
-          className="h-full w-full px-2 py-1"
+          className="h-full w-full px-3 py-2"
           onClick={() => terminalRef.current?.focus()}
         />
       </div>
