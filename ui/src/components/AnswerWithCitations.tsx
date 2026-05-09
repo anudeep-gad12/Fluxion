@@ -118,7 +118,7 @@ function CitationsList({ citations }: { citations: AgentCitation[] }) {
   const hiddenCount = Math.max(0, citations.length - INITIAL_SOURCES_SHOWN);
 
   return (
-    <section className="rounded-[1.3rem] border border-zinc-800/85 bg-zinc-950/42 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]">
+    <section className="rounded-[1rem] border border-zinc-800/85 bg-zinc-950/42 p-4">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <div>
           <div className="premium-section-label">sources</div>
@@ -147,9 +147,9 @@ function CitationsList({ citations }: { citations: AgentCitation[] }) {
               href={citation.source_url}
               target="_blank"
               rel="noopener noreferrer"
-              className="ui-transition group flex gap-3 rounded-[1rem] border border-zinc-800/80 bg-zinc-950/72 px-3.5 py-3 hover:border-cyan-500/24 hover:bg-cyan-500/[0.04]"
+              className="ui-transition group flex gap-3 rounded-[0.9rem] border border-zinc-800/80 bg-zinc-950/72 px-3.5 py-3 hover:border-cyan-500/24 hover:bg-cyan-500/[0.04]"
             >
-              <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full border border-zinc-800/85 bg-zinc-900/85 font-mono text-[10px] text-zinc-300 group-hover:border-cyan-500/25 group-hover:text-cyan-100">
+              <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full border border-zinc-800/85 bg-zinc-950 font-mono text-[10px] text-zinc-300 group-hover:border-cyan-500/25 group-hover:text-cyan-100">
                 {index + 1}
               </div>
               <div className="min-w-0 flex-1">

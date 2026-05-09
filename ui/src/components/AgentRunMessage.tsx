@@ -43,7 +43,7 @@ export const AgentRunMessage = memo(function AgentRunMessage({
           <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-zinc-500">you</span>
         </div>
         <div className="min-w-0 flex-1">
-          <div className="ui-panel rounded-[1.55rem] border border-zinc-800/90 px-6 py-5 shadow-[0_18px_38px_rgba(0,0,0,0.16),inset_0_1px_0_rgba(255,255,255,0.025)]">
+          <div className="ui-panel rounded-[1.1rem] border border-zinc-800/90 px-5 py-4">
             <span className="whitespace-pre-wrap text-[14px] leading-[1.9] text-zinc-50">
               {run.user_message || run.prompt}
             </span>
@@ -60,7 +60,7 @@ export const AgentRunMessage = memo(function AgentRunMessage({
           <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-cyan-200/80">AI</span>
         </div>
         <div className="min-w-0 flex-1">
-          <div className="rounded-[1.55rem] border border-zinc-800/85 bg-zinc-950/78 px-6 py-5 shadow-[0_24px_44px_rgba(0,0,0,0.18),inset_0_1px_0_rgba(255,255,255,0.02)]">
+          <div className="rounded-[1.1rem] border border-zinc-800/85 bg-zinc-950/72 px-5 py-4">
             {agentState && <AgentStepsPanel agentState={agentState} />}
 
             {finalAnswer ? (

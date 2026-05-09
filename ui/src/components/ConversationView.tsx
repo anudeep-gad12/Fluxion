@@ -1067,6 +1067,7 @@ export function ConversationView() {
   const conversation = useSelectedConversation();
   const runs = useConversationRuns(selectedConversationId);
   const terminalState = useConversationTerminal(selectedConversationId);
+  const initTerminalState = useStore((s) => s.initTerminalState);
   const hasActiveRun = useHasActiveRun();
   const updateTerminalState = useStore((s) => s.updateTerminalState);
   const draftWorkspacePath = useStore((s) => s.draftWorkspacePath);
@@ -1086,9 +1087,10 @@ export function ConversationView() {
   const [permissionPolicy, setPermissionPolicy] = useState<'strict' | 'relaxed' | 'yolo'>(
     () => (localStorage.getItem('reasoner_permission_policy') as 'strict' | 'relaxed' | 'yolo') || 'strict'
   );
-  const [isDesktop, setIsDesktop] = useState(
-    () => typeof window !== 'undefined' && window.innerWidth >= 768
+  const [viewportWidth, setViewportWidth] = useState(
+    () => (typeof window !== 'undefined' ? window.innerWidth : 1440)
   );
+  const isDesktop = viewportWidth >= 768;
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const verticalMoveColumnRef = useRef<number | null>(null);
@@ -1142,7 +1144,49 @@ export function ConversationView() {
   }, [conversation?.workspace_path, setDraftWorkspacePath]);
 
   useEffect(() => {
-    const handleResize = () => setIsDesktop(window.innerWidth >= 768);
+    if (!selectedConversationId) {
+      return;
+    }
+
+    let savedState: Partial<{
+      isOpen: boolean;
+      dock: 'bottom' | 'right';
+      height: number;
+      width: number;
+    }> = {};
+
+    try {
+      savedState = JSON.parse(localStorage.getItem(`reasoner_terminal_state:${selectedConversationId}`) || '{}');
+    } catch {
+      savedState = {};
+    }
+
+    initTerminalState(selectedConversationId, {
+      isOpen: savedState.isOpen ?? false,
+      dock: savedState.dock === 'right' ? 'right' : 'bottom',
+      height: Number(savedState.height || 260),
+      width: Number(savedState.width || 420),
+    });
+  }, [initTerminalState, selectedConversationId]);
+
+  useEffect(() => {
+    if (!selectedConversationId || !terminalState) {
+      return;
+    }
+
+    localStorage.setItem(
+      `reasoner_terminal_state:${selectedConversationId}`,
+      JSON.stringify({
+        isOpen: terminalState.isOpen,
+        dock: terminalState.dock,
+        height: terminalState.height,
+        width: terminalState.width,
+      })
+    );
+  }, [selectedConversationId, terminalState]);
+
+  useEffect(() => {
+    const handleResize = () => setViewportWidth(window.innerWidth);
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
@@ -1722,6 +1766,13 @@ export function ConversationView() {
   // Determine if we should show Stop button (active run we started)
   const isGenerating = !!pendingRunId;
   const terminalAvailable = !!selectedConversationId && mode === 'agent' && isDesktop;
+  const preferredTerminalDock = terminalState?.dock ?? 'bottom';
+  const canRightDockTerminal = viewportWidth >= 1200;
+  const rightTerminalOpen = terminalAvailable
+    && !!terminalState?.isOpen
+    && preferredTerminalDock === 'right'
+    && canRightDockTerminal;
+  const bottomTerminalOpen = terminalAvailable && !!terminalState?.isOpen && !rightTerminalOpen;
 
   // Auto-resize textarea
   const resizeTextarea = useCallback(() => {
@@ -2273,7 +2324,7 @@ export function ConversationView() {
         </div>
         <div className="flex-shrink-0 space-y-3 p-3 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-4 sm:pb-[max(1rem,env(safe-area-inset-bottom))]">
           {/* Prompt area */}
-          <div className="ui-panel ui-transition relative overflow-visible rounded-[1.5rem] border border-zinc-800/90 px-1 shadow-[0_24px_48px_rgba(0,0,0,0.22),inset_0_1px_0_rgba(255,255,255,0.025)] focus-within:border-cyan-500/35 focus-within:shadow-[0_24px_48px_rgba(0,0,0,0.22),0_0_0_1px_rgba(103,232,249,0.08)]">
+          <div className="ui-panel ui-transition relative overflow-visible rounded-[1.1rem] border border-zinc-800/90 px-1 focus-within:border-cyan-500/30 focus-within:ring-1 focus-within:ring-cyan-500/10">
             <div className="flex items-start gap-3 p-4">
               <span className="mt-0.5 select-none font-mono text-sm text-cyan-200/80">&gt;</span>
               <textarea
@@ -2498,253 +2549,268 @@ export function ConversationView() {
         }}
       />
 
-      <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-6 md:px-8 md:py-8" ref={scrollRef}>
-        <div className="w-full max-w-[62rem]">
-          <VirtualizedConversationRunList
-            runs={runs}
-            scrollContainerRef={scrollRef}
-            renderRun={renderRunCard}
+      <div className="flex min-h-0 flex-1">
+        <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+          <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-6 md:px-8 md:py-8" ref={scrollRef}>
+            <div className="w-full max-w-[62rem]">
+              <VirtualizedConversationRunList
+                runs={runs}
+                scrollContainerRef={scrollRef}
+                renderRun={renderRunCard}
+              />
+            </div>
+          </div>
+
+          {/* Scroll-to-bottom pill */}
+          <ScrollToBottom
+            scrollRef={scrollRef}
+            isStreaming={!!activeRunId}
+            className={cn(
+              "left-1/2 -translate-x-1/2",
+              bottomTerminalOpen
+                ? "bottom-[calc(6rem+var(--terminal-height,260px))]"
+                : activeAgentHudState?.isActive
+                  ? "bottom-40"
+                  : "bottom-28"
+            )}
           />
+
+          {activeAgentRun && activeAgentHudState?.isActive && (
+            <AgentLiveHUD
+              runId={activeAgentRun.run_id}
+              runCreatedAt={activeAgentRun.created_at}
+              agentState={activeAgentHudState}
+            />
+          )}
+
+          {terminalAvailable && selectedConversationId && bottomTerminalOpen && (
+            <div style={{ ['--terminal-height' as string]: `${terminalState?.height ?? 260}px` }}>
+              <IntegratedTerminal
+                key={`${selectedConversationId}-bottom`}
+                conversationId={selectedConversationId}
+                workspacePath={effectiveWorkspacePath}
+                active={terminalAvailable}
+                dock="bottom"
+              />
+            </div>
+          )}
+
+          <div className="flex-shrink-0 space-y-3 p-3 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-4 sm:pb-[max(1rem,env(safe-area-inset-bottom))]">
+            {/* Queued steering messages */}
+            {queuedSteers.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 px-1">
+                {queuedSteers.map((msg, i) => (
+                  <span
+                    key={i}
+                    className="inline-flex items-center gap-1 rounded-full border border-amber-500/18 bg-amber-500/[0.08] px-2.5 py-1 text-[11px] font-mono text-amber-300/85"
+                  >
+                    <span className="text-amber-500/50">queued:</span> {msg.length > 40 ? msg.slice(0, 40) + '...' : msg}
+                  </span>
+                ))}
+              </div>
+            )}
+            {/* Prompt area */}
+            <div className="ui-panel ui-transition relative overflow-visible rounded-[1.1rem] border border-zinc-800/90 px-1 focus-within:border-cyan-500/30 focus-within:ring-1 focus-within:ring-cyan-500/10">
+              <div className="flex items-start gap-3 p-4">
+                <span className="mt-0.5 select-none font-mono text-sm text-cyan-200/80">&gt;</span>
+                <textarea
+                  ref={textareaRef}
+                  placeholder={atLimit ? 'Message limit reached' : hasActiveRun ? 'Steer the agent...' : mode === 'agent' ? 'Ask the coding agent...' : 'Ask a follow-up question...'}
+                  value={message}
+                  onChange={handleMessageChange}
+                  onPaste={handlePaste}
+                  onKeyDown={handleKeyDown}
+                  onSelect={handleTextareaSelection}
+                  onClick={handleTextareaSelection}
+                  rows={2}
+                  className="flex-1 resize-none border-none bg-transparent text-[14px] leading-[1.9] text-zinc-50 outline-none placeholder:text-zinc-500"
+                  disabled={isSubmitting || atLimit}
+                  style={{ maxHeight: '200px' }}
+                />
+              </div>
+              <MentionPicker
+                open={mentionOpen}
+                loading={mentionLoading}
+                entries={mentionResults}
+                selectedIndex={mentionSelectedIndex}
+                onSelect={handleMentionSelect}
+              />
+            </div>
+            {imageAttachments.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 px-1 font-mono text-[11px]">
+                {imageAttachments.map((attachment, index) => (
+                  <button
+                    key={attachment.id || index}
+                    type="button"
+                    onClick={() => removeImageAttachment(attachment.id)}
+                      className="rounded-lg border border-zinc-800 bg-zinc-950 px-2 py-0.5 text-zinc-300 hover:border-cyan-500/30 hover:text-cyan-100"
+                    title="Remove image"
+                  >
+                    image {index + 1} ×
+                  </button>
+                ))}
+              </div>
+            )}
+            {/* Toolbar */}
+            <div className="flex items-center justify-between px-1.5">
+              <div className="flex items-center gap-3 font-mono text-[11px]">
+                <button
+                  onClick={() => setMode('agent')}
+                  className={cn(
+                    'transition-colors',
+                    mode === 'agent' ? 'text-cyan-100' : 'text-zinc-500 hover:text-cyan-100'
+                  )}
+                >
+                  agent
+                </button>
+                <button
+                  onClick={() => setMode('chat')}
+                  className={cn(
+                    'transition-colors',
+                    mode === 'chat' ? 'text-cyan-100' : 'text-zinc-500 hover:text-cyan-100'
+                  )}
+                >
+                  chat
+                </button>
+                {mode === 'agent' && (
+                  <>
+                    {isWorkspaceLocked ? (
+                      <span
+                        className={cn(
+                          'max-w-52 truncate text-xs font-mono',
+                          hasConversationWorkspace ? 'text-zinc-300' : 'text-zinc-600'
+                        )}
+                        title={
+                          hasConversationWorkspace
+                            ? effectiveWorkspacePath
+                            : 'This conversation has no workspace. Create a new workspace thread from the sidebar.'
+                        }
+                      >
+                        {hasConversationWorkspace ? effectiveWorkspacePath : 'no workspace'}
+                      </span>
+                    ) : (
+                      <>
+                        <input
+                          value={draftWorkspacePath}
+                          onChange={(e) => setDraftWorkspacePath(e.target.value)}
+                          placeholder="/path/to/repo"
+                          className="w-40 sm:w-56 bg-transparent border-none outline-none text-[11px] font-mono text-zinc-300 placeholder:text-zinc-600"
+                          title="Workspace path for filesystem and bash tools"
+                        />
+                        <button
+                          onClick={handleOpenWorkspacePicker}
+                          className="ui-transition text-zinc-400 hover:text-cyan-100"
+                          title="Browse local folders"
+                        >
+                          browse
+                        </button>
+                      </>
+                    )}
+                    <select
+                      value={permissionPolicy}
+                      onChange={(e) => setPermissionPolicy(e.target.value as 'strict' | 'relaxed' | 'yolo')}
+                      className="bg-transparent border-none outline-none text-[11px] font-mono text-zinc-300 cursor-pointer"
+                      title="Tool permission policy"
+                    >
+                      <option value="strict">strict</option>
+                      <option value="relaxed">relaxed</option>
+                      <option value="yolo">yolo</option>
+                      </select>
+                    </>
+                  )}
+                  <button
+                    onClick={() => setReasoningSettingsOpen(true)}
+                    className="ui-transition text-zinc-300 hover:text-cyan-100"
+                    title="Configure reasoning settings"
+                  >
+                    reasoning
+                  </button>
+                  {terminalAvailable && selectedConversationId && (
+                    <button
+                      onClick={() => {
+                        if (!effectiveWorkspacePath) {
+                          toast.error(selectedConversationId ? 'Create or open a workspace conversation first' : 'Select a workspace first');
+                          if (!selectedConversationId) {
+                            setWorkspacePickerOpen(true);
+                          }
+                          return;
+                        }
+                        updateTerminalState(selectedConversationId, { isOpen: !terminalState?.isOpen });
+                      }}
+                      className="ui-transition text-zinc-300 hover:text-cyan-100"
+                      title={
+                        effectiveWorkspacePath
+                          ? (terminalState?.isOpen ? 'Collapse terminal' : 'Open terminal')
+                          : 'Select or open a workspace conversation first'
+                      }
+                    >
+                      {terminalState?.isOpen ? 'terminal−' : 'terminal+'}
+                    </button>
+                  )}
+                  <span className="text-zinc-700">|</span>
+                  {isGenerating ? (
+                    <button onClick={handleStop} className="text-red-400 hover:text-red-300 transition-colors">
+                      stop
+                    </button>
+                ) : (
+                  <button
+                    onClick={handleSubmit}
+                    disabled={!message.trim() || isSubmitting || atLimit}
+                    className={cn(
+                      'transition-colors',
+                      !message.trim() || isSubmitting || atLimit
+                        ? 'text-zinc-700 cursor-not-allowed'
+                        : hasActiveRun
+                          ? 'text-amber-400/80 hover:text-amber-300'
+                          : 'text-cyan-100 hover:text-white'
+                    )}
+                    title={atLimit ? 'Message limit reached' : hasActiveRun ? 'Send steering message to agent' : undefined}
+                  >
+                    {isSubmitting ? 'sending...' : atLimit ? 'limit reached' : hasActiveRun ? 'steer' : 'send'}
+                  </button>
+                )}
+                {showComposerContextStats && (
+                  <>
+                    <span className="text-zinc-700">|</span>
+                    <span className="text-zinc-500">
+                      ctx {composerContextUtilizationPct !== null ? `${Math.round(composerContextUtilizationPct)}%` : '—'}
+                    </span>
+                    <span className="text-zinc-500">
+                      {typeof composerPromptTokens === 'number' && composerContextWindow
+                        ? `${formatContextTokens(composerPromptTokens)}/${formatContextTokens(composerContextWindow)}`
+                        : '—'}
+                    </span>
+                    <span className="text-zinc-500">
+                      raw {conversationRawTokens > 0 ? formatContextTokens(conversationRawTokens) : '—'}
+                    </span>
+                  </>
+                )}
+              </div>
+              <div className="flex items-center gap-3 font-mono text-[11px] text-zinc-500">
+                {hasLimit && (
+                  <span className={cn(
+                    atLimit ? 'text-red-500/70' : usage.remaining <= 3 ? 'text-amber-500' : ''
+                  )}>
+                    {atLimit ? 'no messages left' : `${usage.remaining} left`}
+                  </span>
+                )}
+                <span className="hidden md:inline">⌘+Enter send</span>
+                <span className={message.length > MAX_INPUT_CHARS * 0.9 ? 'text-zinc-400' : ''}>
+                  {message.length.toLocaleString()}/{MAX_INPUT_CHARS.toLocaleString()}
+                </span>
+              </div>
+            </div>
+          </div>
         </div>
-      </div>
-
-      {/* Scroll-to-bottom pill */}
-      <ScrollToBottom
-        scrollRef={scrollRef}
-        isStreaming={!!activeRunId}
-        className={cn(
-          "left-1/2 -translate-x-1/2",
-          terminalAvailable && terminalState?.isOpen
-            ? "bottom-[calc(6rem+var(--terminal-height,260px))]"
-            : activeAgentHudState?.isActive
-              ? "bottom-40"
-              : "bottom-28"
-        )}
-      />
-
-      {activeAgentRun && activeAgentHudState?.isActive && (
-        <AgentLiveHUD
-          runId={activeAgentRun.run_id}
-          runCreatedAt={activeAgentRun.created_at}
-          agentState={activeAgentHudState}
-        />
-      )}
-
-      {terminalAvailable && selectedConversationId && (
-        <div style={{ ['--terminal-height' as string]: `${terminalState?.height ?? 260}px` }}>
+        {terminalAvailable && selectedConversationId && rightTerminalOpen && (
           <IntegratedTerminal
+            key={`${selectedConversationId}-right`}
             conversationId={selectedConversationId}
             workspacePath={effectiveWorkspacePath}
             active={terminalAvailable}
+            dock="right"
           />
-        </div>
-      )}
-
-      <div className="flex-shrink-0 space-y-3 p-3 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-4 sm:pb-[max(1rem,env(safe-area-inset-bottom))]">
-        {/* Queued steering messages */}
-        {queuedSteers.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 px-1">
-            {queuedSteers.map((msg, i) => (
-              <span
-                key={i}
-                className="inline-flex items-center gap-1 rounded-full border border-amber-500/20 bg-amber-500/10 px-2.5 py-1 text-[11px] font-mono text-amber-300/85"
-              >
-                <span className="text-amber-500/50">queued:</span> {msg.length > 40 ? msg.slice(0, 40) + '...' : msg}
-              </span>
-            ))}
-          </div>
         )}
-        {/* Prompt area */}
-        <div className="ui-panel ui-transition relative overflow-visible rounded-[1.5rem] border border-zinc-800/90 px-1 shadow-[0_24px_48px_rgba(0,0,0,0.22),inset_0_1px_0_rgba(255,255,255,0.025)] focus-within:border-cyan-500/35 focus-within:shadow-[0_24px_48px_rgba(0,0,0,0.22),0_0_0_1px_rgba(103,232,249,0.08)]">
-          <div className="flex items-start gap-3 p-4">
-            <span className="mt-0.5 select-none font-mono text-sm text-cyan-200/80">&gt;</span>
-            <textarea
-              ref={textareaRef}
-              placeholder={atLimit ? 'Message limit reached' : hasActiveRun ? 'Steer the agent...' : mode === 'agent' ? 'Ask the coding agent...' : 'Ask a follow-up question...'}
-              value={message}
-              onChange={handleMessageChange}
-              onPaste={handlePaste}
-              onKeyDown={handleKeyDown}
-              onSelect={handleTextareaSelection}
-              onClick={handleTextareaSelection}
-              rows={2}
-              className="flex-1 resize-none border-none bg-transparent text-[14px] leading-[1.9] text-zinc-50 outline-none placeholder:text-zinc-500"
-              disabled={isSubmitting || atLimit}
-              style={{ maxHeight: '200px' }}
-            />
-          </div>
-          <MentionPicker
-            open={mentionOpen}
-            loading={mentionLoading}
-            entries={mentionResults}
-            selectedIndex={mentionSelectedIndex}
-            onSelect={handleMentionSelect}
-          />
-        </div>
-        {imageAttachments.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 px-1 font-mono text-[11px]">
-            {imageAttachments.map((attachment, index) => (
-              <button
-                key={attachment.id || index}
-                type="button"
-                onClick={() => removeImageAttachment(attachment.id)}
-                  className="rounded-lg border border-zinc-700 bg-zinc-900 px-2 py-0.5 text-zinc-300 hover:border-cyan-500/30 hover:text-cyan-100"
-                title="Remove image"
-              >
-                image {index + 1} ×
-              </button>
-            ))}
-          </div>
-        )}
-        {/* Toolbar */}
-        <div className="flex items-center justify-between px-1.5">
-          <div className="flex items-center gap-3 font-mono text-[11px]">
-            <button
-              onClick={() => setMode('agent')}
-              className={cn(
-                'transition-colors',
-                mode === 'agent' ? 'text-cyan-100' : 'text-zinc-500 hover:text-cyan-100'
-              )}
-            >
-              agent
-            </button>
-            <button
-              onClick={() => setMode('chat')}
-              className={cn(
-                'transition-colors',
-                mode === 'chat' ? 'text-cyan-100' : 'text-zinc-500 hover:text-cyan-100'
-              )}
-            >
-              chat
-            </button>
-            {mode === 'agent' && (
-              <>
-                {isWorkspaceLocked ? (
-                  <span
-                    className={cn(
-                      'max-w-52 truncate text-xs font-mono',
-                      hasConversationWorkspace ? 'text-zinc-300' : 'text-zinc-600'
-                    )}
-                    title={
-                      hasConversationWorkspace
-                        ? effectiveWorkspacePath
-                        : 'This conversation has no workspace. Create a new workspace thread from the sidebar.'
-                    }
-                  >
-                    {hasConversationWorkspace ? effectiveWorkspacePath : 'no workspace'}
-                  </span>
-                ) : (
-                  <>
-                    <input
-                      value={draftWorkspacePath}
-                      onChange={(e) => setDraftWorkspacePath(e.target.value)}
-                      placeholder="/path/to/repo"
-                      className="w-40 sm:w-56 bg-transparent border-none outline-none text-[11px] font-mono text-zinc-300 placeholder:text-zinc-600"
-                      title="Workspace path for filesystem and bash tools"
-                    />
-                    <button
-                      onClick={handleOpenWorkspacePicker}
-                      className="ui-transition text-zinc-400 hover:text-cyan-100"
-                      title="Browse local folders"
-                    >
-                      browse
-                    </button>
-                  </>
-                )}
-                <select
-                  value={permissionPolicy}
-                  onChange={(e) => setPermissionPolicy(e.target.value as 'strict' | 'relaxed' | 'yolo')}
-                  className="bg-transparent border-none outline-none text-[11px] font-mono text-zinc-300 cursor-pointer"
-                  title="Tool permission policy"
-                >
-                  <option value="strict">strict</option>
-                  <option value="relaxed">relaxed</option>
-                  <option value="yolo">yolo</option>
-                  </select>
-                </>
-              )}
-              <button
-                onClick={() => setReasoningSettingsOpen(true)}
-                className="ui-transition text-zinc-300 hover:text-cyan-100"
-                title="Configure reasoning settings"
-              >
-                reasoning
-              </button>
-              {terminalAvailable && selectedConversationId && (
-                <button
-                  onClick={() => {
-                    if (!effectiveWorkspacePath) {
-                      toast.error(selectedConversationId ? 'Create or open a workspace conversation first' : 'Select a workspace first');
-                      if (!selectedConversationId) {
-                        setWorkspacePickerOpen(true);
-                      }
-                      return;
-                    }
-                    updateTerminalState(selectedConversationId, { isOpen: !terminalState?.isOpen });
-                  }}
-                  className="ui-transition text-zinc-300 hover:text-cyan-100"
-                  title={
-                    effectiveWorkspacePath
-                      ? (terminalState?.isOpen ? 'Collapse terminal' : 'Open terminal')
-                      : 'Select or open a workspace conversation first'
-                  }
-                >
-                  {terminalState?.isOpen ? 'terminal−' : 'terminal+'}
-                </button>
-              )}
-              <span className="text-zinc-700">|</span>
-              {isGenerating ? (
-                <button onClick={handleStop} className="text-red-400 hover:text-red-300 transition-colors">
-                  stop
-                </button>
-            ) : (
-              <button
-                onClick={handleSubmit}
-                disabled={!message.trim() || isSubmitting || atLimit}
-                className={cn(
-                  'transition-colors',
-                  !message.trim() || isSubmitting || atLimit
-                    ? 'text-zinc-700 cursor-not-allowed'
-                    : hasActiveRun
-                      ? 'text-amber-400/80 hover:text-amber-300'
-                      : 'text-cyan-100 hover:text-white'
-                )}
-                title={atLimit ? 'Message limit reached' : hasActiveRun ? 'Send steering message to agent' : undefined}
-              >
-                {isSubmitting ? 'sending...' : atLimit ? 'limit reached' : hasActiveRun ? 'steer' : 'send'}
-              </button>
-            )}
-            {showComposerContextStats && (
-              <>
-                <span className="text-zinc-700">|</span>
-                <span className="text-zinc-500">
-                  ctx {composerContextUtilizationPct !== null ? `${Math.round(composerContextUtilizationPct)}%` : '—'}
-                </span>
-                <span className="text-zinc-500">
-                  {typeof composerPromptTokens === 'number' && composerContextWindow
-                    ? `${formatContextTokens(composerPromptTokens)}/${formatContextTokens(composerContextWindow)}`
-                    : '—'}
-                </span>
-                <span className="text-zinc-500">
-                  raw {conversationRawTokens > 0 ? formatContextTokens(conversationRawTokens) : '—'}
-                </span>
-              </>
-            )}
-          </div>
-          <div className="flex items-center gap-3 font-mono text-[11px] text-zinc-500">
-            {hasLimit && (
-              <span className={cn(
-                atLimit ? 'text-red-500/70' : usage.remaining <= 3 ? 'text-amber-500' : ''
-              )}>
-                {atLimit ? 'no messages left' : `${usage.remaining} left`}
-              </span>
-            )}
-            <span className="hidden md:inline">⌘+Enter send</span>
-            <span className={message.length > MAX_INPUT_CHARS * 0.9 ? 'text-zinc-400' : ''}>
-              {message.length.toLocaleString()}/{MAX_INPUT_CHARS.toLocaleString()}
-            </span>
-          </div>
-        </div>
       </div>
     </div>
   );

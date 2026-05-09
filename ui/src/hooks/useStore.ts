@@ -12,7 +12,9 @@ const EMPTY_EVENTS: Event[] = [];
 
 export interface TerminalUIState {
   isOpen: boolean;
+  dock: 'bottom' | 'right';
   height: number;
+  width: number;
   session: TerminalSessionResponse | null;
   buffer: string;
   connected: boolean;
@@ -453,7 +455,9 @@ export const useStore = create<AppState>((set, get) => ({
     set((state) => {
       const base: TerminalUIState = {
         isOpen: false,
+        dock: 'bottom',
         height: 260,
+        width: 420,
         session: null,
         buffer: '',
         connected: false,
@@ -475,7 +479,9 @@ export const useStore = create<AppState>((set, get) => ({
     set((state) => {
       const current = state.terminalByConversation[conversationId] ?? {
         isOpen: false,
+        dock: 'bottom' as const,
         height: 260,
+        width: 420,
         session: null,
         buffer: '',
         connected: false,
@@ -493,7 +499,9 @@ export const useStore = create<AppState>((set, get) => ({
     set((state) => {
       const current = state.terminalByConversation[conversationId] ?? {
         isOpen: false,
+        dock: 'bottom' as const,
         height: 260,
+        width: 420,
         session: null,
         buffer: '',
         connected: false,

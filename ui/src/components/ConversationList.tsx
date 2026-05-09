@@ -61,10 +61,10 @@ function ConversationCard({
   return (
     <div
       className={cn(
-        'ui-transition cursor-pointer rounded-[1rem] border border-zinc-800/90 bg-zinc-950/66 px-3.5 py-3.5 ui-elevated',
+        'ui-transition cursor-pointer rounded-[0.9rem] border border-zinc-800/90 bg-zinc-950/66 px-3.5 py-3.5',
         'min-h-[60px] sm:min-h-0',
-        isSelected && 'border-cyan-500/35 bg-zinc-950/98 shadow-[0_0_0_1px_rgba(103,232,249,0.12),0_20px_40px_rgba(0,0,0,0.22)] -translate-y-[1px]',
-        !isSelected && 'hover:border-zinc-700/95 hover:bg-zinc-950/82 hover:-translate-y-[1px]',
+        isSelected && 'border-cyan-500/35 bg-zinc-950/98 ring-1 ring-cyan-500/10',
+        !isSelected && 'hover:border-zinc-700/95 hover:bg-zinc-950/82',
         isChecked && 'border-zinc-600/95 bg-zinc-950/90'
       )}
       onClick={isSelectMode ? onToggleCheck : onClick}
@@ -134,7 +134,7 @@ function WorkspaceSection({
             onToggle();
           }
         }}
-        className="ui-transition group ui-panel block w-full rounded-[1.25rem] border border-zinc-800/90 px-3.5 py-3.5 text-left shadow-[0_18px_36px_rgba(0,0,0,0.18),inset_0_1px_0_rgba(255,255,255,0.02)] hover:border-cyan-500/25 hover:-translate-y-[1px]"
+        className="ui-transition group ui-panel block w-full rounded-[1rem] border border-zinc-800/90 px-3.5 py-3.5 text-left hover:border-cyan-500/25"
       >
         <div className="flex items-start gap-3.5">
           <button
