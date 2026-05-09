@@ -11,10 +11,10 @@ import {
 } from 'react';
 import type { Run } from '@/types';
 
-const DEFAULT_ESTIMATED_ROW_HEIGHT = 420;
+const DEFAULT_ESTIMATED_ROW_HEIGHT = 460;
 const DEFAULT_OVERSCAN = 6;
 const DEFAULT_THRESHOLD = 40;
-const ROW_GAP_PX = 32;
+const ROW_GAP_PX = 40;
 
 interface VirtualizedConversationRunListProps {
   runs: Run[];
@@ -82,7 +82,7 @@ const MeasuredRow = memo(function MeasuredRow({
   return (
     <div
       ref={rowRef}
-      className="absolute left-0 right-0 pb-8"
+      className="absolute left-0 right-0 pb-10"
       style={{ top }}
       data-run-id={runId}
     >
@@ -201,7 +201,7 @@ export const VirtualizedConversationRunList = memo(function VirtualizedConversat
   }, [measuredHeights, overscan, runs, scrollTop, shouldVirtualize, viewportHeight]);
 
   if (!shouldVirtualize) {
-    return <div className="space-y-8">{runs.map((run) => renderRun(run))}</div>;
+    return <div className="space-y-10">{runs.map((run) => renderRun(run))}</div>;
   }
 
   return (

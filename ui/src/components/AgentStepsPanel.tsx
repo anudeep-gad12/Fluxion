@@ -1,6 +1,5 @@
 /**
  * Continuous agent activity stream.
- * Shows thinking/tool activity inline without boxed step labels.
  */
 
 import { useMemo, useState } from 'react';
@@ -22,51 +21,117 @@ function TimelineItem({
   isLast?: boolean;
 }) {
   return (
-    <div className="relative pl-6">
+    <div className="relative pl-7">
       {!isLast && (
         <span
-          className={`absolute left-[3px] top-3 bottom-[-0.75rem] w-px ${lineClassName || 'bg-zinc-800'}`}
+          className={lineClassName || 'absolute left-[7px] top-4 bottom-[-1rem] w-px bg-zinc-800'}
         />
       )}
-      <span className={`absolute left-0 top-2 h-2 w-2 rounded-full ${dotClassName}`} />
+      <span className={cnBaseDot(dotClassName)} />
       {children}
     </div>
   );
 }
 
+function cnBaseDot(className: string): string {
+  return `absolute left-[1px] top-2.5 h-2.5 w-2.5 rounded-full border border-zinc-950 ${className}`;
+}
+
+function summarize(content: string): string {
+  const line = content
+    .split('\n')
+    .map((item) => item.trim())
+    .find(Boolean) || '';
+  return line.length > 88 ? `${line.slice(0, 85)}...` : line;
+}
+
 function ThinkingBlock({
-  stepNumber,
   content,
   isLive,
   expanded,
   onToggle,
 }: {
-  stepNumber: number;
   content: string;
   isLive: boolean;
   expanded: boolean;
   onToggle: () => void;
 }) {
+  const preview = summarize(content);
+
   return (
-    <div className="space-y-2">
+    <div className="space-y-2 border-l border-zinc-800/90 pl-3">
       <button
         type="button"
         onClick={onToggle}
-        className="flex items-center gap-2 text-left text-zinc-300 transition-colors hover:text-zinc-300"
+        className="ui-transition flex w-full items-start justify-between gap-3 text-left"
       >
-        <span className="select-none text-zinc-300">{expanded ? '▼' : '▶'}</span>
-        <span>{isLive ? 'thinking...' : 'thinking'}</span>
-        {isLive && <span className="text-cyan-400/70">live</span>}
+        <div className="space-y-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-full border border-zinc-900/90 bg-transparent px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.14em] text-zinc-300">
+              thinking
+            </span>
+            {isLive && (
+              <span className="rounded-full border border-cyan-500/18 bg-cyan-500/[0.04] px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.14em] text-cyan-200">
+                live
+              </span>
+            )}
+          </div>
+          {!expanded && preview && <div className="text-[12px] leading-6 text-zinc-400">{preview}</div>}
+        </div>
+        <span className="mt-0.5 text-zinc-500">{expanded ? '▾' : '▸'}</span>
       </button>
       {expanded && (
-        <div className="rounded-sm border border-zinc-700 bg-zinc-950/82 px-3 py-2 text-zinc-300">
+        <div className="border-t border-zinc-900/90 pt-3 text-zinc-200">
           <AnswerMarkdown content={content} />
           {isLive && (
             <span className="agent-caret ml-1 inline-block h-3 w-1.5 translate-y-0.5 bg-cyan-400/70" />
           )}
         </div>
       )}
-      {!expanded && isLive && <div className="text-[11px] text-zinc-300">step {stepNumber}</div>}
+    </div>
+  );
+}
+
+function formatStepStateLabel(stepState: string, isCurrentStep: boolean, isActive: boolean): string {
+  if (isCurrentStep && isActive) return 'live';
+  if (stepState === 'tool_calling') return 'tooling';
+  if (stepState === 'synthesizing') return 'writing';
+  if (stepState === 'planning') return 'thinking';
+  if (stepState === 'complete') return 'done';
+  if (stepState === 'error') return 'error';
+  return stepState.replace(/_/g, ' ');
+}
+
+function stepChipClass(stepState: string, isCurrentStep: boolean, isActive: boolean): string {
+  if (isCurrentStep && isActive) {
+    return 'border-cyan-500/18 bg-cyan-500/[0.04] text-cyan-100';
+  }
+  if (stepState === 'complete') {
+    return 'border-emerald-500/14 bg-emerald-500/[0.04] text-emerald-100';
+  }
+  if (stepState === 'error') {
+    return 'border-red-500/14 bg-red-500/[0.04] text-red-100';
+  }
+  if (stepState === 'tool_calling') {
+    return 'border-amber-500/14 bg-amber-500/[0.04] text-amber-100';
+  }
+  return 'border-zinc-900/90 bg-transparent text-zinc-300';
+}
+
+function PendingStepCard() {
+  return (
+    <div className="border-l border-cyan-500/24 pl-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <span className="inline-flex h-2 w-2 rounded-full bg-cyan-400 animate-pulse" />
+          <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-cyan-100">thinking</span>
+        </div>
+        <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-zinc-500">waiting for first trace</span>
+      </div>
+      <div className="mt-3 space-y-2">
+        <div className="h-2.5 w-[70%] rounded-full bg-zinc-900 shimmer" />
+        <div className="h-2.5 w-[52%] rounded-full bg-zinc-900 shimmer" />
+      </div>
     </div>
   );
 }
@@ -118,22 +183,22 @@ export function AgentStepsPanel({ agentState }: AgentStepsPanelProps) {
     return map;
   }, [steps, thinkingBuffer, isActive, currentStep]);
 
-  if (steps.length === 0 && systemEvents.length === 0 && !isActive) {
+  if (steps.length === 0 && systemEvents.length === 0) {
     return null;
   }
 
   return (
-    <div className="mb-3 font-mono text-xs">
-      <div className="space-y-3">
+    <div className="mb-5 pl-1 font-mono text-xs">
+      <div className="space-y-5">
         {systemEvents.map((event, index) => (
           <TimelineItem
             key={`system-${event.seq ?? index}`}
             dotClassName="bg-violet-400"
-            lineClassName="bg-violet-500/20"
+            lineClassName="absolute left-[7px] top-4 bottom-[-1rem] w-px bg-violet-500/20"
             isLast={steps.length === 0 && index === systemEvents.length - 1}
           >
-            <div className="text-violet-200/80">
-              <span className="text-violet-400/70">system: </span>
+            <div className="border-l border-violet-500/24 pl-3 text-[12px] leading-6 text-violet-100/85">
+              <span className="mr-1 text-violet-300/80">system:</span>
               {event.message}
             </div>
           </TimelineItem>
@@ -152,16 +217,26 @@ export function AgentStepsPanel({ agentState }: AgentStepsPanelProps) {
           };
 
           return (
-            <div key={step.id} className="space-y-2">
+            <div key={step.id} className="space-y-3">
+              <div className="pl-7">
+                <div className="flex flex-wrap items-center gap-2 font-mono text-[10px] uppercase tracking-[0.18em]">
+                  <span className={`rounded-full border px-2 py-0.5 ${stepChipClass(step.state, isCurrentStep, isActive)}`}>
+                    {formatStepStateLabel(step.state, isCurrentStep, isActive)}
+                  </span>
+                  {stepToolCalls.length > 0 ? (
+                    <span className="text-zinc-700">{stepToolCalls.length} action{stepToolCalls.length === 1 ? '' : 's'}</span>
+                  ) : null}
+                </div>
+              </div>
               {stepSteers.map((steer, index) => (
                 <TimelineItem
                   key={`steer-${step.step_number}-${index}`}
                   dotClassName="bg-amber-400"
-                  lineClassName="bg-amber-500/20"
+                  lineClassName="absolute left-[7px] top-4 bottom-[-1rem] w-px bg-amber-500/20"
                   isLast={nextIsLast()}
                 >
-                  <div className="text-amber-300/80">
-                    <span className="text-amber-500/50">you: </span>
+                  <div className="border-l border-amber-500/24 pl-3 text-[12px] leading-6 text-amber-100/85">
+                    <span className="mr-1 text-amber-300/80">you:</span>
                     {steer.content}
                   </div>
                 </TimelineItem>
@@ -173,7 +248,6 @@ export function AgentStepsPanel({ agentState }: AgentStepsPanelProps) {
                   isLast={nextIsLast()}
                 >
                   <ThinkingBlock
-                    stepNumber={step.step_number}
                     content={thinkingEntry.content}
                     isLive={thinkingEntry.isLive}
                     expanded={!!expandedThinking[step.step_number]}
@@ -201,13 +275,15 @@ export function AgentStepsPanel({ agentState }: AgentStepsPanelProps) {
                   }
                   isLast={nextIsLast()}
                 >
-                  <ToolCallCard toolCall={toolCall} />
+                  <div className="border-l border-zinc-800/90 pl-3">
+                    <ToolCallCard toolCall={toolCall} />
+                  </div>
                 </TimelineItem>
               ))}
 
               {itemsCount === 0 && isCurrentStep && isActive && (
                 <TimelineItem dotClassName="bg-cyan-400" isLast>
-                  <div className="text-zinc-400">step {step.step_number}</div>
+                  <PendingStepCard />
                 </TimelineItem>
               )}
             </div>
@@ -216,7 +292,7 @@ export function AgentStepsPanel({ agentState }: AgentStepsPanelProps) {
 
         {steps.length === 0 && isActive && (
           <TimelineItem dotClassName="bg-zinc-600" isLast>
-            <div className="text-zinc-400">awaiting first step</div>
+            <PendingStepCard />
           </TimelineItem>
         )}
       </div>
