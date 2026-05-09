@@ -16,11 +16,11 @@ export function Dialog({ open, onOpenChange, children, className }: DialogProps)
         <div className="fixed inset-0 z-50 flex items-center justify-center">
             {/* Backdrop */}
             <div
-                className="fixed inset-0 bg-black/70"
+                className="fixed inset-0 bg-black/72 backdrop-blur-[2px]"
                 onClick={() => onOpenChange(false)}
             />
             {/* Content - relative z-10 to sit above backdrop */}
-            <div className={cn("relative z-10 bg-card rounded-2xl shadow-[0_18px_50px_rgba(0,0,0,0.28)] border border-border w-full max-w-md mx-4 overflow-hidden", className)}>
+            <div className={cn("ui-panel ui-elevated relative z-10 w-full max-w-md overflow-hidden rounded-[1.4rem] border border-border/90 mx-4 animate-in fade-in zoom-in-95 duration-200", className)}>
                 {children}
             </div>
         </div>
@@ -49,7 +49,7 @@ export function DialogTitle({
     className?: string;
 }) {
     return (
-        <h2 className={cn("text-lg font-semibold", className)}>
+        <h2 className={cn("text-base font-semibold tracking-[0.01em] text-zinc-100", className)}>
             {children}
         </h2>
     );
@@ -63,7 +63,7 @@ export function DialogDescription({
     className?: string;
 }) {
     return (
-        <p className={cn("text-sm text-muted-foreground mt-1", className)}>
+        <p className={cn("mt-1 text-sm leading-6 text-muted-foreground", className)}>
             {children}
         </p>
     );

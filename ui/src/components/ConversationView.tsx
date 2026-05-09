@@ -246,7 +246,6 @@ function ModelPicker({
     setSwitching(modelId);
     setError(null);
     try {
-      // Stop local model if running
       if (modelStatus?.provider === 'local') {
         await stopLocalModel();
       }
@@ -309,7 +308,6 @@ function ModelPicker({
     }
   };
 
-  // Flatten registry models by provider, only show available providers
   const registryProviders = registryData
     ? Object.entries(registryData.providers)
         .filter(([providerName, info]) => (
@@ -317,182 +315,191 @@ function ModelPicker({
         ))
     : [];
 
+  const providerSections = [
+    {
+      key: 'local-gguf',
+      label: 'local',
+      models: localModels.filter((model) => model.model_type === 'gguf'),
+    },
+    {
+      key: 'local-mlx',
+      label: 'mlx',
+      models: localModels.filter((model) => model.model_type === 'mlx'),
+    },
+  ].filter((section) => section.models.length > 0);
+
   return (
     <Dialog
       open={open}
       onOpenChange={onOpenChange}
-      className="max-w-5xl max-h-[88vh] flex flex-col"
+      className="max-h-[90vh] max-w-6xl"
     >
       <DialogHeader>
-        <DialogTitle className="font-mono text-sm">Select Model</DialogTitle>
+        <DialogTitle className="font-mono text-sm text-zinc-100">Select model</DialogTitle>
       </DialogHeader>
-      <DialogContent className="flex-1 overflow-hidden">
+      <DialogContent className="space-y-4 overflow-hidden">
         {error && (
-          <p className="text-xs text-red-400 mb-2 font-mono">{error}</p>
+          <p className="rounded-xl border border-red-500/20 bg-red-500/[0.08] px-3 py-2 text-xs font-mono text-red-300">{error}</p>
         )}
-        <div className="space-y-1 max-h-[70vh] overflow-y-auto pr-1">
+        <div className="max-h-[72vh] space-y-4 overflow-y-auto pr-1">
           {loading ? (
-            <p className="text-xs text-zinc-400 font-mono px-3 py-2">Loading models...</p>
+            <p className="px-3 py-3 font-mono text-xs text-zinc-300">Loading models...</p>
           ) : (
             <>
-              {/* Registry models by provider */}
               {registryProviders.map(([providerName, info]) => (
-                <div key={providerName}>
-                  <p className="text-[10px] text-zinc-400 font-mono px-3 pt-2 pb-1 uppercase">
-                    {providerName}
-                  </p>
-                  {info.models.map((model: RegistryModelPreset) => {
-                    const isActive = registryData?.active_model_id === model.model_id
-                      || modelStatus?.model_name === model.display_name
-                      || modelStatus?.model_name === model.model_id;
+                <section key={providerName} className="premium-panel overflow-hidden">
+                  <div className="flex items-center justify-between border-b border-zinc-800/80 px-4 py-3">
+                    <div>
+                      <p className="premium-section-label">{providerName}</p>
+                      <p className="mt-1 text-[12px] text-zinc-500">{info.models.length} cloud preset{info.models.length !== 1 ? 's' : ''}</p>
+                    </div>
+                  </div>
+                  <div className="p-2">
+                    {info.models.map((model: RegistryModelPreset) => {
+                      const alias = model.aliases[0] || model.model_id;
+                      const isActive = registryData?.active_model_id === model.model_id
+                        || modelStatus?.model_name === model.display_name
+                        || modelStatus?.model_name === model.model_id;
+                      const isBusy = switching === alias || switching === model.model_id;
+                      return (
+                        <button
+                          key={model.model_id}
+                          onClick={() => handleSelectRegistry(alias)}
+                          disabled={!!switching}
+                          className={cn(
+                            'ui-transition mb-1 block w-full rounded-[1rem] border px-4 py-3 text-left last:mb-0',
+                            isActive
+                              ? 'border-cyan-500/28 bg-cyan-500/[0.10] text-zinc-50'
+                              : 'border-transparent bg-transparent text-zinc-300 hover:border-zinc-800/80 hover:bg-zinc-900/75 hover:text-cyan-100',
+                            isBusy && 'opacity-60',
+                          )}
+                        >
+                          <div className="flex items-start justify-between gap-4">
+                            <div className="min-w-0">
+                              <div className="truncate text-[13px] font-medium text-inherit">{model.display_name}</div>
+                              <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-zinc-500">
+                                <span>{Math.round(model.context_window / 1024)}k ctx</span>
+                                {model.supports_vision && <span>vision</span>}
+                                {model.input_cost_per_million != null && model.output_cost_per_million != null && (
+                                  <span>${model.input_cost_per_million}/$${model.output_cost_per_million}M</span>
+                                )}
+                              </div>
+                            </div>
+                            {isActive && (
+                              <span className="rounded-full border border-cyan-500/26 bg-cyan-500/[0.12] px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-cyan-100">
+                                active
+                              </span>
+                            )}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </section>
+              ))}
+
+              {providerSections.map((section) => (
+                <section key={section.key} className="premium-panel overflow-hidden">
+                  <div className="border-b border-zinc-800/80 px-4 py-3">
+                    <p className="premium-section-label">{section.label}</p>
+                    <p className="mt-1 text-[12px] text-zinc-500">{section.models.length} local runtime{section.models.length !== 1 ? 's' : ''}</p>
+                  </div>
+                  <div className="p-2">
+                    {section.models.map((model) => {
+                      const isActive = modelStatus?.provider === 'local' && (
+                        section.key === 'local-gguf'
+                          ? modelStatus.model_name === model.name.replace(/.*\//, '').replace(/\.gguf$/, '')
+                          : modelStatus.model_name === model.name.replace(/.*\//, '')
+                      );
+                      const isBusy = switching === model.path;
+                      return (
+                        <button
+                          key={model.path}
+                          onClick={() => handleSelectLocal(model)}
+                          disabled={!!switching}
+                          className={cn(
+                            'ui-transition mb-1 block w-full rounded-[1rem] border px-4 py-3 text-left last:mb-0',
+                            isActive
+                              ? 'border-cyan-500/28 bg-cyan-500/[0.10] text-zinc-50'
+                              : 'border-transparent text-zinc-300 hover:border-zinc-800/80 hover:bg-zinc-900/75 hover:text-cyan-100',
+                            isBusy && 'opacity-60',
+                          )}
+                        >
+                          <div className="flex items-start justify-between gap-4">
+                            <div className="min-w-0">
+                              <div className="truncate text-[13px] font-medium text-inherit">{model.name}</div>
+                              <div className="mt-1 text-[11px] text-zinc-500">{model.size_display}</div>
+                            </div>
+                            {isActive && (
+                              <span className="rounded-full border border-cyan-500/26 bg-cyan-500/[0.12] px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-cyan-100">
+                                active
+                              </span>
+                            )}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </section>
+              ))}
+
+              <section className="premium-panel overflow-hidden">
+                <div className="border-b border-zinc-800/80 px-4 py-3">
+                  <p className="premium-section-label">provider api keys</p>
+                  <p className="mt-1 text-[12px] text-zinc-500">Persisted for cloud providers and loaded into runtime on startup.</p>
+                </div>
+                <div className="space-y-3 p-3">
+                  {providerKeys.map((providerKey) => {
+                    const busy = switching === `provider-key:${providerKey.provider}`;
                     return (
-                      <button
-                        key={model.model_id}
-                        onClick={() => handleSelectRegistry(model.aliases[0] || model.model_id)}
-                        disabled={!!switching}
-                        className={cn(
-                          'w-full text-left px-3 py-1.5 text-xs font-mono transition-colors',
-                          isActive
-                            ? 'text-zinc-200 bg-zinc-800'
-                            : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50',
-                          switching === model.model_id && 'opacity-50',
-                        )}
+                      <div
+                        key={providerKey.provider}
+                        className="rounded-[1rem] border border-zinc-800/85 bg-zinc-950/72 px-3.5 py-3"
                       >
-                        <div className="flex justify-between items-center">
-                          <span className="truncate mr-2">{model.display_name}</span>
-                          <span className="text-zinc-400 flex-shrink-0">
-                            {model.input_cost_per_million != null && model.output_cost_per_million != null
-                              ? `$${model.input_cost_per_million}/$${model.output_cost_per_million}M · `
-                              : ''}
-                            {model.supports_vision ? 'vision · ' : ''}
-                            {Math.round(model.context_window / 1024)}k
-                          </span>
+                        <div className="mb-3 flex items-start justify-between gap-3 text-[11px] font-mono">
+                          <div className="min-w-0">
+                            <div className="uppercase text-zinc-300">{providerKey.provider}</div>
+                            <div className="mt-1 truncate text-zinc-500">{providerKey.api_key_env}</div>
+                          </div>
+                          <div className="shrink-0 rounded-full border border-zinc-800/90 bg-zinc-900/85 px-2.5 py-1 text-[10px] uppercase tracking-[0.16em] text-zinc-400">
+                            {providerKey.has_key ? `saved · ${providerKey.source}` : 'not set'}
+                          </div>
                         </div>
-                      </button>
+                        <div className="flex flex-col gap-2 sm:flex-row">
+                          <input
+                            value={providerKeyDrafts[providerKey.provider] || ''}
+                            onChange={(e) => setProviderKeyDrafts((drafts) => ({
+                              ...drafts,
+                              [providerKey.provider]: e.target.value,
+                            }))}
+                            placeholder={providerKey.has_key ? 'update api key' : 'enter api key'}
+                            type="password"
+                            className="premium-field flex-1"
+                          />
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => handleSaveProviderKey(providerKey.provider)}
+                              disabled={!!switching}
+                              className="premium-primary-button"
+                              type="button"
+                            >
+                              {busy ? 'saving...' : 'save'}
+                            </button>
+                            <button
+                              onClick={() => handleClearProviderKey(providerKey.provider)}
+                              disabled={!!switching || !providerKey.has_key}
+                              className="premium-subtle-button"
+                              type="button"
+                            >
+                              clear
+                            </button>
+                          </div>
+                        </div>
+                      </div>
                     );
                   })}
                 </div>
-              ))}
-
-              {/* Local GGUF models */}
-              {localModels.filter(m => m.model_type === 'gguf').length > 0 && (
-                <>
-                  <div className="border-t border-zinc-600 my-1" />
-                  <p className="text-[10px] text-zinc-400 font-mono px-3 pt-2 pb-1 uppercase">
-                    local
-                  </p>
-                  {localModels.filter(m => m.model_type === 'gguf').map((model) => {
-                    const isActive =
-                      modelStatus?.provider === 'local' &&
-                      modelStatus.model_name === model.name.replace(/.*\//, '').replace(/\.gguf$/, '');
-                    return (
-                      <button
-                        key={model.path}
-                        onClick={() => handleSelectLocal(model)}
-                        disabled={!!switching}
-                        className={cn(
-                          'w-full text-left px-3 py-1.5 text-xs font-mono transition-colors',
-                          isActive
-                            ? 'text-zinc-200 bg-zinc-800'
-                            : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50',
-                          switching === model.path && 'opacity-50',
-                        )}
-                      >
-                        <div className="flex justify-between items-center">
-                          <span className="truncate mr-2">{model.name}</span>
-                          <span className="text-zinc-400 flex-shrink-0">{model.size_display}</span>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </>
-              )}
-
-              {/* MLX models */}
-              {localModels.filter(m => m.model_type === 'mlx').length > 0 && (
-                <>
-                  <div className="border-t border-zinc-600 my-1" />
-                  <p className="text-[10px] text-zinc-400 font-mono px-3 pt-2 pb-1 uppercase">
-                    mlx
-                  </p>
-                  {localModels.filter(m => m.model_type === 'mlx').map((model) => {
-                    const isActive =
-                      modelStatus?.provider === 'local' &&
-                      modelStatus.model_name === model.name.replace(/.*\//, '');
-                    return (
-                      <button
-                        key={model.path}
-                        onClick={() => handleSelectLocal(model)}
-                        disabled={!!switching}
-                        className={cn(
-                          'w-full text-left px-3 py-1.5 text-xs font-mono transition-colors',
-                          isActive
-                            ? 'text-zinc-200 bg-zinc-800'
-                            : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50',
-                          switching === model.path && 'opacity-50',
-                        )}
-                      >
-                        <div className="flex justify-between items-center">
-                          <span className="truncate mr-2">{model.name}</span>
-                          <span className="text-zinc-400 flex-shrink-0">{model.size_display}</span>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </>
-              )}
-
-              <div className="border-t border-zinc-600 my-2" />
-              <div className="px-3 py-2 space-y-2">
-                <p className="text-[10px] text-zinc-400 font-mono uppercase">
-                  provider api keys
-                </p>
-                {providerKeys.map((providerKey) => {
-                  const busy = switching === `provider-key:${providerKey.provider}`;
-                  return (
-                    <div
-                      key={providerKey.provider}
-                      className="rounded border border-zinc-600 bg-zinc-950/85 px-2 py-2 space-y-2"
-                    >
-                      <div className="flex items-center justify-between gap-3 text-[11px] font-mono">
-                        <div className="min-w-0">
-                          <div className="text-zinc-300 uppercase">{providerKey.provider}</div>
-                          <div className="text-zinc-400">{providerKey.api_key_env}</div>
-                        </div>
-                        <div className="text-zinc-300 flex-shrink-0">
-                          {providerKey.has_key ? `saved · ${providerKey.source}` : 'not set'}
-                        </div>
-                      </div>
-                      <div className="flex gap-2">
-                        <input
-                          value={providerKeyDrafts[providerKey.provider] || ''}
-                          onChange={(e) => setProviderKeyDrafts((drafts) => ({
-                            ...drafts,
-                            [providerKey.provider]: e.target.value,
-                          }))}
-                          placeholder={providerKey.has_key ? 'update api key' : 'enter api key'}
-                          type="password"
-                          className="flex-1 bg-zinc-950 border border-zinc-600 px-2 py-1 text-xs font-mono text-zinc-300"
-                        />
-                        <button
-                          onClick={() => handleSaveProviderKey(providerKey.provider)}
-                          disabled={!!switching}
-                          className="text-xs font-mono text-cyan-400 hover:text-cyan-300 disabled:text-zinc-400"
-                        >
-                          {busy ? '[saving...]' : '[save]'}
-                        </button>
-                        <button
-                          onClick={() => handleClearProviderKey(providerKey.provider)}
-                          disabled={!!switching || !providerKey.has_key}
-                          className="text-xs font-mono text-zinc-300 hover:text-zinc-300 disabled:text-zinc-300"
-                        >
-                          [clear]
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+              </section>
             </>
           )}
         </div>
@@ -527,6 +534,8 @@ function ReasoningSettingsDialog({
   const fireworksMode = draft?.fireworks_reasoning_mode ?? 'effort';
   const openRouterMode = draft?.reasoning_max_tokens == null ? 'effort' : 'budget';
   const minFireworksThinkingBudget = 1024;
+  const inputClassName = 'premium-field';
+  const selectClassName = 'premium-field appearance-none';
 
   const disabledReason = (supported?: boolean, reason?: string | null) =>
     supported ? undefined : (reason || 'Unsupported by active provider/model');
@@ -542,56 +551,65 @@ function ReasoningSettingsDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={onOpenChange} className="max-w-3xl">
       <DialogHeader>
-        <DialogTitle className="font-mono text-sm">Reasoning Settings</DialogTitle>
+        <DialogTitle className="font-mono text-sm text-zinc-100">Reasoning settings</DialogTitle>
       </DialogHeader>
-      <DialogContent>
+      <DialogContent className="space-y-4">
         {!draft || !capabilities ? (
-          <p className="text-xs text-zinc-300 font-mono">Loading reasoning settings...</p>
+          <p className="text-xs font-mono text-zinc-200">Loading reasoning settings...</p>
         ) : (
           <div className="space-y-4 font-mono text-xs">
-            <div className="text-zinc-300">
-              <div>{modelName}</div>
-              <div className="uppercase text-[10px] mt-1">{providerFamily}</div>
-            </div>
+            <section className="premium-panel px-4 py-3.5">
+              <div className="premium-section-label">active model</div>
+              <div className="mt-2 text-sm text-zinc-100">{modelName}</div>
+              <div className="mt-1 text-[11px] uppercase tracking-[0.16em] text-zinc-500">{providerFamily}</div>
+            </section>
 
-            <div className="grid grid-cols-2 gap-3">
-              <label className="space-y-1">
-                <div className="text-zinc-400">max output</div>
-                <input
-                  type="number"
-                  min={1}
-                  value={draft.max_output_tokens ?? ''}
-                  onChange={(e) => update('max_output_tokens', e.target.value === '' ? null : Number(e.target.value))}
-                  className="w-full bg-zinc-950 border border-zinc-600 px-2 py-1 text-zinc-200"
-                />
-              </label>
-              {showReasoningEffort && !showReasoningMaxTokens && (
-                <label className="space-y-1">
-                  <div className="text-zinc-400">thinking effort</div>
-                  <select
-                    value={draft.reasoning_effort ?? ''}
-                    onChange={(e) => update('reasoning_effort', e.target.value || null)}
-                    disabled={!capabilities.reasoning_effort.supported}
-                    title={disabledReason(capabilities.reasoning_effort.supported, capabilities.reasoning_effort.reason)}
-                    className="w-full bg-zinc-950 border border-zinc-600 px-2 py-1 text-zinc-200 disabled:text-zinc-400"
-                  >
-                    <option value="">default</option>
-                    {(capabilities.reasoning_effort.options.length ? capabilities.reasoning_effort.options : ['low', 'medium', 'high']).map((opt) => (
-                      <option key={opt} value={opt}>{opt}</option>
-                    ))}
-                  </select>
+            <section className="premium-panel px-4 py-4">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="space-y-2">
+                  <div>
+                    <div className="text-zinc-300">max output</div>
+                    <div className="mt-1 text-[11px] leading-5 text-zinc-500">Upper bound for answer tokens.</div>
+                  </div>
+                  <input
+                    type="number"
+                    min={1}
+                    value={draft.max_output_tokens ?? ''}
+                    onChange={(e) => update('max_output_tokens', e.target.value === '' ? null : Number(e.target.value))}
+                    className={inputClassName}
+                  />
                 </label>
-              )}
-            </div>
+                {showReasoningEffort && !showReasoningMaxTokens && (
+                  <label className="space-y-2">
+                    <div>
+                      <div className="text-zinc-300">thinking effort</div>
+                      <div className="mt-1 text-[11px] leading-5 text-zinc-500">Provider-managed reasoning depth.</div>
+                    </div>
+                    <select
+                      value={draft.reasoning_effort ?? ''}
+                      onChange={(e) => update('reasoning_effort', e.target.value || null)}
+                      disabled={!capabilities.reasoning_effort.supported}
+                      title={disabledReason(capabilities.reasoning_effort.supported, capabilities.reasoning_effort.reason)}
+                      className={selectClassName}
+                    >
+                      <option value="">default</option>
+                      {(capabilities.reasoning_effort.options.length ? capabilities.reasoning_effort.options : ['low', 'medium', 'high']).map((opt) => (
+                        <option key={opt} value={opt}>{opt}</option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+              </div>
+            </section>
 
             {isFireworks ? (
-              <div className="border-t border-zinc-600 pt-3 space-y-3">
-                <div className="text-zinc-300 uppercase text-[10px]">Fireworks controls</div>
-                <div className="grid grid-cols-2 gap-3">
-                  <label className="space-y-1">
-                    <div className="text-zinc-400">control</div>
+              <section className="premium-panel px-4 py-4">
+                <div className="premium-section-label">Fireworks controls</div>
+                <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                  <label className="space-y-2">
+                    <div className="text-zinc-300">control mode</div>
                     <select
                       value={draft.fireworks_reasoning_mode}
                       onChange={(e) => {
@@ -606,7 +624,7 @@ function ReasoningSettingsDialog({
                       }}
                       disabled={!capabilities.fireworks_reasoning_mode.supported}
                       title={disabledReason(capabilities.fireworks_reasoning_mode.supported, capabilities.fireworks_reasoning_mode.reason)}
-                      className="w-full bg-zinc-950 border border-zinc-600 px-2 py-1 text-zinc-200 disabled:text-zinc-400"
+                      className={selectClassName}
                     >
                       <option value="effort">effort-based</option>
                       <option value="thinking">budget-based</option>
@@ -614,14 +632,14 @@ function ReasoningSettingsDialog({
                   </label>
 
                   {fireworksMode === 'effort' ? (
-                    <label className="space-y-1">
-                      <div className="text-zinc-400">thinking effort</div>
+                    <label className="space-y-2">
+                      <div className="text-zinc-300">thinking effort</div>
                       <select
                         value={draft.reasoning_effort ?? ''}
                         onChange={(e) => update('reasoning_effort', e.target.value || null)}
                         disabled={!capabilities.reasoning_effort.supported}
                         title={disabledReason(capabilities.reasoning_effort.supported, capabilities.reasoning_effort.reason)}
-                        className="w-full bg-zinc-950 border border-zinc-600 px-2 py-1 text-zinc-200 disabled:text-zinc-400"
+                        className={selectClassName}
                       >
                         <option value="">default</option>
                         {(capabilities.reasoning_effort.options.length ? capabilities.reasoning_effort.options : ['low', 'medium', 'high']).map((opt) => (
@@ -630,8 +648,8 @@ function ReasoningSettingsDialog({
                       </select>
                     </label>
                   ) : (
-                    <label className="space-y-1">
-                      <div className="text-zinc-400">max thinking tokens</div>
+                    <label className="space-y-2">
+                      <div className="text-zinc-300">max thinking tokens</div>
                       <input
                         type="number"
                         min={1024}
@@ -640,93 +658,90 @@ function ReasoningSettingsDialog({
                         onBlur={(e) => update('fireworks_thinking_budget_tokens', Math.max(Number(e.target.value) || minFireworksThinkingBudget, minFireworksThinkingBudget))}
                         disabled={!capabilities.fireworks_thinking_budget_tokens.supported}
                         title={disabledReason(capabilities.fireworks_thinking_budget_tokens.supported, capabilities.fireworks_thinking_budget_tokens.reason)}
-                        className="w-full bg-zinc-950 border border-zinc-600 px-2 py-1 text-zinc-200 disabled:text-zinc-400"
+                        className={inputClassName}
                       />
                     </label>
                   )}
                 </div>
-
-                <div className="text-[11px] text-zinc-400">
+                <p className="mt-3 text-[11px] leading-5 text-zinc-500">
                   {fireworksMode === 'effort'
                     ? 'Sends reasoning_effort only.'
                     : 'Sends thinking.budget_tokens only.'}
-                </div>
-              </div>
-            ) : (
-              showReasoningMaxTokens ? (
-                <div className="border-t border-zinc-600 pt-3 space-y-3">
-                  <div className="text-zinc-300 uppercase text-[10px]">OpenRouter controls</div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <label className="space-y-1">
-                      <div className="text-zinc-400">control</div>
+                </p>
+              </section>
+            ) : showReasoningMaxTokens ? (
+              <section className="premium-panel px-4 py-4">
+                <div className="premium-section-label">OpenRouter controls</div>
+                <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                  <label className="space-y-2">
+                    <div className="text-zinc-300">control mode</div>
+                    <select
+                      value={openRouterMode}
+                      onChange={(e) => {
+                        if (e.target.value === 'effort') {
+                          updateMany({ reasoning_max_tokens: null });
+                        } else {
+                          updateMany({ reasoning_max_tokens: draft.reasoning_max_tokens ?? 1024 });
+                        }
+                      }}
+                      className={selectClassName}
+                    >
+                      <option value="effort">effort-based</option>
+                      <option value="budget">budget-based</option>
+                    </select>
+                  </label>
+
+                  {openRouterMode === 'effort' ? (
+                    <label className="space-y-2">
+                      <div className="text-zinc-300">thinking effort</div>
                       <select
-                        value={openRouterMode}
-                        onChange={(e) => {
-                          if (e.target.value === 'effort') {
-                            updateMany({ reasoning_max_tokens: null });
-                          } else {
-                            updateMany({ reasoning_max_tokens: draft.reasoning_max_tokens ?? 1024 });
-                          }
-                        }}
-                        className="w-full bg-zinc-950 border border-zinc-600 px-2 py-1 text-zinc-200"
+                        value={draft.reasoning_effort ?? ''}
+                        onChange={(e) => update('reasoning_effort', e.target.value || null)}
+                        disabled={!capabilities.reasoning_effort.supported}
+                        title={disabledReason(capabilities.reasoning_effort.supported, capabilities.reasoning_effort.reason)}
+                        className={selectClassName}
                       >
-                        <option value="effort">effort-based</option>
-                        <option value="budget">budget-based</option>
+                        <option value="">default</option>
+                        {(capabilities.reasoning_effort.options.length ? capabilities.reasoning_effort.options : ['low', 'medium', 'high']).map((opt) => (
+                          <option key={opt} value={opt}>{opt}</option>
+                        ))}
                       </select>
                     </label>
-
-                    {openRouterMode === 'effort' ? (
-                      <label className="space-y-1">
-                        <div className="text-zinc-400">thinking effort</div>
-                        <select
-                          value={draft.reasoning_effort ?? ''}
-                          onChange={(e) => update('reasoning_effort', e.target.value || null)}
-                          disabled={!capabilities.reasoning_effort.supported}
-                          title={disabledReason(capabilities.reasoning_effort.supported, capabilities.reasoning_effort.reason)}
-                          className="w-full bg-zinc-950 border border-zinc-600 px-2 py-1 text-zinc-200 disabled:text-zinc-400"
-                        >
-                          <option value="">default</option>
-                          {(capabilities.reasoning_effort.options.length ? capabilities.reasoning_effort.options : ['low', 'medium', 'high']).map((opt) => (
-                            <option key={opt} value={opt}>{opt}</option>
-                          ))}
-                        </select>
-                      </label>
-                    ) : (
-                      <label className="space-y-1">
-                        <div className="text-zinc-400">max thinking tokens</div>
-                        <input
-                          type="number"
-                          min={1}
-                          value={draft.reasoning_max_tokens ?? ''}
-                          onChange={(e) => update('reasoning_max_tokens', e.target.value === '' ? null : Number(e.target.value))}
-                          disabled={!capabilities.reasoning_max_tokens.supported}
-                          title={disabledReason(capabilities.reasoning_max_tokens.supported, capabilities.reasoning_max_tokens.reason)}
-                          className="w-full bg-zinc-950 border border-zinc-600 px-2 py-1 text-zinc-200 disabled:text-zinc-400"
-                        />
-                      </label>
-                    )}
-                  </div>
+                  ) : (
+                    <label className="space-y-2">
+                      <div className="text-zinc-300">max thinking tokens</div>
+                      <input
+                        type="number"
+                        min={1}
+                        value={draft.reasoning_max_tokens ?? ''}
+                        onChange={(e) => update('reasoning_max_tokens', e.target.value === '' ? null : Number(e.target.value))}
+                        disabled={!capabilities.reasoning_max_tokens.supported}
+                        title={disabledReason(capabilities.reasoning_max_tokens.supported, capabilities.reasoning_max_tokens.reason)}
+                        className={inputClassName}
+                      />
+                    </label>
+                  )}
                 </div>
-              ) : null
-            )}
-
-            {!isFireworks && !showReasoningMaxTokens && (
-              <div className="text-[11px] text-zinc-400">
+              </section>
+            ) : (
+              <section className="premium-panel px-4 py-3.5 text-[11px] leading-5 text-zinc-500">
                 This provider has no separate max thinking token setting.
-              </div>
+              </section>
             )}
 
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => onOpenChange(false)}
-                className="px-3 py-1 text-zinc-300 hover:text-zinc-300"
+                className="premium-subtle-button"
+                type="button"
               >
                 cancel
               </button>
               <button
                 onClick={onSave}
                 disabled={saving}
-                className="px-3 py-1 bg-zinc-200 text-zinc-900 disabled:opacity-60"
+                className="premium-primary-button"
+                type="button"
               >
                 {saving ? 'saving...' : 'save'}
               </button>
@@ -757,45 +772,38 @@ const RunMessage = memo(function RunMessage({
     if (!userMessage || !onRetry) return;
     onRetry(userMessage);
   }, [onRetry, userMessage]);
-  // Use stable selectors - return constant empty string if not found
   const streamingText = useStore((s) => s.streamingText[run.run_id] ?? EMPTY_STRING);
   const streamingThinking = useStore((s) => s.streamingThinking[run.run_id] ?? EMPTY_STRING);
 
-  // Use streaming text while running, final answer when complete
   const displayText = isRunning ? streamingText : finalAnswer;
   const isStreaming = isRunning && streamingText.length > 0;
-
-  // Determine if we're in thinking phase (streaming thinking but no answer yet)
   const isThinking = isRunning && streamingThinking.length > 0;
   const footerMetrics = getRunFooterMetrics(run);
 
   return (
-    <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2">
-      {/* User message */}
-      <div className="flex gap-3">
-        <div className="w-9 flex-shrink-0 pt-0.5">
-          <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-zinc-300">U:</span>
+    <div className="animate-in fade-in slide-in-from-bottom-2 space-y-5 duration-200">
+      <div className="flex gap-4">
+        <div className="w-11 flex-shrink-0 pt-1.5">
+          <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-zinc-500">you</span>
         </div>
-        <div className="flex-1 min-w-0">
-          <div className="rounded-2xl border border-zinc-600/80 bg-zinc-950/80 px-4 py-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.025)]">
-            <span className="text-zinc-100 whitespace-pre-wrap text-sm leading-relaxed">
+        <div className="min-w-0 flex-1">
+          <div className="ui-panel rounded-[1.55rem] border border-zinc-800/90 px-6 py-5 shadow-[0_18px_38px_rgba(0,0,0,0.16),inset_0_1px_0_rgba(255,255,255,0.025)]">
+            <span className="whitespace-pre-wrap text-[14px] leading-[1.9] text-zinc-50">
               {run.user_message || run.prompt}
             </span>
           </div>
-          <p className="text-[11px] text-zinc-400 mt-1.5 px-1">
+          <p className="mt-2 px-1 text-[11px] text-zinc-500">
             {formatRelativeTime(run.created_at)}
           </p>
         </div>
       </div>
 
-      {/* AI response */}
-      <div className="flex gap-3 group/msg">
-        <div className="w-9 flex-shrink-0 pt-0.5">
-          <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-zinc-400/80">AI:</span>
+      <div className="group/msg flex gap-4">
+        <div className="w-11 flex-shrink-0 pt-1.5">
+          <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-zinc-500">reply</span>
         </div>
-        <div className="flex-1 min-w-0">
-          <div className="rounded-2xl border border-zinc-600/70 bg-zinc-950/72 px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]">
-            {/* Thinking Panel - shows while thinking or after completion with thinking data */}
+        <div className="min-w-0 flex-1">
+          <div className="rounded-[1.55rem] border border-zinc-800/85 bg-zinc-950/78 px-6 py-5 shadow-[0_24px_44px_rgba(0,0,0,0.18),inset_0_1px_0_rgba(255,255,255,0.02)]">
             <ThinkingPanel
               summary={run.thinking_summary}
               isStreaming={isThinking}
@@ -808,37 +816,38 @@ const RunMessage = memo(function RunMessage({
             ) : isRunning && !displayText && isThinking ? (
               <ThinkingTimer label="Thinking" />
             ) : run.status === 'failed' ? (
-              <div className="text-sm text-zinc-400">
+              <div className="rounded-[1rem] border border-red-500/16 bg-red-500/[0.06] px-4 py-3 text-sm text-red-200/90">
                 [error] {run.error_detail || 'Request failed. Please try again.'}
               </div>
             ) : displayText ? (
               <div>
                 <AnswerMarkdown content={extractAnswer(displayText)} />
                 {isStreaming && (
-                  <span className="inline-block w-2 h-4 bg-zinc-400 animate-pulse ml-0.5" />
+                  <span className="inline-block h-4 w-2 animate-pulse bg-zinc-400 align-[-0.2em] ml-0.5" />
                 )}
               </div>
             ) : !isThinking ? (
-              <div className="text-sm text-zinc-400">No response.</div>
+              <div className="text-sm text-zinc-300">No response.</div>
             ) : null}
           </div>
 
-          <div className="mt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-1 font-mono text-xs">
-            <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-1 font-mono text-[11px]">
+            <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-zinc-500">
               <span className={cn(
+                'rounded-full border border-zinc-800/85 bg-zinc-950/72 px-2.5 py-1',
                 run.status === 'succeeded'
-                  ? 'text-emerald-600'
+                  ? 'text-emerald-300'
                   : run.status === 'failed'
-                    ? 'text-red-500/70'
+                    ? 'border-red-500/15 text-red-400/85'
                     : 'text-zinc-400'
               )}>
-                [{formatRunStatusLabel(run)}]
+                {formatRunStatusLabel(run)}
               </span>
               {run.created_at && (
-                <span className="text-zinc-300">{formatRelativeTime(run.created_at)}</span>
+                <span>{formatRelativeTime(run.created_at)}</span>
               )}
               {footerMetrics.map((metric) => (
-                <span key={metric} className="text-zinc-400">{metric}</span>
+                <span key={metric}>{metric}</span>
               ))}
             </div>
             {!isRunning && (
@@ -898,11 +907,11 @@ function MentionPicker({
   if (!open) return null;
 
   return (
-    <div className="absolute left-0 right-0 bottom-full mb-2 border border-zinc-600 bg-zinc-950 shadow-2xl z-20 max-h-64 overflow-y-auto">
+    <div className="ui-panel ui-elevated absolute left-0 right-0 bottom-full z-20 mb-2 max-h-64 overflow-y-auto rounded-[1rem] border border-zinc-800/95">
       {loading ? (
-        <div className="px-3 py-2 text-xs font-mono text-zinc-300">searching files...</div>
+        <div className="px-3 py-2 text-[11px] font-mono text-zinc-300">searching files...</div>
       ) : entries.length === 0 ? (
-        <div className="px-3 py-2 text-xs font-mono text-zinc-300">no matching files</div>
+        <div className="px-3 py-2 text-[11px] font-mono text-zinc-500">no matching files</div>
       ) : (
         entries.map((entry, index) => (
           <button
@@ -916,14 +925,14 @@ function MentionPicker({
               onSelect(entry);
             }}
             className={cn(
-              "block w-full px-3 py-2 text-left font-mono text-xs transition-colors",
+              "ui-transition block w-full px-3 py-2.5 text-left font-mono text-[11px]",
               index === selectedIndex
-                ? "bg-zinc-800 text-zinc-100"
-                : "text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200"
+                ? "bg-cyan-500/[0.10] text-zinc-50"
+                : "text-zinc-300 hover:bg-cyan-500/[0.08] hover:text-cyan-100"
             )}
           >
             <div className="truncate">{entry.path}</div>
-            <div className="truncate text-[10px] text-zinc-400">{entry.name}</div>
+            <div className="truncate text-[10px] text-zinc-500">{entry.name}</div>
           </button>
         ))
       )}
@@ -947,7 +956,7 @@ function EmptyStatePulse({
   const model = modelStatus?.model_name || 'model';
 
   return (
-    <div className="w-full max-w-xl font-mono text-center space-y-6">
+    <div className="w-full max-w-xl space-y-6 font-mono text-center">
       <div className="relative mx-auto h-20 w-80 max-w-full overflow-hidden opacity-80">
         <svg
           viewBox="0 0 320 80"
@@ -971,20 +980,20 @@ function EmptyStatePulse({
         <div className="fluxion-trace absolute left-0 top-0 h-full w-28 bg-gradient-to-r from-transparent via-zinc-500/20 to-transparent" />
       </div>
 
-      <div className="grid grid-cols-3 gap-px border border-zinc-600 bg-zinc-900 text-left">
-        <div className="bg-background px-3 py-2">
-          <div className="text-[10px] uppercase text-zinc-300">mode</div>
-          <div className="truncate text-xs text-zinc-300">{mode}</div>
+      <div className="grid grid-cols-3 gap-px overflow-hidden rounded-[1.2rem] border border-zinc-800/95 bg-zinc-900/90 text-left">
+        <div className="bg-background px-3 py-3">
+          <div className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">mode</div>
+          <div className="truncate pt-1 text-[12px] text-zinc-200">{mode}</div>
         </div>
-        <div className="bg-background px-3 py-2">
-          <div className="text-[10px] uppercase text-zinc-300">workspace</div>
-          <div className={cn("truncate text-xs", workspacePath.trim() ? "text-zinc-300" : "text-zinc-300")}>
+        <div className="bg-background px-3 py-3">
+          <div className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">workspace</div>
+          <div className={cn("truncate pt-1 text-[12px]", workspacePath.trim() ? "text-zinc-200" : "text-zinc-400")}>
             {workspaceName}
           </div>
         </div>
-        <div className="bg-background px-3 py-2">
-          <div className="text-[10px] uppercase text-zinc-300">{provider}</div>
-          <div className="truncate text-xs text-zinc-300">{model}</div>
+        <div className="bg-background px-3 py-3">
+          <div className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">{provider}</div>
+          <div className="truncate pt-1 text-[12px] text-zinc-200">{model}</div>
         </div>
       </div>
     </div>
@@ -1058,6 +1067,7 @@ export function ConversationView() {
   const conversation = useSelectedConversation();
   const runs = useConversationRuns(selectedConversationId);
   const terminalState = useConversationTerminal(selectedConversationId);
+  const initTerminalState = useStore((s) => s.initTerminalState);
   const hasActiveRun = useHasActiveRun();
   const updateTerminalState = useStore((s) => s.updateTerminalState);
   const draftWorkspacePath = useStore((s) => s.draftWorkspacePath);
@@ -1077,9 +1087,10 @@ export function ConversationView() {
   const [permissionPolicy, setPermissionPolicy] = useState<'strict' | 'relaxed' | 'yolo'>(
     () => (localStorage.getItem('reasoner_permission_policy') as 'strict' | 'relaxed' | 'yolo') || 'strict'
   );
-  const [isDesktop, setIsDesktop] = useState(
-    () => typeof window !== 'undefined' && window.innerWidth >= 768
+  const [viewportWidth, setViewportWidth] = useState(
+    () => (typeof window !== 'undefined' ? window.innerWidth : 1440)
   );
+  const isDesktop = viewportWidth >= 768;
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const verticalMoveColumnRef = useRef<number | null>(null);
@@ -1133,7 +1144,49 @@ export function ConversationView() {
   }, [conversation?.workspace_path, setDraftWorkspacePath]);
 
   useEffect(() => {
-    const handleResize = () => setIsDesktop(window.innerWidth >= 768);
+    if (!selectedConversationId) {
+      return;
+    }
+
+    let savedState: Partial<{
+      isOpen: boolean;
+      dock: 'bottom' | 'right';
+      height: number;
+      width: number;
+    }> = {};
+
+    try {
+      savedState = JSON.parse(localStorage.getItem(`reasoner_terminal_state:${selectedConversationId}`) || '{}');
+    } catch {
+      savedState = {};
+    }
+
+    initTerminalState(selectedConversationId, {
+      isOpen: savedState.isOpen ?? false,
+      dock: savedState.dock === 'bottom' ? 'bottom' : 'right',
+      height: Number(savedState.height || 260),
+      width: Number(savedState.width || 420),
+    });
+  }, [initTerminalState, selectedConversationId]);
+
+  useEffect(() => {
+    if (!selectedConversationId || !terminalState) {
+      return;
+    }
+
+    localStorage.setItem(
+      `reasoner_terminal_state:${selectedConversationId}`,
+      JSON.stringify({
+        isOpen: terminalState.isOpen,
+        dock: terminalState.dock,
+        height: terminalState.height,
+        width: terminalState.width,
+      })
+    );
+  }, [selectedConversationId, terminalState]);
+
+  useEffect(() => {
+    const handleResize = () => setViewportWidth(window.innerWidth);
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
@@ -1322,16 +1375,23 @@ export function ConversationView() {
   });
 
   useEffect(() => {
-    if (!scrollRef.current || !activeRunId) return;
+    if (!scrollRef.current || !activeRunId || !activeAgentRun) return;
     const el = scrollRef.current;
-    // Only auto-scroll if user is near the bottom (within 150px)
+    requestAnimationFrame(() => {
+      el.scrollTop = el.scrollHeight;
+    });
+  }, [activeAgentScrollSignal, activeRunId, activeAgentRun]);
+
+  useEffect(() => {
+    if (!scrollRef.current || !activeRunId || activeAgentRun) return;
+    const el = scrollRef.current;
     const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 150;
     if (isNearBottom) {
       requestAnimationFrame(() => {
         el.scrollTop = el.scrollHeight;
       });
     }
-  }, [lastStreamLen, activeAgentScrollSignal, activeRunId]);
+  }, [lastStreamLen, activeRunId, activeAgentRun]);
 
   const focusComposer = useCallback(() => {
     const textarea = textareaRef.current;
@@ -1713,6 +1773,13 @@ export function ConversationView() {
   // Determine if we should show Stop button (active run we started)
   const isGenerating = !!pendingRunId;
   const terminalAvailable = !!selectedConversationId && mode === 'agent' && isDesktop;
+  const preferredTerminalDock = terminalState?.dock ?? 'bottom';
+  const canRightDockTerminal = viewportWidth >= 1200;
+  const rightTerminalOpen = terminalAvailable
+    && !!terminalState?.isOpen
+    && preferredTerminalDock === 'right'
+    && canRightDockTerminal;
+  const bottomTerminalOpen = terminalAvailable && !!terminalState?.isOpen && !rightTerminalOpen;
 
   // Auto-resize textarea
   const resizeTextarea = useCallback(() => {
@@ -2183,39 +2250,39 @@ export function ConversationView() {
     return (
       <div className="h-full flex flex-col">
         {/* Status bar */}
-        <div className="border-b border-zinc-600 px-3 sm:px-4 py-2 flex items-center justify-between bg-transparent font-mono text-xs">
+        <div className="ui-panel border-b border-zinc-900/90 px-3 py-2.5 sm:px-4 flex items-center justify-between font-mono text-[11px]">
           <div className="flex items-center gap-3">
             {modelSelectEnabled ? (
               <button
                 onClick={() => setModelPickerOpen(true)}
-                className="text-zinc-400 hover:text-zinc-400 transition-colors"
+                className="ui-transition text-zinc-300 hover:text-cyan-100"
                 title="Switch model"
               >
                 {modelStatus?.model_name || 'model'}
                 {modelStatus?.context_window ? (
-                  <span className="text-zinc-300 ml-1">({Math.round(modelStatus.context_window / 1024)}k)</span>
+                  <span className="ml-1 text-zinc-500">({Math.round(modelStatus.context_window / 1024)}k)</span>
                 ) : null}
                 {modelStatus?.provider === 'local' && (
-                  <span className="text-zinc-300 ml-1">(local)</span>
+                  <span className="ml-1 text-zinc-500">(local)</span>
                 )}
               </button>
             ) : (
-              <span className="text-zinc-400">{modelStatus?.model_name || 'model'}{modelStatus?.context_window ? ` (${Math.round(modelStatus.context_window / 1024)}k)` : ''}</span>
+              <span className="text-zinc-300">{modelStatus?.model_name || 'model'}{modelStatus?.context_window ? ` (${Math.round(modelStatus.context_window / 1024)}k)` : ''}</span>
             )}
-            <span className="text-zinc-300">|</span>
+            <span className="text-zinc-700">|</span>
             <button
               onClick={() => setReasoningSettingsOpen(true)}
-              className="text-zinc-400 hover:text-zinc-400 transition-colors"
+              className="ui-transition text-zinc-300 hover:text-cyan-100"
               title="Open reasoning settings"
             >
               reasoning
             </button>
             {mode === 'agent' && isDesktop && (
               <>
-                <span className="text-zinc-300">|</span>
+                <span className="text-zinc-700">|</span>
                 <button
                   onClick={() => void handleOpenTerminal()}
-                  className="text-zinc-400 hover:text-zinc-400 transition-colors"
+                  className="ui-transition text-zinc-300 hover:text-cyan-100"
                   title={effectiveWorkspacePath ? 'Open integrated terminal' : 'Select or open a workspace conversation first'}
                 >
                   terminal
@@ -2255,18 +2322,18 @@ export function ConversationView() {
           }}
         />
 
-        <div className="flex-1 flex flex-col items-center justify-center text-zinc-400 gap-4 sm:gap-6 px-3 sm:px-4 md:px-6 overflow-y-auto min-h-0">
+        <div className="flex-1 flex flex-col items-center justify-center gap-4 overflow-y-auto px-3 text-zinc-300 sm:gap-6 sm:px-4 md:px-6 min-h-0">
           <EmptyStatePulse
             mode={mode}
             workspacePath={effectiveWorkspacePath}
             modelStatus={modelStatus}
           />
         </div>
-        <div className="p-3 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-4 sm:pb-[max(1rem,env(safe-area-inset-bottom))] flex-shrink-0 space-y-2">
+        <div className="flex-shrink-0 space-y-3 p-3 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-4 sm:pb-[max(1rem,env(safe-area-inset-bottom))]">
           {/* Prompt area */}
-          <div className="relative overflow-visible rounded-2xl border border-zinc-600 bg-zinc-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.025)] focus-within:border-zinc-500 transition-colors">
-            <div className="flex items-start p-3 gap-2">
-              <span className="text-zinc-300 font-mono text-sm mt-0.5 select-none">&gt;</span>
+          <div className="ui-panel ui-transition relative overflow-visible rounded-[1.1rem] border border-zinc-800/90 px-1 focus-within:border-cyan-500/30 focus-within:ring-1 focus-within:ring-cyan-500/10">
+            <div className="flex items-start gap-3 p-4">
+              <span className="mt-0.5 select-none font-mono text-sm text-cyan-200/80">&gt;</span>
               <textarea
                 ref={textareaRef}
                 placeholder={mode === 'agent' ? 'Ask the coding agent...' : 'Ask a question...'}
@@ -2277,7 +2344,7 @@ export function ConversationView() {
                 onSelect={handleTextareaSelection}
                 onClick={handleTextareaSelection}
                 rows={2}
-                className="flex-1 bg-transparent border-none outline-none resize-none text-sm font-mono text-zinc-100 placeholder:text-zinc-400"
+                className="flex-1 resize-none border-none bg-transparent text-[14px] leading-[1.9] text-zinc-50 outline-none placeholder:text-zinc-500"
                 disabled={isSubmitting || hasActiveRun}
                 style={{ maxHeight: '200px' }}
               />
@@ -2297,7 +2364,7 @@ export function ConversationView() {
                   key={attachment.id || index}
                   type="button"
                   onClick={() => removeImageAttachment(attachment.id)}
-                  className="rounded-lg border border-zinc-600 bg-zinc-900 px-2 py-0.5 text-zinc-400 hover:text-zinc-100"
+                  className="rounded-lg border border-zinc-700 bg-zinc-900 px-2 py-0.5 text-zinc-300 hover:border-cyan-500/30 hover:text-cyan-100"
                   title="Remove image"
                 >
                   image {index + 1} ×
@@ -2306,13 +2373,13 @@ export function ConversationView() {
             </div>
           )}
           {/* Toolbar */}
-          <div className="flex items-center justify-between px-1">
-            <div className="flex items-center gap-3 font-mono text-xs">
+          <div className="flex items-center justify-between px-1.5">
+            <div className="flex items-center gap-3 font-mono text-[11px]">
               <button
                 onClick={() => setMode('agent')}
                 className={cn(
                   'transition-colors',
-                  mode === 'agent' ? 'text-zinc-100' : 'text-zinc-400 hover:text-zinc-200'
+                  mode === 'agent' ? 'text-cyan-100' : 'text-zinc-500 hover:text-cyan-100'
                 )}
               >
                 agent
@@ -2321,7 +2388,7 @@ export function ConversationView() {
                 onClick={() => setMode('chat')}
                 className={cn(
                   'transition-colors',
-                  mode === 'chat' ? 'text-zinc-100' : 'text-zinc-400 hover:text-zinc-200'
+                  mode === 'chat' ? 'text-cyan-100' : 'text-zinc-500 hover:text-cyan-100'
                 )}
               >
                 chat
@@ -2332,7 +2399,7 @@ export function ConversationView() {
                     <span
                       className={cn(
                         'max-w-52 truncate text-xs font-mono',
-                        hasConversationWorkspace ? 'text-zinc-400' : 'text-zinc-500'
+                        hasConversationWorkspace ? 'text-zinc-300' : 'text-zinc-600'
                       )}
                       title={
                         hasConversationWorkspace
@@ -2348,7 +2415,7 @@ export function ConversationView() {
                         value={draftWorkspacePath}
                         onChange={(e) => setDraftWorkspacePath(e.target.value)}
                         placeholder="/path/to/repo"
-                        className="w-40 sm:w-56 bg-transparent border-none outline-none text-xs font-mono text-zinc-400 placeholder:text-zinc-500"
+                        className="w-40 sm:w-56 bg-transparent border-none outline-none text-[11px] font-mono text-zinc-300 placeholder:text-zinc-600"
                         title="Workspace path for filesystem and bash tools"
                       />
                       <button
@@ -2356,7 +2423,7 @@ export function ConversationView() {
                           setWorkspacePickerMode('draft');
                           handleOpenWorkspacePicker();
                         }}
-                        className="text-zinc-400 hover:text-zinc-200 transition-colors"
+                        className="ui-transition text-zinc-400 hover:text-cyan-100"
                         title="Browse local folders"
                       >
                         browse
@@ -2366,7 +2433,7 @@ export function ConversationView() {
                   <select
                     value={permissionPolicy}
                     onChange={(e) => setPermissionPolicy(e.target.value as 'strict' | 'relaxed' | 'yolo')}
-                    className="bg-transparent border-none outline-none text-xs font-mono text-zinc-400 cursor-pointer"
+                    className="bg-transparent border-none outline-none text-[11px] font-mono text-zinc-300 cursor-pointer"
                     title="Tool permission policy"
                   >
                     <option value="strict">strict</option>
@@ -2375,17 +2442,17 @@ export function ConversationView() {
                   </select>
                 </>
               )}
-              <span className="text-zinc-500">|</span>
+              <span className="text-zinc-700">|</span>
               {mode === 'agent' && isDesktop && (
                 <button
                   onClick={() => void handleOpenTerminal()}
-                  className="text-zinc-400 hover:text-zinc-200 transition-colors"
+                  className="ui-transition text-zinc-300 hover:text-cyan-100"
                   title={effectiveWorkspacePath ? 'Open integrated terminal' : 'Select or open a workspace conversation first'}
                 >
                   terminal
                 </button>
               )}
-              {mode === 'agent' && isDesktop && <span className="text-zinc-500">|</span>}
+              {mode === 'agent' && isDesktop && <span className="text-zinc-700">|</span>}
               {isGenerating ? (
                 <button onClick={handleStop} className="text-red-400 hover:text-red-300 transition-colors">
                   stop
@@ -2397,8 +2464,8 @@ export function ConversationView() {
                   className={cn(
                     'transition-colors',
                     !message.trim() || isSubmitting || hasActiveRun
-                      ? 'text-zinc-500 cursor-not-allowed'
-                      : 'text-zinc-400 hover:text-zinc-200'
+                  ? 'text-zinc-700 cursor-not-allowed'
+                      : 'text-cyan-100 hover:text-white'
                   )}
                   title={hasActiveRun ? 'Active run in progress' : undefined}
                 >
@@ -2406,7 +2473,7 @@ export function ConversationView() {
                 </button>
               )}
             </div>
-            <div className="flex items-center gap-3 font-mono text-xs text-zinc-400">
+            <div className="flex items-center gap-3 font-mono text-[11px] text-zinc-500">
               <span className="hidden md:inline">⌘+Enter send</span>
               <span className={message.length > MAX_INPUT_CHARS * 0.9 ? 'text-zinc-400' : ''}>
                 {message.length.toLocaleString()}/{MAX_INPUT_CHARS.toLocaleString()}
@@ -2420,40 +2487,40 @@ export function ConversationView() {
 
   return (
     <div className="h-full flex flex-col">
-      <div className="border-b border-zinc-600 px-3 sm:px-4 md:px-6 py-2 flex items-center justify-between font-mono text-xs">
+      <div className="ui-panel flex items-center justify-between border-b border-zinc-900/90 px-3 py-2.5 font-mono text-[11px] sm:px-4 md:px-6">
         <div className="flex items-center gap-3 truncate mr-4">
           {modelSelectEnabled ? (
             <>
               <button
                 onClick={() => setModelPickerOpen(true)}
-                className="text-zinc-400 hover:text-zinc-200 transition-colors flex-shrink-0"
+                className="ui-transition flex-shrink-0 text-zinc-300 hover:text-cyan-100"
                 title="Switch model"
               >
                 {modelStatus?.model_name || 'model'}
                 {modelStatus?.context_window ? (
-                  <span className="text-zinc-500 ml-1">({Math.round(modelStatus.context_window / 1024)}k)</span>
+                  <span className="ml-1 text-zinc-600">({Math.round(modelStatus.context_window / 1024)}k)</span>
                 ) : null}
                 {modelStatus?.provider === 'local' && (
-                  <span className="text-zinc-500 ml-1">(local)</span>
+                  <span className="ml-1 text-zinc-600">(local)</span>
                 )}
               </button>
-              <span className="text-zinc-500">|</span>
+              <span className="text-zinc-700">|</span>
             </>
           ) : (
             <>
-              <span className="text-zinc-400 flex-shrink-0">{modelStatus?.model_name || 'model'}{modelStatus?.context_window ? ` (${Math.round(modelStatus.context_window / 1024)}k)` : ''}</span>
-              <span className="text-zinc-500">|</span>
+              <span className="text-zinc-300 flex-shrink-0">{modelStatus?.model_name || 'model'}{modelStatus?.context_window ? ` (${Math.round(modelStatus.context_window / 1024)}k)` : ''}</span>
+              <span className="text-zinc-700">|</span>
             </>
           )}
           <button
             onClick={() => setReasoningSettingsOpen(true)}
-            className="text-zinc-400 hover:text-zinc-200 transition-colors flex-shrink-0"
+            className="ui-transition flex-shrink-0 text-zinc-300 hover:text-cyan-100"
             title="Open reasoning settings"
           >
             reasoning
           </button>
-          <span className="text-zinc-500">|</span>
-          <span className="text-zinc-400 truncate">
+          <span className="text-zinc-700">|</span>
+          <span className="truncate text-zinc-500">
             {conversation?.title || 'conversation'}
           </span>
         </div>
@@ -2489,251 +2556,268 @@ export function ConversationView() {
         }}
       />
 
-      <div className="flex-1 overflow-y-auto px-3 sm:px-4 md:px-6 py-4 sm:py-5 md:py-6" ref={scrollRef}>
-        <VirtualizedConversationRunList
-          runs={runs}
-          scrollContainerRef={scrollRef}
-          renderRun={renderRunCard}
-        />
-      </div>
+      <div className="flex min-h-0 flex-1">
+        <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+          <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-6 md:px-8 md:py-8" ref={scrollRef}>
+            <div className="w-full max-w-[62rem]">
+              <VirtualizedConversationRunList
+                runs={runs}
+                scrollContainerRef={scrollRef}
+                renderRun={renderRunCard}
+              />
+            </div>
+          </div>
 
-      {/* Scroll-to-bottom pill */}
-      <ScrollToBottom
-        scrollRef={scrollRef}
-        isStreaming={!!activeRunId}
-        className={cn(
-          "left-1/2 -translate-x-1/2",
-          terminalAvailable && terminalState?.isOpen
-            ? "bottom-[calc(6rem+var(--terminal-height,260px))]"
-            : activeAgentHudState?.isActive
-              ? "bottom-40"
-              : "bottom-28"
-        )}
-      />
+          {/* Scroll-to-bottom pill */}
+          <ScrollToBottom
+            scrollRef={scrollRef}
+            isStreaming={!!activeRunId}
+            className={cn(
+              "left-1/2 -translate-x-1/2",
+              bottomTerminalOpen
+                ? "bottom-[calc(6rem+var(--terminal-height,260px))]"
+                : activeAgentHudState?.isActive
+                  ? "bottom-40"
+                  : "bottom-28"
+            )}
+          />
 
-      {activeAgentRun && activeAgentHudState?.isActive && (
-        <AgentLiveHUD
-          runId={activeAgentRun.run_id}
-          runCreatedAt={activeAgentRun.created_at}
-          agentState={activeAgentHudState}
-        />
-      )}
+          {activeAgentRun && activeAgentHudState?.isActive && (
+            <AgentLiveHUD
+              runId={activeAgentRun.run_id}
+              runCreatedAt={activeAgentRun.created_at}
+              agentState={activeAgentHudState}
+            />
+          )}
 
-      {terminalAvailable && selectedConversationId && (
-        <div style={{ ['--terminal-height' as string]: `${terminalState?.height ?? 260}px` }}>
+          {terminalAvailable && selectedConversationId && bottomTerminalOpen && (
+            <div style={{ ['--terminal-height' as string]: `${terminalState?.height ?? 260}px` }}>
+              <IntegratedTerminal
+                key={`${selectedConversationId}-bottom`}
+                conversationId={selectedConversationId}
+                workspacePath={effectiveWorkspacePath}
+                active={terminalAvailable}
+                dock="bottom"
+              />
+            </div>
+          )}
+
+          <div className="flex-shrink-0 space-y-3 p-3 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-4 sm:pb-[max(1rem,env(safe-area-inset-bottom))]">
+            {/* Queued steering messages */}
+            {queuedSteers.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 px-1">
+                {queuedSteers.map((msg, i) => (
+                  <span
+                    key={i}
+                    className="inline-flex items-center gap-1 rounded-full border border-amber-500/18 bg-amber-500/[0.08] px-2.5 py-1 text-[11px] font-mono text-amber-300/85"
+                  >
+                    <span className="text-amber-500/50">queued:</span> {msg.length > 40 ? msg.slice(0, 40) + '...' : msg}
+                  </span>
+                ))}
+              </div>
+            )}
+            {/* Prompt area */}
+            <div className="ui-panel ui-transition relative overflow-visible rounded-[1.1rem] border border-zinc-800/90 px-1 focus-within:border-cyan-500/30 focus-within:ring-1 focus-within:ring-cyan-500/10">
+              <div className="flex items-start gap-3 p-4">
+                <span className="mt-0.5 select-none font-mono text-sm text-cyan-200/80">&gt;</span>
+                <textarea
+                  ref={textareaRef}
+                  placeholder={atLimit ? 'Message limit reached' : hasActiveRun ? 'Steer the agent...' : mode === 'agent' ? 'Ask the coding agent...' : 'Ask a follow-up question...'}
+                  value={message}
+                  onChange={handleMessageChange}
+                  onPaste={handlePaste}
+                  onKeyDown={handleKeyDown}
+                  onSelect={handleTextareaSelection}
+                  onClick={handleTextareaSelection}
+                  rows={2}
+                  className="flex-1 resize-none border-none bg-transparent text-[14px] leading-[1.9] text-zinc-50 outline-none placeholder:text-zinc-500"
+                  disabled={isSubmitting || atLimit}
+                  style={{ maxHeight: '200px' }}
+                />
+              </div>
+              <MentionPicker
+                open={mentionOpen}
+                loading={mentionLoading}
+                entries={mentionResults}
+                selectedIndex={mentionSelectedIndex}
+                onSelect={handleMentionSelect}
+              />
+            </div>
+            {imageAttachments.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 px-1 font-mono text-[11px]">
+                {imageAttachments.map((attachment, index) => (
+                  <button
+                    key={attachment.id || index}
+                    type="button"
+                    onClick={() => removeImageAttachment(attachment.id)}
+                      className="rounded-lg border border-zinc-800 bg-zinc-950 px-2 py-0.5 text-zinc-300 hover:border-cyan-500/30 hover:text-cyan-100"
+                    title="Remove image"
+                  >
+                    image {index + 1} ×
+                  </button>
+                ))}
+              </div>
+            )}
+            {/* Toolbar */}
+            <div className="flex items-center justify-between px-1.5">
+              <div className="flex items-center gap-3 font-mono text-[11px]">
+                <button
+                  onClick={() => setMode('agent')}
+                  className={cn(
+                    'transition-colors',
+                    mode === 'agent' ? 'text-cyan-100' : 'text-zinc-500 hover:text-cyan-100'
+                  )}
+                >
+                  agent
+                </button>
+                <button
+                  onClick={() => setMode('chat')}
+                  className={cn(
+                    'transition-colors',
+                    mode === 'chat' ? 'text-cyan-100' : 'text-zinc-500 hover:text-cyan-100'
+                  )}
+                >
+                  chat
+                </button>
+                {mode === 'agent' && (
+                  <>
+                    {isWorkspaceLocked ? (
+                      <span
+                        className={cn(
+                          'max-w-52 truncate text-xs font-mono',
+                          hasConversationWorkspace ? 'text-zinc-300' : 'text-zinc-600'
+                        )}
+                        title={
+                          hasConversationWorkspace
+                            ? effectiveWorkspacePath
+                            : 'This conversation has no workspace. Create a new workspace thread from the sidebar.'
+                        }
+                      >
+                        {hasConversationWorkspace ? effectiveWorkspacePath : 'no workspace'}
+                      </span>
+                    ) : (
+                      <>
+                        <input
+                          value={draftWorkspacePath}
+                          onChange={(e) => setDraftWorkspacePath(e.target.value)}
+                          placeholder="/path/to/repo"
+                          className="w-40 sm:w-56 bg-transparent border-none outline-none text-[11px] font-mono text-zinc-300 placeholder:text-zinc-600"
+                          title="Workspace path for filesystem and bash tools"
+                        />
+                        <button
+                          onClick={handleOpenWorkspacePicker}
+                          className="ui-transition text-zinc-400 hover:text-cyan-100"
+                          title="Browse local folders"
+                        >
+                          browse
+                        </button>
+                      </>
+                    )}
+                    <select
+                      value={permissionPolicy}
+                      onChange={(e) => setPermissionPolicy(e.target.value as 'strict' | 'relaxed' | 'yolo')}
+                      className="bg-transparent border-none outline-none text-[11px] font-mono text-zinc-300 cursor-pointer"
+                      title="Tool permission policy"
+                    >
+                      <option value="strict">strict</option>
+                      <option value="relaxed">relaxed</option>
+                      <option value="yolo">yolo</option>
+                      </select>
+                    </>
+                  )}
+                  <button
+                    onClick={() => setReasoningSettingsOpen(true)}
+                    className="ui-transition text-zinc-300 hover:text-cyan-100"
+                    title="Configure reasoning settings"
+                  >
+                    reasoning
+                  </button>
+                  {terminalAvailable && selectedConversationId && (
+                    <button
+                      onClick={() => {
+                        if (!effectiveWorkspacePath) {
+                          toast.error(selectedConversationId ? 'Create or open a workspace conversation first' : 'Select a workspace first');
+                          if (!selectedConversationId) {
+                            setWorkspacePickerOpen(true);
+                          }
+                          return;
+                        }
+                        updateTerminalState(selectedConversationId, { isOpen: !terminalState?.isOpen });
+                      }}
+                      className="ui-transition text-zinc-300 hover:text-cyan-100"
+                      title={
+                        effectiveWorkspacePath
+                          ? (terminalState?.isOpen ? 'Collapse terminal' : 'Open terminal')
+                          : 'Select or open a workspace conversation first'
+                      }
+                    >
+                      {terminalState?.isOpen ? 'terminal−' : 'terminal+'}
+                    </button>
+                  )}
+                  <span className="text-zinc-700">|</span>
+                  {isGenerating ? (
+                    <button onClick={handleStop} className="text-red-400 hover:text-red-300 transition-colors">
+                      stop
+                    </button>
+                ) : (
+                  <button
+                    onClick={handleSubmit}
+                    disabled={!message.trim() || isSubmitting || atLimit}
+                    className={cn(
+                      'transition-colors',
+                      !message.trim() || isSubmitting || atLimit
+                        ? 'text-zinc-700 cursor-not-allowed'
+                        : hasActiveRun
+                          ? 'text-amber-400/80 hover:text-amber-300'
+                          : 'text-cyan-100 hover:text-white'
+                    )}
+                    title={atLimit ? 'Message limit reached' : hasActiveRun ? 'Send steering message to agent' : undefined}
+                  >
+                    {isSubmitting ? 'sending...' : atLimit ? 'limit reached' : hasActiveRun ? 'steer' : 'send'}
+                  </button>
+                )}
+                {showComposerContextStats && (
+                  <>
+                    <span className="text-zinc-700">|</span>
+                    <span className="text-zinc-500">
+                      ctx {composerContextUtilizationPct !== null ? `${Math.round(composerContextUtilizationPct)}%` : '—'}
+                    </span>
+                    <span className="text-zinc-500">
+                      {typeof composerPromptTokens === 'number' && composerContextWindow
+                        ? `${formatContextTokens(composerPromptTokens)}/${formatContextTokens(composerContextWindow)}`
+                        : '—'}
+                    </span>
+                    <span className="text-zinc-500">
+                      raw {conversationRawTokens > 0 ? formatContextTokens(conversationRawTokens) : '—'}
+                    </span>
+                  </>
+                )}
+              </div>
+              <div className="flex items-center gap-3 font-mono text-[11px] text-zinc-500">
+                {hasLimit && (
+                  <span className={cn(
+                    atLimit ? 'text-red-500/70' : usage.remaining <= 3 ? 'text-amber-500' : ''
+                  )}>
+                    {atLimit ? 'no messages left' : `${usage.remaining} left`}
+                  </span>
+                )}
+                <span className="hidden md:inline">⌘+Enter send</span>
+                <span className={message.length > MAX_INPUT_CHARS * 0.9 ? 'text-zinc-400' : ''}>
+                  {message.length.toLocaleString()}/{MAX_INPUT_CHARS.toLocaleString()}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+        {terminalAvailable && selectedConversationId && rightTerminalOpen && (
           <IntegratedTerminal
+            key={`${selectedConversationId}-right`}
             conversationId={selectedConversationId}
             workspacePath={effectiveWorkspacePath}
             active={terminalAvailable}
+            dock="right"
           />
-        </div>
-      )}
-
-      <div className="p-3 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-4 sm:pb-[max(1rem,env(safe-area-inset-bottom))] flex-shrink-0 space-y-2">
-        {/* Queued steering messages */}
-        {queuedSteers.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 px-1">
-            {queuedSteers.map((msg, i) => (
-              <span
-                key={i}
-                className="inline-flex items-center gap-1 rounded-lg border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-[11px] font-mono text-amber-400/80"
-              >
-                <span className="text-amber-500/50">queued:</span> {msg.length > 40 ? msg.slice(0, 40) + '...' : msg}
-              </span>
-            ))}
-          </div>
         )}
-        {/* Prompt area */}
-        <div className="relative overflow-visible rounded-2xl border border-zinc-600 bg-zinc-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.025)] focus-within:border-zinc-500 transition-colors">
-          <div className="flex items-start p-3 gap-2">
-            <span className="text-zinc-300 font-mono text-sm mt-0.5 select-none">&gt;</span>
-            <textarea
-              ref={textareaRef}
-              placeholder={atLimit ? 'Message limit reached' : hasActiveRun ? 'Steer the agent...' : mode === 'agent' ? 'Ask the coding agent...' : 'Ask a follow-up question...'}
-              value={message}
-              onChange={handleMessageChange}
-              onPaste={handlePaste}
-              onKeyDown={handleKeyDown}
-              onSelect={handleTextareaSelection}
-              onClick={handleTextareaSelection}
-              rows={2}
-              className="flex-1 bg-transparent border-none outline-none resize-none text-sm font-mono text-zinc-100 placeholder:text-zinc-400"
-              disabled={isSubmitting || atLimit}
-              style={{ maxHeight: '200px' }}
-            />
-          </div>
-          <MentionPicker
-            open={mentionOpen}
-            loading={mentionLoading}
-            entries={mentionResults}
-            selectedIndex={mentionSelectedIndex}
-            onSelect={handleMentionSelect}
-          />
-        </div>
-        {imageAttachments.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 px-1 font-mono text-[11px]">
-            {imageAttachments.map((attachment, index) => (
-              <button
-                key={attachment.id || index}
-                type="button"
-                onClick={() => removeImageAttachment(attachment.id)}
-                  className="rounded-lg border border-zinc-600 bg-zinc-900 px-2 py-0.5 text-zinc-400 hover:text-zinc-100"
-                title="Remove image"
-              >
-                image {index + 1} ×
-              </button>
-            ))}
-          </div>
-        )}
-        {/* Toolbar */}
-        <div className="flex items-center justify-between px-1">
-          <div className="flex items-center gap-3 font-mono text-xs">
-            <button
-              onClick={() => setMode('agent')}
-              className={cn(
-                'transition-colors',
-                mode === 'agent' ? 'text-zinc-100' : 'text-zinc-400 hover:text-zinc-200'
-              )}
-            >
-              agent
-            </button>
-            <button
-              onClick={() => setMode('chat')}
-              className={cn(
-                'transition-colors',
-                mode === 'chat' ? 'text-zinc-100' : 'text-zinc-400 hover:text-zinc-200'
-              )}
-            >
-              chat
-            </button>
-            {mode === 'agent' && (
-              <>
-                {isWorkspaceLocked ? (
-                  <span
-                    className={cn(
-                      'max-w-52 truncate text-xs font-mono',
-                      hasConversationWorkspace ? 'text-zinc-400' : 'text-zinc-500'
-                    )}
-                    title={
-                      hasConversationWorkspace
-                        ? effectiveWorkspacePath
-                        : 'This conversation has no workspace. Create a new workspace thread from the sidebar.'
-                    }
-                  >
-                    {hasConversationWorkspace ? effectiveWorkspacePath : 'no workspace'}
-                  </span>
-                ) : (
-                  <>
-                    <input
-                      value={draftWorkspacePath}
-                      onChange={(e) => setDraftWorkspacePath(e.target.value)}
-                      placeholder="/path/to/repo"
-                      className="w-40 sm:w-56 bg-transparent border-none outline-none text-xs font-mono text-zinc-400 placeholder:text-zinc-500"
-                      title="Workspace path for filesystem and bash tools"
-                    />
-                    <button
-                      onClick={handleOpenWorkspacePicker}
-                      className="text-zinc-400 hover:text-zinc-200 transition-colors"
-                      title="Browse local folders"
-                    >
-                      browse
-                    </button>
-                  </>
-                )}
-                <select
-                  value={permissionPolicy}
-                  onChange={(e) => setPermissionPolicy(e.target.value as 'strict' | 'relaxed' | 'yolo')}
-                  className="bg-transparent border-none outline-none text-xs font-mono text-zinc-400 cursor-pointer"
-                  title="Tool permission policy"
-                >
-                  <option value="strict">strict</option>
-                  <option value="relaxed">relaxed</option>
-                  <option value="yolo">yolo</option>
-                  </select>
-                </>
-              )}
-              <button
-                onClick={() => setReasoningSettingsOpen(true)}
-                className="text-zinc-400 hover:text-zinc-200 transition-colors"
-                title="Configure reasoning settings"
-              >
-                reasoning
-              </button>
-              {terminalAvailable && selectedConversationId && (
-                <button
-                  onClick={() => {
-                    if (!effectiveWorkspacePath) {
-                      toast.error(selectedConversationId ? 'Create or open a workspace conversation first' : 'Select a workspace first');
-                      if (!selectedConversationId) {
-                        setWorkspacePickerOpen(true);
-                      }
-                      return;
-                    }
-                    updateTerminalState(selectedConversationId, { isOpen: !terminalState?.isOpen });
-                  }}
-                  className="text-zinc-400 hover:text-zinc-200 transition-colors"
-                  title={
-                    effectiveWorkspacePath
-                      ? (terminalState?.isOpen ? 'Collapse terminal' : 'Open terminal')
-                      : 'Select or open a workspace conversation first'
-                  }
-                >
-                  {terminalState?.isOpen ? 'terminal−' : 'terminal+'}
-                </button>
-              )}
-              <span className="text-zinc-500">|</span>
-              {isGenerating ? (
-                <button onClick={handleStop} className="text-red-400 hover:text-red-300 transition-colors">
-                  stop
-                </button>
-            ) : (
-              <button
-                onClick={handleSubmit}
-                disabled={!message.trim() || isSubmitting || atLimit}
-                className={cn(
-                  'transition-colors',
-                  !message.trim() || isSubmitting || atLimit
-                    ? 'text-zinc-500 cursor-not-allowed'
-                    : hasActiveRun
-                      ? 'text-amber-400/80 hover:text-amber-300'
-                      : 'text-zinc-400 hover:text-zinc-200'
-                )}
-                title={atLimit ? 'Message limit reached' : hasActiveRun ? 'Send steering message to agent' : undefined}
-              >
-                {isSubmitting ? 'sending...' : atLimit ? 'limit reached' : hasActiveRun ? 'steer' : 'send'}
-              </button>
-            )}
-            {showComposerContextStats && (
-              <>
-                <span className="text-zinc-500">|</span>
-                <span className="text-zinc-400">
-                  ctx {composerContextUtilizationPct !== null ? `${Math.round(composerContextUtilizationPct)}%` : '—'}
-                </span>
-                <span className="text-zinc-400">
-                  {typeof composerPromptTokens === 'number' && composerContextWindow
-                    ? `${formatContextTokens(composerPromptTokens)}/${formatContextTokens(composerContextWindow)}`
-                    : '—'}
-                </span>
-                <span className="text-zinc-400">
-                  raw {conversationRawTokens > 0 ? formatContextTokens(conversationRawTokens) : '—'}
-                </span>
-              </>
-            )}
-          </div>
-          <div className="flex items-center gap-3 font-mono text-xs text-zinc-400">
-            {hasLimit && (
-              <span className={cn(
-                atLimit ? 'text-red-500/70' : usage.remaining <= 3 ? 'text-amber-500' : ''
-              )}>
-                {atLimit ? 'no messages left' : `${usage.remaining} left`}
-              </span>
-            )}
-            <span className="hidden md:inline">⌘+Enter send</span>
-            <span className={message.length > MAX_INPUT_CHARS * 0.9 ? 'text-zinc-400' : ''}>
-              {message.length.toLocaleString()}/{MAX_INPUT_CHARS.toLocaleString()}
-            </span>
-          </div>
-        </div>
       </div>
     </div>
   );
