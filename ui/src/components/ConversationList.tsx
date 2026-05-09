@@ -61,11 +61,11 @@ function ConversationCard({
   return (
     <div
       className={cn(
-        'cursor-pointer rounded-xl border border-zinc-600/85 bg-zinc-950/70 px-3 py-3 transition-all',
+        'ui-transition cursor-pointer rounded-[1rem] border border-zinc-800/90 bg-zinc-950/66 px-3.5 py-3.5 ui-elevated',
         'min-h-[60px] sm:min-h-0',
-        isSelected && 'border-zinc-600 bg-zinc-950/92 shadow-[0_0_0_1px_rgba(255,255,255,0.04)]',
-        !isSelected && 'hover:border-zinc-600 hover:bg-zinc-950/78',
-        isChecked && 'border-zinc-600 bg-zinc-950/88'
+        isSelected && 'border-cyan-500/35 bg-zinc-950/98 shadow-[0_0_0_1px_rgba(103,232,249,0.12),0_20px_40px_rgba(0,0,0,0.22)] -translate-y-[1px]',
+        !isSelected && 'hover:border-zinc-700/95 hover:bg-zinc-950/82 hover:-translate-y-[1px]',
+        isChecked && 'border-zinc-600/95 bg-zinc-950/90'
       )}
       onClick={isSelectMode ? onToggleCheck : onClick}
     >
@@ -80,10 +80,10 @@ function ConversationCard({
           </div>
         )}
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium text-zinc-100">
+          <p className={cn("truncate text-[13px] font-medium leading-6", isSelected ? 'text-zinc-50' : 'text-zinc-100')}>
             {conversation.title ? truncate(conversation.title, 50) : 'New conversation'}
           </p>
-          <p className="mt-1 text-xs text-zinc-300">
+          <p className="mt-1 text-[11px] tracking-[0.01em] text-zinc-500">
             {formatRelativeTime(conversation.created_at)}
           </p>
         </div>
@@ -91,7 +91,7 @@ function ConversationCard({
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8 flex-shrink-0 rounded-lg text-zinc-300 hover:bg-zinc-800 hover:text-zinc-200"
+            className="h-8 w-8 flex-shrink-0 rounded-xl text-zinc-500 hover:bg-zinc-900 hover:text-cyan-100"
             onClick={(e) => {
               e.stopPropagation();
               onDelete();
@@ -134,7 +134,7 @@ function WorkspaceSection({
             onToggle();
           }
         }}
-        className="group block w-full rounded-2xl border border-zinc-600/85 bg-zinc-950/82 px-3 py-3 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.02)] transition-colors hover:border-zinc-600 hover:bg-zinc-950/82"
+        className="ui-transition group ui-panel block w-full rounded-[1.25rem] border border-zinc-800/90 px-3.5 py-3.5 text-left shadow-[0_18px_36px_rgba(0,0,0,0.18),inset_0_1px_0_rgba(255,255,255,0.02)] hover:border-cyan-500/25 hover:-translate-y-[1px]"
       >
         <div className="flex items-start gap-3.5">
           <button
@@ -144,7 +144,7 @@ function WorkspaceSection({
               onToggle();
             }}
             onMouseDown={(event) => event.stopPropagation()}
-            className="mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg border border-zinc-600 bg-zinc-950/92 text-zinc-300 transition-colors hover:border-zinc-600 hover:text-zinc-300"
+            className="ui-transition mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl border border-zinc-800 bg-zinc-950/95 text-zinc-400 hover:border-cyan-500/30 hover:text-cyan-100"
             title={isOpen ? 'Collapse workspace' : 'Expand workspace'}
           >
             {isOpen ? (
@@ -167,22 +167,22 @@ function WorkspaceSection({
                   className="block min-w-0 text-left"
                   title={group.workspacePath}
                 >
-                  <div className="truncate pr-2 text-[15px] font-medium leading-5 text-zinc-100">
+                  <div className="truncate pr-2 text-[14px] font-medium leading-6 tracking-[0.01em] text-zinc-50">
                     {group.label}
                   </div>
                 </button>
-                <div className="mt-1.5 truncate pr-2 font-mono text-[11px] leading-5 text-zinc-300">
+                <div className="mt-1 truncate pr-2 font-mono text-[11px] leading-5 text-zinc-500">
                   {workspacePathPreview(group.workspacePath)}
                 </div>
               </div>
               <div className="flex flex-shrink-0 items-center gap-2 pt-0.5">
-                <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full border border-zinc-600 bg-zinc-950/92 px-1.5 text-[10px] text-zinc-400">
+                <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full border border-zinc-800 bg-zinc-950/95 px-1.5 text-[10px] text-zinc-400">
                   {group.conversations.length}
                 </span>
                 <Button
                   size="icon"
                   variant="ghost"
-                  className="h-8 w-8 flex-shrink-0 rounded-lg text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100"
+                  className="h-8 w-8 flex-shrink-0 rounded-xl text-zinc-500 hover:bg-zinc-900 hover:text-cyan-100"
                   onClick={(event) => {
                     event.stopPropagation();
                     onNewConversation();

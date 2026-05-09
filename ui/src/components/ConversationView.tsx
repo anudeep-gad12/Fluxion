@@ -332,13 +332,13 @@ function ModelPicker({
         )}
         <div className="space-y-1 max-h-[70vh] overflow-y-auto pr-1">
           {loading ? (
-            <p className="text-xs text-zinc-400 font-mono px-3 py-2">Loading models...</p>
+            <p className="px-3 py-2 font-mono text-xs text-zinc-300">Loading models...</p>
           ) : (
             <>
               {/* Registry models by provider */}
               {registryProviders.map(([providerName, info]) => (
                 <div key={providerName}>
-                  <p className="text-[10px] text-zinc-400 font-mono px-3 pt-2 pb-1 uppercase">
+                  <p className="px-3 pt-2 pb-1 font-mono text-[10px] uppercase text-zinc-500">
                     {providerName}
                   </p>
                   {info.models.map((model: RegistryModelPreset) => {
@@ -354,13 +354,13 @@ function ModelPicker({
                           'w-full text-left px-3 py-1.5 text-xs font-mono transition-colors',
                           isActive
                             ? 'text-zinc-200 bg-zinc-800'
-                            : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50',
+                            : 'text-zinc-300 hover:text-cyan-100 hover:bg-cyan-500/[0.08]',
                           switching === model.model_id && 'opacity-50',
                         )}
                       >
                         <div className="flex justify-between items-center">
                           <span className="truncate mr-2">{model.display_name}</span>
-                          <span className="text-zinc-400 flex-shrink-0">
+                          <span className="text-zinc-500 flex-shrink-0">
                             {model.input_cost_per_million != null && model.output_cost_per_million != null
                               ? `$${model.input_cost_per_million}/$${model.output_cost_per_million}M · `
                               : ''}
@@ -378,7 +378,7 @@ function ModelPicker({
               {localModels.filter(m => m.model_type === 'gguf').length > 0 && (
                 <>
                   <div className="border-t border-zinc-600 my-1" />
-                  <p className="text-[10px] text-zinc-400 font-mono px-3 pt-2 pb-1 uppercase">
+                  <p className="px-3 pt-2 pb-1 font-mono text-[10px] uppercase text-zinc-500">
                     local
                   </p>
                   {localModels.filter(m => m.model_type === 'gguf').map((model) => {
@@ -394,13 +394,13 @@ function ModelPicker({
                           'w-full text-left px-3 py-1.5 text-xs font-mono transition-colors',
                           isActive
                             ? 'text-zinc-200 bg-zinc-800'
-                            : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50',
+                            : 'text-zinc-300 hover:text-cyan-100 hover:bg-cyan-500/[0.08]',
                           switching === model.path && 'opacity-50',
                         )}
                       >
                         <div className="flex justify-between items-center">
                           <span className="truncate mr-2">{model.name}</span>
-                          <span className="text-zinc-400 flex-shrink-0">{model.size_display}</span>
+                          <span className="text-zinc-500 flex-shrink-0">{model.size_display}</span>
                         </div>
                       </button>
                     );
@@ -412,7 +412,7 @@ function ModelPicker({
               {localModels.filter(m => m.model_type === 'mlx').length > 0 && (
                 <>
                   <div className="border-t border-zinc-600 my-1" />
-                  <p className="text-[10px] text-zinc-400 font-mono px-3 pt-2 pb-1 uppercase">
+                  <p className="px-3 pt-2 pb-1 font-mono text-[10px] uppercase text-zinc-500">
                     mlx
                   </p>
                   {localModels.filter(m => m.model_type === 'mlx').map((model) => {
@@ -428,13 +428,13 @@ function ModelPicker({
                           'w-full text-left px-3 py-1.5 text-xs font-mono transition-colors',
                           isActive
                             ? 'text-zinc-200 bg-zinc-800'
-                            : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50',
+                            : 'text-zinc-300 hover:text-cyan-100 hover:bg-cyan-500/[0.08]',
                           switching === model.path && 'opacity-50',
                         )}
                       >
                         <div className="flex justify-between items-center">
                           <span className="truncate mr-2">{model.name}</span>
-                          <span className="text-zinc-400 flex-shrink-0">{model.size_display}</span>
+                          <span className="text-zinc-500 flex-shrink-0">{model.size_display}</span>
                         </div>
                       </button>
                     );
@@ -444,7 +444,7 @@ function ModelPicker({
 
               <div className="border-t border-zinc-600 my-2" />
               <div className="px-3 py-2 space-y-2">
-                <p className="text-[10px] text-zinc-400 font-mono uppercase">
+                <p className="font-mono text-[10px] uppercase text-zinc-500">
                   provider api keys
                 </p>
                 {providerKeys.map((providerKey) => {
@@ -457,7 +457,7 @@ function ModelPicker({
                       <div className="flex items-center justify-between gap-3 text-[11px] font-mono">
                         <div className="min-w-0">
                           <div className="text-zinc-300 uppercase">{providerKey.provider}</div>
-                          <div className="text-zinc-400">{providerKey.api_key_env}</div>
+                          <div className="text-zinc-500">{providerKey.api_key_env}</div>
                         </div>
                         <div className="text-zinc-300 flex-shrink-0">
                           {providerKey.has_key ? `saved · ${providerKey.source}` : 'not set'}
@@ -484,7 +484,7 @@ function ModelPicker({
                         <button
                           onClick={() => handleClearProviderKey(providerKey.provider)}
                           disabled={!!switching || !providerKey.has_key}
-                          className="text-xs font-mono text-zinc-300 hover:text-zinc-300 disabled:text-zinc-300"
+                          className="text-xs font-mono text-zinc-300 hover:text-cyan-100 disabled:text-zinc-500"
                         >
                           [clear]
                         </button>
@@ -548,7 +548,7 @@ function ReasoningSettingsDialog({
       </DialogHeader>
       <DialogContent>
         {!draft || !capabilities ? (
-          <p className="text-xs text-zinc-300 font-mono">Loading reasoning settings...</p>
+          <p className="text-xs font-mono text-zinc-200">Loading reasoning settings...</p>
         ) : (
           <div className="space-y-4 font-mono text-xs">
             <div className="text-zinc-300">
@@ -558,7 +558,7 @@ function ReasoningSettingsDialog({
 
             <div className="grid grid-cols-2 gap-3">
               <label className="space-y-1">
-                <div className="text-zinc-400">max output</div>
+                <div className="text-zinc-500">max output</div>
                 <input
                   type="number"
                   min={1}
@@ -569,7 +569,7 @@ function ReasoningSettingsDialog({
               </label>
               {showReasoningEffort && !showReasoningMaxTokens && (
                 <label className="space-y-1">
-                  <div className="text-zinc-400">thinking effort</div>
+                  <div className="text-zinc-500">thinking effort</div>
                   <select
                     value={draft.reasoning_effort ?? ''}
                     onChange={(e) => update('reasoning_effort', e.target.value || null)}
@@ -591,7 +591,7 @@ function ReasoningSettingsDialog({
                 <div className="text-zinc-300 uppercase text-[10px]">Fireworks controls</div>
                 <div className="grid grid-cols-2 gap-3">
                   <label className="space-y-1">
-                    <div className="text-zinc-400">control</div>
+                    <div className="text-zinc-500">control</div>
                     <select
                       value={draft.fireworks_reasoning_mode}
                       onChange={(e) => {
@@ -615,7 +615,7 @@ function ReasoningSettingsDialog({
 
                   {fireworksMode === 'effort' ? (
                     <label className="space-y-1">
-                      <div className="text-zinc-400">thinking effort</div>
+                      <div className="text-zinc-500">thinking effort</div>
                       <select
                         value={draft.reasoning_effort ?? ''}
                         onChange={(e) => update('reasoning_effort', e.target.value || null)}
@@ -631,7 +631,7 @@ function ReasoningSettingsDialog({
                     </label>
                   ) : (
                     <label className="space-y-1">
-                      <div className="text-zinc-400">max thinking tokens</div>
+                      <div className="text-zinc-500">max thinking tokens</div>
                       <input
                         type="number"
                         min={1024}
@@ -646,7 +646,7 @@ function ReasoningSettingsDialog({
                   )}
                 </div>
 
-                <div className="text-[11px] text-zinc-400">
+                <div className="text-[11px] text-zinc-500">
                   {fireworksMode === 'effort'
                     ? 'Sends reasoning_effort only.'
                     : 'Sends thinking.budget_tokens only.'}
@@ -658,7 +658,7 @@ function ReasoningSettingsDialog({
                   <div className="text-zinc-300 uppercase text-[10px]">OpenRouter controls</div>
                   <div className="grid grid-cols-2 gap-3">
                     <label className="space-y-1">
-                      <div className="text-zinc-400">control</div>
+                      <div className="text-zinc-500">control</div>
                       <select
                         value={openRouterMode}
                         onChange={(e) => {
@@ -677,7 +677,7 @@ function ReasoningSettingsDialog({
 
                     {openRouterMode === 'effort' ? (
                       <label className="space-y-1">
-                        <div className="text-zinc-400">thinking effort</div>
+                        <div className="text-zinc-500">thinking effort</div>
                         <select
                           value={draft.reasoning_effort ?? ''}
                           onChange={(e) => update('reasoning_effort', e.target.value || null)}
@@ -693,7 +693,7 @@ function ReasoningSettingsDialog({
                       </label>
                     ) : (
                       <label className="space-y-1">
-                        <div className="text-zinc-400">max thinking tokens</div>
+                        <div className="text-zinc-500">max thinking tokens</div>
                         <input
                           type="number"
                           min={1}
@@ -711,7 +711,7 @@ function ReasoningSettingsDialog({
             )}
 
             {!isFireworks && !showReasoningMaxTokens && (
-              <div className="text-[11px] text-zinc-400">
+              <div className="text-[11px] text-zinc-500">
                 This provider has no separate max thinking token setting.
               </div>
             )}
@@ -719,7 +719,7 @@ function ReasoningSettingsDialog({
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => onOpenChange(false)}
-                className="px-3 py-1 text-zinc-300 hover:text-zinc-300"
+                className="px-3 py-1 text-zinc-300 hover:text-cyan-100"
               >
                 cancel
               </button>
@@ -770,31 +770,31 @@ const RunMessage = memo(function RunMessage({
   const footerMetrics = getRunFooterMetrics(run);
 
   return (
-    <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2">
+    <div className="animate-in fade-in slide-in-from-bottom-2 space-y-4 duration-200">
       {/* User message */}
-      <div className="flex gap-3">
-        <div className="w-9 flex-shrink-0 pt-0.5">
-          <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-zinc-300">U:</span>
+      <div className="flex gap-3.5">
+        <div className="w-10 flex-shrink-0 pt-1">
+          <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-500">you</span>
         </div>
         <div className="flex-1 min-w-0">
-          <div className="rounded-2xl border border-zinc-600/80 bg-zinc-950/80 px-4 py-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.025)]">
-            <span className="text-zinc-100 whitespace-pre-wrap text-sm leading-relaxed">
+          <div className="ui-panel rounded-[1.35rem] border border-zinc-800/95 px-4.5 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.025)]">
+            <span className="whitespace-pre-wrap text-[13px] leading-7 text-zinc-50">
               {run.user_message || run.prompt}
             </span>
           </div>
-          <p className="text-[11px] text-zinc-400 mt-1.5 px-1">
+          <p className="mt-1.5 px-1 text-[11px] text-zinc-500">
             {formatRelativeTime(run.created_at)}
           </p>
         </div>
       </div>
 
       {/* AI response */}
-      <div className="flex gap-3 group/msg">
-        <div className="w-9 flex-shrink-0 pt-0.5">
-          <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-zinc-400/80">AI:</span>
+      <div className="group/msg flex gap-3.5">
+        <div className="w-10 flex-shrink-0 pt-1">
+          <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-500">reply</span>
         </div>
         <div className="flex-1 min-w-0">
-          <div className="rounded-2xl border border-zinc-600/70 bg-zinc-950/72 px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]">
+          <div className="rounded-[1.35rem] border border-zinc-800/90 bg-zinc-950/74 px-4.5 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]">
             {/* Thinking Panel - shows while thinking or after completion with thinking data */}
             <ThinkingPanel
               summary={run.thinking_summary}
@@ -808,7 +808,7 @@ const RunMessage = memo(function RunMessage({
             ) : isRunning && !displayText && isThinking ? (
               <ThinkingTimer label="Thinking" />
             ) : run.status === 'failed' ? (
-              <div className="text-sm text-zinc-400">
+                <div className="text-sm text-red-200/90">
                 [error] {run.error_detail || 'Request failed. Please try again.'}
               </div>
             ) : displayText ? (
@@ -819,26 +819,26 @@ const RunMessage = memo(function RunMessage({
                 )}
               </div>
             ) : !isThinking ? (
-              <div className="text-sm text-zinc-400">No response.</div>
+              <div className="text-sm text-zinc-300">No response.</div>
             ) : null}
           </div>
 
-          <div className="mt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-1 font-mono text-xs">
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-1 font-mono text-[11px]">
             <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
               <span className={cn(
                 run.status === 'succeeded'
                   ? 'text-emerald-600'
                   : run.status === 'failed'
                     ? 'text-red-500/70'
-                    : 'text-zinc-400'
+                    : 'text-zinc-500'
               )}>
                 [{formatRunStatusLabel(run)}]
               </span>
               {run.created_at && (
-                <span className="text-zinc-300">{formatRelativeTime(run.created_at)}</span>
+                <span className="text-zinc-500">{formatRelativeTime(run.created_at)}</span>
               )}
               {footerMetrics.map((metric) => (
-                <span key={metric} className="text-zinc-400">{metric}</span>
+                <span key={metric} className="text-zinc-500">{metric}</span>
               ))}
             </div>
             {!isRunning && (
@@ -898,11 +898,11 @@ function MentionPicker({
   if (!open) return null;
 
   return (
-    <div className="absolute left-0 right-0 bottom-full mb-2 border border-zinc-600 bg-zinc-950 shadow-2xl z-20 max-h-64 overflow-y-auto">
+    <div className="ui-panel ui-elevated absolute left-0 right-0 bottom-full z-20 mb-2 max-h-64 overflow-y-auto rounded-[1rem] border border-zinc-800/95">
       {loading ? (
-        <div className="px-3 py-2 text-xs font-mono text-zinc-300">searching files...</div>
+        <div className="px-3 py-2 text-[11px] font-mono text-zinc-300">searching files...</div>
       ) : entries.length === 0 ? (
-        <div className="px-3 py-2 text-xs font-mono text-zinc-300">no matching files</div>
+        <div className="px-3 py-2 text-[11px] font-mono text-zinc-500">no matching files</div>
       ) : (
         entries.map((entry, index) => (
           <button
@@ -916,14 +916,14 @@ function MentionPicker({
               onSelect(entry);
             }}
             className={cn(
-              "block w-full px-3 py-2 text-left font-mono text-xs transition-colors",
+              "ui-transition block w-full px-3 py-2.5 text-left font-mono text-[11px]",
               index === selectedIndex
-                ? "bg-zinc-800 text-zinc-100"
-                : "text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200"
+                ? "bg-cyan-500/[0.10] text-zinc-50"
+                : "text-zinc-300 hover:bg-cyan-500/[0.08] hover:text-cyan-100"
             )}
           >
             <div className="truncate">{entry.path}</div>
-            <div className="truncate text-[10px] text-zinc-400">{entry.name}</div>
+            <div className="truncate text-[10px] text-zinc-500">{entry.name}</div>
           </button>
         ))
       )}
@@ -947,7 +947,7 @@ function EmptyStatePulse({
   const model = modelStatus?.model_name || 'model';
 
   return (
-    <div className="w-full max-w-xl font-mono text-center space-y-6">
+    <div className="w-full max-w-xl space-y-6 font-mono text-center">
       <div className="relative mx-auto h-20 w-80 max-w-full overflow-hidden opacity-80">
         <svg
           viewBox="0 0 320 80"
@@ -971,20 +971,20 @@ function EmptyStatePulse({
         <div className="fluxion-trace absolute left-0 top-0 h-full w-28 bg-gradient-to-r from-transparent via-zinc-500/20 to-transparent" />
       </div>
 
-      <div className="grid grid-cols-3 gap-px border border-zinc-600 bg-zinc-900 text-left">
-        <div className="bg-background px-3 py-2">
-          <div className="text-[10px] uppercase text-zinc-300">mode</div>
-          <div className="truncate text-xs text-zinc-300">{mode}</div>
+      <div className="grid grid-cols-3 gap-px overflow-hidden rounded-[1.2rem] border border-zinc-800/95 bg-zinc-900/90 text-left">
+        <div className="bg-background px-3 py-3">
+          <div className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">mode</div>
+          <div className="truncate pt-1 text-[12px] text-zinc-200">{mode}</div>
         </div>
-        <div className="bg-background px-3 py-2">
-          <div className="text-[10px] uppercase text-zinc-300">workspace</div>
-          <div className={cn("truncate text-xs", workspacePath.trim() ? "text-zinc-300" : "text-zinc-300")}>
+        <div className="bg-background px-3 py-3">
+          <div className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">workspace</div>
+          <div className={cn("truncate pt-1 text-[12px]", workspacePath.trim() ? "text-zinc-200" : "text-zinc-400")}>
             {workspaceName}
           </div>
         </div>
-        <div className="bg-background px-3 py-2">
-          <div className="text-[10px] uppercase text-zinc-300">{provider}</div>
-          <div className="truncate text-xs text-zinc-300">{model}</div>
+        <div className="bg-background px-3 py-3">
+          <div className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">{provider}</div>
+          <div className="truncate pt-1 text-[12px] text-zinc-200">{model}</div>
         </div>
       </div>
     </div>
@@ -2183,39 +2183,39 @@ export function ConversationView() {
     return (
       <div className="h-full flex flex-col">
         {/* Status bar */}
-        <div className="border-b border-zinc-600 px-3 sm:px-4 py-2 flex items-center justify-between bg-transparent font-mono text-xs">
+        <div className="ui-panel border-b border-zinc-900/90 px-3 py-2.5 sm:px-4 flex items-center justify-between font-mono text-[11px]">
           <div className="flex items-center gap-3">
             {modelSelectEnabled ? (
               <button
                 onClick={() => setModelPickerOpen(true)}
-                className="text-zinc-400 hover:text-zinc-400 transition-colors"
+                className="ui-transition text-zinc-300 hover:text-cyan-100"
                 title="Switch model"
               >
                 {modelStatus?.model_name || 'model'}
                 {modelStatus?.context_window ? (
-                  <span className="text-zinc-300 ml-1">({Math.round(modelStatus.context_window / 1024)}k)</span>
+                  <span className="ml-1 text-zinc-500">({Math.round(modelStatus.context_window / 1024)}k)</span>
                 ) : null}
                 {modelStatus?.provider === 'local' && (
-                  <span className="text-zinc-300 ml-1">(local)</span>
+                  <span className="ml-1 text-zinc-500">(local)</span>
                 )}
               </button>
             ) : (
-              <span className="text-zinc-400">{modelStatus?.model_name || 'model'}{modelStatus?.context_window ? ` (${Math.round(modelStatus.context_window / 1024)}k)` : ''}</span>
+              <span className="text-zinc-300">{modelStatus?.model_name || 'model'}{modelStatus?.context_window ? ` (${Math.round(modelStatus.context_window / 1024)}k)` : ''}</span>
             )}
-            <span className="text-zinc-300">|</span>
+            <span className="text-zinc-700">|</span>
             <button
               onClick={() => setReasoningSettingsOpen(true)}
-              className="text-zinc-400 hover:text-zinc-400 transition-colors"
+              className="ui-transition text-zinc-300 hover:text-cyan-100"
               title="Open reasoning settings"
             >
               reasoning
             </button>
             {mode === 'agent' && isDesktop && (
               <>
-                <span className="text-zinc-300">|</span>
+                <span className="text-zinc-700">|</span>
                 <button
                   onClick={() => void handleOpenTerminal()}
-                  className="text-zinc-400 hover:text-zinc-400 transition-colors"
+                  className="ui-transition text-zinc-300 hover:text-cyan-100"
                   title={effectiveWorkspacePath ? 'Open integrated terminal' : 'Select or open a workspace conversation first'}
                 >
                   terminal
@@ -2255,18 +2255,18 @@ export function ConversationView() {
           }}
         />
 
-        <div className="flex-1 flex flex-col items-center justify-center text-zinc-400 gap-4 sm:gap-6 px-3 sm:px-4 md:px-6 overflow-y-auto min-h-0">
+        <div className="flex-1 flex flex-col items-center justify-center text-zinc-300 gap-4 sm:gap-6 px-3 sm:px-4 md:px-6 overflow-y-auto min-h-0">
           <EmptyStatePulse
             mode={mode}
             workspacePath={effectiveWorkspacePath}
             modelStatus={modelStatus}
           />
         </div>
-        <div className="p-3 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-4 sm:pb-[max(1rem,env(safe-area-inset-bottom))] flex-shrink-0 space-y-2">
+        <div className="flex-shrink-0 space-y-2.5 p-3 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-4 sm:pb-[max(1rem,env(safe-area-inset-bottom))]">
           {/* Prompt area */}
-          <div className="relative overflow-visible rounded-2xl border border-zinc-600 bg-zinc-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.025)] focus-within:border-zinc-500 transition-colors">
-            <div className="flex items-start p-3 gap-2">
-              <span className="text-zinc-300 font-mono text-sm mt-0.5 select-none">&gt;</span>
+          <div className="ui-panel ui-transition relative overflow-visible rounded-[1.35rem] border border-zinc-800/95 px-1 shadow-[0_20px_44px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.025)] focus-within:border-cyan-500/35 focus-within:shadow-[0_20px_44px_rgba(0,0,0,0.2),0_0_0_1px_rgba(103,232,249,0.08)]">
+            <div className="flex items-start gap-3 p-3.5">
+              <span className="mt-0.5 select-none font-mono text-sm text-cyan-200/80">&gt;</span>
               <textarea
                 ref={textareaRef}
                 placeholder={mode === 'agent' ? 'Ask the coding agent...' : 'Ask a question...'}
@@ -2277,7 +2277,7 @@ export function ConversationView() {
                 onSelect={handleTextareaSelection}
                 onClick={handleTextareaSelection}
                 rows={2}
-                className="flex-1 bg-transparent border-none outline-none resize-none text-sm font-mono text-zinc-100 placeholder:text-zinc-400"
+                className="flex-1 resize-none border-none bg-transparent text-[13px] leading-7 text-zinc-50 outline-none placeholder:text-zinc-500"
                 disabled={isSubmitting || hasActiveRun}
                 style={{ maxHeight: '200px' }}
               />
@@ -2297,7 +2297,7 @@ export function ConversationView() {
                   key={attachment.id || index}
                   type="button"
                   onClick={() => removeImageAttachment(attachment.id)}
-                  className="rounded-lg border border-zinc-600 bg-zinc-900 px-2 py-0.5 text-zinc-400 hover:text-zinc-100"
+                  className="rounded-lg border border-zinc-700 bg-zinc-900 px-2 py-0.5 text-zinc-300 hover:border-cyan-500/30 hover:text-cyan-100"
                   title="Remove image"
                 >
                   image {index + 1} ×
@@ -2306,13 +2306,13 @@ export function ConversationView() {
             </div>
           )}
           {/* Toolbar */}
-          <div className="flex items-center justify-between px-1">
-            <div className="flex items-center gap-3 font-mono text-xs">
+          <div className="flex items-center justify-between px-1.5">
+            <div className="flex items-center gap-3 font-mono text-[11px]">
               <button
                 onClick={() => setMode('agent')}
                 className={cn(
                   'transition-colors',
-                  mode === 'agent' ? 'text-zinc-100' : 'text-zinc-400 hover:text-zinc-200'
+                  mode === 'agent' ? 'text-cyan-100' : 'text-zinc-500 hover:text-cyan-100'
                 )}
               >
                 agent
@@ -2321,7 +2321,7 @@ export function ConversationView() {
                 onClick={() => setMode('chat')}
                 className={cn(
                   'transition-colors',
-                  mode === 'chat' ? 'text-zinc-100' : 'text-zinc-400 hover:text-zinc-200'
+                  mode === 'chat' ? 'text-cyan-100' : 'text-zinc-500 hover:text-cyan-100'
                 )}
               >
                 chat
@@ -2332,7 +2332,7 @@ export function ConversationView() {
                     <span
                       className={cn(
                         'max-w-52 truncate text-xs font-mono',
-                        hasConversationWorkspace ? 'text-zinc-400' : 'text-zinc-500'
+                        hasConversationWorkspace ? 'text-zinc-300' : 'text-zinc-600'
                       )}
                       title={
                         hasConversationWorkspace
@@ -2348,7 +2348,7 @@ export function ConversationView() {
                         value={draftWorkspacePath}
                         onChange={(e) => setDraftWorkspacePath(e.target.value)}
                         placeholder="/path/to/repo"
-                        className="w-40 sm:w-56 bg-transparent border-none outline-none text-xs font-mono text-zinc-400 placeholder:text-zinc-500"
+                        className="w-40 sm:w-56 bg-transparent border-none outline-none text-[11px] font-mono text-zinc-300 placeholder:text-zinc-600"
                         title="Workspace path for filesystem and bash tools"
                       />
                       <button
@@ -2356,7 +2356,7 @@ export function ConversationView() {
                           setWorkspacePickerMode('draft');
                           handleOpenWorkspacePicker();
                         }}
-                        className="text-zinc-400 hover:text-zinc-200 transition-colors"
+                        className="ui-transition text-zinc-400 hover:text-cyan-100"
                         title="Browse local folders"
                       >
                         browse
@@ -2366,7 +2366,7 @@ export function ConversationView() {
                   <select
                     value={permissionPolicy}
                     onChange={(e) => setPermissionPolicy(e.target.value as 'strict' | 'relaxed' | 'yolo')}
-                    className="bg-transparent border-none outline-none text-xs font-mono text-zinc-400 cursor-pointer"
+                    className="bg-transparent border-none outline-none text-[11px] font-mono text-zinc-300 cursor-pointer"
                     title="Tool permission policy"
                   >
                     <option value="strict">strict</option>
@@ -2375,17 +2375,17 @@ export function ConversationView() {
                   </select>
                 </>
               )}
-              <span className="text-zinc-500">|</span>
+              <span className="text-zinc-700">|</span>
               {mode === 'agent' && isDesktop && (
                 <button
                   onClick={() => void handleOpenTerminal()}
-                  className="text-zinc-400 hover:text-zinc-200 transition-colors"
+                  className="ui-transition text-zinc-300 hover:text-cyan-100"
                   title={effectiveWorkspacePath ? 'Open integrated terminal' : 'Select or open a workspace conversation first'}
                 >
                   terminal
                 </button>
               )}
-              {mode === 'agent' && isDesktop && <span className="text-zinc-500">|</span>}
+              {mode === 'agent' && isDesktop && <span className="text-zinc-700">|</span>}
               {isGenerating ? (
                 <button onClick={handleStop} className="text-red-400 hover:text-red-300 transition-colors">
                   stop
@@ -2397,8 +2397,8 @@ export function ConversationView() {
                   className={cn(
                     'transition-colors',
                     !message.trim() || isSubmitting || hasActiveRun
-                      ? 'text-zinc-500 cursor-not-allowed'
-                      : 'text-zinc-400 hover:text-zinc-200'
+                  ? 'text-zinc-700 cursor-not-allowed'
+                      : 'text-cyan-100 hover:text-white'
                   )}
                   title={hasActiveRun ? 'Active run in progress' : undefined}
                 >
@@ -2406,7 +2406,7 @@ export function ConversationView() {
                 </button>
               )}
             </div>
-            <div className="flex items-center gap-3 font-mono text-xs text-zinc-400">
+            <div className="flex items-center gap-3 font-mono text-[11px] text-zinc-500">
               <span className="hidden md:inline">⌘+Enter send</span>
               <span className={message.length > MAX_INPUT_CHARS * 0.9 ? 'text-zinc-400' : ''}>
                 {message.length.toLocaleString()}/{MAX_INPUT_CHARS.toLocaleString()}
@@ -2420,40 +2420,40 @@ export function ConversationView() {
 
   return (
     <div className="h-full flex flex-col">
-      <div className="border-b border-zinc-600 px-3 sm:px-4 md:px-6 py-2 flex items-center justify-between font-mono text-xs">
+      <div className="ui-panel flex items-center justify-between border-b border-zinc-900/90 px-3 py-2.5 font-mono text-[11px] sm:px-4 md:px-6">
         <div className="flex items-center gap-3 truncate mr-4">
           {modelSelectEnabled ? (
             <>
               <button
                 onClick={() => setModelPickerOpen(true)}
-                className="text-zinc-400 hover:text-zinc-200 transition-colors flex-shrink-0"
+                className="ui-transition flex-shrink-0 text-zinc-300 hover:text-cyan-100"
                 title="Switch model"
               >
                 {modelStatus?.model_name || 'model'}
                 {modelStatus?.context_window ? (
-                  <span className="text-zinc-500 ml-1">({Math.round(modelStatus.context_window / 1024)}k)</span>
+                  <span className="ml-1 text-zinc-600">({Math.round(modelStatus.context_window / 1024)}k)</span>
                 ) : null}
                 {modelStatus?.provider === 'local' && (
-                  <span className="text-zinc-500 ml-1">(local)</span>
+                  <span className="ml-1 text-zinc-600">(local)</span>
                 )}
               </button>
-              <span className="text-zinc-500">|</span>
+              <span className="text-zinc-700">|</span>
             </>
           ) : (
             <>
-              <span className="text-zinc-400 flex-shrink-0">{modelStatus?.model_name || 'model'}{modelStatus?.context_window ? ` (${Math.round(modelStatus.context_window / 1024)}k)` : ''}</span>
-              <span className="text-zinc-500">|</span>
+              <span className="text-zinc-300 flex-shrink-0">{modelStatus?.model_name || 'model'}{modelStatus?.context_window ? ` (${Math.round(modelStatus.context_window / 1024)}k)` : ''}</span>
+              <span className="text-zinc-700">|</span>
             </>
           )}
           <button
             onClick={() => setReasoningSettingsOpen(true)}
-            className="text-zinc-400 hover:text-zinc-200 transition-colors flex-shrink-0"
+            className="ui-transition flex-shrink-0 text-zinc-300 hover:text-cyan-100"
             title="Open reasoning settings"
           >
             reasoning
           </button>
-          <span className="text-zinc-500">|</span>
-          <span className="text-zinc-400 truncate">
+          <span className="text-zinc-700">|</span>
+          <span className="truncate text-zinc-500">
             {conversation?.title || 'conversation'}
           </span>
         </div>
@@ -2489,7 +2489,7 @@ export function ConversationView() {
         }}
       />
 
-      <div className="flex-1 overflow-y-auto px-3 sm:px-4 md:px-6 py-4 sm:py-5 md:py-6" ref={scrollRef}>
+      <div className="flex-1 overflow-y-auto px-4 py-5 sm:px-6 md:px-8 md:py-6" ref={scrollRef}>
         <VirtualizedConversationRunList
           runs={runs}
           scrollContainerRef={scrollRef}
@@ -2529,14 +2529,14 @@ export function ConversationView() {
         </div>
       )}
 
-      <div className="p-3 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-4 sm:pb-[max(1rem,env(safe-area-inset-bottom))] flex-shrink-0 space-y-2">
+      <div className="flex-shrink-0 space-y-2.5 p-3 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-4 sm:pb-[max(1rem,env(safe-area-inset-bottom))]">
         {/* Queued steering messages */}
         {queuedSteers.length > 0 && (
           <div className="flex flex-wrap gap-1.5 px-1">
             {queuedSteers.map((msg, i) => (
               <span
                 key={i}
-                className="inline-flex items-center gap-1 rounded-lg border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-[11px] font-mono text-amber-400/80"
+                className="inline-flex items-center gap-1 rounded-full border border-amber-500/20 bg-amber-500/10 px-2.5 py-1 text-[11px] font-mono text-amber-300/85"
               >
                 <span className="text-amber-500/50">queued:</span> {msg.length > 40 ? msg.slice(0, 40) + '...' : msg}
               </span>
@@ -2544,9 +2544,9 @@ export function ConversationView() {
           </div>
         )}
         {/* Prompt area */}
-        <div className="relative overflow-visible rounded-2xl border border-zinc-600 bg-zinc-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.025)] focus-within:border-zinc-500 transition-colors">
-          <div className="flex items-start p-3 gap-2">
-            <span className="text-zinc-300 font-mono text-sm mt-0.5 select-none">&gt;</span>
+        <div className="ui-panel ui-transition relative overflow-visible rounded-[1.35rem] border border-zinc-800/95 px-1 shadow-[0_20px_44px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.025)] focus-within:border-cyan-500/35 focus-within:shadow-[0_20px_44px_rgba(0,0,0,0.2),0_0_0_1px_rgba(103,232,249,0.08)]">
+          <div className="flex items-start gap-3 p-3.5">
+            <span className="mt-0.5 select-none font-mono text-sm text-cyan-200/80">&gt;</span>
             <textarea
               ref={textareaRef}
               placeholder={atLimit ? 'Message limit reached' : hasActiveRun ? 'Steer the agent...' : mode === 'agent' ? 'Ask the coding agent...' : 'Ask a follow-up question...'}
@@ -2557,7 +2557,7 @@ export function ConversationView() {
               onSelect={handleTextareaSelection}
               onClick={handleTextareaSelection}
               rows={2}
-              className="flex-1 bg-transparent border-none outline-none resize-none text-sm font-mono text-zinc-100 placeholder:text-zinc-400"
+              className="flex-1 resize-none border-none bg-transparent text-[13px] leading-7 text-zinc-50 outline-none placeholder:text-zinc-500"
               disabled={isSubmitting || atLimit}
               style={{ maxHeight: '200px' }}
             />
@@ -2577,7 +2577,7 @@ export function ConversationView() {
                 key={attachment.id || index}
                 type="button"
                 onClick={() => removeImageAttachment(attachment.id)}
-                  className="rounded-lg border border-zinc-600 bg-zinc-900 px-2 py-0.5 text-zinc-400 hover:text-zinc-100"
+                  className="rounded-lg border border-zinc-700 bg-zinc-900 px-2 py-0.5 text-zinc-300 hover:border-cyan-500/30 hover:text-cyan-100"
                 title="Remove image"
               >
                 image {index + 1} ×
@@ -2586,13 +2586,13 @@ export function ConversationView() {
           </div>
         )}
         {/* Toolbar */}
-        <div className="flex items-center justify-between px-1">
-          <div className="flex items-center gap-3 font-mono text-xs">
+        <div className="flex items-center justify-between px-1.5">
+          <div className="flex items-center gap-3 font-mono text-[11px]">
             <button
               onClick={() => setMode('agent')}
               className={cn(
                 'transition-colors',
-                mode === 'agent' ? 'text-zinc-100' : 'text-zinc-400 hover:text-zinc-200'
+                mode === 'agent' ? 'text-cyan-100' : 'text-zinc-500 hover:text-cyan-100'
               )}
             >
               agent
@@ -2601,7 +2601,7 @@ export function ConversationView() {
               onClick={() => setMode('chat')}
               className={cn(
                 'transition-colors',
-                mode === 'chat' ? 'text-zinc-100' : 'text-zinc-400 hover:text-zinc-200'
+                mode === 'chat' ? 'text-cyan-100' : 'text-zinc-500 hover:text-cyan-100'
               )}
             >
               chat
@@ -2612,7 +2612,7 @@ export function ConversationView() {
                   <span
                     className={cn(
                       'max-w-52 truncate text-xs font-mono',
-                      hasConversationWorkspace ? 'text-zinc-400' : 'text-zinc-500'
+                      hasConversationWorkspace ? 'text-zinc-300' : 'text-zinc-600'
                     )}
                     title={
                       hasConversationWorkspace
@@ -2628,12 +2628,12 @@ export function ConversationView() {
                       value={draftWorkspacePath}
                       onChange={(e) => setDraftWorkspacePath(e.target.value)}
                       placeholder="/path/to/repo"
-                      className="w-40 sm:w-56 bg-transparent border-none outline-none text-xs font-mono text-zinc-400 placeholder:text-zinc-500"
+                      className="w-40 sm:w-56 bg-transparent border-none outline-none text-[11px] font-mono text-zinc-300 placeholder:text-zinc-600"
                       title="Workspace path for filesystem and bash tools"
                     />
                     <button
                       onClick={handleOpenWorkspacePicker}
-                      className="text-zinc-400 hover:text-zinc-200 transition-colors"
+                      className="ui-transition text-zinc-400 hover:text-cyan-100"
                       title="Browse local folders"
                     >
                       browse
@@ -2643,7 +2643,7 @@ export function ConversationView() {
                 <select
                   value={permissionPolicy}
                   onChange={(e) => setPermissionPolicy(e.target.value as 'strict' | 'relaxed' | 'yolo')}
-                  className="bg-transparent border-none outline-none text-xs font-mono text-zinc-400 cursor-pointer"
+                  className="bg-transparent border-none outline-none text-[11px] font-mono text-zinc-300 cursor-pointer"
                   title="Tool permission policy"
                 >
                   <option value="strict">strict</option>
@@ -2654,7 +2654,7 @@ export function ConversationView() {
               )}
               <button
                 onClick={() => setReasoningSettingsOpen(true)}
-                className="text-zinc-400 hover:text-zinc-200 transition-colors"
+                className="ui-transition text-zinc-300 hover:text-cyan-100"
                 title="Configure reasoning settings"
               >
                 reasoning
@@ -2671,7 +2671,7 @@ export function ConversationView() {
                     }
                     updateTerminalState(selectedConversationId, { isOpen: !terminalState?.isOpen });
                   }}
-                  className="text-zinc-400 hover:text-zinc-200 transition-colors"
+                  className="ui-transition text-zinc-300 hover:text-cyan-100"
                   title={
                     effectiveWorkspacePath
                       ? (terminalState?.isOpen ? 'Collapse terminal' : 'Open terminal')
@@ -2681,7 +2681,7 @@ export function ConversationView() {
                   {terminalState?.isOpen ? 'terminal−' : 'terminal+'}
                 </button>
               )}
-              <span className="text-zinc-500">|</span>
+              <span className="text-zinc-700">|</span>
               {isGenerating ? (
                 <button onClick={handleStop} className="text-red-400 hover:text-red-300 transition-colors">
                   stop
@@ -2693,10 +2693,10 @@ export function ConversationView() {
                 className={cn(
                   'transition-colors',
                   !message.trim() || isSubmitting || atLimit
-                    ? 'text-zinc-500 cursor-not-allowed'
+                    ? 'text-zinc-700 cursor-not-allowed'
                     : hasActiveRun
                       ? 'text-amber-400/80 hover:text-amber-300'
-                      : 'text-zinc-400 hover:text-zinc-200'
+                      : 'text-cyan-100 hover:text-white'
                 )}
                 title={atLimit ? 'Message limit reached' : hasActiveRun ? 'Send steering message to agent' : undefined}
               >
@@ -2705,22 +2705,22 @@ export function ConversationView() {
             )}
             {showComposerContextStats && (
               <>
-                <span className="text-zinc-500">|</span>
-                <span className="text-zinc-400">
+                <span className="text-zinc-700">|</span>
+                <span className="text-zinc-500">
                   ctx {composerContextUtilizationPct !== null ? `${Math.round(composerContextUtilizationPct)}%` : '—'}
                 </span>
-                <span className="text-zinc-400">
+                <span className="text-zinc-500">
                   {typeof composerPromptTokens === 'number' && composerContextWindow
                     ? `${formatContextTokens(composerPromptTokens)}/${formatContextTokens(composerContextWindow)}`
                     : '—'}
                 </span>
-                <span className="text-zinc-400">
+                <span className="text-zinc-500">
                   raw {conversationRawTokens > 0 ? formatContextTokens(conversationRawTokens) : '—'}
                 </span>
               </>
             )}
           </div>
-          <div className="flex items-center gap-3 font-mono text-xs text-zinc-400">
+          <div className="flex items-center gap-3 font-mono text-[11px] text-zinc-500">
             {hasLimit && (
               <span className={cn(
                 atLimit ? 'text-red-500/70' : usage.remaining <= 3 ? 'text-amber-500' : ''

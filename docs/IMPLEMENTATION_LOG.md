@@ -9,6 +9,7 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| feature/ui-readability-motion-pass | Desktop-first UI readability + motion polish — tightened transcript hierarchy and long-form spacing, regrouped dense header/composer controls without removing functionality, softened sidebar card/workspace navigation states, replaced the game-like live HUD with a calmer operational status strip, selectively brightened primary whites for better contrast, and added targeted cyan accents to meaningful active/selected/action surfaces while standardizing darker smoother panel/scroll/dialog/button transitions across the browser UI | done | 2026-05-09 |
 |--------|-------------|--------|---------|
 | feature-fix-agent-composer-context-footer | Agent composer context/footer fix — unclipped the workspace `@` mention picker by making both composer shells overflow-visible, and corrected the bottom `ctx` footer to show actual prompt tokens sent to the model against the full context window instead of the inflated stored replay-pool size | done | 2026-05-08 |
 | feature-ui-contrast-pass | Dark-theme contrast pass — deepened the global dark palette, brightened primary/secondary text, strengthened borders/scrollbars/caret contrast, and normalized the sidebar/composer/HUD/conversation cards and picker surfaces away from washed-out zinc grays so blacks read darker and whites read cleaner across the browser UI | done | 2026-05-08 |

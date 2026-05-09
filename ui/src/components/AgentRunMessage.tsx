@@ -38,30 +38,30 @@ export const AgentRunMessage = memo(function AgentRunMessage({
   }, [onRetry, userMessage]);
 
   return (
-    <div className="animate-in fade-in slide-in-from-bottom-2 space-y-4">
-      <div className="flex gap-3">
-        <div className="w-9 flex-shrink-0 pt-0.5">
-          <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-zinc-300">U:</span>
+    <div className="animate-in fade-in slide-in-from-bottom-2 space-y-4 duration-200">
+      <div className="flex gap-4">
+        <div className="w-10 flex-shrink-0 pt-1">
+          <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-zinc-400">you</span>
         </div>
         <div className="min-w-0 flex-1">
-          <div className="rounded-2xl border border-zinc-700/80 bg-zinc-950/80 px-4 py-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.025)]">
-            <span className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-100">
+          <div className="ui-panel rounded-[1.35rem] border border-zinc-800/95 px-5 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.025)]">
+            <span className="whitespace-pre-wrap text-[13px] leading-7 text-zinc-50">
               {run.user_message || run.prompt}
             </span>
           </div>
           <div className="mt-1.5 flex items-center gap-2 px-1">
-            <p className="text-[11px] text-zinc-400">{formatRelativeTime(run.created_at)}</p>
-            <span className="font-mono text-[11px] text-cyan-700">agent</span>
+            <p className="text-[11px] text-zinc-500">{formatRelativeTime(run.created_at)}</p>
+            <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-cyan-200/80">agent</span>
           </div>
         </div>
       </div>
 
-      <div className="group/msg flex gap-3">
-        <div className="w-9 flex-shrink-0 pt-0.5">
-          <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-cyan-400/80">R:</span>
+      <div className="group/msg flex gap-4">
+        <div className="w-10 flex-shrink-0 pt-1">
+          <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-cyan-200/80">AI</span>
         </div>
         <div className="min-w-0 flex-1">
-          <div className="rounded-2xl border border-zinc-700/70 bg-zinc-950/72 px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]">
+          <div className="rounded-[1.35rem] border border-zinc-800/90 bg-zinc-950/74 px-5 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]">
             {agentState && <AgentStepsPanel agentState={agentState} />}
 
             {finalAnswer ? (
@@ -73,14 +73,14 @@ export const AgentRunMessage = memo(function AgentRunMessage({
             ) : isActive && !agentState?.steps.length ? (
               <ShimmerSkeleton />
             ) : isActive ? null : run.status === 'failed' ? (
-              <div className="text-sm text-zinc-400">
+              <div className="text-sm text-red-200/90">
                 [error] {run.error_detail || 'Agent failed. Please try again.'}
               </div>
             ) : null}
           </div>
 
           {!isActive && (
-            <div className="mt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-1 font-mono text-xs">
+            <div className="mt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-1 font-mono text-[11px]">
               <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
                 <span
                   className={cn(
@@ -91,23 +91,23 @@ export const AgentRunMessage = memo(function AgentRunMessage({
                   [{phase?.label || (run.status === 'succeeded' ? 'done' : run.status)}]
                 </span>
                 {agentState?.timing_ms && (
-                  <span className="text-zinc-400">{formatAgentDuration(agentState.timing_ms)}</span>
+                  <span className="text-zinc-500">{formatAgentDuration(agentState.timing_ms)}</span>
                 )}
                 {agentState?.total_tokens && (
-                  <span className="text-zinc-400">{formatAgentTokens(agentState.total_tokens)} tok</span>
+                  <span className="text-zinc-500">{formatAgentTokens(agentState.total_tokens)} tok</span>
                 )}
                 {agentState?.usage && (
-                  <span className="text-zinc-400">
+                  <span className="text-zinc-500">
                     in {formatAgentTokens(agentState.usage.input_tokens)} / out {formatAgentTokens(agentState.usage.output_tokens)}
                   </span>
                 )}
                 {agentState?.cost && agentState?.usage?.total_tokens ? (
-                  <span className="text-zinc-400">est {formatAgentCost(agentState.cost.total_cost)}</span>
+                  <span className="text-zinc-500">est {formatAgentCost(agentState.cost.total_cost)}</span>
                 ) : agentState?.usage ? (
-                  <span className="text-zinc-400">cost n/a</span>
+                  <span className="text-zinc-500">cost n/a</span>
                 ) : null}
                 {agentState?.context_usage && (
-                  <span className="text-zinc-400">
+                  <span className="text-zinc-500">
                     ctx {Math.round(agentState.context_usage.utilization_pct_effective)}%
                     {typeof agentState.compaction_count === 'number' ? ` · compact ${agentState.compaction_count}` : ''}
                   </span>

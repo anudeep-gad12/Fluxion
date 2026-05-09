@@ -48,25 +48,25 @@ function ThinkingBlock({
   onToggle: () => void;
 }) {
   return (
-    <div className="space-y-2">
+    <div className="space-y-2.5">
       <button
         type="button"
         onClick={onToggle}
-        className="flex items-center gap-2 text-left text-zinc-300 transition-colors hover:text-zinc-300"
+        className="ui-transition flex items-center gap-2 text-left text-[11px] text-zinc-300 hover:text-cyan-100"
       >
-        <span className="select-none text-zinc-300">{expanded ? '▼' : '▶'}</span>
-        <span>{isLive ? 'thinking...' : 'thinking'}</span>
-        {isLive && <span className="text-cyan-400/70">live</span>}
+        <span className="select-none text-zinc-500">{expanded ? '▼' : '▶'}</span>
+        <span className="uppercase tracking-[0.18em]">{isLive ? 'thinking' : 'notes'}</span>
+        {isLive && <span className="text-cyan-200/80">live</span>}
       </button>
       {expanded && (
-        <div className="rounded-sm border border-zinc-700 bg-zinc-950/82 px-3 py-2 text-zinc-300">
+        <div className="rounded-xl border border-zinc-800/95 bg-zinc-950/88 px-3.5 py-3 text-zinc-200">
           <AnswerMarkdown content={content} />
           {isLive && (
             <span className="agent-caret ml-1 inline-block h-3 w-1.5 translate-y-0.5 bg-cyan-400/70" />
           )}
         </div>
       )}
-      {!expanded && isLive && <div className="text-[11px] text-zinc-300">step {stepNumber}</div>}
+      {!expanded && isLive && <div className="text-[11px] text-zinc-500">step {stepNumber}</div>}
     </div>
   );
 }
@@ -123,8 +123,8 @@ export function AgentStepsPanel({ agentState }: AgentStepsPanelProps) {
   }
 
   return (
-    <div className="mb-3 font-mono text-xs">
-      <div className="space-y-3">
+    <div className="mb-4 pl-1 font-mono text-xs">
+      <div className="space-y-4">
         {systemEvents.map((event, index) => (
           <TimelineItem
             key={`system-${event.seq ?? index}`}
@@ -160,8 +160,8 @@ export function AgentStepsPanel({ agentState }: AgentStepsPanelProps) {
                   lineClassName="bg-amber-500/20"
                   isLast={nextIsLast()}
                 >
-                  <div className="text-amber-300/80">
-                    <span className="text-amber-500/50">you: </span>
+                  <div className="text-amber-100/85">
+                    <span className="text-amber-300/80">you: </span>
                     {steer.content}
                   </div>
                 </TimelineItem>
@@ -207,7 +207,7 @@ export function AgentStepsPanel({ agentState }: AgentStepsPanelProps) {
 
               {itemsCount === 0 && isCurrentStep && isActive && (
                 <TimelineItem dotClassName="bg-cyan-400" isLast>
-                  <div className="text-zinc-400">step {step.step_number}</div>
+                  <div className="text-zinc-500">step {step.step_number}</div>
                 </TimelineItem>
               )}
             </div>
@@ -216,7 +216,7 @@ export function AgentStepsPanel({ agentState }: AgentStepsPanelProps) {
 
         {steps.length === 0 && isActive && (
           <TimelineItem dotClassName="bg-zinc-600" isLast>
-            <div className="text-zinc-400">awaiting first step</div>
+            <div className="text-zinc-500">awaiting first step</div>
           </TimelineItem>
         )}
       </div>

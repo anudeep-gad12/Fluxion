@@ -36,13 +36,13 @@ export function MessageActions({
   return (
     <div
       className={cn(
-        'flex items-center gap-1 font-mono text-xs opacity-0 group-hover/msg:opacity-100 transition-opacity',
+        'ui-transition flex items-center gap-1.5 font-mono text-[11px] opacity-0 group-hover/msg:opacity-100',
         className,
       )}
     >
       <button
         onClick={handleCopy}
-        className="px-1.5 py-0.5 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/80 transition-colors"
+        className="ui-transition ui-focus-ring rounded-md border border-transparent px-2 py-1 text-zinc-300 hover:border-cyan-500/30 hover:bg-cyan-500/[0.08] hover:text-cyan-100"
         title="Copy response"
       >
         {copied ? '✓ copied' : 'copy'}
@@ -52,10 +52,10 @@ export function MessageActions({
           onClick={onRetry}
           disabled={!canRetry}
           className={cn(
-            'px-1.5 py-0.5 transition-colors',
+            'ui-transition ui-focus-ring rounded-md border px-2 py-1',
             canRetry
-              ? 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/80'
-              : 'text-zinc-600 cursor-not-allowed',
+              ? 'border-transparent text-zinc-300 hover:border-cyan-500/30 hover:bg-cyan-500/[0.08] hover:text-cyan-100'
+              : 'border-transparent text-zinc-600 cursor-not-allowed',
           )}
           title={canRetry ? 'Retry this message' : 'Cannot retry during active run'}
         >
