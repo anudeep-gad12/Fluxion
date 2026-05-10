@@ -15,11 +15,16 @@ from orchestrator.schemas import (
     CreateConversationRequest,
     CreateConversationResponse,
     ConversationDetailResponse,
+    ConversationRewindCheckpointsResponse,
+    ConversationRewindCheckpointResponse,
+    ConversationRewindRequest,
+    ConversationRewindResponse,
     UpdateConversationRequest,
-    RunResponse,
     trace_to_run,
 )
+from orchestrator.services.conversation_rewind import rewind_conversation_to_run
 from orchestrator.storage.db import get_db
+from orchestrator.storage.repositories.agent_repo import AgentRepo
 from orchestrator.storage.repositories.conversation_repo import ConversationRepo
 from orchestrator.storage.repositories.trace_repo import TraceRepo
 from orchestrator.routes.workspaces import _resolve_workspace_path
@@ -171,6 +176,84 @@ async def update_conversation(
 
     updated = await conv_repo.get(conversation_id)
     return ConversationResponse(**updated)
+
+
+@router.get(
+    "/{conversation_id}/rewind/checkpoints",
+    response_model=ConversationRewindCheckpointsResponse,
+)
+async def list_conversation_rewind_checkpoints(
+    conversation_id: str,
+    http_request: Request,
+):
+    """List active-branch rewind targets for a workspace conversation."""
+    session_id, is_owner = get_session_context(http_request)
+
+    db = await get_db()
+    conv_repo = ConversationRepo(db)
+    conversation = await conv_repo.get_with_session_check(
+        conversation_id,
+        session_id=session_id,
+        is_owner=is_owner,
+    )
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    checkpoints = await conv_repo.list_rewind_checkpoints(conversation_id)
+    return ConversationRewindCheckpointsResponse(
+        conversation_id=conversation_id,
+        checkpoints=[
+            ConversationRewindCheckpointResponse(
+                run_id=str(checkpoint["run_id"]),
+                user_message=str(checkpoint["user_message"]),
+                created_at=str(checkpoint["created_at"]),
+            )
+            for checkpoint in checkpoints
+        ],
+    )
+
+
+@router.post("/{conversation_id}/rewind", response_model=ConversationRewindResponse)
+async def rewind_conversation(
+    conversation_id: str,
+    request: ConversationRewindRequest,
+    http_request: Request,
+):
+    """Rewind the active conversation branch to before a selected prompt."""
+    session_id, is_owner = get_session_context(http_request)
+
+    db = await get_db()
+    conv_repo = ConversationRepo(db)
+    trace_repo = TraceRepo(db)
+    agent_repo = AgentRepo(db)
+
+    conversation = await conv_repo.get_with_session_check(
+        conversation_id,
+        session_id=session_id,
+        is_owner=is_owner,
+    )
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    try:
+        result = await rewind_conversation_to_run(
+            conversation_id=conversation_id,
+            run_id=request.run_id,
+            conversation_repo=conv_repo,
+            trace_repo=trace_repo,
+            agent_repo=agent_repo,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return ConversationRewindResponse(
+        conversation=ConversationResponse(**result["conversation"]),
+        runs=[trace_to_run(run) for run in result["runs"]],
+        restored_prompt=str(result["restored_prompt"]),
+        rewound_run_ids=[str(run_id) for run_id in result["rewound_run_ids"]],
+    )
 
 
 @router.get("/{conversation_id}/traces")

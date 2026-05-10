@@ -1242,6 +1242,7 @@ class BaseTool(Protocol):
 - `list(status, limit, offset)` - List with filters
 - `update(id, title, summary, status)` - Update fields
 - `delete(id)` - Delete with cascade
+- `create_rewind_checkpoint()`, `get_rewind_checkpoint()`, `list_rewind_checkpoints()` - Persist and load workspace conversation rewind checkpoints
 
 ### `orchestrator/storage/repositories/trace_repo.py`
 
@@ -1257,6 +1258,8 @@ class BaseTool(Protocol):
 | `update_run()` | Update final_answer, status |
 | `get_run()` | Get run with deserialized fields |
 | `list_runs()` | List runs with filters |
+| `mark_runs_rewound()` | Soft-hide an abandoned active-branch tail |
+| `has_active_run_for_conversation()` | Block rewind while a run is still executing |
 | `add_trace_event()` | Add event with atomic seq |
 | `get_trace_events()` | Get timeline for run |
 | `get_latest_response_id()` | For stateful mode |
@@ -1279,8 +1282,17 @@ async with self._seq_lock:
 - `add_tool_call()`, `update_tool_call()` - Tool tracking
 - `add_citation()`, `get_citations()` - Evidence management
 - `get_coding_session_state()`, `upsert_coding_session_state()` - Per-conversation coding bookkeeping state
-- `append_coding_session_entries()`, `insert_coding_session_entry()`, `list_coding_session_entries()`, `mark_coding_session_entries_compacted()` - Durable coding-session transcript storage and replay/compaction helpers, including checkpoint insertion at a compaction boundary
+- `append_coding_session_entries()`, `insert_coding_session_entry()`, `list_coding_session_entries()`, `mark_coding_session_entries_compacted()`, `mark_coding_session_entries_rewound()` - Durable coding-session transcript storage and replay/compaction helpers, including active-branch-only replay for conversation rewind
 - `get_agent_trace()` - Full trace assembly
+
+### `orchestrator/services/conversation_rewind.py`
+
+**Purpose**: Workspace conversation rewind capture and restore logic.
+
+**Key Functions**:
+- `capture_rewind_checkpoint()` - Snapshot the active coding-session boundary before a workspace run starts
+- `rewind_conversation_to_run()` - Hide the selected run/tail, restore prior coding-session state, and return the prompt to restore into the composer
+- `build_active_run_summary()` - Recompute conversation summaries from non-rewound runs only
 
 ### `orchestrator/storage/repositories/terminal_repo.py`
 
@@ -1419,6 +1431,8 @@ async with self._seq_lock:
 | `POST` | `/api/conversations` | Create conversation |
 | `GET` | `/api/conversations` | List conversations |
 | `GET` | `/api/conversations/{id}` | Get with runs |
+| `GET` | `/api/conversations/{id}/rewind/checkpoints` | List active-branch rewind targets |
+| `POST` | `/api/conversations/{id}/rewind` | Rewind to before a prompt and restore it to the composer |
 | `PATCH` | `/api/conversations/{id}` | Update fields |
 | `DELETE` | `/api/conversations/{id}` | Delete cascade |
 | `GET` | `/api/conversations/{id}/traces` | All trace events |
@@ -1608,6 +1622,8 @@ _EVENT_TYPE_MAP = {
 - Focused textarea supports terminal/editor-style shortcuts for line/word movement and kill-style deletions
 - Large conversations switch to virtualized transcript rendering; smaller conversations keep the normal full DOM path so browser find still works
 - Model picker dialog is intentionally wider/taller and only shows useful cloud presets plus scanned local entries, not the generic placeholder local row
+- Double-`Esc` in an idle workspace conversation opens a rewind picker listing prior active-branch prompts newest-first
+- Restoring from the rewind picker replaces the visible transcript with the surviving branch and refills the composer with the selected original prompt
 
 **State**:
 - Uses `useSSE` for chat streaming (only auto-subscribes to `activeChatRunId`, not agent runs)

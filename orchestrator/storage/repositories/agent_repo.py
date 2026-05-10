@@ -781,7 +781,7 @@ class AgentRepo:
                 """
                 SELECT COALESCE(MAX(seq), 0) AS max_seq
                 FROM coding_session_entries
-                WHERE conversation_id = ?
+                WHERE conversation_id = ? AND rewound_at IS NULL
                 """,
                 (conversation_id,),
             ) as cursor:
@@ -802,9 +802,9 @@ class AgentRepo:
                     INSERT INTO coding_session_entries (
                         id, conversation_id, seq, run_id, step_number,
                         entry_type, role, content_json, token_estimate,
-                        created_at, compacted_at
+                        created_at, compacted_at, rewound_at, rewind_group_id
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         entry_id,
@@ -818,6 +818,8 @@ class AgentRepo:
                         int(entry.get("token_estimate") or 0),
                         now,
                         entry.get("compacted_at"),
+                        entry.get("rewound_at"),
+                        entry.get("rewind_group_id"),
                     ),
                 )
                 stored.append(
@@ -833,6 +835,8 @@ class AgentRepo:
                         "token_estimate": int(entry.get("token_estimate") or 0),
                         "created_at": now,
                         "compacted_at": entry.get("compacted_at"),
+                        "rewound_at": entry.get("rewound_at"),
+                        "rewind_group_id": entry.get("rewind_group_id"),
                     }
                 )
 
@@ -860,7 +864,7 @@ class AgentRepo:
                 """
                 SELECT COALESCE(MAX(seq), 0) AS max_seq
                 FROM coding_session_entries
-                WHERE conversation_id = ?
+                WHERE conversation_id = ? AND rewound_at IS NULL
                 """,
                 (conversation_id,),
             ) as cursor:
@@ -872,7 +876,7 @@ class AgentRepo:
                 """
                 UPDATE coding_session_entries
                 SET seq = seq + ?
-                WHERE conversation_id = ? AND seq >= ?
+                WHERE conversation_id = ? AND seq >= ? AND rewound_at IS NULL
                 """,
                 (shift_offset, conversation_id, before_seq),
             )
@@ -881,9 +885,9 @@ class AgentRepo:
                 INSERT INTO coding_session_entries (
                     id, conversation_id, seq, run_id, step_number,
                     entry_type, role, content_json, token_estimate,
-                    created_at, compacted_at
+                    created_at, compacted_at, rewound_at, rewind_group_id
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     entry_id,
@@ -897,13 +901,15 @@ class AgentRepo:
                     int(entry.get("token_estimate") or 0),
                     now,
                     entry.get("compacted_at"),
+                    entry.get("rewound_at"),
+                    entry.get("rewind_group_id"),
                 ),
             )
             await self.db.conn.execute(
                 """
                 UPDATE coding_session_entries
                 SET seq = seq - ?
-                WHERE conversation_id = ? AND seq >= ?
+                WHERE conversation_id = ? AND seq >= ? AND rewound_at IS NULL
                 """,
                 (shift_offset - 1, conversation_id, before_seq + shift_offset),
             )
@@ -924,6 +930,8 @@ class AgentRepo:
             "token_estimate": int(entry.get("token_estimate") or 0),
             "created_at": now,
             "compacted_at": entry.get("compacted_at"),
+            "rewound_at": entry.get("rewound_at"),
+            "rewind_group_id": entry.get("rewind_group_id"),
         }
 
     async def list_coding_session_entries(
@@ -933,6 +941,7 @@ class AgentRepo:
         start_seq: Optional[int] = None,
         end_seq: Optional[int] = None,
         include_compacted: bool = True,
+        include_rewound: bool = False,
     ) -> List[dict[str, Any]]:
         """List coding-session entries in seq order."""
         query = """
@@ -949,6 +958,8 @@ class AgentRepo:
             params.append(end_seq)
         if not include_compacted:
             query += " AND compacted_at IS NULL"
+        if not include_rewound:
+            query += " AND rewound_at IS NULL"
         query += " ORDER BY seq ASC"
 
         async with self.db.conn.execute(query, params) as cursor:
@@ -963,16 +974,19 @@ class AgentRepo:
     async def get_latest_coding_session_entry_seq(
         self,
         conversation_id: str,
+        *,
+        include_rewound: bool = False,
     ) -> int:
         """Return the latest seq stored for a conversation."""
-        async with self.db.conn.execute(
-            """
+        query = """
             SELECT COALESCE(MAX(seq), 0) AS max_seq
             FROM coding_session_entries
             WHERE conversation_id = ?
-            """,
-            (conversation_id,),
-        ) as cursor:
+        """
+        params: List[Any] = [conversation_id]
+        if not include_rewound:
+            query += " AND rewound_at IS NULL"
+        async with self.db.conn.execute(query, params) as cursor:
             row = await cursor.fetchone()
             if not row:
                 return 0
@@ -994,6 +1008,25 @@ class AgentRepo:
             WHERE conversation_id = ? AND seq <= ?
             """,
             (timestamp, conversation_id, through_seq),
+        )
+        await self.db.conn.commit()
+
+    async def mark_coding_session_entries_rewound(
+        self,
+        conversation_id: str,
+        *,
+        after_seq: int,
+        rewound_at: str,
+        rewind_group_id: str,
+    ) -> None:
+        """Soft-hide active coding-session entries after a checkpoint boundary."""
+        await self.db.conn.execute(
+            """
+            UPDATE coding_session_entries
+            SET rewound_at = ?, rewind_group_id = ?
+            WHERE conversation_id = ? AND seq > ? AND rewound_at IS NULL
+            """,
+            (rewound_at, rewind_group_id, conversation_id, after_seq),
         )
         await self.db.conn.commit()
 

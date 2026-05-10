@@ -39,6 +39,7 @@ from orchestrator.schemas import (
 from orchestrator.storage.db import get_db
 from orchestrator.routes.workspaces import _resolve_workspace_path
 from orchestrator.services.reasoning_settings import get_runtime_reasoning_settings
+from orchestrator.services.conversation_rewind import capture_rewind_checkpoint
 from orchestrator.conversation_titles import conversation_title_from_message
 from orchestrator.storage.repositories.agent_repo import AgentRepo
 from orchestrator.storage.repositories.trace_repo import TraceRepo
@@ -553,6 +554,17 @@ async def create_agent_run(request: CreateAgentRunRequest, http_request: Request
                     conversation_id=conversation_id,
                     title=conversation_title_from_message(request.query),
                 )
+
+        await capture_rewind_checkpoint(
+            conversation={
+                "conversation_id": conversation_id,
+                "workspace_path": workspace_path,
+            },
+            run_id=run_id,
+            user_message=request.query,
+            conversation_repo=conv_repo,
+            agent_repo=AgentRepo(db),
+        )
 
         capabilities = request.capabilities.model_dump()
         if workspace_path and request.filesystem_enabled:

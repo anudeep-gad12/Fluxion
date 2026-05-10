@@ -238,8 +238,9 @@ class TraceRepo:
     async def list_runs_for_conversation(
         self,
         conversation_id: str,
-        limit: int = 50,
+        limit: Optional[int] = None,
         offset: int = 0,
+        include_rewound: bool = False,
     ) -> List[dict[str, Any]]:
         """List runs for a conversation in chronological order.
 
@@ -250,10 +251,14 @@ class TraceRepo:
         query = """
             SELECT * FROM runs
             WHERE conversation_id = ?
-            ORDER BY created_at ASC
-            LIMIT ? OFFSET ?
         """
-        params = [conversation_id, limit, offset]
+        if not include_rewound:
+            query += " AND rewound_at IS NULL"
+        query += " ORDER BY created_at ASC"
+        params: List[Any] = [conversation_id]
+        if limit is not None:
+            query += " LIMIT ? OFFSET ?"
+            params.extend([limit, offset])
 
         async with self.db.conn.execute(query, params) as cursor:
             rows = await cursor.fetchall()
@@ -264,6 +269,40 @@ class TraceRepo:
                 r["usage"] = json.loads(r.pop("usage_stats", "{}"))
                 runs.append(r)
             return runs
+
+    async def mark_runs_rewound(
+        self,
+        run_ids: List[str],
+        *,
+        rewound_at: str,
+        rewind_group_id: str,
+    ) -> None:
+        """Soft-hide runs from the active conversation branch."""
+        if not run_ids:
+            return
+        placeholders = ",".join("?" for _ in run_ids)
+        await self.db.conn.execute(
+            f"""
+            UPDATE runs
+            SET rewound_at = ?, rewind_group_id = ?
+            WHERE run_id IN ({placeholders}) AND rewound_at IS NULL
+            """,
+            [rewound_at, rewind_group_id, *run_ids],
+        )
+        await self.db.conn.commit()
+
+    async def has_active_run_for_conversation(self, conversation_id: str) -> bool:
+        """Return whether a conversation currently has a running visible run."""
+        async with self.db.conn.execute(
+            """
+            SELECT 1
+            FROM runs
+            WHERE conversation_id = ? AND status = 'running' AND rewound_at IS NULL
+            LIMIT 1
+            """,
+            (conversation_id,),
+        ) as cursor:
+            return await cursor.fetchone() is not None
 
     async def get_latest_response_id(
         self,
@@ -283,7 +322,9 @@ class TraceRepo:
         async with self.db.conn.execute(
             """
             SELECT last_response_id FROM runs
-            WHERE conversation_id = ? AND status = 'succeeded' AND last_response_id IS NOT NULL
+            WHERE conversation_id = ? AND status = 'succeeded'
+              AND last_response_id IS NOT NULL
+              AND rewound_at IS NULL
             ORDER BY created_at DESC
             LIMIT 1
             """,
@@ -661,4 +702,3 @@ class TraceRepo:
             await self.db.conn.commit()
         finally:
             await self.db.conn.execute("PRAGMA foreign_keys = ON")
-

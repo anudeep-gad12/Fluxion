@@ -131,6 +131,36 @@ class UpdateConversationRequest(BaseModel):
     status: Optional[str] = None
 
 
+class ConversationRewindCheckpointResponse(BaseModel):
+    """Rewind target on the active conversation branch."""
+
+    run_id: str
+    user_message: str
+    created_at: str
+
+
+class ConversationRewindCheckpointsResponse(BaseModel):
+    """Available rewind targets for a conversation."""
+
+    conversation_id: str
+    checkpoints: list[ConversationRewindCheckpointResponse]
+
+
+class ConversationRewindRequest(BaseModel):
+    """Request to rewind a conversation to before a prompt."""
+
+    run_id: str
+
+
+class ConversationRewindResponse(BaseModel):
+    """Conversation state after a successful rewind."""
+
+    conversation: ConversationResponse
+    runs: list[RunResponse]
+    restored_prompt: str
+    rewound_run_ids: list[str]
+
+
 # ==================== Tool Use Schemas ====================
 
 

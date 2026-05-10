@@ -35,8 +35,11 @@ import {
   getUsage,
   steerAgentRun,
   searchWorkspaceFiles,
+  listConversationRewindCheckpoints,
+  rewindConversation,
 } from '@/api/client';
 import type {
+  ConversationRewindCheckpoint,
   LocalModel,
   ModelStatus,
   ProviderKeyStatus,
@@ -1063,6 +1066,7 @@ export function ConversationView() {
   const addConversation = useStore((s) => s.addConversation);
   const addRun = useStore((s) => s.addRun);
   const removeRun = useStore((s) => s.removeRun);
+  const clearAgentRun = useStore((s) => s.clearAgentRun);
   const setEvents = useStore((s) => s.setEvents);
   const conversation = useSelectedConversation();
   const runs = useConversationRuns(selectedConversationId);
@@ -1097,6 +1101,7 @@ export function ConversationView() {
   const composerFocusRafRef = useRef<number | null>(null);
   const pendingWorkspaceShortcutRef = useRef<'workspace-new' | 'workspace-picker' | null>(null);
   const pendingWorkspaceShortcutTimeoutRef = useRef<number | null>(null);
+  const lastEscapeAtRef = useRef(0);
 
   // Model picker state
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
@@ -1215,6 +1220,11 @@ export function ConversationView() {
   const [pendingRunId, setPendingRunId] = useState<string | null>(null);
   const [pendingIsAgent, setPendingIsAgent] = useState(false);
   const [queuedSteers, setQueuedSteers] = useState<string[]>([]);
+  const [rewindOpen, setRewindOpen] = useState(false);
+  const [rewindLoading, setRewindLoading] = useState(false);
+  const [rewindSubmitting, setRewindSubmitting] = useState(false);
+  const [rewindCheckpoints, setRewindCheckpoints] = useState<ConversationRewindCheckpoint[]>([]);
+  const [rewindSelectedRunId, setRewindSelectedRunId] = useState<string | null>(null);
 
   // Track any active run (chat or agent) for UI purposes (auto-scroll, completion detection)
   const activeRunId = useMemo(() => {
@@ -1251,6 +1261,12 @@ export function ConversationView() {
   const hasConversationWorkspace = lockedWorkspacePath.length > 0;
   const isWorkspaceLocked = selectedConversationId !== null;
   const effectiveWorkspacePath = isWorkspaceLocked ? lockedWorkspacePath : draftWorkspacePath.trim();
+  const anyDialogOpen = (
+    workspacePickerOpen
+    || modelPickerOpen
+    || reasoningSettingsOpen
+    || rewindOpen
+  );
   const latestRunContextUsage = latestContextRun?.context_usage;
   const footerContextUsage = useMemo(() => (
     activeAgentState?.context_usage
@@ -1284,6 +1300,69 @@ export function ConversationView() {
     !!footerContextUsage || conversationRawTokens > 0
   );
   const injectedSteerCount = activeAgentState?.injectedSteers?.length ?? 0;
+
+  const openRewindPicker = useCallback(async () => {
+    if (!selectedConversationId || hasActiveRun || !lockedWorkspacePath) {
+      return;
+    }
+    setRewindLoading(true);
+    setRewindSubmitting(false);
+    setRewindOpen(true);
+    try {
+      const response = await listConversationRewindCheckpoints(selectedConversationId);
+      setRewindCheckpoints(response.checkpoints);
+      setRewindSelectedRunId(response.checkpoints[0]?.run_id ?? null);
+    } catch {
+      setRewindOpen(false);
+      toast.error('Failed to load rewind history');
+    } finally {
+      setRewindLoading(false);
+    }
+  }, [hasActiveRun, lockedWorkspacePath, selectedConversationId]);
+
+  const handleRewindRestore = useCallback(async () => {
+    if (!selectedConversationId || !rewindSelectedRunId || rewindSubmitting) {
+      return;
+    }
+    setRewindSubmitting(true);
+    try {
+      const response = await rewindConversation(selectedConversationId, {
+        run_id: rewindSelectedRunId,
+      });
+      for (const rewoundRunId of response.rewound_run_ids) {
+        clearAgentRun(rewoundRunId);
+        removeRun(rewoundRunId);
+      }
+      updateConversation(selectedConversationId, response.conversation);
+      setRuns(selectedConversationId, response.runs);
+      setMessage(response.restored_prompt);
+      setImageAttachments([]);
+      clearMentionState();
+      setQueuedSteers([]);
+      setRewindOpen(false);
+      requestAnimationFrame(() => {
+        const textarea = textareaRef.current;
+        if (!textarea || textarea.disabled) return;
+        textarea.focus();
+        const end = textarea.value.length;
+        textarea.setSelectionRange(end, end);
+      });
+    } catch (error: unknown) {
+      const message = (error as { message?: string })?.message || 'Failed to rewind conversation';
+      toast.error(message);
+    } finally {
+      setRewindSubmitting(false);
+    }
+  }, [
+    clearAgentRun,
+    clearMentionState,
+    removeRun,
+    rewindSelectedRunId,
+    rewindSubmitting,
+    selectedConversationId,
+    setRuns,
+    updateConversation,
+  ]);
   useEffect(() => {
     if (injectedSteerCount > 0 && queuedSteers.length > 0) {
       const timer = setTimeout(() => setQueuedSteers([]), 1500);
@@ -2137,6 +2216,36 @@ export function ConversationView() {
       if (event.defaultPrevented || event.isComposing) return;
       const lowerKey = event.key.toLowerCase();
 
+      if (
+        lowerKey === 'escape'
+        && !event.metaKey
+        && !event.ctrlKey
+        && !event.altKey
+        && !event.shiftKey
+        && !event.repeat
+      ) {
+        if (
+          !mentionOpen
+          && !anyDialogOpen
+          && !hasActiveRun
+          && !!selectedConversationId
+          && !!lockedWorkspacePath
+        ) {
+          const now = Date.now();
+          if (now - lastEscapeAtRef.current <= 800) {
+            event.preventDefault();
+            lastEscapeAtRef.current = 0;
+            void openRewindPicker();
+            return;
+          }
+          lastEscapeAtRef.current = now;
+        } else {
+          lastEscapeAtRef.current = 0;
+        }
+      } else if (lastEscapeAtRef.current !== 0) {
+        lastEscapeAtRef.current = 0;
+      }
+
       const pendingWorkspaceShortcut = pendingWorkspaceShortcutRef.current;
       if (pendingWorkspaceShortcut) {
         if (event.metaKey || event.ctrlKey || event.altKey) {
@@ -2185,11 +2294,16 @@ export function ConversationView() {
     window.addEventListener('keydown', handleWindowKeyDown);
     return () => window.removeEventListener('keydown', handleWindowKeyDown);
   }, [
+    anyDialogOpen,
     armPendingWorkspaceShortcut,
     clearPendingWorkspaceShortcut,
     effectiveWorkspacePath,
     focusComposer,
     hasActiveRun,
+    lockedWorkspacePath,
+    mentionOpen,
+    openRewindPicker,
+    selectedConversationId,
     openWorkspacePickerForNewConversation,
     startWorkspaceDraftConversation,
   ]);
@@ -2202,6 +2316,7 @@ export function ConversationView() {
       if (pendingWorkspaceShortcutTimeoutRef.current !== null) {
         window.clearTimeout(pendingWorkspaceShortcutTimeoutRef.current);
       }
+      lastEscapeAtRef.current = 0;
     };
   }, []);
 
@@ -2245,6 +2360,79 @@ export function ConversationView() {
       window.clearTimeout(timer);
     };
   }, [activeMention, clearMentionState, effectiveWorkspacePath, mode]);
+
+  const rewindDialog = (
+    <Dialog open={rewindOpen} onOpenChange={setRewindOpen}>
+      <DialogContent className="max-w-xl border-zinc-800 bg-zinc-950 text-zinc-100">
+        <DialogHeader>
+          <DialogTitle className="font-mono text-sm text-zinc-100">rewind conversation</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <p className="font-mono text-[12px] leading-6 text-zinc-500">
+            Rewind the active branch to before a prior prompt, then restore that prompt into the composer.
+          </p>
+          <div className="max-h-[22rem] space-y-2 overflow-y-auto pr-1">
+            {rewindLoading ? (
+              <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 px-3 py-3 font-mono text-[12px] text-zinc-500">
+                loading…
+              </div>
+            ) : rewindCheckpoints.length === 0 ? (
+              <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 px-3 py-3 font-mono text-[12px] text-zinc-500">
+                No rewind points available for this conversation yet.
+              </div>
+            ) : (
+              rewindCheckpoints.map((checkpoint) => {
+                const selected = checkpoint.run_id === rewindSelectedRunId;
+                return (
+                  <button
+                    key={checkpoint.run_id}
+                    type="button"
+                    onClick={() => setRewindSelectedRunId(checkpoint.run_id)}
+                    className={cn(
+                      'w-full rounded-xl border px-3 py-3 text-left ui-transition',
+                      selected
+                        ? 'border-cyan-500/35 bg-cyan-500/[0.08] text-zinc-100'
+                        : 'border-zinc-800 bg-zinc-900/60 text-zinc-300 hover:border-zinc-700 hover:bg-zinc-900'
+                    )}
+                  >
+                    <div className="truncate font-mono text-[12px] leading-6">
+                      {checkpoint.user_message}
+                    </div>
+                    <div className="mt-1 font-mono text-[11px] text-zinc-500">
+                      {formatRelativeTime(checkpoint.created_at)}
+                    </div>
+                  </button>
+                );
+              })
+            )}
+          </div>
+          <div className="flex items-center justify-end gap-2 font-mono text-[12px]">
+            <button
+              type="button"
+              onClick={() => setRewindOpen(false)}
+              className="rounded-lg border border-zinc-800 px-3 py-2 text-zinc-400 hover:border-zinc-700 hover:text-zinc-200"
+              disabled={rewindSubmitting}
+            >
+              cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleRewindRestore()}
+              disabled={!rewindSelectedRunId || rewindLoading || rewindSubmitting}
+              className={cn(
+                'rounded-lg border px-3 py-2 ui-transition',
+                !rewindSelectedRunId || rewindLoading || rewindSubmitting
+                  ? 'cursor-not-allowed border-zinc-800 text-zinc-600'
+                  : 'border-cyan-500/35 text-cyan-100 hover:bg-cyan-500/[0.08]'
+              )}
+            >
+              {rewindSubmitting ? 'rewinding…' : 'rewind'}
+            </button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
 
   if (!conversation && runs.length === 0) {
     return (
@@ -2321,6 +2509,7 @@ export function ConversationView() {
             setDraftWorkspacePath(workspacePath);
           }}
         />
+        {rewindDialog}
 
         <div className="flex-1 flex flex-col items-center justify-center gap-4 overflow-y-auto px-3 text-zinc-300 sm:gap-6 sm:px-4 md:px-6 min-h-0">
           <EmptyStatePulse
@@ -2555,6 +2744,7 @@ export function ConversationView() {
           setDraftWorkspacePath(workspacePath);
         }}
       />
+      {rewindDialog}
 
       <div className="flex min-h-0 flex-1">
         <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">

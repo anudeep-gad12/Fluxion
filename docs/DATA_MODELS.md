@@ -183,11 +183,15 @@ One record per user message/response exchange.
 | `current_step` | INTEGER | Current agent step |
 | `max_steps` | INTEGER | Maximum agent steps |
 | `turn_summary` | TEXT | Compact context string for cross-turn history (Migration 9) |
+| `rewound_at` | TEXT | ISO 8601 timestamp when this run left the active branch via conversation rewind (Migration 16) |
+| `rewind_group_id` | TEXT | UUID grouping all runs hidden by one rewind action (Migration 16) |
 | `created_at` | TEXT | ISO 8601 timestamp |
 | `session_id` | TEXT | Session UUID for demo mode isolation (Migration 4) |
 | `updated_at` | TEXT | ISO 8601 timestamp |
 
 **Turn Summary**: After each run completes, a `TurnSummarizer` generates a compact context string from the user message and final answer. This `turn_summary` is still used by `HistoryBuilder` for compact background history. Coding-profile continuation now prefers persisted `coding_session_entries` transcript replay plus lightweight `coding_sessions` metadata, while non-coding runs continue to rely on summary-oriented history.
+
+**Active Branch Visibility**: Workspace conversation rewind does not hard-delete prior turns. Instead, abandoned tail runs are soft-hidden by setting `rewound_at`/`rewind_group_id`. Normal conversation APIs and future context building only read runs where `rewound_at IS NULL`.
 
 #### trace_events
 
@@ -261,6 +265,8 @@ Replayable coding-session transcript entries for coding-profile conversations. T
 | `content_json` | TEXT | Canonical replay payload (JSON) |
 | `token_estimate` | INTEGER | Estimated token cost of the stored entry |
 | `compacted_at` | TEXT | ISO 8601 timestamp when this entry was compacted out of active replay |
+| `rewound_at` | TEXT | ISO 8601 timestamp when this entry left the active branch via conversation rewind (Migration 16) |
+| `rewind_group_id` | TEXT | UUID grouping all entries hidden by one rewind action (Migration 16) |
 | `created_at` | TEXT | ISO 8601 timestamp |
 
 **Coding Session Replay**:
@@ -268,8 +274,29 @@ Replayable coding-session transcript entries for coding-profile conversations. T
 - transcript entries are replayed in persisted `seq` order, with `compaction_summary` inserted at the compaction boundary so the next turn still feels like one continuous conversation
 - only replay-eligible entries are included
 - entries marked compacted are excluded from active replay once a newer checkpoint replaces them
+- entries marked rewound are excluded from active replay entirely, so the next branch only sees the surviving prefix plus new turns
 - assistant/tool replay stays canonicalized from parsed tool-call arguments and stable tool-result payloads
 - structurally bad assistant fallback turns can remain stored with `replay_eligible=false` for debugging while being excluded from continuation prompts
+
+#### conversation_rewind_checkpoints
+
+Pre-run checkpoints used by workspace conversation rewind. One row is captured per run before the new prompt mutates the persisted coding-session transcript or coding-session state.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | TEXT PK | UUID identifier |
+| `conversation_id` | TEXT FK | Conversation this checkpoint belongs to |
+| `run_id` | TEXT FK/UNIQUE | Run whose user prompt can be restored |
+| `user_message` | TEXT | Original user prompt restored into the composer |
+| `entry_seq_before` | INTEGER | Highest active `coding_session_entries.seq` before the run started |
+| `state_before_json` | TEXT | Serialized `coding_sessions.state_json` snapshot from before the run |
+| `created_at` | TEXT | ISO 8601 timestamp |
+
+**Rewind Semantics**:
+- rewinding to checkpoint/run `B` hides run `B` and every later active-branch run
+- coding transcript replay is truncated by marking all entries with `seq > entry_seq_before` as rewound
+- `coding_sessions.state_json` is restored from `state_before_json`
+- the selected `user_message` is returned to the browser composer so the user can continue from that point on a new branch
 
 #### agent_steps
 
@@ -428,7 +455,10 @@ Indexes are created for performance optimization on frequently queried columns:
 | `coding_sessions` | `idx_coding_sessions_updated_at` | `updated_at` | Find latest persisted coding sessions |
 | `coding_session_entries` | `idx_coding_session_entries_conversation_seq` | `conversation_id, seq` | Replay coding-session history in order |
 | `coding_session_entries` | `idx_coding_session_entries_compacted` | `conversation_id, compacted_at, seq` | Find active replay entries efficiently |
+| `coding_session_entries` | `idx_coding_session_entries_active_seq` | `conversation_id, rewound_at, seq` | Replay only the active branch in order |
+| `conversation_rewind_checkpoints` | `idx_conversation_rewind_checkpoints_conversation_created` | `conversation_id, created_at DESC` | List visible rewind targets newest-first |
 | `runs` | `idx_runs_conversation_id` | `conversation_id` | Filter runs by conversation |
+| `runs` | `idx_runs_conversation_created_active` | `conversation_id, rewound_at, created_at` | List active-branch runs chronologically |
 | `eval_runs` | `idx_eval_runs_created_at` | `created_at` | Sort by creation date |
 | `eval_runs` | `idx_eval_runs_benchmark` | `benchmark_name` | Filter by benchmark |
 | `eval_samples` | `idx_eval_samples_eval_run_id` | `eval_run_id` | Filter samples by eval run |
@@ -456,6 +486,8 @@ The schema uses `ON DELETE CASCADE` for automatic cleanup when parent records ar
 | `trace_events` | `trace_events` | `parent_event_id` | Delete children when parent deleted |
 | `coding_sessions` | `conversations` | `conversation_id` | Delete coding continuity state when conversation deleted |
 | `coding_session_entries` | `conversations` | `conversation_id` | Delete coding transcript replay history when conversation deleted |
+| `conversation_rewind_checkpoints` | `conversations` | `conversation_id` | Delete rewind checkpoints when conversation deleted |
+| `conversation_rewind_checkpoints` | `runs` | `run_id` | Delete rewind checkpoint when its run is deleted |
 | `agent_steps` | `runs` | `run_id` | Delete steps when run deleted |
 | `agent_tool_calls` | `runs` | `run_id` | Delete calls when run deleted |
 | `agent_tool_calls` | `agent_steps` | `step_id` | Delete calls when step deleted |

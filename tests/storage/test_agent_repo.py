@@ -1011,3 +1011,62 @@ class TestCodingSessionStateRepo:
         ]
 
         await db.close()
+
+    @pytest.mark.asyncio
+    async def test_mark_coding_session_entries_rewound_hides_tail_from_default_listing(self):
+        db = Database(":memory:")
+        await db.connect()
+        repo = AgentRepo(db)
+        trace_repo = TraceRepo(db)
+
+        await db.conn.execute(
+            "INSERT INTO conversations (conversation_id, title, created_at, status) VALUES (?, ?, ?, ?)",
+            ("conv-1", "Test", "2024-01-01T10:00:00Z", "active"),
+        )
+        await db.conn.commit()
+
+        run_id = str(uuid.uuid4())
+        await trace_repo.create_run(run_id, "conv-1", "coding", "agent", {})
+        await repo.append_coding_session_entries(
+            "conv-1",
+            [
+                {
+                    "run_id": run_id,
+                    "step_number": 0,
+                    "entry_type": "user",
+                    "role": "user",
+                    "content_json": {"content": "Turn 1"},
+                    "token_estimate": 4,
+                },
+                {
+                    "run_id": run_id,
+                    "step_number": 1,
+                    "entry_type": "assistant",
+                    "role": "assistant",
+                    "content_json": {"content": "Turn 1 done"},
+                    "token_estimate": 4,
+                },
+                {
+                    "run_id": run_id,
+                    "step_number": 2,
+                    "entry_type": "user",
+                    "role": "user",
+                    "content_json": {"content": "Turn 2"},
+                    "token_estimate": 4,
+                },
+            ],
+        )
+
+        await repo.mark_coding_session_entries_rewound(
+            "conv-1",
+            after_seq=1,
+            rewound_at="2024-01-02T00:00:00Z",
+            rewind_group_id="group-1",
+        )
+
+        active_entries = await repo.list_coding_session_entries("conv-1")
+        all_entries = await repo.list_coding_session_entries("conv-1", include_rewound=True)
+
+        assert [entry["seq"] for entry in active_entries] == [1]
+        assert [entry["seq"] for entry in all_entries] == [1, 2, 3]
+        assert all_entries[1]["rewind_group_id"] == "group-1"

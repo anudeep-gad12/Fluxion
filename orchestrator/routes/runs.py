@@ -28,6 +28,8 @@ from orchestrator.schemas import (
 )
 from orchestrator.storage.db import get_db
 from orchestrator.services.reasoning_settings import get_runtime_reasoning_settings
+from orchestrator.services.conversation_rewind import capture_rewind_checkpoint
+from orchestrator.storage.repositories.agent_repo import AgentRepo
 from orchestrator.storage.repositories.conversation_repo import ConversationRepo
 from orchestrator.storage.repositories.trace_repo import TraceRepo
 from orchestrator.conversation_titles import conversation_title_from_message
@@ -220,6 +222,14 @@ async def create_conversation_run(
     if not conversation.get("title") or conversation.get("title") == "New conversation":
         title = conversation_title_from_message(request.message)
         await conv_repo.update(conversation_id, title=title)
+
+    await capture_rewind_checkpoint(
+        conversation=conversation,
+        run_id=run_id,
+        user_message=request.message,
+        conversation_repo=conv_repo,
+        agent_repo=AgentRepo(db),
+    )
 
     # Capture session_id for background task
     run_session_id = session_id
