@@ -192,6 +192,41 @@ class Database:
             "CREATE INDEX IF NOT EXISTS idx_conversations_workspace_path "
             "ON conversations(workspace_path)"
         )
+        # Migration 16: Conversation rewind active-branch markers
+        await self._add_column_if_not_exists("runs", "rewound_at", "TEXT")
+        await self._add_column_if_not_exists("runs", "rewind_group_id", "TEXT")
+        await self._add_column_if_not_exists("coding_session_entries", "rewound_at", "TEXT")
+        await self._add_column_if_not_exists(
+            "coding_session_entries", "rewind_group_id", "TEXT"
+        )
+        await self._connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_runs_conversation_created_active "
+            "ON runs(conversation_id, rewound_at, created_at)"
+        )
+        await self._connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_coding_session_entries_active_seq "
+            "ON coding_session_entries(conversation_id, rewound_at, seq)"
+        )
+        # Migration 17: Conversation rewind checkpoints
+        await self._create_table_if_not_exists(
+            "conversation_rewind_checkpoints",
+            """
+            CREATE TABLE IF NOT EXISTS conversation_rewind_checkpoints (
+                id TEXT PRIMARY KEY,
+                conversation_id TEXT NOT NULL,
+                run_id TEXT NOT NULL UNIQUE,
+                user_message TEXT NOT NULL,
+                entry_seq_before INTEGER NOT NULL,
+                state_before_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(conversation_id) REFERENCES conversations(conversation_id) ON DELETE CASCADE
+            )
+            """,
+        )
+        await self._connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_conversation_rewind_checkpoints_conversation_created "
+            "ON conversation_rewind_checkpoints(conversation_id, created_at)"
+        )
 
     async def _create_table_if_not_exists(
         self, table: str, create_sql: str

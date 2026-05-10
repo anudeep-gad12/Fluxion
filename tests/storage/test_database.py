@@ -64,6 +64,20 @@ class TestDatabase:
 
         assert "thinking_summary" in column_names
         assert "last_response_id" in column_names
+        assert "rewound_at" in column_names
+        assert "rewind_group_id" in column_names
+
+        cursor = await db.conn.execute("PRAGMA table_info(coding_session_entries)")
+        columns = await cursor.fetchall()
+        column_names = [col["name"] for col in columns]
+        assert "rewound_at" in column_names
+        assert "rewind_group_id" in column_names
+
+        cursor = await db.conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='conversation_rewind_checkpoints'"
+        )
+        row = await cursor.fetchone()
+        assert row is not None
 
     @pytest.mark.asyncio
     async def test_conn_property_raises_when_not_connected(self):

@@ -1,6 +1,7 @@
 """Repository for conversations."""
 
 import json
+import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional, List
 from orchestrator.storage.db import Database
@@ -245,3 +246,95 @@ class ConversationRepo:
         finally:
             # Re-enable FK checks
             await self.db.conn.execute("PRAGMA foreign_keys = ON")
+
+    async def create_rewind_checkpoint(
+        self,
+        *,
+        conversation_id: str,
+        run_id: str,
+        user_message: str,
+        entry_seq_before: int,
+        state_before: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Create or replace a rewind checkpoint for a conversation run."""
+        checkpoint_id = str(uuid.uuid4())
+        now = datetime.now(timezone.utc).isoformat()
+        await self.db.conn.execute(
+            """
+            INSERT INTO conversation_rewind_checkpoints (
+                id, conversation_id, run_id, user_message,
+                entry_seq_before, state_before_json, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(run_id) DO UPDATE SET
+                conversation_id = excluded.conversation_id,
+                user_message = excluded.user_message,
+                entry_seq_before = excluded.entry_seq_before,
+                state_before_json = excluded.state_before_json,
+                created_at = excluded.created_at
+            """,
+            (
+                checkpoint_id,
+                conversation_id,
+                run_id,
+                user_message,
+                int(entry_seq_before),
+                json.dumps(state_before, ensure_ascii=False),
+                now,
+            ),
+        )
+        await self.db.conn.commit()
+        return {
+            "id": checkpoint_id,
+            "conversation_id": conversation_id,
+            "run_id": run_id,
+            "user_message": user_message,
+            "entry_seq_before": int(entry_seq_before),
+            "state_before": state_before,
+            "created_at": now,
+        }
+
+    async def get_rewind_checkpoint(
+        self,
+        *,
+        conversation_id: str,
+        run_id: str,
+    ) -> Optional[dict[str, Any]]:
+        """Get a rewind checkpoint by run_id."""
+        async with self.db.conn.execute(
+            """
+            SELECT *
+            FROM conversation_rewind_checkpoints
+            WHERE conversation_id = ? AND run_id = ?
+            """,
+            (conversation_id, run_id),
+        ) as cursor:
+            row = await cursor.fetchone()
+            if not row:
+                return None
+            record = dict(row)
+            record["state_before"] = json.loads(record.pop("state_before_json") or "{}")
+            return record
+
+    async def list_rewind_checkpoints(
+        self,
+        conversation_id: str,
+    ) -> List[dict[str, Any]]:
+        """List rewind checkpoints for currently visible runs, newest first."""
+        async with self.db.conn.execute(
+            """
+            SELECT c.*
+            FROM conversation_rewind_checkpoints c
+            INNER JOIN runs r ON r.run_id = c.run_id
+            WHERE c.conversation_id = ? AND r.rewound_at IS NULL
+            ORDER BY r.created_at DESC
+            """,
+            (conversation_id,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+            checkpoints: List[dict[str, Any]] = []
+            for row in rows:
+                record = dict(row)
+                record["state_before"] = json.loads(record.pop("state_before_json") or "{}")
+                checkpoints.append(record)
+            return checkpoints

@@ -38,6 +38,8 @@ CREATE TABLE IF NOT EXISTS runs (
 
     -- Telemetry
     usage_stats TEXT, -- JSON: {"input_tokens": 100, "output_tokens": 50, "latency_ms": 1200}
+    rewound_at TEXT,
+    rewind_group_id TEXT,
 
     FOREIGN KEY(conversation_id) REFERENCES conversations(conversation_id)
 );
@@ -307,9 +309,22 @@ CREATE TABLE IF NOT EXISTS coding_session_entries (
     token_estimate INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
     compacted_at TEXT,
+    rewound_at TEXT,
+    rewind_group_id TEXT,
     UNIQUE(conversation_id, seq),
     FOREIGN KEY(conversation_id) REFERENCES conversations(conversation_id) ON DELETE CASCADE,
     FOREIGN KEY(run_id) REFERENCES runs(run_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS conversation_rewind_checkpoints (
+    id TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL,
+    run_id TEXT NOT NULL UNIQUE,
+    user_message TEXT NOT NULL,
+    entry_seq_before INTEGER NOT NULL,
+    state_before_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(conversation_id) REFERENCES conversations(conversation_id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_run_artifacts_run ON run_artifacts(run_id);
@@ -318,3 +333,5 @@ CREATE INDEX IF NOT EXISTS idx_coding_session_entries_conversation_seq
     ON coding_session_entries(conversation_id, seq);
 CREATE INDEX IF NOT EXISTS idx_coding_session_entries_compacted
     ON coding_session_entries(conversation_id, compacted_at, seq);
+CREATE INDEX IF NOT EXISTS idx_conversation_rewind_checkpoints_conversation_created
+    ON conversation_rewind_checkpoints(conversation_id, created_at);

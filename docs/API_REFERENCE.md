@@ -159,6 +159,8 @@ GET /api/conversations/{conversation_id}
 }
 ```
 
+For workspace conversations, this endpoint returns only the current active branch. Runs abandoned by conversation rewind remain stored in SQLite but are hidden from normal reads.
+
 **Error** (404 Not Found):
 ```json
 {
@@ -257,6 +259,97 @@ GET /api/conversations/{conversation_id}/traces
   "total_events": 10
 }
 ```
+
+---
+
+### List Conversation Rewind Checkpoints
+
+List rewind targets for a workspace conversation's active branch. Targets are returned newest-first and correspond to original user prompts.
+
+**Request**:
+```
+GET /api/conversations/{conversation_id}/rewind/checkpoints
+```
+
+**Response** (200 OK):
+```json
+{
+  "conversation_id": "abc12345",
+  "checkpoints": [
+    {
+      "run_id": "run_003",
+      "user_message": "also clean up tests",
+      "created_at": "2026-05-10T12:00:00Z"
+    },
+    {
+      "run_id": "run_002",
+      "user_message": "fix login bug",
+      "created_at": "2026-05-10T11:58:00Z"
+    }
+  ]
+}
+```
+
+Notes:
+- only workspace conversations with persisted coding-session state produce rewind checkpoints
+- only non-rewound active-branch runs appear here
+
+---
+
+### Rewind Conversation
+
+Rewind a workspace conversation to before a selected prompt. The selected run and all later active-branch runs are hidden from future transcript loads and future model context. The selected prompt is returned so the browser can put it back into the composer.
+
+**Request**:
+```
+POST /api/conversations/{conversation_id}/rewind
+```
+
+**Body**:
+```json
+{
+  "run_id": "run_003"
+}
+```
+
+**Response** (200 OK):
+```json
+{
+  "conversation": {
+    "conversation_id": "abc12345",
+    "title": "Auth fixes",
+    "summary": "Initial login bug diagnosis and fix",
+    "workspace_path": "/Users/me/project",
+    "status": "active",
+    "created_at": "2026-05-10T11:55:00Z",
+    "metadata": {}
+  },
+  "runs": [
+    {
+      "run_id": "run_001",
+      "created_at": "2026-05-10T11:56:00Z",
+      "status": "succeeded",
+      "mode": "agent",
+      "profile": "agent",
+      "prompt": "fix login bug",
+      "user_message": "fix login bug",
+      "conversation_id": "abc12345",
+      "final_answer": "I fixed the guard clause...",
+      "thinking_summary": null,
+      "error_code": null,
+      "error_detail": null
+    }
+  ],
+  "restored_prompt": "also clean up tests",
+  "rewound_run_ids": ["run_003", "run_004"]
+}
+```
+
+Rules:
+- workspace conversations only
+- rejected if the conversation currently has a running agent/chat run
+- this is conversation-state-only; it does not restore files, git state, or terminal state
+- repeated rewinds operate on the current active branch only
 
 ---
 

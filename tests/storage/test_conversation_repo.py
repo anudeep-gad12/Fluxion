@@ -248,3 +248,79 @@ class TestConversationRepo:
         )
         row = await cursor.fetchone()
         assert row is None
+
+    @pytest.mark.asyncio
+    async def test_create_and_get_rewind_checkpoint(self, repo, db):
+        """Conversation rewind checkpoints round-trip through storage."""
+        await repo.create(conversation_id="conv-rewind")
+
+        await repo.create_rewind_checkpoint(
+            conversation_id="conv-rewind",
+            run_id="run-1",
+            user_message="Refactor auth flow",
+            entry_seq_before=3,
+            state_before={"objective": "Fix auth"},
+        )
+
+        checkpoint = await repo.get_rewind_checkpoint(
+            conversation_id="conv-rewind",
+            run_id="run-1",
+        )
+
+        assert checkpoint is not None
+        assert checkpoint["run_id"] == "run-1"
+        assert checkpoint["user_message"] == "Refactor auth flow"
+        assert checkpoint["entry_seq_before"] == 3
+        assert checkpoint["state_before"] == {"objective": "Fix auth"}
+
+    @pytest.mark.asyncio
+    async def test_list_rewind_checkpoints_hides_rewound_runs(self, repo, db):
+        """Only active-branch runs appear in rewind checkpoint listings."""
+        await repo.create(conversation_id="conv-rewind")
+        await db.conn.execute(
+            """
+            INSERT INTO runs (
+                run_id, conversation_id, created_at, status, profile_name, mode, model_config_snapshot
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            ("run-1", "conv-rewind", "2024-01-01T00:00:00Z", "succeeded", "agent", "agent", "{}"),
+        )
+        await db.conn.execute(
+            """
+            INSERT INTO runs (
+                run_id, conversation_id, created_at, status, profile_name, mode, model_config_snapshot, rewound_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "run-2",
+                "conv-rewind",
+                "2024-01-02T00:00:00Z",
+                "succeeded",
+                "agent",
+                "agent",
+                "{}",
+                "2024-01-03T00:00:00Z",
+            ),
+        )
+        await db.conn.commit()
+
+        await repo.create_rewind_checkpoint(
+            conversation_id="conv-rewind",
+            run_id="run-1",
+            user_message="First prompt",
+            entry_seq_before=0,
+            state_before={},
+        )
+        await repo.create_rewind_checkpoint(
+            conversation_id="conv-rewind",
+            run_id="run-2",
+            user_message="Second prompt",
+            entry_seq_before=1,
+            state_before={},
+        )
+
+        checkpoints = await repo.list_rewind_checkpoints("conv-rewind")
+
+        assert [checkpoint["run_id"] for checkpoint in checkpoints] == ["run-1"]

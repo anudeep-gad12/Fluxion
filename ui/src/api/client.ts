@@ -149,8 +149,42 @@ export interface ConversationTracesResponse {
   total_events: number;
 }
 
+export interface ConversationRewindCheckpoint {
+  run_id: string;
+  user_message: string;
+  created_at: string;
+}
+
+export interface ConversationRewindCheckpointsResponse {
+  conversation_id: string;
+  checkpoints: ConversationRewindCheckpoint[];
+}
+
+export interface ConversationRewindResponse {
+  conversation: Conversation;
+  runs: Run[];
+  restored_prompt: string;
+  rewound_run_ids: string[];
+}
+
 export async function getConversationTraces(conversationId: string): Promise<ConversationTracesResponse> {
   return withRetry(() => fetchJson(`${API_BASE}/conversations/${conversationId}/traces`));
+}
+
+export async function listConversationRewindCheckpoints(
+  conversationId: string,
+): Promise<ConversationRewindCheckpointsResponse> {
+  return withRetry(() => fetchJson(`${API_BASE}/conversations/${conversationId}/rewind/checkpoints`));
+}
+
+export async function rewindConversation(
+  conversationId: string,
+  request: { run_id: string },
+): Promise<ConversationRewindResponse> {
+  return fetchJson(`${API_BASE}/conversations/${conversationId}/rewind`, {
+    method: 'POST',
+    body: JSON.stringify(request),
+  });
 }
 
 export async function deleteConversation(conversationId: string): Promise<{ status: string }> {
