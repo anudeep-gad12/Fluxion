@@ -770,7 +770,7 @@ class AgentRepo:
         conversation_id: str,
         entries: List[dict[str, Any]],
     ) -> List[dict[str, Any]]:
-        """Append normalized coding-session entries with monotonically increasing seq."""
+        """Append coding-session entries using globally unique per-conversation seq values."""
         if not entries:
             return []
 
@@ -781,7 +781,7 @@ class AgentRepo:
                 """
                 SELECT COALESCE(MAX(seq), 0) AS max_seq
                 FROM coding_session_entries
-                WHERE conversation_id = ? AND rewound_at IS NULL
+                WHERE conversation_id = ?
                 """,
                 (conversation_id,),
             ) as cursor:
@@ -853,7 +853,7 @@ class AgentRepo:
         before_seq: int,
         entry: dict[str, Any],
     ) -> dict[str, Any]:
-        """Insert a coding-session entry before an existing seq, shifting later seq values."""
+        """Insert a coding-session entry before an existing seq, preserving global seq uniqueness."""
         now = datetime.now(timezone.utc).isoformat()
         entry_id = str(uuid.uuid4())
         content_json = json.dumps(entry.get("content_json") or {}, ensure_ascii=False)
@@ -864,7 +864,7 @@ class AgentRepo:
                 """
                 SELECT COALESCE(MAX(seq), 0) AS max_seq
                 FROM coding_session_entries
-                WHERE conversation_id = ? AND rewound_at IS NULL
+                WHERE conversation_id = ?
                 """,
                 (conversation_id,),
             ) as cursor:
@@ -876,7 +876,7 @@ class AgentRepo:
                 """
                 UPDATE coding_session_entries
                 SET seq = seq + ?
-                WHERE conversation_id = ? AND seq >= ? AND rewound_at IS NULL
+                WHERE conversation_id = ? AND seq >= ?
                 """,
                 (shift_offset, conversation_id, before_seq),
             )
@@ -909,7 +909,7 @@ class AgentRepo:
                 """
                 UPDATE coding_session_entries
                 SET seq = seq - ?
-                WHERE conversation_id = ? AND seq >= ? AND rewound_at IS NULL
+                WHERE conversation_id = ? AND seq >= ?
                 """,
                 (shift_offset - 1, conversation_id, before_seq + shift_offset),
             )
