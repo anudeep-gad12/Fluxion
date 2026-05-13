@@ -1183,7 +1183,13 @@ async def _resolve_stale_tool_decision(
     session_id: Optional[str],
     is_owner: bool,
 ) -> Dict[str, str]:
-    """Handle duplicate/stale tool approval requests with explicit outcomes."""
+    """Handle duplicate/stale tool approval requests with explicit outcomes.
+
+    The tool_call_id from the URL is the provider's ID (e.g. ``functions.bash:9``),
+    which differs from the UUID stored as the DB primary key.  We first try a
+    direct lookup (covers the rare case where they coincide), then fall back to
+    scanning the run's tool calls for a matching approval_decision.
+    """
     db = await get_db()
     agent_repo = AgentRepo(db)
     trace_repo = TraceRepo(db)
@@ -1197,6 +1203,13 @@ async def _resolve_stale_tool_decision(
         raise HTTPException(status_code=404, detail="Run not found")
 
     tool_call = await agent_repo.get_tool_call(tool_call_id)
+
+    if not tool_call or tool_call.get("run_id") != run_id:
+        all_tool_calls = await agent_repo.get_tool_calls_for_run(run_id)
+        for tc in reversed(all_tool_calls):
+            if tc.get("approval_decision") == decision:
+                return {"status": status_label, "run_id": run_id, "tool_call_id": tool_call_id}
+
     if tool_call and tool_call.get("run_id") == run_id:
         existing_decision = tool_call.get("approval_decision")
         if existing_decision == decision:
@@ -1215,6 +1228,13 @@ async def _resolve_stale_tool_decision(
             status_code=409,
             detail=f"Run is already {run.get('status')}; no pending approval remains",
         )
+
+    if run.get("status") == "running":
+        logger.info(
+            "Approval accepted for active run (future already consumed)",
+            extra={"run_id": run_id, "tool_call_id": tool_call_id, "decision": decision},
+        )
+        return {"status": status_label, "run_id": run_id, "tool_call_id": tool_call_id}
 
     raise HTTPException(status_code=404, detail="No pending approval for this tool call")
 

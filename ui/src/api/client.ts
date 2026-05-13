@@ -399,7 +399,7 @@ export async function approveAgentToolCall(
   runId: string,
   toolCallId: string,
 ): Promise<{ status: string; run_id: string; tool_call_id: string }> {
-  return fetchJson(`${API_BASE}/agent/runs/${runId}/approve/${toolCallId}`, {
+  return fetchJson(`${API_BASE}/agent/runs/${runId}/approve/${encodeURIComponent(toolCallId)}`, {
     method: 'POST',
   });
 }
@@ -408,7 +408,7 @@ export async function denyAgentToolCall(
   runId: string,
   toolCallId: string,
 ): Promise<{ status: string; run_id: string; tool_call_id: string }> {
-  return fetchJson(`${API_BASE}/agent/runs/${runId}/deny/${toolCallId}`, {
+  return fetchJson(`${API_BASE}/agent/runs/${runId}/deny/${encodeURIComponent(toolCallId)}`, {
     method: 'POST',
   });
 }

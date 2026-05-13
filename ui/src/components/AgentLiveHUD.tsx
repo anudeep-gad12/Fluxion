@@ -2,6 +2,7 @@ import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { approveAgentToolCall, denyAgentToolCall } from '@/api/client';
 import { cn } from '@/lib/utils';
 import { formatAgentCost, formatAgentTokens, useDerivedAgentPhase } from '@/lib/agentLiveState';
+import { useStore } from '@/hooks/useStore';
 import type { AgentToolCall } from '@/types/agent';
 import type { AgentUIState } from '@/types/agent';
 
@@ -113,6 +114,13 @@ export const AgentLiveHUD = memo(function AgentLiveHUD({
       } else {
         await denyAgentToolCall(pendingApproval.run_id, pendingApproval.id);
       }
+    } catch {
+      // 404/409 means the approval was already processed or the run moved on.
+      // Clear the stale pending state so the UI unblocks.
+      useStore.getState().updateAgentToolCall(pendingApproval.run_id, pendingApproval.id, {
+        approval_required: false,
+        status: decision === 'approve' ? 'running' : 'error',
+      });
     } finally {
       decidingRef.current = false;
       setDeciding(null);
