@@ -10,6 +10,15 @@ const WORKSPACE_LIST_STORAGE_KEY = 'reasoner_workspace_paths';
 const EMPTY_RUNS: Run[] = [];
 const EMPTY_EVENTS: Event[] = [];
 
+function dedupeRuns(runs: Run[]): Run[] {
+  const seen = new Set<string>();
+  return runs.filter((run) => {
+    if (seen.has(run.run_id)) return false;
+    seen.add(run.run_id);
+    return true;
+  });
+}
+
 export interface TerminalUIState {
   isOpen: boolean;
   dock: 'bottom' | 'right';
@@ -172,28 +181,34 @@ export const useStore = create<AppState>((set, get) => ({
   setRuns: (conversationId, runs) => set((state) => ({
     runsByConversation: {
       ...state.runsByConversation,
-      [conversationId]: runs,
+      [conversationId]: dedupeRuns(runs),
     },
   })),
 
-  addRun: (conversationId, run) => set((state) => ({
-    runsByConversation: {
-      ...state.runsByConversation,
-      [conversationId]: [...(state.runsByConversation[conversationId] || []), run],
-    },
-  })),
+  addRun: (conversationId, run) => set((state) => {
+    const currentRuns = state.runsByConversation[conversationId] || [];
+    if (currentRuns.some((existingRun) => existingRun.run_id === run.run_id)) {
+      return state;
+    }
+    return {
+      runsByConversation: {
+        ...state.runsByConversation,
+        [conversationId]: [...currentRuns, run],
+      },
+    };
+  }),
 
   updateRun: (runId, updates) => set((state) => {
     for (const [conversationId, runs] of Object.entries(state.runsByConversation)) {
-      const runIndex = runs.findIndex((run) => run.run_id === runId);
-      if (runIndex === -1) continue;
+      if (!runs.some((run) => run.run_id === runId)) continue;
 
-      const nextRuns = [...runs];
-      nextRuns[runIndex] = { ...nextRuns[runIndex], ...updates };
+      const nextRuns = runs.map((run) => (
+        run.run_id === runId ? { ...run, ...updates } : run
+      ));
       return {
         runsByConversation: {
           ...state.runsByConversation,
-          [conversationId]: nextRuns,
+          [conversationId]: dedupeRuns(nextRuns),
         },
       };
     }

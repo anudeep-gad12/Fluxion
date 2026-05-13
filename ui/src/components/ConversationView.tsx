@@ -242,7 +242,9 @@ function ModelPicker({
     if (!open) return;
     setLoading(true);
     setError(null);
-    refreshPickerData().finally(() => setLoading(false));
+    refreshPickerData()
+      .catch(() => setError('Failed to load model list'))
+      .finally(() => setLoading(false));
   }, [open, refreshPickerData]);
 
   const handleSelectRegistry = async (modelId: string) => {
@@ -252,10 +254,26 @@ function ModelPicker({
       if (modelStatus?.provider === 'local') {
         await stopLocalModel();
       }
-      await selectModel(modelId);
-      const status = await getModelStatus();
-      onModelStatusChange(status);
+      const selected = await selectModel(modelId);
+      onModelStatusChange({
+        provider: selected.provider,
+        model_name: selected.display_name,
+        base_url: modelStatus?.provider === selected.provider ? modelStatus.base_url : null,
+        local_running: false,
+        context_window: selected.context_window,
+        max_output_tokens: selected.max_output_tokens,
+        effective_input_budget: selected.effective_input_budget,
+        supports_tools: selected.supports_tools,
+        supports_reasoning: selected.supports_reasoning,
+        supports_vision: selected.supports_vision,
+        provider_family: selected.provider,
+        reasoning_capabilities: modelStatus?.provider === selected.provider
+          ? modelStatus.reasoning_capabilities
+          : null,
+        source: selected.source,
+      });
       onOpenChange(false);
+      void getModelStatus().then(onModelStatusChange).catch(() => {});
     } catch {
       setError('Failed to switch model');
     } finally {
@@ -267,10 +285,24 @@ function ModelPicker({
     setSwitching(model.path);
     setError(null);
     try {
-      await startLocalModel(model.path);
-      const status = await getModelStatus();
-      onModelStatusChange(status);
+      const started = await startLocalModel(model.path);
+      onModelStatusChange({
+        provider: 'local',
+        model_name: started.model_name,
+        base_url: modelStatus?.base_url ?? null,
+        local_running: true,
+        context_window: modelStatus?.context_window ?? 0,
+        max_output_tokens: modelStatus?.max_output_tokens ?? 0,
+        effective_input_budget: modelStatus?.effective_input_budget ?? 0,
+        supports_tools: modelStatus?.supports_tools ?? true,
+        supports_reasoning: modelStatus?.supports_reasoning ?? false,
+        supports_vision: modelStatus?.supports_vision ?? false,
+        provider_family: 'local',
+        reasoning_capabilities: null,
+        source: 'local',
+      });
       onOpenChange(false);
+      void getModelStatus().then(onModelStatusChange).catch(() => {});
     } catch {
       setError(`Failed to start model. Check logs/${model.model_type === 'mlx' ? 'mlx' : 'llama'}.log`);
     } finally {
@@ -1106,7 +1138,6 @@ export function ConversationView() {
   // Model picker state
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [modelStatus, setModelStatus] = useState<ModelStatus | null>(null);
-  const [modelSelectEnabled, setModelSelectEnabled] = useState(false);
   const [reasoningSettingsOpen, setReasoningSettingsOpen] = useState(false);
   const [reasoningSettings, setReasoningSettings] = useState<ReasoningSettingsResponse | null>(null);
   const [reasoningDraft, setReasoningDraft] = useState<ReasoningSettings | null>(null);
@@ -1196,13 +1227,9 @@ export function ConversationView() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Fetch model status, config, and usage on mount
+  // Fetch model status and usage on mount
   useEffect(() => {
     getModelStatus().then(setModelStatus).catch(() => {});
-    fetch('/api/config')
-      .then((r) => r.json())
-      .then((data) => setModelSelectEnabled(data.local_models_enabled ?? false))
-      .catch(() => {});
     refreshUsage();
     refreshReasoningSettings();
   }, [refreshUsage, refreshReasoningSettings]);
@@ -2440,23 +2467,20 @@ export function ConversationView() {
         {/* Status bar */}
         <div className="ui-panel border-b border-zinc-900/90 px-3 py-2.5 sm:px-4 flex items-center justify-between font-mono text-[11px]">
           <div className="flex items-center gap-3">
-            {modelSelectEnabled ? (
-              <button
-                onClick={() => setModelPickerOpen(true)}
-                className="ui-transition text-zinc-300 hover:text-cyan-100"
-                title="Switch model"
-              >
-                {modelStatus?.model_name || 'model'}
-                {modelStatus?.context_window ? (
-                  <span className="ml-1 text-zinc-500">({Math.round(modelStatus.context_window / 1024)}k)</span>
-                ) : null}
-                {modelStatus?.provider === 'local' && (
-                  <span className="ml-1 text-zinc-500">(local)</span>
-                )}
-              </button>
-            ) : (
-              <span className="text-zinc-300">{modelStatus?.model_name || 'model'}{modelStatus?.context_window ? ` (${Math.round(modelStatus.context_window / 1024)}k)` : ''}</span>
-            )}
+            <button
+              type="button"
+              onClick={() => setModelPickerOpen(true)}
+              className="ui-transition text-zinc-300 hover:text-cyan-100"
+              title="Switch model"
+            >
+              {modelStatus?.model_name || 'model'}
+              {modelStatus?.context_window ? (
+                <span className="ml-1 text-zinc-500">({Math.round(modelStatus.context_window / 1024)}k)</span>
+              ) : null}
+              {modelStatus?.provider === 'local' && (
+                <span className="ml-1 text-zinc-500">(local)</span>
+              )}
+            </button>
             <span className="text-zinc-700">|</span>
             <button
               onClick={() => setReasoningSettingsOpen(true)}
@@ -2479,14 +2503,12 @@ export function ConversationView() {
             )}
           </div>
         </div>
-        {modelSelectEnabled && (
-          <ModelPicker
-            open={modelPickerOpen}
-            onOpenChange={setModelPickerOpen}
-            modelStatus={modelStatus}
-            onModelStatusChange={setModelStatus}
-          />
-        )}
+        <ModelPicker
+          open={modelPickerOpen}
+          onOpenChange={setModelPickerOpen}
+          modelStatus={modelStatus}
+          onModelStatusChange={setModelStatus}
+        />
         <ReasoningSettingsDialog
           open={reasoningSettingsOpen}
           onOpenChange={setReasoningSettingsOpen}
@@ -2678,29 +2700,21 @@ export function ConversationView() {
     <div className="h-full flex flex-col">
       <div className="ui-panel flex items-center justify-between border-b border-zinc-900/90 px-3 py-2.5 font-mono text-[11px] sm:px-4 md:px-6">
         <div className="flex items-center gap-3 truncate mr-4">
-          {modelSelectEnabled ? (
-            <>
-              <button
-                onClick={() => setModelPickerOpen(true)}
-                className="ui-transition flex-shrink-0 text-zinc-300 hover:text-cyan-100"
-                title="Switch model"
-              >
-                {modelStatus?.model_name || 'model'}
-                {modelStatus?.context_window ? (
-                  <span className="ml-1 text-zinc-600">({Math.round(modelStatus.context_window / 1024)}k)</span>
-                ) : null}
-                {modelStatus?.provider === 'local' && (
-                  <span className="ml-1 text-zinc-600">(local)</span>
-                )}
-              </button>
-              <span className="text-zinc-700">|</span>
-            </>
-          ) : (
-            <>
-              <span className="text-zinc-300 flex-shrink-0">{modelStatus?.model_name || 'model'}{modelStatus?.context_window ? ` (${Math.round(modelStatus.context_window / 1024)}k)` : ''}</span>
-              <span className="text-zinc-700">|</span>
-            </>
-          )}
+          <button
+            type="button"
+            onClick={() => setModelPickerOpen(true)}
+            className="ui-transition flex-shrink-0 text-zinc-300 hover:text-cyan-100"
+            title="Switch model"
+          >
+            {modelStatus?.model_name || 'model'}
+            {modelStatus?.context_window ? (
+              <span className="ml-1 text-zinc-600">({Math.round(modelStatus.context_window / 1024)}k)</span>
+            ) : null}
+            {modelStatus?.provider === 'local' && (
+              <span className="ml-1 text-zinc-600">(local)</span>
+            )}
+          </button>
+          <span className="text-zinc-700">|</span>
           <button
             onClick={() => setReasoningSettingsOpen(true)}
             className="ui-transition flex-shrink-0 text-zinc-300 hover:text-cyan-100"
@@ -2714,14 +2728,12 @@ export function ConversationView() {
           </span>
         </div>
       </div>
-      {modelSelectEnabled && (
-        <ModelPicker
-          open={modelPickerOpen}
-          onOpenChange={setModelPickerOpen}
-          modelStatus={modelStatus}
-          onModelStatusChange={setModelStatus}
-        />
-      )}
+      <ModelPicker
+        open={modelPickerOpen}
+        onOpenChange={setModelPickerOpen}
+        modelStatus={modelStatus}
+        onModelStatusChange={setModelStatus}
+      />
       <ReasoningSettingsDialog
         open={reasoningSettingsOpen}
         onOpenChange={setReasoningSettingsOpen}

@@ -32,11 +32,12 @@ export function useAgentRunDetails(
   }, [runId]);
 
   useEffect(() => {
-    if (!runId || isStreaming || streamingState) {
+    if (!runId || isStreaming || historicalState) {
       return;
     }
 
-    // Load from API for completed runs
+    // Load from API for completed runs. Do this even if a stale streaming
+    // state exists, otherwise refreshes can show no historical thinking/tools.
     let cancelled = false;
 
     Promise.all([getAgentRunTrace(runId), getAgentRunStatus(runId)])
@@ -117,8 +118,9 @@ export function useAgentRunDetails(
     return () => {
       cancelled = true;
     };
-  }, [runId, isStreaming, streamingState]);
+  }, [runId, isStreaming, historicalState]);
 
-  // Return streaming state if available, otherwise historical state
-  return streamingState || historicalState;
+  // While streaming, prefer live state. Once complete, prefer persisted trace
+  // data so stale in-memory state cannot hide thinking/tool history.
+  return isStreaming ? (streamingState || historicalState) : (historicalState || streamingState);
 }
