@@ -7,18 +7,26 @@ with automatic fallback and endpoint caching.
 import asyncio
 import json
 import random
-import time
 from typing import Any, Callable, ClassVar, Dict, List, Optional
 
 import httpx
 
-from orchestrator.logging_config import get_logger, set_component
+from orchestrator.logging_config import get_logger
 
-from .base import LLMResponse, ProviderError, RetryExhaustedError, ToolFallbackError
+from .base import LLMResponse, RetryExhaustedError, ToolFallbackError
 from .request_builders import build_chat_completions_request, build_responses_request
 from .response_parsers import parse_chat_result, parse_responses_result, parse_streaming_delta
 
 logger = get_logger(__name__)
+
+
+def _format_exception(error: BaseException) -> str:
+    """Return a non-empty exception string with type information."""
+    error_type = f"{error.__class__.__module__}.{error.__class__.__name__}"
+    message = str(error).strip()
+    if message:
+        return f"{error_type}: {message}"
+    return f"{error_type}: {repr(error)}"
 
 
 def normalize_base_url(url: str) -> str:
@@ -344,11 +352,19 @@ class OpenAICompatProvider:
                     reasoning_effort=reasoning_effort,
                     **kwargs,
                 )
-            except (httpx.RemoteProtocolError, httpx.ReadError, httpx.HTTPStatusError) as e:
+            except (
+                httpx.RemoteProtocolError,
+                httpx.ReadError,
+                httpx.HTTPStatusError,
+                httpx.TimeoutException,
+                httpx.ConnectError,
+                httpx.NetworkError,
+            ) as e:
                 # Only retry HTTP errors with retryable status codes
                 if isinstance(e, httpx.HTTPStatusError) and e.response.status_code not in self._retryable_statuses:
                     raise
                 last_error = e
+                error_message = _format_exception(e)
                 if attempt < self._max_retries:
                     delay = min(self._base_delay * (2 ** attempt), self._max_delay)
                     jitter = delay * random.uniform(0.1, 0.3)
@@ -359,7 +375,9 @@ class OpenAICompatProvider:
                             "attempt": attempt + 1,
                             "max_retries": self._max_retries,
                             "delay_seconds": round(total_delay, 2),
-                            "error": str(e),
+                            "error": error_message,
+                            "error_type": f"{e.__class__.__module__}.{e.__class__.__name__}",
+                            "error_repr": repr(e),
                         },
                     )
                     await asyncio.sleep(total_delay)
@@ -368,12 +386,15 @@ class OpenAICompatProvider:
                         "Streaming failed after all retries",
                         extra={
                             "attempts": attempt + 1,
-                            "error": str(e),
+                            "error": error_message,
+                            "error_type": f"{e.__class__.__module__}.{e.__class__.__name__}",
+                            "error_repr": repr(e),
                         },
                     )
 
         raise RetryExhaustedError(
-            f"Streaming failed after {self._max_retries} retries: {last_error}"
+            f"Streaming failed after {self._max_retries} retries: "
+            f"{_format_exception(last_error) if last_error else 'unknown error'}"
         )
 
     async def _do_streaming(

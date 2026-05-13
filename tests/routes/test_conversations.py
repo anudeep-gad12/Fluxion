@@ -264,6 +264,32 @@ class TestConversationRewindRoutes:
 
         loop.run_until_complete(assert_db_state())
 
+    def test_duplicate_rewind_request_is_noop_success(self, client, test_db, tmp_path):
+        loop = asyncio.get_event_loop()
+        workspace_path = tmp_path / "project-a"
+        workspace_path.mkdir()
+        conversation_id = client.post(
+            "/api/conversations/",
+            json={"title": "Workspace thread", "workspace_path": str(workspace_path)},
+        ).json()["conversation_id"]
+        loop.run_until_complete(_seed_rewindable_conversation(test_db, conversation_id))
+
+        first = client.post(
+            f"/api/conversations/{conversation_id}/rewind",
+            json={"run_id": "run-2"},
+        )
+        second = client.post(
+            f"/api/conversations/{conversation_id}/rewind",
+            json={"run_id": "run-2"},
+        )
+
+        assert first.status_code == 200
+        assert second.status_code == 200
+        payload = second.json()
+        assert payload["restored_prompt"] == "Prompt 2"
+        assert [run["run_id"] for run in payload["runs"]] == ["run-1"]
+        assert payload["rewound_run_ids"] == []
+
     def test_rewind_rejects_active_runs(self, client, test_db, tmp_path):
         loop = asyncio.get_event_loop()
         workspace_path = tmp_path / "project-a"
@@ -276,6 +302,31 @@ class TestConversationRewindRoutes:
         loop.run_until_complete(
             test_db.conn.execute(
                 "UPDATE runs SET status = 'running' WHERE run_id = ?",
+                ("run-3",),
+            )
+        )
+        loop.run_until_complete(test_db.conn.commit())
+
+        response = client.post(
+            f"/api/conversations/{conversation_id}/rewind",
+            json={"run_id": "run-2"},
+        )
+
+        assert response.status_code == 400
+        assert response.json()["detail"] == "Cannot rewind while a run is still active"
+
+    def test_rewind_rejects_pending_runs(self, client, test_db, tmp_path):
+        loop = asyncio.get_event_loop()
+        workspace_path = tmp_path / "project-a"
+        workspace_path.mkdir()
+        conversation_id = client.post(
+            "/api/conversations/",
+            json={"title": "Workspace thread", "workspace_path": str(workspace_path)},
+        ).json()["conversation_id"]
+        loop.run_until_complete(_seed_rewindable_conversation(test_db, conversation_id))
+        loop.run_until_complete(
+            test_db.conn.execute(
+                "UPDATE runs SET status = 'pending' WHERE run_id = ?",
                 ("run-3",),
             )
         )

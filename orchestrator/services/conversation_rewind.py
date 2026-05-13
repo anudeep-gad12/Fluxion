@@ -100,6 +100,19 @@ async def rewind_conversation_to_run(
         None,
     )
     if target_index is None:
+        target_run = await trace_repo.get_run(run_id)
+        if (
+            target_run
+            and target_run.get("conversation_id") == conversation_id
+            and target_run.get("rewound_at") is not None
+        ):
+            return {
+                "conversation": await conversation_repo.get(conversation_id),
+                "runs": visible_runs,
+                "restored_prompt": checkpoint["user_message"],
+                "rewound_run_ids": [],
+                "rewind_group_id": target_run.get("rewind_group_id") or "",
+            }
         raise ValueError("Target run is not on the active conversation branch")
 
     tail_runs = visible_runs[target_index:]

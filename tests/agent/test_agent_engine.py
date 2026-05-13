@@ -23,7 +23,6 @@ from orchestrator.agent.tools.bash_tool import BashTool
 from orchestrator.agent.tools.base import ToolResult
 from orchestrator.agent.state_machine import RecoveryContext
 from orchestrator.providers.base import LLMResponse
-from orchestrator.schemas import AgentStepState
 
 
 # =============================================================================
@@ -2034,6 +2033,56 @@ class TestAgentEngineRun:
         mock_sm.error_run.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_blank_llm_error_is_persisted_with_type_and_error_trace(self):
+        """Blank timeout-like LLM errors keep type info and close the trace span."""
+        provider = MagicMock()
+        provider.complete_streaming = AsyncMock(side_effect=TimeoutError())
+        trace_repo = MagicMock()
+        trace_repo.add_trace_event = AsyncMock(
+            side_effect=[
+                "agent-start-event",
+                "step-start-event",
+                "llm-request-event",
+                "llm-error-event",
+            ]
+        )
+
+        mock_sm = create_mock_state_machine()
+
+        with patch(
+            "orchestrator.agent.agent_engine.AgentStateMachine",
+            return_value=mock_sm,
+        ):
+            engine = AgentEngine(
+                provider=provider,
+                repo=create_mock_repo(),
+                registry=create_mock_registry(),
+                trace_repo=trace_repo,
+            )
+
+            result = await engine.run(run_id="test-run", query="Test query")
+
+        assert result.success is False
+        assert result.error_message
+        assert "TimeoutError" in result.error_message
+        mock_sm.error_step.assert_called_once_with(result.error_message)
+        mock_sm.error_run.assert_called_once_with(result.error_message)
+
+        trace_calls = trace_repo.add_trace_event.await_args_list
+        llm_request_call = next(
+            call for call in trace_calls if call.kwargs["event_type"] == "llm_request"
+        )
+        llm_error_call = next(
+            call
+            for call in trace_calls
+            if call.kwargs["event_type"] == "llm_response"
+            and call.kwargs["event_status"] == "error"
+        )
+        assert llm_request_call.kwargs["event_status"] == "pending"
+        assert llm_error_call.kwargs["parent_event_id"] == "llm-request-event"
+        assert llm_error_call.kwargs["content"]["error_message"] == result.error_message
+
+    @pytest.mark.asyncio
     async def test_handles_recovery_context(self):
         """Handles crash recovery context."""
         hint = {"role": "system", "content": "Recovery hint"}
@@ -2485,7 +2534,7 @@ class TestAgentEngineCitations:
         )
 
         answer = "According to [1], the answer is X. See also [2]."
-        citations = await engine._extract_and_store_citations("run-1", answer)
+        _ = await engine._extract_and_store_citations("run-1", answer)
 
         repo.mark_citations_used.assert_called_once()
         # Both citations should be marked
@@ -2510,7 +2559,7 @@ class TestAgentEngineCitations:
         )
 
         answer = "According to http://example.com/page, the answer is X."
-        citations = await engine._extract_and_store_citations("run-1", answer)
+        _ = await engine._extract_and_store_citations("run-1", answer)
 
         repo.mark_citations_used.assert_called_once()
         call_args = repo.mark_citations_used.call_args[0][0]
@@ -2702,7 +2751,7 @@ class TestAgentEngineFindingsAccumulator:
             {"step": 2, "tool": "web_extract", "content": "Extracted from wikipedia.org: Paris has been the capital since..."},
         ]
 
-        result = await engine._force_synthesis(
+        _ = await engine._force_synthesis(
             messages=[{"role": "system", "content": "System"}],
             event_callback=lambda e: None,
             run_id="run-1",
@@ -2735,7 +2784,7 @@ class TestAgentEngineFindingsAccumulator:
         # No findings set
         engine._findings = []
 
-        result = await engine._force_synthesis(
+        _ = await engine._force_synthesis(
             messages=[{"role": "system", "content": "System"}],
             event_callback=lambda e: None,
             run_id="run-1",

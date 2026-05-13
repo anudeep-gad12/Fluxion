@@ -6,6 +6,7 @@ import httpx
 
 from orchestrator.providers.openai_compat import OpenAICompatProvider
 from orchestrator.providers.base import ToolFallbackError
+from orchestrator.providers.base import RetryExhaustedError
 
 
 class TestToolFallbackPolicy:
@@ -150,3 +151,34 @@ class TestPreviousResponseId:
         )
 
         assert "previous_response_id" not in payload
+
+
+class TestStreamingRetry:
+    """Tests for streaming retry behavior."""
+
+    @pytest.mark.asyncio
+    async def test_streaming_timeout_is_retried_and_error_is_non_empty(self):
+        """Streaming timeouts are retryable and keep type info when exhausted."""
+        provider = OpenAICompatProvider(
+            base_url="http://localhost:1234",
+            endpoint="chat_completions",
+            timeout=1,
+            max_retries=1,
+            base_delay=0,
+        )
+
+        with patch.object(
+            provider,
+            "_do_streaming",
+            new=AsyncMock(side_effect=httpx.ReadTimeout("")),
+        ) as mock_stream:
+            with pytest.raises(RetryExhaustedError) as exc_info:
+                await provider.complete_streaming(
+                    messages=[{"role": "user", "content": "test"}],
+                    model="test-model",
+                    on_token=lambda _token: None,
+                )
+
+        assert mock_stream.await_count == 2
+        assert "ReadTimeout" in str(exc_info.value)
+        await provider.close()

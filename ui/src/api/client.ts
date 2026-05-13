@@ -21,7 +21,7 @@ function getApiBase(): string {
   if (typeof window === 'undefined') return API_PATH;
   const { protocol, hostname, port } = window.location;
   if ((hostname === '127.0.0.1' || hostname === 'localhost') && port === '3000') {
-    return `${protocol}//127.0.0.1:9000${API_PATH}`;
+    return `${protocol}//${hostname}:9000${API_PATH}`;
   }
   return API_PATH;
 }
@@ -29,6 +29,12 @@ function getApiBase(): string {
 const API_BASE = getApiBase();
 
 function getOwnerToken(): string | null {
+  if (typeof window !== 'undefined') {
+    const { hostname, port } = window.location;
+    if ((hostname === '127.0.0.1' || hostname === 'localhost') && port === '3000') {
+      return null;
+    }
+  }
   return localStorage.getItem(OWNER_TOKEN_KEY);
 }
 
@@ -46,10 +52,12 @@ type FetchJsonOptions = RequestInit & {
 async function fetchJson<T>(url: string, options?: FetchJsonOptions): Promise<T> {
   const ownerToken = getOwnerToken();
   const { timeoutMs = DEFAULT_TIMEOUT_MS, ...fetchOptions } = options ?? {};
+  const optionHeaders = (fetchOptions.headers as Record<string, string> | undefined) ?? {};
+  const hasBody = fetchOptions.body !== undefined && fetchOptions.body !== null;
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
     ...(ownerToken ? { 'X-Owner-Token': ownerToken } : {}),
-    ...(fetchOptions.headers as Record<string, string>),
+    ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
+    ...optionHeaders,
   };
 
   const controller = new AbortController();
