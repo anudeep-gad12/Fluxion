@@ -226,23 +226,57 @@ function ModelPicker({
   const [loading, setLoading] = useState(false);
   const [switching, setSwitching] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const pickerLoadSeqRef = useRef(0);
 
   const refreshPickerData = useCallback(async () => {
-    const [registry, local, keys] = await Promise.all([
-      listRegistryModels().catch(() => null),
-      listLocalModels().catch(() => []),
-      listProviderKeys().catch(() => ({ providers: [] })),
-    ]);
-    setRegistryData(registry);
-    setLocalModels(local as LocalModel[]);
-    setProviderKeys(keys.providers);
+    const seq = ++pickerLoadSeqRef.current;
+    const failures: string[] = [];
+
+    const registryPromise = listRegistryModels()
+      .then((registry) => {
+        if (seq === pickerLoadSeqRef.current) setRegistryData(registry);
+      })
+      .catch(() => {
+        failures.push('models');
+        if (seq === pickerLoadSeqRef.current) setRegistryData(null);
+      });
+
+    const localPromise = listLocalModels()
+      .then((local) => {
+        if (seq === pickerLoadSeqRef.current) setLocalModels(local);
+      })
+      .catch(() => {
+        failures.push('local');
+        if (seq === pickerLoadSeqRef.current) setLocalModels([]);
+      });
+
+    const keysPromise = listProviderKeys()
+      .then((keys) => {
+        if (seq === pickerLoadSeqRef.current) setProviderKeys(keys.providers);
+      })
+      .catch(() => {
+        failures.push('provider keys');
+        if (seq === pickerLoadSeqRef.current) setProviderKeys([]);
+      });
+
+    await Promise.allSettled([registryPromise, localPromise, keysPromise]);
+    if (seq === pickerLoadSeqRef.current && failures.length > 0) {
+      setError(`Failed to load ${failures.join(', ')}`);
+    }
+    if (seq === pickerLoadSeqRef.current) {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      pickerLoadSeqRef.current += 1;
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
-    refreshPickerData().finally(() => setLoading(false));
+    void refreshPickerData();
   }, [open, refreshPickerData]);
 
   const handleSelectRegistry = async (modelId: string) => {
@@ -252,10 +286,26 @@ function ModelPicker({
       if (modelStatus?.provider === 'local') {
         await stopLocalModel();
       }
-      await selectModel(modelId);
-      const status = await getModelStatus();
-      onModelStatusChange(status);
+      const selected = await selectModel(modelId);
+      onModelStatusChange({
+        provider: selected.provider,
+        model_name: selected.display_name,
+        base_url: modelStatus?.provider === selected.provider ? modelStatus.base_url : null,
+        local_running: false,
+        context_window: selected.context_window,
+        max_output_tokens: selected.max_output_tokens,
+        effective_input_budget: selected.effective_input_budget,
+        supports_tools: selected.supports_tools,
+        supports_reasoning: selected.supports_reasoning,
+        supports_vision: selected.supports_vision,
+        provider_family: selected.provider,
+        reasoning_capabilities: modelStatus?.provider === selected.provider
+          ? modelStatus.reasoning_capabilities
+          : null,
+        source: selected.source,
+      });
       onOpenChange(false);
+      void getModelStatus().then(onModelStatusChange).catch(() => {});
     } catch {
       setError('Failed to switch model');
     } finally {
@@ -267,10 +317,24 @@ function ModelPicker({
     setSwitching(model.path);
     setError(null);
     try {
-      await startLocalModel(model.path);
-      const status = await getModelStatus();
-      onModelStatusChange(status);
+      const started = await startLocalModel(model.path);
+      onModelStatusChange({
+        provider: 'local',
+        model_name: started.model_name,
+        base_url: modelStatus?.base_url ?? null,
+        local_running: true,
+        context_window: modelStatus?.context_window ?? 0,
+        max_output_tokens: modelStatus?.max_output_tokens ?? 0,
+        effective_input_budget: modelStatus?.effective_input_budget ?? 0,
+        supports_tools: modelStatus?.supports_tools ?? true,
+        supports_reasoning: modelStatus?.supports_reasoning ?? false,
+        supports_vision: modelStatus?.supports_vision ?? false,
+        provider_family: 'local',
+        reasoning_capabilities: null,
+        source: 'local',
+      });
       onOpenChange(false);
+      void getModelStatus().then(onModelStatusChange).catch(() => {});
     } catch {
       setError(`Failed to start model. Check logs/${model.model_type === 'mlx' ? 'mlx' : 'llama'}.log`);
     } finally {
@@ -345,11 +409,10 @@ function ModelPicker({
           <p className="rounded-xl border border-red-500/20 bg-red-500/[0.08] px-3 py-2 text-xs font-mono text-red-300">{error}</p>
         )}
         <div className="max-h-[72vh] space-y-4 overflow-y-auto pr-1">
-          {loading ? (
+          {loading && (
             <p className="px-3 py-3 font-mono text-xs text-zinc-300">Loading models...</p>
-          ) : (
-            <>
-              {registryProviders.map(([providerName, info]) => (
+          )}
+          {registryProviders.map(([providerName, info]) => (
                 <section key={providerName} className="premium-panel overflow-hidden">
                   <div className="flex items-center justify-between border-b border-zinc-800/80 px-4 py-3">
                     <div>
@@ -446,7 +509,7 @@ function ModelPicker({
                 </section>
               ))}
 
-              <section className="premium-panel overflow-hidden">
+          <section className="premium-panel overflow-hidden">
                 <div className="border-b border-zinc-800/80 px-4 py-3">
                   <p className="premium-section-label">provider api keys</p>
                   <p className="mt-1 text-[12px] text-zinc-500">Persisted for cloud providers and loaded into runtime on startup.</p>
@@ -502,9 +565,7 @@ function ModelPicker({
                     );
                   })}
                 </div>
-              </section>
-            </>
-          )}
+          </section>
         </div>
       </DialogContent>
     </Dialog>
@@ -1106,7 +1167,6 @@ export function ConversationView() {
   // Model picker state
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [modelStatus, setModelStatus] = useState<ModelStatus | null>(null);
-  const [modelSelectEnabled, setModelSelectEnabled] = useState(false);
   const [reasoningSettingsOpen, setReasoningSettingsOpen] = useState(false);
   const [reasoningSettings, setReasoningSettings] = useState<ReasoningSettingsResponse | null>(null);
   const [reasoningDraft, setReasoningDraft] = useState<ReasoningSettings | null>(null);
@@ -1196,13 +1256,9 @@ export function ConversationView() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Fetch model status, config, and usage on mount
+  // Fetch model status and usage on mount
   useEffect(() => {
     getModelStatus().then(setModelStatus).catch(() => {});
-    fetch('/api/config')
-      .then((r) => r.json())
-      .then((data) => setModelSelectEnabled(data.local_models_enabled ?? false))
-      .catch(() => {});
     refreshUsage();
     refreshReasoningSettings();
   }, [refreshUsage, refreshReasoningSettings]);
@@ -1225,6 +1281,8 @@ export function ConversationView() {
   const [rewindSubmitting, setRewindSubmitting] = useState(false);
   const [rewindCheckpoints, setRewindCheckpoints] = useState<ConversationRewindCheckpoint[]>([]);
   const [rewindSelectedRunId, setRewindSelectedRunId] = useState<string | null>(null);
+  const rewindLoadInFlightRef = useRef(false);
+  const rewindRestoreInFlightRef = useRef(false);
 
   // Track any active run (chat or agent) for UI purposes (auto-scroll, completion detection)
   const activeRunId = useMemo(() => {
@@ -1302,9 +1360,16 @@ export function ConversationView() {
   const injectedSteerCount = activeAgentState?.injectedSteers?.length ?? 0;
 
   const openRewindPicker = useCallback(async () => {
-    if (!selectedConversationId || hasActiveRun || !lockedWorkspacePath) {
+    if (
+      !selectedConversationId
+      || hasActiveRun
+      || !lockedWorkspacePath
+      || rewindLoadInFlightRef.current
+      || rewindRestoreInFlightRef.current
+    ) {
       return;
     }
+    rewindLoadInFlightRef.current = true;
     setRewindLoading(true);
     setRewindSubmitting(false);
     setRewindOpen(true);
@@ -1317,13 +1382,20 @@ export function ConversationView() {
       toast.error('Failed to load rewind history');
     } finally {
       setRewindLoading(false);
+      rewindLoadInFlightRef.current = false;
     }
   }, [hasActiveRun, lockedWorkspacePath, selectedConversationId]);
 
   const handleRewindRestore = useCallback(async () => {
-    if (!selectedConversationId || !rewindSelectedRunId || rewindSubmitting) {
+    if (
+      !selectedConversationId
+      || !rewindSelectedRunId
+      || rewindSubmitting
+      || rewindRestoreInFlightRef.current
+    ) {
       return;
     }
+    rewindRestoreInFlightRef.current = true;
     setRewindSubmitting(true);
     try {
       const response = await rewindConversation(selectedConversationId, {
@@ -1352,6 +1424,7 @@ export function ConversationView() {
       toast.error(message);
     } finally {
       setRewindSubmitting(false);
+      rewindRestoreInFlightRef.current = false;
     }
   }, [
     clearAgentRun,
@@ -1363,6 +1436,28 @@ export function ConversationView() {
     setRuns,
     updateConversation,
   ]);
+
+  const handleRewindOpenChange = useCallback((open: boolean) => {
+    setRewindOpen(open);
+    if (!open && !rewindRestoreInFlightRef.current) {
+      rewindLoadInFlightRef.current = false;
+      setRewindLoading(false);
+      setRewindCheckpoints([]);
+      setRewindSelectedRunId(null);
+      lastEscapeAtRef.current = 0;
+    }
+  }, []);
+
+  useEffect(() => {
+    rewindLoadInFlightRef.current = false;
+    rewindRestoreInFlightRef.current = false;
+    setRewindOpen(false);
+    setRewindLoading(false);
+    setRewindSubmitting(false);
+    setRewindCheckpoints([]);
+    setRewindSelectedRunId(null);
+    lastEscapeAtRef.current = 0;
+  }, [selectedConversationId]);
   useEffect(() => {
     if (injectedSteerCount > 0 && queuedSteers.length > 0) {
       const timer = setTimeout(() => setQueuedSteers([]), 1500);
@@ -2362,7 +2457,7 @@ export function ConversationView() {
   }, [activeMention, clearMentionState, effectiveWorkspacePath, mode]);
 
   const rewindDialog = (
-    <Dialog open={rewindOpen} onOpenChange={setRewindOpen}>
+    <Dialog open={rewindOpen} onOpenChange={handleRewindOpenChange}>
       <DialogContent className="max-w-xl border-zinc-800 bg-zinc-950 text-zinc-100">
         <DialogHeader>
           <DialogTitle className="font-mono text-sm text-zinc-100">rewind conversation</DialogTitle>
@@ -2440,23 +2535,20 @@ export function ConversationView() {
         {/* Status bar */}
         <div className="ui-panel border-b border-zinc-900/90 px-3 py-2.5 sm:px-4 flex items-center justify-between font-mono text-[11px]">
           <div className="flex items-center gap-3">
-            {modelSelectEnabled ? (
-              <button
-                onClick={() => setModelPickerOpen(true)}
-                className="ui-transition text-zinc-300 hover:text-cyan-100"
-                title="Switch model"
-              >
-                {modelStatus?.model_name || 'model'}
-                {modelStatus?.context_window ? (
-                  <span className="ml-1 text-zinc-500">({Math.round(modelStatus.context_window / 1024)}k)</span>
-                ) : null}
-                {modelStatus?.provider === 'local' && (
-                  <span className="ml-1 text-zinc-500">(local)</span>
-                )}
-              </button>
-            ) : (
-              <span className="text-zinc-300">{modelStatus?.model_name || 'model'}{modelStatus?.context_window ? ` (${Math.round(modelStatus.context_window / 1024)}k)` : ''}</span>
-            )}
+            <button
+              type="button"
+              onClick={() => setModelPickerOpen(true)}
+              className="ui-transition text-zinc-300 hover:text-cyan-100"
+              title="Switch model"
+            >
+              {modelStatus?.model_name || 'model'}
+              {modelStatus?.context_window ? (
+                <span className="ml-1 text-zinc-500">({Math.round(modelStatus.context_window / 1024)}k)</span>
+              ) : null}
+              {modelStatus?.provider === 'local' && (
+                <span className="ml-1 text-zinc-500">(local)</span>
+              )}
+            </button>
             <span className="text-zinc-700">|</span>
             <button
               onClick={() => setReasoningSettingsOpen(true)}
@@ -2479,14 +2571,12 @@ export function ConversationView() {
             )}
           </div>
         </div>
-        {modelSelectEnabled && (
-          <ModelPicker
-            open={modelPickerOpen}
-            onOpenChange={setModelPickerOpen}
-            modelStatus={modelStatus}
-            onModelStatusChange={setModelStatus}
-          />
-        )}
+        <ModelPicker
+          open={modelPickerOpen}
+          onOpenChange={setModelPickerOpen}
+          modelStatus={modelStatus}
+          onModelStatusChange={setModelStatus}
+        />
         <ReasoningSettingsDialog
           open={reasoningSettingsOpen}
           onOpenChange={setReasoningSettingsOpen}
@@ -2509,8 +2599,6 @@ export function ConversationView() {
             setDraftWorkspacePath(workspacePath);
           }}
         />
-        {rewindDialog}
-
         <div className="flex-1 flex flex-col items-center justify-center gap-4 overflow-y-auto px-3 text-zinc-300 sm:gap-6 sm:px-4 md:px-6 min-h-0">
           <EmptyStatePulse
             mode={mode}
@@ -2678,29 +2766,21 @@ export function ConversationView() {
     <div className="h-full flex flex-col">
       <div className="ui-panel flex items-center justify-between border-b border-zinc-900/90 px-3 py-2.5 font-mono text-[11px] sm:px-4 md:px-6">
         <div className="flex items-center gap-3 truncate mr-4">
-          {modelSelectEnabled ? (
-            <>
-              <button
-                onClick={() => setModelPickerOpen(true)}
-                className="ui-transition flex-shrink-0 text-zinc-300 hover:text-cyan-100"
-                title="Switch model"
-              >
-                {modelStatus?.model_name || 'model'}
-                {modelStatus?.context_window ? (
-                  <span className="ml-1 text-zinc-600">({Math.round(modelStatus.context_window / 1024)}k)</span>
-                ) : null}
-                {modelStatus?.provider === 'local' && (
-                  <span className="ml-1 text-zinc-600">(local)</span>
-                )}
-              </button>
-              <span className="text-zinc-700">|</span>
-            </>
-          ) : (
-            <>
-              <span className="text-zinc-300 flex-shrink-0">{modelStatus?.model_name || 'model'}{modelStatus?.context_window ? ` (${Math.round(modelStatus.context_window / 1024)}k)` : ''}</span>
-              <span className="text-zinc-700">|</span>
-            </>
-          )}
+          <button
+            type="button"
+            onClick={() => setModelPickerOpen(true)}
+            className="ui-transition flex-shrink-0 text-zinc-300 hover:text-cyan-100"
+            title="Switch model"
+          >
+            {modelStatus?.model_name || 'model'}
+            {modelStatus?.context_window ? (
+              <span className="ml-1 text-zinc-600">({Math.round(modelStatus.context_window / 1024)}k)</span>
+            ) : null}
+            {modelStatus?.provider === 'local' && (
+              <span className="ml-1 text-zinc-600">(local)</span>
+            )}
+          </button>
+          <span className="text-zinc-700">|</span>
           <button
             onClick={() => setReasoningSettingsOpen(true)}
             className="ui-transition flex-shrink-0 text-zinc-300 hover:text-cyan-100"
@@ -2714,14 +2794,12 @@ export function ConversationView() {
           </span>
         </div>
       </div>
-      {modelSelectEnabled && (
-        <ModelPicker
-          open={modelPickerOpen}
-          onOpenChange={setModelPickerOpen}
-          modelStatus={modelStatus}
-          onModelStatusChange={setModelStatus}
-        />
-      )}
+      <ModelPicker
+        open={modelPickerOpen}
+        onOpenChange={setModelPickerOpen}
+        modelStatus={modelStatus}
+        onModelStatusChange={setModelStatus}
+      />
       <ReasoningSettingsDialog
         open={reasoningSettingsOpen}
         onOpenChange={setReasoningSettingsOpen}

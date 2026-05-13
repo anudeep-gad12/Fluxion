@@ -87,6 +87,7 @@ export const AgentLiveHUD = memo(function AgentLiveHUD({
     : '—';
   const compactionCount = (agentState.compaction_count ?? agentState.context_usage?.compactions_so_far) ?? 0;
   const [deciding, setDeciding] = useState<'approve' | 'deny' | null>(null);
+  const decidingRef = useRef(false);
   const pendingApproval = useMemo(
     () =>
       [...agentState.toolCalls]
@@ -98,11 +99,13 @@ export const AgentLiveHUD = memo(function AgentLiveHUD({
   useEffect(() => {
     if (!pendingApproval) {
       setDeciding(null);
+      decidingRef.current = false;
     }
   }, [pendingApproval]);
 
   const decide = async (decision: 'approve' | 'deny') => {
-    if (!pendingApproval) return;
+    if (!pendingApproval || decidingRef.current) return;
+    decidingRef.current = true;
     setDeciding(decision);
     try {
       if (decision === 'approve') {
@@ -111,6 +114,7 @@ export const AgentLiveHUD = memo(function AgentLiveHUD({
         await denyAgentToolCall(pendingApproval.run_id, pendingApproval.id);
       }
     } finally {
+      decidingRef.current = false;
       setDeciding(null);
     }
   };

@@ -61,8 +61,10 @@ class SessionMiddleware(BaseHTTPMiddleware):
             request.state.is_owner = True  # No demo mode = full access
             return await call_next(request)
 
-        # Check owner authentication
-        is_owner = self._check_owner(request, config.demo.owner_secret)
+        # Check owner authentication. In local source-run development, treat
+        # localhost as owner even when DEMO_MODE=true so old pre-demo
+        # conversations (session_id NULL) remain visible.
+        is_owner = self._check_owner(request, config.demo.owner_secret) or self._is_local_dev_owner(request)
 
         # Get or create session ID
         session_id = self._get_session_id(request)
@@ -119,6 +121,13 @@ class SessionMiddleware(BaseHTTPMiddleware):
             return True
 
         return False
+
+    def _is_local_dev_owner(self, request: Request) -> bool:
+        """Treat local source-run requests as owner outside production."""
+        if _is_secure_context():
+            return False
+        client_host = request.client.host if request.client else ""
+        return client_host in {"127.0.0.1", "::1", "localhost"}
 
     def _get_session_id(self, request: Request) -> Optional[str]:
         """Get existing session ID from cookie.

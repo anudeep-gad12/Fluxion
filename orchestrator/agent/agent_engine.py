@@ -55,6 +55,15 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
+def _format_exception_for_user(error: BaseException) -> str:
+    """Format exceptions without losing type information for blank messages."""
+    error_type = f"{error.__class__.__module__}.{error.__class__.__name__}"
+    message = str(error).strip()
+    if message:
+        return f"{error_type}: {message}"
+    return f"{error_type}: {repr(error)}"
+
+
 # =============================================================================
 # System Prompt Helpers
 # =============================================================================
@@ -2856,13 +2865,37 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         tool_schemas=tool_schemas,
                     )
                 except Exception as e:
-                    logger.error("LLM call failed", extra={"error": str(e)})
-                    await state_machine.error_step(str(e))
-                    await state_machine.error_run(str(e))
+                    error_message = _format_exception_for_user(e)
+                    llm_duration_ms = int((time.perf_counter() - llm_start_time) * 1000)
+                    logger.error(
+                        "LLM call failed",
+                        extra={
+                            "run_id": run_id,
+                            "step_number": step_number,
+                            "error": error_message,
+                            "error_type": f"{e.__class__.__module__}.{e.__class__.__name__}",
+                            "error_repr": repr(e),
+                        },
+                    )
+                    await self._add_trace_event(
+                        run_id=run_id,
+                        event_type="llm_response",
+                        content={
+                            "error_message": error_message,
+                            "error_type": f"{e.__class__.__module__}.{e.__class__.__name__}",
+                        },
+                        actor="model",
+                        event_status="error",
+                        step_number=step_number,
+                        duration_ms=llm_duration_ms,
+                        parent_event_id=llm_request_event_id,
+                    )
+                    await state_machine.error_step(error_message)
+                    await state_machine.error_run(error_message)
                     return AgentResult(
                         run_id=run_id,
                         success=False,
-                        error_message=str(e),
+                        error_message=error_message,
                         total_steps=step_number,
                         timing_ms=int((time.perf_counter() - start_time) * 1000),
                         total_tokens=self._total_tokens,
@@ -3436,13 +3469,19 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 cost=self._current_cost(),
             )
         except Exception as e:
+            error_message = _format_exception_for_user(e)
             logger.error(
                 "Agent run failed",
-                extra={"run_id": run_id, "error": str(e)},
+                extra={
+                    "run_id": run_id,
+                    "error": error_message,
+                    "error_type": f"{e.__class__.__module__}.{e.__class__.__name__}",
+                    "error_repr": repr(e),
+                },
                 exc_info=True,
             )
             try:
-                await state_machine.error_run(str(e))
+                await state_machine.error_run(error_message)
             except Exception:
                 pass
 
@@ -3450,7 +3489,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 event_callback,
                 "agent_error",
                 run_id=run_id,
-                error=str(e),
+                error=error_message,
             )
 
             # Trace: agent_error
@@ -3459,7 +3498,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 run_id=run_id,
                 event_type="agent_error",
                 content={
-                    "error_message": str(e),
+                    "error_message": error_message,
                     "total_steps": state_machine.current_step,
                 },
                 event_status="error",
@@ -3469,7 +3508,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
             return AgentResult(
                 run_id=run_id,
                 success=False,
-                error_message=str(e),
+                error_message=error_message,
                 total_steps=state_machine.current_step,
                 timing_ms=total_timing_ms,
                 total_tokens=self._total_tokens,

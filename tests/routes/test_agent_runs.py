@@ -104,6 +104,8 @@ def client(test_db, mock_agent_engine):
     agent_runs_module._abort_signals.clear()
     agent_runs_module._event_history.clear()
     agent_runs_module._run_tokens.clear()
+    agent_runs_module._run_sessions.clear()
+    agent_runs_module._approval_queues.clear()
 
     async def mock_create_engine(**kwargs):
         return mock_agent_engine
@@ -118,6 +120,8 @@ def client(test_db, mock_agent_engine):
     agent_runs_module._abort_signals.clear()
     agent_runs_module._event_history.clear()
     agent_runs_module._run_tokens.clear()
+    agent_runs_module._run_sessions.clear()
+    agent_runs_module._approval_queues.clear()
 
 
 @pytest.fixture
@@ -128,6 +132,8 @@ async def async_client(test_db, mock_agent_engine):
     agent_runs_module._abort_signals.clear()
     agent_runs_module._event_history.clear()
     agent_runs_module._run_tokens.clear()
+    agent_runs_module._run_sessions.clear()
+    agent_runs_module._approval_queues.clear()
 
     async def mock_create_engine(**kwargs):
         return mock_agent_engine
@@ -142,6 +148,8 @@ async def async_client(test_db, mock_agent_engine):
     agent_runs_module._abort_signals.clear()
     agent_runs_module._event_history.clear()
     agent_runs_module._run_tokens.clear()
+    agent_runs_module._run_sessions.clear()
+    agent_runs_module._approval_queues.clear()
 
 
 # =============================================================================
@@ -368,10 +376,13 @@ class TestCancelAgentRun:
 
     def test_cancels_active_run(self, client):
         """Can cancel an active run."""
+        async def slow_run(*args, **kwargs):
+            await asyncio.sleep(10)
+
         # Create a run with a slow engine to ensure it's still active
         with patch(
             "orchestrator.routes.agent_runs._run_agent_task",
-            new=AsyncMock(side_effect=asyncio.sleep(10)),
+            new=AsyncMock(side_effect=slow_run),
         ):
             # Manually add to active runs
             run_id = "test-cancel-run"
@@ -384,6 +395,136 @@ class TestCancelAgentRun:
             data = response.json()
             assert data["run_id"] == run_id
             assert data["status"] == "cancelled"
+
+
+# =============================================================================
+# Tool Approval Tests
+# =============================================================================
+
+
+class TestToolApprovals:
+    """Tests for approve/deny endpoints."""
+
+    SESSION_HEADERS = {"x-cli-session": "approval-session"}
+
+    def test_approve_pending_future(self, client):
+        """A pending approval future is resolved."""
+        run_id = "approval-run"
+        tool_call_id = "approval-tool"
+        loop = asyncio.get_event_loop()
+        future = loop.create_future()
+        agent_runs_module._approval_queues[run_id] = {tool_call_id: future}
+
+        response = client.post(f"/api/agent/runs/{run_id}/approve/{tool_call_id}")
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "approved"
+        assert future.done()
+        assert future.result() is True
+
+    def test_deny_pending_future(self, client):
+        """A pending denial future is resolved."""
+        run_id = "approval-run"
+        tool_call_id = "approval-tool"
+        loop = asyncio.get_event_loop()
+        future = loop.create_future()
+        agent_runs_module._approval_queues[run_id] = {tool_call_id: future}
+
+        response = client.post(f"/api/agent/runs/{run_id}/deny/{tool_call_id}")
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "denied"
+        assert future.done()
+        assert future.result() is False
+
+    def test_duplicate_approve_returns_existing_decision(self, client, test_db):
+        """A repeated approve after persistence is idempotent."""
+        loop = asyncio.get_event_loop()
+        run_id = "approval-run"
+        tool_call_id = loop.run_until_complete(
+            self._seed_tool_call(test_db, run_id, "approved", "running", "approval-session")
+        )
+
+        response = client.post(
+            f"/api/agent/runs/{run_id}/approve/{tool_call_id}",
+            headers=self.SESSION_HEADERS,
+        )
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "approved"
+
+    def test_duplicate_deny_returns_existing_decision(self, client, test_db):
+        """A repeated deny after persistence is idempotent."""
+        loop = asyncio.get_event_loop()
+        run_id = "approval-run"
+        tool_call_id = loop.run_until_complete(
+            self._seed_tool_call(test_db, run_id, "denied", "running", "approval-session")
+        )
+
+        response = client.post(
+            f"/api/agent/runs/{run_id}/deny/{tool_call_id}",
+            headers=self.SESSION_HEADERS,
+        )
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "denied"
+
+    def test_stale_approval_on_failed_run_returns_conflict(self, client, test_db):
+        """A stale approval after run failure returns explicit conflict."""
+        loop = asyncio.get_event_loop()
+        run_id = "approval-run"
+        tool_call_id = loop.run_until_complete(
+            self._seed_tool_call(test_db, run_id, None, "failed", "approval-session")
+        )
+
+        response = client.post(
+            f"/api/agent/runs/{run_id}/approve/{tool_call_id}",
+            headers=self.SESSION_HEADERS,
+        )
+
+        assert response.status_code == 409, response.json()
+        assert "already failed" in response.json()["detail"]
+
+    async def _seed_tool_call(
+        self,
+        db: Database,
+        run_id: str,
+        approval_decision: str | None,
+        run_status: str,
+        session_id: str,
+    ) -> str:
+        from orchestrator.storage.repositories.agent_repo import AgentRepo
+        from orchestrator.storage.repositories.conversation_repo import ConversationRepo
+        from orchestrator.storage.repositories.trace_repo import TraceRepo
+
+        conversation_id = f"{run_id}-conv"
+        await ConversationRepo(db).create(conversation_id=conversation_id, title="approval")
+        await TraceRepo(db).create_run(
+            run_id=run_id,
+            conversation_id=conversation_id,
+            profile_name="agent",
+            mode="agent",
+            model_config={},
+            user_message="approval",
+            session_id=session_id,
+        )
+        await TraceRepo(db).update_run(run_id, status=run_status)
+        agent_repo = AgentRepo(db)
+        step = await agent_repo.create_step(run_id, 1, "tool_calling")
+        tool_call = await agent_repo.create_tool_call(
+            run_id=run_id,
+            step_id=step["id"],
+            tool_name="bash",
+            arguments={"command": "echo hi"},
+            idempotency_key=f"{run_id}-tool",
+        )
+        if approval_decision is not None:
+            await agent_repo.update_tool_call(
+                tool_call["id"],
+                approval_decision=approval_decision,
+                approval_policy="strict",
+            )
+        return tool_call["id"]
 
 
 # =============================================================================

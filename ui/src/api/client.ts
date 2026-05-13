@@ -13,10 +13,28 @@ import type {
 } from '@/types';
 import { withRetry } from '@/lib/retry';
 
-const API_BASE = '/api';
+const API_PATH = '/api';
+const DEFAULT_TIMEOUT_MS = 30_000;
 const OWNER_TOKEN_KEY = 'reasoner_owner_token';
 
+function getApiBase(): string {
+  if (typeof window === 'undefined') return API_PATH;
+  const { protocol, hostname, port } = window.location;
+  if ((hostname === '127.0.0.1' || hostname === 'localhost') && port === '3000') {
+    return `${protocol}//${hostname}:9000${API_PATH}`;
+  }
+  return API_PATH;
+}
+
+const API_BASE = getApiBase();
+
 function getOwnerToken(): string | null {
+  if (typeof window !== 'undefined') {
+    const { hostname, port } = window.location;
+    if ((hostname === '127.0.0.1' || hostname === 'localhost') && port === '3000') {
+      return null;
+    }
+  }
   return localStorage.getItem(OWNER_TOKEN_KEY);
 }
 
@@ -27,18 +45,44 @@ class ApiError extends Error {
   }
 }
 
-async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
+type FetchJsonOptions = RequestInit & {
+  timeoutMs?: number;
+};
+
+async function fetchJson<T>(url: string, options?: FetchJsonOptions): Promise<T> {
   const ownerToken = getOwnerToken();
+  const { timeoutMs = DEFAULT_TIMEOUT_MS, ...fetchOptions } = options ?? {};
+  const optionHeaders = (fetchOptions.headers as Record<string, string> | undefined) ?? {};
+  const hasBody = fetchOptions.body !== undefined && fetchOptions.body !== null;
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
     ...(ownerToken ? { 'X-Owner-Token': ownerToken } : {}),
-    ...(options?.headers as Record<string, string>),
+    ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
+    ...optionHeaders,
   };
 
-  const response = await fetch(url, {
-    ...options,
-    headers,
-  });
+  const controller = new AbortController();
+  const timeoutId = timeoutMs > 0
+    ? window.setTimeout(() => controller.abort(), timeoutMs)
+    : null;
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      ...fetchOptions,
+      headers,
+      credentials: 'include',
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new ApiError(0, 'Request timed out');
+    }
+    throw error;
+  } finally {
+    if (timeoutId !== null) {
+      window.clearTimeout(timeoutId);
+    }
+  }
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: response.statusText }));
@@ -218,7 +262,9 @@ export function subscribeToRun(
 ): () => void {
   const ownerToken = getOwnerToken();
   const params = ownerToken ? `?owner=${encodeURIComponent(ownerToken)}` : '';
-  const eventSource = new EventSource(`${API_BASE}/runs/${runId}/stream${params}`);
+  const eventSource = new EventSource(`${API_BASE}/runs/${runId}/stream${params}`, {
+    withCredentials: true,
+  });
 
   eventSource.addEventListener('event', (e) => {
     try {
@@ -409,7 +455,9 @@ export function subscribeToAgentRun(
   if (ownerToken) params.set('owner', ownerToken);
   const qs = params.toString();
   const url = `${API_BASE}/agent/runs/${runId}/stream${qs ? `?${qs}` : ''}`;
-  const eventSource = new EventSource(url);
+  const eventSource = new EventSource(url, {
+    withCredentials: true,
+  });
 
   // Map of SSE event names to handlers
   const eventTypes = [
@@ -554,7 +602,7 @@ export interface ReasoningSettingsResponse {
 }
 
 export async function listLocalModels(): Promise<LocalModel[]> {
-  return fetchJson<LocalModel[]>(`${API_BASE}/models/local`);
+  return fetchJson<LocalModel[]>(`${API_BASE}/models/local`, { timeoutMs: 8_000 });
 }
 
 export async function startLocalModel(
@@ -563,19 +611,20 @@ export async function startLocalModel(
   return fetchJson(`${API_BASE}/models/local/start`, {
     method: 'POST',
     body: JSON.stringify({ model_path: modelPath }),
+    timeoutMs: 120_000,
   });
 }
 
 export async function stopLocalModel(): Promise<{ status: string; provider: string }> {
-  return fetchJson(`${API_BASE}/models/local/stop`, { method: 'POST' });
+  return fetchJson(`${API_BASE}/models/local/stop`, { method: 'POST', timeoutMs: 20_000 });
 }
 
 export async function getModelStatus(): Promise<ModelStatus> {
-  return fetchJson<ModelStatus>(`${API_BASE}/models/status`);
+  return fetchJson<ModelStatus>(`${API_BASE}/models/status`, { timeoutMs: 5_000 });
 }
 
 export async function getReasoningSettings(): Promise<ReasoningSettingsResponse> {
-  return fetchJson<ReasoningSettingsResponse>(`${API_BASE}/models/reasoning-settings`);
+  return fetchJson<ReasoningSettingsResponse>(`${API_BASE}/models/reasoning-settings`, { timeoutMs: 5_000 });
 }
 
 export async function updateReasoningSettings(
@@ -690,14 +739,15 @@ export function createTerminalWebSocket(
   conversationId: string,
   sessionId: string,
 ): WebSocket {
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const apiUrl = new URL(API_BASE, window.location.origin);
+  const protocol = apiUrl.protocol === 'https:' ? 'wss:' : 'ws:';
   const ownerToken = getOwnerToken();
   const params = new URLSearchParams({ session_id: sessionId });
   if (ownerToken) {
     params.set('owner', ownerToken);
   }
   return new WebSocket(
-    `${protocol}//${window.location.host}${API_BASE}/terminal/conversations/${conversationId}/ws?${params.toString()}`
+    `${protocol}//${apiUrl.host}${apiUrl.pathname}/terminal/conversations/${conversationId}/ws?${params.toString()}`
   );
 }
 
@@ -736,7 +786,7 @@ export interface RegistryModelsResponse {
 }
 
 export async function listRegistryModels(): Promise<RegistryModelsResponse> {
-  return fetchJson<RegistryModelsResponse>(`${API_BASE}/models`);
+  return fetchJson<RegistryModelsResponse>(`${API_BASE}/models`, { timeoutMs: 8_000 });
 }
 
 export async function selectModel(model: string): Promise<{
@@ -747,11 +797,15 @@ export async function selectModel(model: string): Promise<{
   context_window: number;
   max_output_tokens: number;
   effective_input_budget: number;
+  supports_tools: boolean;
+  supports_reasoning: boolean;
+  supports_vision: boolean;
   source: string;
 }> {
   return fetchJson(`${API_BASE}/models/select`, {
     method: 'POST',
     body: JSON.stringify({ model }),
+    timeoutMs: 10_000,
   });
 }
 
@@ -763,7 +817,7 @@ export interface ProviderKeyStatus {
 }
 
 export async function listProviderKeys(): Promise<{ providers: ProviderKeyStatus[] }> {
-  return fetchJson(`${API_BASE}/models/provider-keys`);
+  return fetchJson(`${API_BASE}/models/provider-keys`, { timeoutMs: 8_000 });
 }
 
 export async function saveProviderKey(
@@ -773,11 +827,13 @@ export async function saveProviderKey(
   return fetchJson(`${API_BASE}/models/provider-keys/${provider}`, {
     method: 'PUT',
     body: JSON.stringify({ api_key: apiKey }),
+    timeoutMs: 10_000,
   });
 }
 
 export async function clearProviderKey(provider: string): Promise<ProviderKeyStatus> {
   return fetchJson(`${API_BASE}/models/provider-keys/${provider}`, {
     method: 'DELETE',
+    timeoutMs: 10_000,
   });
 }

@@ -4,8 +4,12 @@ import asyncio
 import json
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Optional, List
+from typing import TYPE_CHECKING, Any, List, Optional
+
 from orchestrator.storage.db import Database
+
+if TYPE_CHECKING:
+    from orchestrator.thinking.base import ThinkingStep
 
 
 class TraceRepo:
@@ -292,12 +296,14 @@ class TraceRepo:
         await self.db.conn.commit()
 
     async def has_active_run_for_conversation(self, conversation_id: str) -> bool:
-        """Return whether a conversation currently has a running visible run."""
+        """Return whether a conversation currently has pending/running visible work."""
         async with self.db.conn.execute(
             """
             SELECT 1
             FROM runs
-            WHERE conversation_id = ? AND status = 'running' AND rewound_at IS NULL
+            WHERE conversation_id = ?
+              AND status IN ('pending', 'running')
+              AND rewound_at IS NULL
             LIMIT 1
             """,
             (conversation_id,),

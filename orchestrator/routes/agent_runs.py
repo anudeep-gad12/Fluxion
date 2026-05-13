@@ -1174,6 +1174,51 @@ async def get_agent_run_trace(run_id: str, http_request: Request):
 # =============================================================================
 
 
+async def _resolve_stale_tool_decision(
+    *,
+    run_id: str,
+    tool_call_id: str,
+    decision: str,
+    status_label: str,
+    session_id: Optional[str],
+    is_owner: bool,
+) -> Dict[str, str]:
+    """Handle duplicate/stale tool approval requests with explicit outcomes."""
+    db = await get_db()
+    agent_repo = AgentRepo(db)
+    trace_repo = TraceRepo(db)
+
+    run = await trace_repo.get_run_with_session_check(
+        run_id,
+        session_id=session_id,
+        is_owner=is_owner,
+    )
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    tool_call = await agent_repo.get_tool_call(tool_call_id)
+    if tool_call and tool_call.get("run_id") == run_id:
+        existing_decision = tool_call.get("approval_decision")
+        if existing_decision == decision:
+            return {"status": status_label, "run_id": run_id, "tool_call_id": tool_call_id}
+        if existing_decision in {"approved", "denied"}:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Tool call already has approval decision "
+                    f"{existing_decision}"
+                ),
+            )
+
+    if run.get("status") in {"failed", "succeeded", "cancelled"}:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Run is already {run.get('status')}; no pending approval remains",
+        )
+
+    raise HTTPException(status_code=404, detail="No pending approval for this tool call")
+
+
 @router.post("/runs/{run_id}/approve/{tool_call_id}")
 async def approve_tool_call(run_id: str, tool_call_id: str, http_request: Request):
     """Approve a tool call that requires permission.
@@ -1190,7 +1235,14 @@ async def approve_tool_call(run_id: str, tool_call_id: str, http_request: Reques
     future = queues.get(tool_call_id)
 
     if future is None:
-        raise HTTPException(status_code=404, detail="No pending approval for this tool call")
+        return await _resolve_stale_tool_decision(
+            run_id=run_id,
+            tool_call_id=tool_call_id,
+            decision="approved",
+            status_label="approved",
+            session_id=session_id,
+            is_owner=is_owner,
+        )
 
     if not future.done():
         future.set_result(True)
@@ -1218,7 +1270,14 @@ async def deny_tool_call(run_id: str, tool_call_id: str, http_request: Request):
     future = queues.get(tool_call_id)
 
     if future is None:
-        raise HTTPException(status_code=404, detail="No pending approval for this tool call")
+        return await _resolve_stale_tool_decision(
+            run_id=run_id,
+            tool_call_id=tool_call_id,
+            decision="denied",
+            status_label="denied",
+            session_id=session_id,
+            is_owner=is_owner,
+        )
 
     if not future.done():
         future.set_result(False)

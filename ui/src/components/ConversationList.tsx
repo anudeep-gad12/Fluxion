@@ -39,6 +39,7 @@ type WorkspaceGroup = {
   label: string;
   conversations: Conversation[];
   latestCreatedAt: string;
+  isGeneral?: boolean;
 };
 
 function ConversationCard({
@@ -172,25 +173,27 @@ function WorkspaceSection({
                   </div>
                 </button>
                 <div className="mt-1 truncate pr-2 font-mono text-[11px] leading-5 text-zinc-500">
-                  {workspacePathPreview(group.workspacePath)}
+                  {group.isGeneral ? 'No workspace' : workspacePathPreview(group.workspacePath)}
                 </div>
               </div>
               <div className="flex flex-shrink-0 items-center gap-2 pt-0.5">
                 <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full border border-zinc-800 bg-zinc-950/95 px-1.5 text-[10px] text-zinc-400">
                   {group.conversations.length}
                 </span>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  className="h-8 w-8 flex-shrink-0 rounded-xl text-zinc-500 hover:bg-zinc-900 hover:text-cyan-100"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onNewConversation();
-                  }}
-                  title="New conversation in this workspace"
-                >
-                  <Plus className="h-4 w-4" />
-                </Button>
+                {!group.isGeneral && (
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-8 w-8 flex-shrink-0 rounded-xl text-zinc-500 hover:bg-zinc-900 hover:text-cyan-100"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onNewConversation();
+                    }}
+                    title="New conversation in this workspace"
+                  >
+                    <Plus className="h-4 w-4" />
+                  </Button>
+                )}
               </div>
             </div>
           </div>
@@ -229,17 +232,8 @@ export function ConversationList() {
     async function fetchConversations() {
       setIsLoading(true);
       try {
-        const data = await listConversations();
-        const workspaceConversations = data.conversations.filter((conversation) =>
-          Boolean(conversation.workspace_path?.trim())
-        );
-        const generalConversationIds = data.conversations
-          .filter((conversation) => !conversation.workspace_path?.trim())
-          .map((conversation) => conversation.conversation_id);
-        setConversations(workspaceConversations);
-        if (generalConversationIds.length > 0) {
-          await Promise.allSettled(generalConversationIds.map((conversationId) => deleteConversation(conversationId)));
-        }
+        const data = await listConversations(undefined, 100);
+        setConversations(data.conversations);
       } catch (error) {
         console.error('Failed to fetch conversations:', error);
       } finally {
@@ -252,6 +246,7 @@ export function ConversationList() {
 
   const workspaceGroups = useMemo(() => {
     const groups = new Map<string, WorkspaceGroup>();
+    const generalConversations: Conversation[] = [];
     for (const workspacePath of workspacePaths) {
       const normalized = workspacePath.trim();
       if (!normalized || groups.has(normalized)) continue;
@@ -265,7 +260,10 @@ export function ConversationList() {
 
     for (const conversation of conversations) {
       const workspacePath = conversation.workspace_path?.trim();
-      if (!workspacePath) continue;
+      if (!workspacePath) {
+        generalConversations.push(conversation);
+        continue;
+      }
       const existing = groups.get(workspacePath);
       if (existing) {
         existing.conversations.push(conversation);
@@ -282,6 +280,19 @@ export function ConversationList() {
       }
     }
 
+    if (generalConversations.length > 0) {
+      groups.set('__general__', {
+        workspacePath: '',
+        label: 'General',
+        conversations: generalConversations,
+        latestCreatedAt: generalConversations.reduce(
+          (latest, conversation) => conversation.created_at > latest ? conversation.created_at : latest,
+          ''
+        ),
+        isGeneral: true,
+      });
+    }
+
     return Array.from(groups.values())
       .map((group) => ({
         ...group,
@@ -296,7 +307,7 @@ export function ConversationList() {
       let changed = false;
       for (const group of workspaceGroups) {
         if (!(group.workspacePath in next)) {
-          next[group.workspacePath] = false;
+          next[group.workspacePath] = group.conversations.length > 0;
           changed = true;
         }
       }
@@ -407,6 +418,7 @@ export function ConversationList() {
 
     if (!event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'n') {
       event.preventDefault();
+      if (!workspacePath) return;
       startWorkspaceDraft(workspacePath);
     }
   };

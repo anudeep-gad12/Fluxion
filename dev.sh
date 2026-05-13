@@ -15,6 +15,9 @@ PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 LOG_DIR="$PROJECT_DIR/logs"
 PID_DIR="$PROJECT_DIR/.pids"
 DB_PATH="$PROJECT_DIR/var/traces.sqlite"
+API_PORT=9000
+UI_PORT=3000
+CHECK_HOST=127.0.0.1
 
 # Colors
 RED='\033[0;31m'
@@ -37,6 +40,68 @@ error() {
     echo -e "${RED}[dev]${NC} $1"
 }
 
+http_ok() {
+    curl --connect-timeout 1 --max-time 3 -fsS "$1" > /dev/null 2>&1
+}
+
+port_listening() {
+    lsof -nP -iTCP:"$1" -sTCP:LISTEN > /dev/null 2>&1
+}
+
+wait_for_port() {
+    local port=$1
+    local timeout=${2:-10}
+    local waited=0
+    while [ "$waited" -lt "$timeout" ]; do
+        if port_listening "$port"; then
+            return 0
+        fi
+        sleep 1
+        waited=$((waited + 1))
+    done
+    return 1
+}
+
+wait_for_http() {
+    local url=$1
+    local timeout=${2:-20}
+    local waited=0
+    while [ "$waited" -lt "$timeout" ]; do
+        if http_ok "$url"; then
+            return 0
+        fi
+        sleep 1
+        waited=$((waited + 1))
+    done
+    return 1
+}
+
+start_detached() {
+    local pidfile=$1
+    local logfile=$2
+    local workdir=$3
+    shift 3
+
+    python3 - "$pidfile" "$logfile" "$workdir" "$@" <<'PY'
+import subprocess
+import sys
+
+pidfile, logfile, workdir, *command = sys.argv[1:]
+with open(logfile, "ab", buffering=0) as log:
+    process = subprocess.Popen(
+        command,
+        cwd=workdir,
+        stdin=subprocess.DEVNULL,
+        stdout=log,
+        stderr=subprocess.STDOUT,
+        start_new_session=True,
+        close_fds=True,
+    )
+with open(pidfile, "w", encoding="utf-8") as handle:
+    handle.write(str(process.pid))
+PY
+}
+
 # Kill process on a port
 kill_port() {
     local port=$1
@@ -49,8 +114,8 @@ kill_port() {
 
 # Start the API server
 start_api() {
-    log "Starting API server on port 9000..."
-    kill_port 9000
+    log "Starting API server on port $API_PORT..."
+    kill_port "$API_PORT"
     cd "$PROJECT_DIR"
 
     # Load main env (API keys: E2B_API_KEY, FIREWORKS_API_KEY, PARALLEL_API_KEY)
@@ -69,11 +134,11 @@ start_api() {
         log "Using provider: $(grep '^# Provider:' "$PROJECT_DIR/.env.provider" | cut -d: -f2)"
     fi
 
-    nohup uv run uvicorn orchestrator.app:app --reload --reload-dir orchestrator --port 9000 --host 0.0.0.0 > "$LOG_DIR/api.log" 2>&1 &
-    echo $! > "$PID_DIR/api.pid"
-    sleep 2
-    if curl -s http://localhost:9000/api/health > /dev/null 2>&1; then
-        log "API server started: ${BLUE}http://localhost:9000${NC}"
+    : > "$LOG_DIR/api.log"
+    start_detached "$PID_DIR/api.pid" "$LOG_DIR/api.log" "$PROJECT_DIR" \
+        uv run uvicorn orchestrator.app:app --reload --reload-dir orchestrator --port "$API_PORT" --host 0.0.0.0
+    if wait_for_http "http://$CHECK_HOST:$API_PORT/api/health" 20; then
+        log "API server started: ${BLUE}http://localhost:$API_PORT${NC}"
     else
         warn "API server starting... (check logs/api.log)"
     fi
@@ -81,20 +146,23 @@ start_api() {
 
 # Start the UI dev server
 start_ui() {
-    log "Starting UI dev server on port 3000..."
-    kill_port 3000
-    cd "$PROJECT_DIR/ui"
-    nohup pnpm dev > "$LOG_DIR/ui.log" 2>&1 &
-    echo $! > "$PID_DIR/ui.pid"
-    sleep 2
-    log "UI dev server started: ${BLUE}http://localhost:3000${NC}"
+    log "Starting UI dev server on port $UI_PORT..."
+    kill_port "$UI_PORT"
+    : > "$LOG_DIR/ui.log"
+    start_detached "$PID_DIR/ui.pid" "$LOG_DIR/ui.log" "$PROJECT_DIR/ui" \
+        ./node_modules/.bin/vite --host "$CHECK_HOST" --port "$UI_PORT" --strictPort
+    if wait_for_http "http://$CHECK_HOST:$UI_PORT" 10 || wait_for_port "$UI_PORT" 10; then
+        log "UI dev server started: ${BLUE}http://localhost:$UI_PORT${NC}"
+    else
+        warn "UI dev server failed to bind port $UI_PORT (check logs/ui.log)"
+    fi
 }
 
 # Stop all services
 stop_all() {
     log "Stopping all services..."
-    kill_port 9000
-    kill_port 3000
+    kill_port "$API_PORT"
+    kill_port "$UI_PORT"
 
     # Kill by PID files
     for pidfile in "$PID_DIR"/*.pid; do
@@ -298,14 +366,16 @@ EOF
 show_status() {
     echo -e "${BLUE}=== Service Status ===${NC}"
 
-    if curl -s http://localhost:9000/api/health > /dev/null 2>&1; then
-        echo -e "API Server:  ${GREEN}Running${NC} on http://localhost:9000"
+    if http_ok "http://$CHECK_HOST:$API_PORT/api/health"; then
+        echo -e "API Server:  ${GREEN}Running${NC} on http://localhost:$API_PORT"
+    elif port_listening "$API_PORT"; then
+        echo -e "API Server:  ${GREEN}Running${NC} on http://localhost:$API_PORT ${YELLOW}(health warming)${NC}"
     else
         echo -e "API Server:  ${RED}Stopped${NC}"
     fi
 
-    if curl -s http://localhost:3000 > /dev/null 2>&1; then
-        echo -e "UI Server:   ${GREEN}Running${NC} on http://localhost:3000"
+    if http_ok "http://$CHECK_HOST:$UI_PORT" || port_listening "$UI_PORT"; then
+        echo -e "UI Server:   ${GREEN}Running${NC} on http://localhost:$UI_PORT"
     else
         echo -e "UI Server:   ${RED}Stopped${NC}"
     fi
@@ -334,8 +404,8 @@ case "${1:-start}" in
         echo ""
         show_status
         echo ""
-        log "Ready! Open ${BLUE}http://localhost:3000${NC} in your browser"
-        log "API docs at ${BLUE}http://localhost:9000/docs${NC}"
+        log "Ready! Open ${BLUE}http://localhost:$UI_PORT${NC} in your browser"
+        log "API docs at ${BLUE}http://localhost:$API_PORT/docs${NC}"
         ;;
     stop)
         stop_all
