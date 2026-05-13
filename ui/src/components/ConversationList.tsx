@@ -233,13 +233,7 @@ export function ConversationList() {
         const workspaceConversations = data.conversations.filter((conversation) =>
           Boolean(conversation.workspace_path?.trim())
         );
-        const generalConversationIds = data.conversations
-          .filter((conversation) => !conversation.workspace_path?.trim())
-          .map((conversation) => conversation.conversation_id);
         setConversations(workspaceConversations);
-        if (generalConversationIds.length > 0) {
-          await Promise.allSettled(generalConversationIds.map((conversationId) => deleteConversation(conversationId)));
-        }
       } catch (error) {
         console.error('Failed to fetch conversations:', error);
       } finally {

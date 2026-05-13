@@ -37,6 +37,10 @@ error() {
     echo -e "${RED}[dev]${NC} $1"
 }
 
+http_ok() {
+    curl --connect-timeout 1 --max-time 3 -fsS "$1" > /dev/null 2>&1
+}
+
 # Kill process on a port
 kill_port() {
     local port=$1
@@ -72,7 +76,7 @@ start_api() {
     nohup uv run uvicorn orchestrator.app:app --reload --reload-dir orchestrator --port 9000 --host 0.0.0.0 > "$LOG_DIR/api.log" 2>&1 &
     echo $! > "$PID_DIR/api.pid"
     sleep 2
-    if curl -s http://localhost:9000/api/health > /dev/null 2>&1; then
+    if http_ok http://localhost:9000/api/health; then
         log "API server started: ${BLUE}http://localhost:9000${NC}"
     else
         warn "API server starting... (check logs/api.log)"
@@ -298,13 +302,13 @@ EOF
 show_status() {
     echo -e "${BLUE}=== Service Status ===${NC}"
 
-    if curl -s http://localhost:9000/api/health > /dev/null 2>&1; then
+    if http_ok http://localhost:9000/api/health; then
         echo -e "API Server:  ${GREEN}Running${NC} on http://localhost:9000"
     else
         echo -e "API Server:  ${RED}Stopped${NC}"
     fi
 
-    if curl -s http://localhost:3000 > /dev/null 2>&1; then
+    if http_ok http://localhost:3000; then
         echo -e "UI Server:   ${GREEN}Running${NC} on http://localhost:3000"
     else
         echo -e "UI Server:   ${RED}Stopped${NC}"
