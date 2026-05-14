@@ -1988,7 +1988,12 @@ export function ConversationView() {
       return;
     }
     const mention = extractActiveMention(value, selectionStart ?? value.length);
-    setActiveMention(mention);
+    setActiveMention((prev) => {
+      if (!mention && !prev) return prev;
+      if (!mention || !prev) return mention;
+      if (mention.query === prev.query && mention.start === prev.start) return prev;
+      return mention;
+    });
     if (!mention) {
       setMentionOpen(false);
     }

@@ -67,6 +67,14 @@ _run_sessions: Dict[str, str] = {}  # Per-run session IDs for access control
 _approval_queues: Dict[str, Dict[str, asyncio.Future]] = {}
 
 
+def _format_background_error(error: BaseException) -> str:
+    """Format background task errors without dropping blank exception details."""
+    message = str(error).strip()
+    if message:
+        return f"{error.__class__.__name__}: {message}"
+    return f"{error.__class__.__name__}: {repr(error)}"
+
+
 def get_session_context(request: Request) -> Tuple[Optional[str], bool]:
     """Extract session context from request.
 
@@ -283,6 +291,7 @@ async def _run_agent_task(
         return
 
     seq = 0
+    failure_message: Optional[str] = None
 
     def event_callback(event: Dict[str, Any]) -> None:
         """Callback for engine events.
@@ -419,6 +428,7 @@ async def _run_agent_task(
                     "run_id": result.run_id,
                     "success": result.success,
                     "final_answer": result.final_answer,
+                    "error_message": result.error_message,
                     "citations": result.citations,
                     "total_steps": result.total_steps,
                     "timing_ms": result.timing_ms,
@@ -436,19 +446,42 @@ async def _run_agent_task(
             notify = _event_notify.get(run_id)
             if notify:
                 notify.set()
-    except Exception as e:
+    except BaseException as e:
+        error_text = _format_background_error(e)
+        failure_message = error_text
         logger.error(
             "Agent run failed",
-            extra={"run_id": run_id, "error": str(e)},
+            extra={"run_id": run_id, "error": error_text},
             exc_info=True,
         )
         if abort_signal is None or not abort_signal.is_set():
-            err_event = {"type": "_STREAM_ERROR", "error": str(e)}
+            err_event = {"type": "_STREAM_ERROR", "error": error_text}
             _event_history.setdefault(run_id, []).append(err_event)
             notify = _event_notify.get(run_id)
             if notify:
                 notify.set()
+        if isinstance(e, (KeyboardInterrupt, SystemExit)):
+            raise
     finally:
+        try:
+            db = await get_db()
+            cursor = await db.conn.execute(
+                "SELECT status FROM runs WHERE run_id = ?", (run_id,)
+            )
+            row = await cursor.fetchone()
+            if row and row[0] == "running":
+                error_detail = failure_message or "Run did not complete — process interrupted"
+                await db.conn.execute(
+                    "UPDATE runs SET status = 'failed', error_message = ? WHERE run_id = ? AND status = 'running'",
+                    (error_detail, run_id),
+                )
+                await db.conn.commit()
+                logger.warning(
+                    "Safety net: marked orphaned run as failed",
+                    extra={"run_id": run_id, "error": error_detail},
+                )
+        except Exception:
+            pass
         asyncio.create_task(_cleanup_run(run_id))
 
 
@@ -1183,7 +1216,13 @@ async def _resolve_stale_tool_decision(
     session_id: Optional[str],
     is_owner: bool,
 ) -> Dict[str, str]:
-    """Handle duplicate/stale tool approval requests with explicit outcomes."""
+    """Handle duplicate/stale tool approval requests with explicit outcomes.
+
+    The tool_call_id from the URL is the provider's ID (e.g. ``functions.bash:9``),
+    which differs from the UUID stored as the DB primary key.  We first try a
+    direct lookup (covers the rare case where they coincide), then fall back to
+    scanning the run's tool calls for a matching approval_decision.
+    """
     db = await get_db()
     agent_repo = AgentRepo(db)
     trace_repo = TraceRepo(db)
@@ -1197,6 +1236,13 @@ async def _resolve_stale_tool_decision(
         raise HTTPException(status_code=404, detail="Run not found")
 
     tool_call = await agent_repo.get_tool_call(tool_call_id)
+
+    if not tool_call or tool_call.get("run_id") != run_id:
+        all_tool_calls = await agent_repo.get_tool_calls_for_run(run_id)
+        for tc in reversed(all_tool_calls):
+            if tc.get("approval_decision") == decision:
+                return {"status": status_label, "run_id": run_id, "tool_call_id": tool_call_id}
+
     if tool_call and tool_call.get("run_id") == run_id:
         existing_decision = tool_call.get("approval_decision")
         if existing_decision == decision:
@@ -1215,6 +1261,13 @@ async def _resolve_stale_tool_decision(
             status_code=409,
             detail=f"Run is already {run.get('status')}; no pending approval remains",
         )
+
+    if run.get("status") == "running":
+        logger.info(
+            "Approval accepted for active run (future already consumed)",
+            extra={"run_id": run_id, "tool_call_id": tool_call_id, "decision": decision},
+        )
+        return {"status": status_label, "run_id": run_id, "tool_call_id": tool_call_id}
 
     raise HTTPException(status_code=404, detail="No pending approval for this tool call")
 
