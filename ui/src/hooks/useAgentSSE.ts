@@ -335,6 +335,7 @@ export function useAgentSSE(runId: string | null) {
         run_id: string;
         success: boolean;
         final_answer?: string;
+        error_message?: string;
         citations?: AgentCitation[];
         total_steps: number;
         timing_ms: number;
@@ -380,6 +381,7 @@ export function useAgentSSE(runId: string | null) {
         updateRun(id, {
           status: result.success ? 'succeeded' : 'failed',
           final_answer: result.final_answer,
+          error_detail: result.success ? undefined : result.error_message,
           usage: result.usage,
           cost: result.cost,
           context_usage: result.context_usage,

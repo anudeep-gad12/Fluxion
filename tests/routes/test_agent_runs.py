@@ -397,6 +397,124 @@ class TestCancelAgentRun:
             assert data["status"] == "cancelled"
 
 
+class TestRunAgentTaskFailureHandling:
+    """Tests for background run failure persistence."""
+
+    async def _seed_run(self, test_db: Database, run_id: str) -> None:
+        from orchestrator.storage.repositories.trace_repo import TraceRepo
+
+        conversation_id = f"{run_id}-conv"
+        await ConversationRepo(test_db).create(
+            conversation_id=conversation_id,
+            title="failure handling",
+        )
+        await TraceRepo(test_db).create_run(
+            run_id=run_id,
+            conversation_id=conversation_id,
+            profile_name="agent",
+            mode="agent",
+            model_config={},
+            user_message="failure handling",
+        )
+
+    def _mock_engine(self, run_impl):
+        engine = MagicMock()
+        engine._context_profile_dict.return_value = {
+            "provider_name": "test",
+            "model_id": "test-model",
+            "display_name": "Test Model",
+            "context_window": 1000,
+            "max_output_tokens": 100,
+            "effective_input_budget": 900,
+            "supports_tools": True,
+            "supports_reasoning": False,
+            "pricing": {},
+            "source": "test",
+        }
+        engine.run = run_impl
+        return engine
+
+    @pytest.mark.asyncio
+    async def test_cancelled_error_marks_running_run_failed(self, test_db):
+        """Background task CancelledError is persisted instead of orphaning the run."""
+        from orchestrator.storage.repositories.trace_repo import TraceRepo
+
+        run_id = "cancelled-background-run"
+        await self._seed_run(test_db, run_id)
+
+        async def cancelled_run(*args, **kwargs):
+            raise asyncio.CancelledError()
+
+        async def create_engine(**kwargs):
+            return self._mock_engine(cancelled_run)
+
+        async def cleanup_now(*args, **kwargs):
+            return None
+
+        agent_runs_module._active_runs[run_id] = True
+        agent_runs_module._abort_signals[run_id] = asyncio.Event()
+        agent_runs_module._event_history[run_id] = []
+        agent_runs_module._event_notify[run_id] = asyncio.Event()
+
+        with patch("orchestrator.agent.factory.create_agent_engine", create_engine):
+            with patch("orchestrator.routes.agent_runs._cleanup_run", cleanup_now):
+                await agent_runs_module._run_agent_task(
+                    run_id=run_id,
+                    query="trigger cancellation",
+                    conversation_id=f"{run_id}-conv",
+                    max_steps=10,
+                )
+
+        run = await TraceRepo(test_db).get_run(run_id)
+        assert run is not None
+        assert run["status"] == "failed"
+        assert "CancelledError" in run["error_message"]
+        assert agent_runs_module._event_history[run_id][-1]["type"] == "_STREAM_ERROR"
+        assert "CancelledError" in agent_runs_module._event_history[run_id][-1]["error"]
+
+    @pytest.mark.asyncio
+    async def test_failed_agent_result_streams_error_message(self, test_db):
+        """A failure result includes its error in the terminal stream event."""
+        run_id = "failed-result-run"
+        await self._seed_run(test_db, run_id)
+
+        async def failed_run(*args, **kwargs):
+            return AgentResult(
+                run_id=run_id,
+                success=False,
+                final_answer=None,
+                citations=[],
+                total_steps=1,
+                error_message="provider exploded",
+                timing_ms=10,
+            )
+
+        async def create_engine(**kwargs):
+            return self._mock_engine(failed_run)
+
+        async def cleanup_now(*args, **kwargs):
+            return None
+
+        agent_runs_module._active_runs[run_id] = True
+        agent_runs_module._abort_signals[run_id] = asyncio.Event()
+        agent_runs_module._event_history[run_id] = []
+        agent_runs_module._event_notify[run_id] = asyncio.Event()
+
+        with patch("orchestrator.agent.factory.create_agent_engine", create_engine):
+            with patch("orchestrator.routes.agent_runs._cleanup_run", cleanup_now):
+                await agent_runs_module._run_agent_task(
+                    run_id=run_id,
+                    query="trigger failure result",
+                    conversation_id=f"{run_id}-conv",
+                    max_steps=10,
+                )
+
+        end_event = agent_runs_module._event_history[run_id][-1]
+        assert end_event["type"] == "_STREAM_END"
+        assert end_event["result"]["success"] is False
+        assert end_event["result"]["error_message"] == "provider exploded"
+
+
 # =============================================================================
 # Tool Approval Tests
 # =============================================================================

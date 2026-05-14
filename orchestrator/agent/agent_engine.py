@@ -2546,6 +2546,40 @@ To provide your final answer, respond WITHOUT calling any tools."""
             last_run_id=run_id,
         )
 
+    async def _persist_coding_session_on_failure(
+        self,
+        *,
+        conversation_id: Optional[str],
+        run_id: str,
+        working_memory: Optional[WorkingMemory],
+        coding_session_state: Optional[CodingSessionState],
+        coding_session_dirty: bool,
+        error_message: str,
+    ) -> None:
+        """Persist coding session state when a run fails.
+
+        Saves the working memory accumulated up to the point of failure so the
+        next run in the conversation retains file/edit context and knows the
+        prior run errored.
+        """
+        if not (coding_session_dirty and conversation_id
+                and working_memory is not None
+                and coding_session_state is not None):
+            return
+        try:
+            await self._persist_coding_session_state(
+                conversation_id=conversation_id,
+                run_id=run_id,
+                working_memory=working_memory,
+                session_state=coding_session_state,
+                reason="run_failed",
+            )
+        except Exception as persist_err:
+            logger.warning(
+                "Failed to persist coding session on run failure",
+                extra={"run_id": run_id, "error": str(persist_err)},
+            )
+
     async def run(
         self,
         run_id: str,
@@ -2864,7 +2898,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         tool_choice=step_tool_choice,
                         tool_schemas=tool_schemas,
                     )
-                except Exception as e:
+                except BaseException as e:
                     error_message = _format_exception_for_user(e)
                     llm_duration_ms = int((time.perf_counter() - llm_start_time) * 1000)
                     logger.error(
@@ -2877,21 +2911,26 @@ To provide your final answer, respond WITHOUT calling any tools."""
                             "error_repr": repr(e),
                         },
                     )
-                    await self._add_trace_event(
-                        run_id=run_id,
-                        event_type="llm_response",
-                        content={
-                            "error_message": error_message,
-                            "error_type": f"{e.__class__.__module__}.{e.__class__.__name__}",
-                        },
-                        actor="model",
-                        event_status="error",
-                        step_number=step_number,
-                        duration_ms=llm_duration_ms,
-                        parent_event_id=llm_request_event_id,
-                    )
-                    await state_machine.error_step(error_message)
-                    await state_machine.error_run(error_message)
+                    try:
+                        await self._add_trace_event(
+                            run_id=run_id,
+                            event_type="llm_response",
+                            content={
+                                "error_message": error_message,
+                                "error_type": f"{e.__class__.__module__}.{e.__class__.__name__}",
+                            },
+                            actor="model",
+                            event_status="error",
+                            step_number=step_number,
+                            duration_ms=llm_duration_ms,
+                            parent_event_id=llm_request_event_id,
+                        )
+                        await state_machine.error_step(error_message)
+                        await state_machine.error_run(error_message)
+                    except Exception:
+                        pass
+                    if isinstance(e, (asyncio.CancelledError, KeyboardInterrupt, SystemExit)):
+                        raise
                     return AgentResult(
                         run_id=run_id,
                         success=False,
@@ -3458,6 +3497,14 @@ To provide your final answer, respond WITHOUT calling any tools."""
         except MaxStepsExceededError:
             # Should not happen due to can_continue() check, but handle anyway
             await state_machine.error_run("Max steps exceeded")
+            await self._persist_coding_session_on_failure(
+                conversation_id=conversation_id,
+                run_id=run_id,
+                working_memory=working_memory,
+                coding_session_state=coding_session_state,
+                coding_session_dirty=coding_session_dirty,
+                error_message="Max steps exceeded",
+            )
             return AgentResult(
                 run_id=run_id,
                 success=False,
@@ -3468,7 +3515,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 usage=self._usage_totals.copy(),
                 cost=self._current_cost(),
             )
-        except Exception as e:
+        except BaseException as e:
             error_message = _format_exception_for_user(e)
             logger.error(
                 "Agent run failed",
@@ -3494,16 +3541,31 @@ To provide your final answer, respond WITHOUT calling any tools."""
 
             # Trace: agent_error
             total_timing_ms = int((time.perf_counter() - start_time) * 1000)
-            await self._add_trace_event(
+            try:
+                await self._add_trace_event(
+                    run_id=run_id,
+                    event_type="agent_error",
+                    content={
+                        "error_message": error_message,
+                        "total_steps": state_machine.current_step,
+                    },
+                    event_status="error",
+                    duration_ms=total_timing_ms,
+                )
+            except Exception:
+                pass
+
+            await self._persist_coding_session_on_failure(
+                conversation_id=conversation_id,
                 run_id=run_id,
-                event_type="agent_error",
-                content={
-                    "error_message": error_message,
-                    "total_steps": state_machine.current_step,
-                },
-                event_status="error",
-                duration_ms=total_timing_ms,
+                working_memory=working_memory,
+                coding_session_state=coding_session_state,
+                coding_session_dirty=coding_session_dirty,
+                error_message=error_message,
             )
+
+            if isinstance(e, (asyncio.CancelledError, KeyboardInterrupt, SystemExit)):
+                raise
 
             return AgentResult(
                 run_id=run_id,
