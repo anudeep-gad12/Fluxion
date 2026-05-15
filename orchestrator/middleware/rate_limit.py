@@ -17,6 +17,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from orchestrator.config import get_chat_config
 from orchestrator.logging_config import get_logger
+from orchestrator.runtime_paths import is_hosted_production
 
 logger = get_logger(__name__)
 
@@ -113,8 +114,7 @@ def get_client_ip(request: Request) -> str:
     Returns:
         Client IP address string.
     """
-    import os
-    is_behind_proxy = os.environ.get("SERVE_STATIC", "false").lower() == "true"
+    is_behind_proxy = is_hosted_production()
 
     if is_behind_proxy:
         # Trust proxy headers only in production behind load balancer

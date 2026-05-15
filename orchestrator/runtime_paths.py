@@ -7,6 +7,26 @@ import sys
 from pathlib import Path
 
 
+def _env_flag(name: str) -> bool:
+    """Return True when an environment flag is enabled."""
+    return os.environ.get(name, "false").lower() in {"1", "true", "yes", "on"}
+
+
+def is_packaged_app() -> bool:
+    """Return True when running as the local packaged desktop app."""
+    return _env_flag("FLUXION_PACKAGED") or _bundle_root() is not None
+
+
+def is_static_serving_enabled() -> bool:
+    """Return True when the backend should serve the built frontend."""
+    return _env_flag("SERVE_STATIC")
+
+
+def is_hosted_production() -> bool:
+    """Return True for hosted production, not the local packaged app."""
+    return is_static_serving_enabled() and not is_packaged_app()
+
+
 def _bundle_root() -> Path | None:
     """Return PyInstaller's extraction root when running from a bundle."""
     root = getattr(sys, "_MEIPASS", None)

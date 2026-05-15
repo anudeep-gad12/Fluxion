@@ -162,6 +162,60 @@ async def test_select_model_returns_metadata():
 
 
 @pytest.mark.asyncio
+async def test_select_model_allowed_in_packaged_static_app(monkeypatch):
+    """Packaged localhost app serves static UI but still allows model switching."""
+    monkeypatch.setenv("SERVE_STATIC", "true")
+    monkeypatch.setenv("FLUXION_PACKAGED", "true")
+    mock_provider = MagicMock()
+
+    with patch(
+        "orchestrator.routes.models.create_provider_for_model"
+    ) as mock_create:
+        from orchestrator.models.registry import ResolvedModel
+
+        resolved = ResolvedModel(
+            model_id="accounts/fireworks/models/kimi-k2p6",
+            display_name="Kimi K2.6",
+            provider_name="fireworks",
+            base_url="https://api.fireworks.ai/inference/v1",
+            api_key="test-key",
+            endpoint="chat_completions",
+            context_window=262144,
+            max_output_tokens=32768,
+            temperature=0.7,
+            reasoning_effort=None,
+            supports_tools=True,
+        )
+        mock_create.return_value = (mock_provider, resolved)
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.post(
+                "/api/models/select", json={"model": "fireworks:kimi-k2p6"}
+            )
+
+    assert response.status_code == 200
+    assert response.json()["provider"] == "fireworks"
+
+
+@pytest.mark.asyncio
+async def test_select_model_disabled_in_hosted_static_app(monkeypatch):
+    """Hosted production still blocks runtime model switching."""
+    monkeypatch.setenv("SERVE_STATIC", "true")
+    monkeypatch.delenv("FLUXION_PACKAGED", raising=False)
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.post(
+            "/api/models/select", json={"model": "fireworks:kimi-k2p6"}
+        )
+
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
 async def test_select_invalid_model_no_key_returns_error():
     """Selecting a model without API key returns 400 with helpful message."""
     with patch(

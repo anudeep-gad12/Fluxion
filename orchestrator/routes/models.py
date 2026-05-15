@@ -17,6 +17,7 @@ from orchestrator.providers.factory import (
     set_provider_override,
 )
 from orchestrator.reasoning_controls import ReasoningSettingsResponse
+from orchestrator.runtime_paths import is_hosted_production
 from orchestrator.services.reasoning_settings import (
     get_reasoning_capabilities_for_target,
     get_runtime_reasoning_settings,
@@ -302,8 +303,7 @@ async def select_model(request: SelectModelRequest):
     Resolves the model string via ModelRegistry, creates a new provider,
     and sets it as the global override. Disabled in production/staging.
     """
-    import os
-    if os.environ.get("SERVE_STATIC", "false").lower() == "true":
+    if is_hosted_production():
         raise HTTPException(status_code=403, detail="Model selection is disabled in production")
 
     global _active_model, _active_model_name
