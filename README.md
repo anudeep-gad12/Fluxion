@@ -39,7 +39,7 @@ macOS
 - data: `~/Library/Application Support/Fluxion/data`
 - conversations SQLite: `~/Library/Application Support/Fluxion/data/var/traces.sqlite`
 
-Replacing `Fluxion.app` updates the app without deleting conversations, settings, logs, or provider keys.
+Replacing `Fluxion.app` updates the app without deleting conversations, settings, logs, or provider keys. On launch, Fluxion restarts its local service when the app build changed.
 
 App command:
 
@@ -140,6 +140,8 @@ Source install fallback:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/anudeep-gad12/Fluxion/main/scripts/install_local_service.sh | bash
 ```
+
+The source install script is only a fallback for cloned/source installs. Release installs should use the `.app` package.
 
 ## Tests
 

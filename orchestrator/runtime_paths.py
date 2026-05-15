@@ -27,6 +27,16 @@ def is_hosted_production() -> bool:
     return is_static_serving_enabled() and not is_packaged_app()
 
 
+def app_version() -> str:
+    """Return the runtime app version."""
+    return os.environ.get("FLUXION_APP_VERSION", "0.1.0")
+
+
+def build_id() -> str:
+    """Return the runtime build identifier."""
+    return os.environ.get("FLUXION_BUILD_ID", "source")
+
+
 def _bundle_root() -> Path | None:
     """Return PyInstaller's extraction root when running from a bundle."""
     root = getattr(sys, "_MEIPASS", None)

@@ -35,6 +35,7 @@ def test_launch_agent_plist_uses_persistent_data_paths(monkeypatch, tmp_path):
     monkeypatch.setenv("FLUXION_LAUNCHER_PATH", str(launcher_path))
     monkeypatch.setenv("FLUXION_DATA_DIR", str(data))
     monkeypatch.setenv("FLUXION_APP_VERSION", "9.9.9")
+    monkeypatch.setenv("FLUXION_BUILD_ID", "abc123")
 
     paths = launcher.get_service_paths()
     launcher.write_launch_agent(paths)
@@ -48,6 +49,7 @@ def test_launch_agent_plist_uses_persistent_data_paths(monkeypatch, tmp_path):
     assert env["LOG_DIR"] == str(data / "logs")
     assert env["FLUXION_STATIC_DIR"] == str(app / "Contents" / "Resources" / "ui" / "dist")
     assert env["FLUXION_APP_VERSION"] == "9.9.9"
+    assert env["FLUXION_BUILD_ID"] == "abc123"
     assert str(app) not in env["DATABASE_PATH"]
     assert launcher.launch_agent_matches(paths)
 
@@ -77,3 +79,96 @@ def test_packaged_database_backup_once(monkeypatch, tmp_path):
         if not path.name.endswith(".done")
     ]
     assert current_backups == backups
+
+
+def test_packaged_health_requires_matching_build(monkeypatch, tmp_path):
+    """Launcher health checks should reject stale or source services on the same port."""
+    app = tmp_path / "Fluxion.app"
+    monkeypatch.setenv("FLUXION_APP_BUNDLE", str(app))
+    monkeypatch.setenv("FLUXION_APP_VERSION", "2.0.0")
+    monkeypatch.setenv("FLUXION_BUILD_ID", "build-a")
+    paths = launcher.get_service_paths()
+
+    monkeypatch.setattr(
+        launcher,
+        "_read_health_metadata",
+        lambda: {
+            "status": "ok",
+            "app": "Fluxion",
+            "packaged": True,
+            "version": "2.0.0",
+            "build_id": "build-a",
+        },
+    )
+    assert launcher.health_ok(paths)
+
+    monkeypatch.setattr(
+        launcher,
+        "_read_health_metadata",
+        lambda: {
+            "status": "ok",
+            "app": "Fluxion",
+            "packaged": True,
+            "version": "2.0.0",
+            "build_id": "old-build",
+        },
+    )
+    assert not launcher.health_ok(paths)
+
+    monkeypatch.setattr(
+        launcher,
+        "_read_health_metadata",
+        lambda: {
+            "status": "ok",
+            "app": "Fluxion",
+            "packaged": False,
+            "version": "2.0.0",
+            "build_id": "build-a",
+        },
+    )
+    assert not launcher.health_ok(paths)
+
+
+def test_packaged_wait_for_health_reports_wrong_port_service(monkeypatch, tmp_path):
+    """A random service on port 9000 should fail fast with a clear error."""
+    app = tmp_path / "Fluxion.app"
+    monkeypatch.setenv("FLUXION_APP_BUNDLE", str(app))
+    paths = launcher.get_service_paths()
+    monkeypatch.setattr(launcher, "_read_health_metadata", lambda: {"status": "ok"})
+
+    try:
+        launcher.wait_for_health(timeout_seconds=0.1, paths=paths)
+    except RuntimeError as exc:
+        assert "already serving something else" in str(exc)
+    else:
+        raise AssertionError("wait_for_health should reject non-Fluxion health payloads")
+
+
+def test_packaged_wait_for_health_allows_stale_fluxion_to_exit(monkeypatch, tmp_path):
+    """A stale Fluxion service should not fail before the new service can start."""
+    app = tmp_path / "Fluxion.app"
+    monkeypatch.setenv("FLUXION_APP_BUNDLE", str(app))
+    monkeypatch.setenv("FLUXION_APP_VERSION", "2.0.0")
+    monkeypatch.setenv("FLUXION_BUILD_ID", "new")
+    paths = launcher.get_service_paths()
+    payloads = iter(
+        [
+            {
+                "status": "ok",
+                "app": "Fluxion",
+                "packaged": True,
+                "version": "2.0.0",
+                "build_id": "old",
+            },
+            {
+                "status": "ok",
+                "app": "Fluxion",
+                "packaged": True,
+                "version": "2.0.0",
+                "build_id": "new",
+            },
+        ]
+    )
+    monkeypatch.setattr(launcher, "_read_health_metadata", lambda: next(payloads))
+
+    launcher.wait_for_health(timeout_seconds=1.0, paths=paths)

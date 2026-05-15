@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import platform
 import plistlib
@@ -18,6 +19,7 @@ APP_LABEL = "io.fluxion.local"
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = "9000"
 DEFAULT_VERSION = "0.1.0"
+DEFAULT_BUILD_ID = "source"
 
 
 @dataclass(frozen=True)
@@ -53,6 +55,10 @@ def _url() -> str:
 
 def _app_version() -> str:
     return os.environ.get("FLUXION_APP_VERSION", DEFAULT_VERSION)
+
+
+def _build_id() -> str:
+    return os.environ.get("FLUXION_BUILD_ID", DEFAULT_BUILD_ID)
 
 
 def _is_macos() -> bool:
@@ -131,6 +137,7 @@ def _service_environment(paths: ServicePaths) -> dict[str, str]:
         "LOG_TO_FILE": "true",
         "FLUXION_PACKAGED": "true",
         "FLUXION_APP_VERSION": _app_version(),
+        "FLUXION_BUILD_ID": _build_id(),
         "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
     }
     if paths.static_dir:
@@ -195,7 +202,7 @@ def start_service(paths: ServicePaths, *, force: bool = False) -> None:
     """Install/update and start the LaunchAgent."""
     if not _is_macos():
         raise RuntimeError("Packaged service management is only supported on macOS")
-    if not force and service_status() and health_ok() and launch_agent_matches(paths):
+    if not force and service_status() and health_ok(paths) and launch_agent_matches(paths):
         return
     write_launch_agent(paths)
     _bootout(paths)
@@ -220,22 +227,82 @@ def service_status() -> bool:
     return result.returncode == 0
 
 
-def health_ok() -> bool:
-    """Return True when the local API health endpoint is reachable."""
+def _read_health_metadata() -> dict[str, object] | None:
+    """Read the local API health payload."""
     try:
         with urllib.request.urlopen(f"{_url()}/api/health", timeout=1.0) as response:
-            return 200 <= response.status < 300
+            if not 200 <= response.status < 300:
+                return None
+            return json.loads(response.read().decode("utf-8"))
+    except (OSError, urllib.error.URLError, json.JSONDecodeError, UnicodeDecodeError):
+        return None
+
+
+def _health_matches(payload: dict[str, object] | None, paths: ServicePaths | None = None) -> bool:
+    """Return True when a health payload belongs to the expected Fluxion build."""
+    if not payload:
+        return False
+    if payload.get("status") != "ok" or payload.get("app") != APP_NAME:
+        return False
+    if paths and paths.app_bundle:
+        return (
+            payload.get("packaged") is True
+            and payload.get("version") == _app_version()
+            and payload.get("build_id") == _build_id()
+        )
+    return True
+
+
+def health_ok(paths: ServicePaths | None = None) -> bool:
+    """Return True when the local API health endpoint is this Fluxion build."""
+    return _health_matches(_read_health_metadata(), paths)
+
+
+def _health_mismatch_message(payload: dict[str, object] | None) -> str | None:
+    """Return a clear message for a reachable but unexpected service."""
+    if not payload:
+        return None
+    if payload.get("app") != APP_NAME:
+        return (
+            f"Port {_port()} is already serving something else at {_url()}. "
+            "Stop that process, then open Fluxion again."
+        )
+    return (
+        f"Port {_port()} is serving a different Fluxion build "
+        f"(version={payload.get('version')}, build={payload.get('build_id')}). "
+        f"Run `{APP_NAME} restart` after replacing the app."
+    )
+
+
+def _port_has_http_service() -> bool:
+    """Return True when something answers the health URL but is not this build."""
+    try:
+        with urllib.request.urlopen(f"{_url()}/api/health", timeout=1.0) as response:
+            return 200 <= response.status < 500
     except (OSError, urllib.error.URLError):
         return False
 
 
-def wait_for_health(timeout_seconds: float = 40.0) -> None:
+def wait_for_health(timeout_seconds: float = 40.0, paths: ServicePaths | None = None) -> None:
     """Wait until the local service is healthy."""
+    expected_paths = paths or get_service_paths()
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
-        if health_ok():
+        payload = _read_health_metadata()
+        if _health_matches(payload, expected_paths):
             return
+        mismatch = _health_mismatch_message(payload)
+        if mismatch and payload and payload.get("app") != APP_NAME:
+            raise RuntimeError(mismatch)
         time.sleep(0.5)
+    payload = _read_health_metadata()
+    mismatch = _health_mismatch_message(payload)
+    if mismatch:
+        raise RuntimeError(mismatch)
+    if _port_has_http_service():
+        raise RuntimeError(
+            f"Fluxion service did not become healthy because port {_port()} is occupied at {_url()}"
+        )
     raise RuntimeError(f"Fluxion service did not become healthy at {_url()}")
 
 
@@ -256,6 +323,7 @@ def serve(paths: ServicePaths) -> None:
     os.environ.setdefault("LOG_TO_FILE", "true")
     os.environ.setdefault("FLUXION_PACKAGED", "true")
     os.environ.setdefault("FLUXION_APP_VERSION", _app_version())
+    os.environ.setdefault("FLUXION_BUILD_ID", _build_id())
     if paths.static_dir:
         os.environ.setdefault("FLUXION_STATIC_DIR", str(paths.static_dir))
 
@@ -272,7 +340,7 @@ def serve(paths: ServicePaths) -> None:
 def open_app(paths: ServicePaths) -> None:
     """Start the service and open the browser."""
     start_service(paths)
-    wait_for_health()
+    wait_for_health(paths=paths)
     open_browser()
 
 
@@ -291,7 +359,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if command == "start":
             start_service(paths)
-            wait_for_health()
+            wait_for_health(paths=paths)
             _log("running")
             return 0
         if command == "stop":
@@ -301,7 +369,7 @@ def main(argv: list[str] | None = None) -> int:
         if command == "restart":
             stop_service(paths)
             start_service(paths, force=True)
-            wait_for_health()
+            wait_for_health(paths=paths)
             _log("running")
             return 0
         if command == "status":

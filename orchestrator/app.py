@@ -10,20 +10,21 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request, Response, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from orchestrator.config import get_chat_config
 from orchestrator.logging_config import (
-    setup_logging,
     get_logger,
-    set_request_id,
     set_component,
+    set_request_id,
+    setup_logging,
 )
-from orchestrator.storage.db import get_db
+from orchestrator.middleware.rate_limit import RateLimitMiddleware
+from orchestrator.middleware.session import SessionMiddleware
 from orchestrator.routes import (
     agent_runs,
     auth,
@@ -34,15 +35,16 @@ from orchestrator.routes import (
     terminal,
     workspaces,
 )
-from orchestrator.middleware.rate_limit import RateLimitMiddleware
-from orchestrator.middleware.session import SessionMiddleware
 from orchestrator.runtime_paths import (
+    app_version,
+    build_id,
     is_hosted_production,
+    is_packaged_app,
     is_static_serving_enabled,
     static_dir,
 )
 from orchestrator.services.provider_keys import apply_persisted_provider_keys_to_environment
-
+from orchestrator.storage.db import get_db
 
 logger = get_logger(__name__)
 
@@ -293,7 +295,13 @@ app.include_router(terminal.router)
 @app.get("/api/health")
 async def health_check():
     """Health check endpoint."""
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "app": "Fluxion",
+        "packaged": is_packaged_app(),
+        "version": app_version(),
+        "build_id": build_id(),
+    }
 
 
 @app.get("/api/config")

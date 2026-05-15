@@ -100,6 +100,15 @@ class InMemoryRateLimiter:
 _rate_limiter = InMemoryRateLimiter()
 
 
+def should_enforce_rate_limits() -> bool:
+    """Return True only for hosted/demo deployments.
+
+    Local source runs and the packaged macOS app are owner-controlled localhost
+    apps. They should never apply usage caps, even if demo config is enabled.
+    """
+    return is_hosted_production()
+
+
 def get_client_ip(request: Request) -> str:
     """Extract client IP, only trusting proxy headers in production.
 
@@ -135,7 +144,7 @@ def get_client_ip(request: Request) -> str:
 class RateLimitMiddleware(BaseHTTPMiddleware):
     """Middleware to enforce rate limits on expensive endpoints.
 
-    Only active when demo mode is enabled in config.
+    Only active for hosted demo deployments.
     Limits POST requests to agent and chat run endpoints.
     """
 
@@ -158,7 +167,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         """
         config = get_chat_config()
 
-        # Skip if demo mode disabled
+        # Skip entirely for local source runs and the packaged desktop app.
+        if not should_enforce_rate_limits():
+            return await call_next(request)
+
+        # Skip if hosted demo mode is disabled.
         if not config.demo or not config.demo.enabled:
             return await call_next(request)
 
@@ -216,7 +229,10 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 status_code=429,
                 content={
                     "error": "rate_limit_exceeded",
-                    "message": f"Too many requests. You can make {max_requests} {endpoint_type} runs per hour.",
+                    "message": (
+                        f"Too many requests. You can make {max_requests} "
+                        f"{endpoint_type} runs per hour."
+                    ),
                     "retry_after_seconds": reset_seconds,
                 },
                 headers={
