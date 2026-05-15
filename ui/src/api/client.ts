@@ -77,6 +77,7 @@ async function fetchJson<T>(url: string, options?: FetchJsonOptions): Promise<T>
     if (error instanceof DOMException && error.name === 'AbortError') {
       throw new ApiError(0, 'Request timed out');
     }
+    console.error('Fetch network error:', url, error);
     throw error;
   } finally {
     if (timeoutId !== null) {

@@ -1706,14 +1706,18 @@ export function ConversationView() {
         return;
       }
       const steerMsg = message.trim();
+      console.log(`[Steer] Attempting to steer run ${activeRunId}, message: "${steerMsg.substring(0, 50)}..."`);
       setMessage('');
       clearMentionState();
       try {
         await steerAgentRun(activeRunId, steerMsg);
         setQueuedSteers((prev) => [...prev, steerMsg]);
         scheduleComposerFocus();
-      } catch {
-        toast.error('Failed to queue steering message');
+      } catch (error: unknown) {
+        console.error('Steer API failed:', error);
+        const errMsg = error instanceof Error ? error.message : String(error);
+        const apiError = error as { status?: number; message?: string };
+        toast.error(`Steer failed: ${apiError.status || 'N/A'} - ${errMsg}`);
         setMessage(steerMsg);
         scheduleComposerFocus();
       }
@@ -1856,11 +1860,12 @@ export function ConversationView() {
     } catch (error: unknown) {
       console.error('Failed to create run:', error);
       const apiError = error as { status?: number; message?: string };
+      const errMsg = error instanceof Error ? error.message : String(error);
       if (apiError.status === 429) {
         toast.error('Message limit reached. You\'ve used all your free messages.');
         refreshUsage();
       } else {
-        toast.error('Failed to send message. Please try again.');
+        toast.error(`Send failed: ${apiError.status || 'N/A'} - ${errMsg}`);
       }
       // Restore message on error
       setMessage(messageToSend);
