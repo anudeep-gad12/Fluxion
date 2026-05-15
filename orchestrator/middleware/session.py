@@ -17,6 +17,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from orchestrator.config import get_chat_config
 from orchestrator.logging_config import get_logger
+from orchestrator.runtime_paths import is_hosted_production
 
 logger = get_logger(__name__)
 
@@ -26,10 +27,7 @@ COOKIE_MAX_AGE = 30 * 24 * 60 * 60  # 30 days in seconds
 
 def _is_secure_context() -> bool:
     """Check if we're in a secure context (production with HTTPS)."""
-    import os
-
-    # In production, SERVE_STATIC=true indicates Railway/production deployment
-    return os.environ.get("SERVE_STATIC", "false").lower() == "true"
+    return is_hosted_production()
 
 
 class SessionMiddleware(BaseHTTPMiddleware):

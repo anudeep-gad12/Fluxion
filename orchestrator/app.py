@@ -9,22 +9,22 @@ import os
 import time
 import uuid
 from contextlib import asynccontextmanager
-from pathlib import Path
 
-from fastapi import FastAPI, Request, Response, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from orchestrator.config import get_chat_config
 from orchestrator.logging_config import (
-    setup_logging,
     get_logger,
-    set_request_id,
     set_component,
+    set_request_id,
+    setup_logging,
 )
-from orchestrator.storage.db import get_db
+from orchestrator.middleware.rate_limit import RateLimitMiddleware
+from orchestrator.middleware.session import SessionMiddleware
 from orchestrator.routes import (
     agent_runs,
     auth,
@@ -35,10 +35,16 @@ from orchestrator.routes import (
     terminal,
     workspaces,
 )
-from orchestrator.middleware.rate_limit import RateLimitMiddleware
-from orchestrator.middleware.session import SessionMiddleware
+from orchestrator.runtime_paths import (
+    app_version,
+    build_id,
+    is_hosted_production,
+    is_packaged_app,
+    is_static_serving_enabled,
+    static_dir,
+)
 from orchestrator.services.provider_keys import apply_persisted_provider_keys_to_environment
-
+from orchestrator.storage.db import get_db
 
 logger = get_logger(__name__)
 
@@ -238,8 +244,9 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down Fluxion API server")
 
 
-# Disable OpenAPI docs in production (SERVE_STATIC=true indicates Railway/production)
-_is_production = os.environ.get("SERVE_STATIC", "false").lower() == "true"
+# Disable OpenAPI docs in hosted production. The local macOS package also uses
+# SERVE_STATIC=true, but it is a localhost owner app.
+_is_production = is_hosted_production()
 
 # Create FastAPI app
 app = FastAPI(
@@ -288,7 +295,13 @@ app.include_router(terminal.router)
 @app.get("/api/health")
 async def health_check():
     """Health check endpoint."""
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "app": "Fluxion",
+        "packaged": is_packaged_app(),
+        "version": app_version(),
+        "build_id": build_id(),
+    }
 
 
 @app.get("/api/config")
@@ -299,13 +312,13 @@ async def get_config():
         "demo": {
             "enabled": config.demo.enabled if config.demo else False,
         },
-        "local_models_enabled": not _is_production,
+        "local_models_enabled": not is_hosted_production(),
     }
 
 
 # Static file serving for production (when SERVE_STATIC=true)
-STATIC_DIR = Path(__file__).parent.parent / "ui" / "dist"
-if STATIC_DIR.exists() and os.environ.get("SERVE_STATIC", "false").lower() == "true":
+STATIC_DIR = static_dir()
+if STATIC_DIR.exists() and is_static_serving_enabled():
     # Serve static assets with caching
     app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
 

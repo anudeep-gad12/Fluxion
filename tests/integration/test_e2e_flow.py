@@ -334,6 +334,9 @@ class TestHealthAndConfig:
 
         assert response.status_code == 200
         assert response.json()["status"] == "ok"
+        assert response.json()["app"] == "Fluxion"
+        assert "version" in response.json()
+        assert "build_id" in response.json()
 
     def test_config_endpoint(self, client):
         """GET /api/config returns demo mode status."""

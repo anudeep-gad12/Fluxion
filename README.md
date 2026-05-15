@@ -10,40 +10,54 @@ Fluxion is my attempt to put that together. You can use local models you already
 
 ## Install
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/anudeep-gad12/Fluxion/main/scripts/install_local_service.sh | bash
+Download the latest macOS release from GitHub Releases:
+
+```text
+Fluxion-macos-arm64.zip
 ```
 
-That command:
+Unzip it, move `Fluxion.app` to `/Applications`, then clear macOS quarantine:
 
-- downloads Fluxion
-- installs it locally
+```bash
+xattr -dr com.apple.quarantine /Applications/Fluxion.app
+open /Applications/Fluxion.app
+```
+
+Fluxion is unsigned and not notarized, so the quarantine command is the reliable open path. Right-click → Open may work on some systems, but it is not required.
+
+The app:
+
 - starts the local service
-- opens the app in your browser
-
-Current installer targets:
-
-- macOS
-- Linux
+- opens Fluxion in your browser at `http://127.0.0.1:9000`
+- stores conversations outside the app bundle
 
 Installed locations:
 
 macOS
-- app: `~/Library/Application Support/Fluxion`
+- app: `/Applications/Fluxion.app`
 - service: `~/Library/LaunchAgents/io.fluxion.local.plist`
+- data: `~/Library/Application Support/Fluxion/data`
+- conversations SQLite: `~/Library/Application Support/Fluxion/data/var/traces.sqlite`
 
-Linux
-- app: `~/.local/share/fluxion`
-- service: `~/.config/systemd/user/fluxion.service`
+Replacing `Fluxion.app` updates the app without deleting conversations, settings, logs, or provider keys. On launch, Fluxion restarts its local service when the app build changed.
 
-Installed command:
+App command:
 
 ```bash
-fluxion open
-fluxion start
-fluxion stop
-fluxion restart
-fluxion status
+/Applications/Fluxion.app/Contents/MacOS/Fluxion open
+/Applications/Fluxion.app/Contents/MacOS/Fluxion start
+/Applications/Fluxion.app/Contents/MacOS/Fluxion stop
+/Applications/Fluxion.app/Contents/MacOS/Fluxion restart
+/Applications/Fluxion.app/Contents/MacOS/Fluxion status
+```
+
+Uninstall and delete local data:
+
+```bash
+launchctl bootout "gui/$(id -u)" ~/Library/LaunchAgents/io.fluxion.local.plist 2>/dev/null || true
+rm -f ~/Library/LaunchAgents/io.fluxion.local.plist
+rm -rf ~/Library/Application\ Support/Fluxion
+rm -rf /Applications/Fluxion.app
 ```
 
 ## Model setup
@@ -120,6 +134,14 @@ or:
 ```
 
 If you want local GGUF models from source, install `llama.cpp` / `llama-server` first.
+
+Source install fallback:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/anudeep-gad12/Fluxion/main/scripts/install_local_service.sh | bash
+```
+
+The source install script is only a fallback for cloned/source installs. Release installs should use the `.app` package.
 
 ## Tests
 
