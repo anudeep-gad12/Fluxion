@@ -9,7 +9,6 @@ import os
 import time
 import uuid
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 from fastapi import FastAPI, Request, Response, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -37,6 +36,7 @@ from orchestrator.routes import (
 )
 from orchestrator.middleware.rate_limit import RateLimitMiddleware
 from orchestrator.middleware.session import SessionMiddleware
+from orchestrator.runtime_paths import static_dir
 from orchestrator.services.provider_keys import apply_persisted_provider_keys_to_environment
 
 
@@ -304,7 +304,7 @@ async def get_config():
 
 
 # Static file serving for production (when SERVE_STATIC=true)
-STATIC_DIR = Path(__file__).parent.parent / "ui" / "dist"
+STATIC_DIR = static_dir()
 if STATIC_DIR.exists() and os.environ.get("SERVE_STATIC", "false").lower() == "true":
     # Serve static assets with caching
     app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")

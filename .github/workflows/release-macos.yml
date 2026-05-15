@@ -1,0 +1,49 @@
+name: macOS Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  macos-release:
+    name: Build unsigned macOS app
+    runs-on: macos-14
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: astral-sh/setup-uv@v5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Build app
+        run: ./scripts/build_macos_app.sh
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fluxion-macos
+          path: |
+            dist/macos/Fluxion-macos-*.zip
+            dist/macos/SHA256SUMS
+
+      - name: Upload GitHub release assets
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/macos/Fluxion-macos-*.zip
+            dist/macos/SHA256SUMS
