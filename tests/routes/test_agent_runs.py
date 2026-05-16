@@ -22,7 +22,9 @@ import orchestrator.storage.db as db_module
 from orchestrator.app import app
 from orchestrator.agent import AgentResult
 from orchestrator.storage.db import Database
+from orchestrator.storage.repositories.agent_repo import AgentRepo
 from orchestrator.storage.repositories.conversation_repo import ConversationRepo
+from orchestrator.storage.repositories.trace_repo import TraceRepo
 
 
 # =============================================================================
@@ -679,6 +681,52 @@ class TestGetAgentRunTrace:
         assert "steps" in data
         assert "tool_calls" in data
         assert "citations" in data
+
+    def test_trace_maps_edit_result_detail_to_result_data(self, client, test_db):
+        """Historical trace payloads expose edit_file diffs for the browser UI."""
+        loop = asyncio.get_event_loop()
+        diff = "--- a/app.py\n+++ b/app.py\n-old\n+new\n"
+
+        async def seed_run() -> str:
+            run_id = "trace-edit-diff-run"
+            await ConversationRepo(test_db).create("trace-edit-diff-conv", title="trace")
+            await TraceRepo(test_db).create_run(
+                run_id=run_id,
+                conversation_id="trace-edit-diff-conv",
+                profile_name="agent",
+                mode="agent",
+                model_config={},
+                user_message="edit file",
+                session_id="trace-session",
+            )
+            agent_repo = AgentRepo(test_db)
+            step = await agent_repo.create_step(run_id, 1, "tool_calling")
+            tool_call = await agent_repo.create_tool_call(
+                run_id=run_id,
+                step_id=step["id"],
+                tool_name="edit_file",
+                arguments={"file_path": "app.py"},
+                idempotency_key="trace-edit-diff-tool",
+            )
+            await agent_repo.update_tool_call(
+                tool_call["id"],
+                status="success",
+                result_summary="Edited app.py",
+                result_detail=json.dumps({"file_path": "app.py", "diff": diff}),
+            )
+            return run_id
+
+        run_id = loop.run_until_complete(seed_run())
+
+        response = client.get(
+            f"/api/agent/runs/{run_id}/trace",
+            headers={"x-cli-session": "trace-session"},
+        )
+
+        assert response.status_code == 200
+        tool_call = response.json()["tool_calls"][0]
+        assert tool_call["tool_name"] == "edit_file"
+        assert tool_call["result_data"] == diff
 
 
 # =============================================================================

@@ -57,6 +57,7 @@ export interface AgentToolCall {
   completed_at?: string;
   idempotency_key: string;
   execution_attempt: number;
+  result_detail?: string | null;
   result_data?: string;
   bash_output?: {
     stdout: string;
