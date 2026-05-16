@@ -254,6 +254,43 @@ class TestAgentEngineHelpers:
         # Should not raise
         engine._emit(None, "test_event", foo="bar")
 
+    @pytest.mark.asyncio
+    async def test_finalize_edit_file_emits_raw_diff_result_data(self):
+        """edit_file tool_result events expose raw unified diff text to the UI."""
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=create_mock_repo(),
+            registry=create_mock_registry(),
+        )
+        state_machine = create_mock_state_machine()
+        diff = "--- a/app.py\n+++ b/app.py\n-old\n+new\n"
+        events = []
+
+        await engine._finalize_tool_call(
+            tool_call=ParsedToolCall(
+                id="provider-tool-id",
+                name="edit_file",
+                arguments={"file_path": "app.py"},
+                raw_arguments='{"file_path":"app.py"}',
+            ),
+            result=ToolResult(
+                success=True,
+                result_summary="Edited app.py",
+                result_data={"file_path": "app.py", "diff": diff, "matched_by": "exact"},
+                duration_ms=12,
+            ),
+            tc_record={"id": "db-tool-id"},
+            tool_call_event_id=None,
+            state_machine=state_machine,
+            step_number=1,
+            event_callback=lambda event: events.append(event),
+            run_id="run-1",
+        )
+
+        tool_result = next(event for event in events if event["type"] == "tool_result")
+        assert tool_result["result_data"] == diff
+        state_machine.complete_tool_call.assert_awaited_once()
+
     async def test_build_initial_messages(self):
         """Build initial messages with system and user."""
         engine = AgentEngine(
