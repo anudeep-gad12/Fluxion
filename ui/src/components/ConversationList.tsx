@@ -214,7 +214,6 @@ export function ConversationList() {
   const setDraftWorkspacePath = useStore((s) => s.setDraftWorkspacePath);
   const rememberWorkspacePath = useStore((s) => s.rememberWorkspacePath);
   const draftWorkspacePath = useStore((s) => s.draftWorkspacePath);
-  const workspacePaths = useStore((s) => s.workspacePaths);
   const hasActiveRun = useHasActiveRun();
   const [isLoading, setIsLoading] = useState(false);
   const [workspacePickerOpen, setWorkspacePickerOpen] = useState(false);
@@ -247,16 +246,6 @@ export function ConversationList() {
   const workspaceGroups = useMemo(() => {
     const groups = new Map<string, WorkspaceGroup>();
     const generalConversations: Conversation[] = [];
-    for (const workspacePath of workspacePaths) {
-      const normalized = workspacePath.trim();
-      if (!normalized || groups.has(normalized)) continue;
-      groups.set(normalized, {
-        workspacePath: normalized,
-        label: workspaceLabel(normalized),
-        conversations: [],
-        latestCreatedAt: '',
-      });
-    }
 
     for (const conversation of conversations) {
       const workspacePath = conversation.workspace_path?.trim();
@@ -299,7 +288,7 @@ export function ConversationList() {
         conversations: [...group.conversations].sort((a, b) => b.created_at.localeCompare(a.created_at)),
       }))
       .sort((a, b) => b.latestCreatedAt.localeCompare(a.latestCreatedAt));
-  }, [conversations, workspacePaths]);
+  }, [conversations]);
 
   useEffect(() => {
     setWorkspaceSectionsOpen((current) => {
@@ -528,27 +517,18 @@ export function ConversationList() {
                 }}
                 onHeaderKeyDown={(event) => handleWorkspaceHeaderKeyDown(event, group.workspacePath)}
               >
-                {group.conversations.length === 0 ? (
-                  <button
-                    onClick={() => startWorkspaceDraft(group.workspacePath)}
-                    className="w-full rounded-xl border border-dashed border-zinc-600 bg-zinc-950/70 px-3 py-3 text-left text-xs text-zinc-300 transition-colors hover:border-zinc-600 hover:bg-zinc-950/72 hover:text-zinc-300"
-                  >
-                    New conversation
-                  </button>
-                ) : (
-                  group.conversations.map((conversation) => (
-                    <ConversationCard
-                      key={conversation.conversation_id}
-                      conversation={conversation}
-                      isSelected={conversation.conversation_id === selectedConversationId}
-                      isSelectMode={isSelectMode}
-                      isChecked={selectedIds.has(conversation.conversation_id)}
-                      onClick={() => navigate(`/conversations/${conversation.conversation_id}`)}
-                      onDelete={() => handleDeleteClick(conversation.conversation_id)}
-                      onToggleCheck={() => toggleCheck(conversation.conversation_id)}
-                    />
-                  ))
-                )}
+                {group.conversations.map((conversation) => (
+                  <ConversationCard
+                    key={conversation.conversation_id}
+                    conversation={conversation}
+                    isSelected={conversation.conversation_id === selectedConversationId}
+                    isSelectMode={isSelectMode}
+                    isChecked={selectedIds.has(conversation.conversation_id)}
+                    onClick={() => navigate(`/conversations/${conversation.conversation_id}`)}
+                    onDelete={() => handleDeleteClick(conversation.conversation_id)}
+                    onToggleCheck={() => toggleCheck(conversation.conversation_id)}
+                  />
+                ))}
               </WorkspaceSection>
             ))}
           </>
