@@ -1,10 +1,14 @@
 import React, { useState } from "react"
 import ReactDOM from "react-dom/client"
-import { ArrowUpRight, Box, Code2, Database, Download, Github, Laptop, Search, Sparkles, TerminalSquare, Wand2 } from "lucide-react"
+import { ArrowUpRight, Box, Code2, Database, Download, Github, Laptop, Sparkles } from "lucide-react"
 import "./styles.css"
 
 const GITHUB_URL = "https://github.com/anudeep-gad12/Fluxion"
 const DOWNLOAD_URL = "https://github.com/anudeep-gad12/Fluxion/releases/latest/download/Fluxion-macos-arm64.zip"
+const INSTALL_COMMANDS = `unzip Fluxion-macos-arm64.zip
+mv Fluxion.app /Applications/
+xattr -dr com.apple.quarantine /Applications/Fluxion.app
+open /Applications/Fluxion.app`
 
 type ShotProps = {
   src: string
@@ -31,48 +35,6 @@ function ScreenshotSlot({ src, label, kicker, tall = false }: ShotProps) {
         {kicker ? <span>{kicker}</span> : null}
         <strong>{label}</strong>
         <small>{src}</small>
-      </div>
-    </div>
-  )
-}
-
-function AppMock() {
-  return (
-    <div className="appMock" aria-label="Fluxion app mockup">
-      <div className="mockSidebar">
-        <div className="traffic"><i /><i /><i /></div>
-        <div className="brandTiny">Fluxion</div>
-        <div className="searchPill">Search workspace</div>
-        {[
-          ["local-models", "Completed", "cyan"],
-          ["auth-flow", "Working", "green"],
-          ["release-app", "Review", "violet"],
-        ].map(([name, state, tone]) => (
-          <div className="thread" key={name}>
-            <span className={`dot ${tone}`} />
-            <div><b>{name}</b><small>{state}</small></div>
-          </div>
-        ))}
-      </div>
-      <div className="mockMain">
-        <div className="mockTop">
-          <span>Workspace run</span>
-          <button>Commit & push</button>
-        </div>
-        <div className="taskCard">
-          <div className="taskTitle"><Wand2 size={15} /> Add provider key picker</div>
-          <p>Inspect the repo, wire the UI to settings, and verify the route tests.</p>
-        </div>
-        <div className="steps">
-          <div><Code2 size={14} /><span>Read</span><code>orchestrator/routes/models.py</code></div>
-          <div><Search size={14} /><span>Search</span><code>provider_api_keys</code></div>
-          <div><TerminalSquare size={14} /><span>Run</span><code>uv run pytest tests/routes/test_models.py</code></div>
-        </div>
-        <div className="diffBox">
-          <div><span>ui/src/components/ModelPicker.tsx</span><em>+84 −12</em></div>
-          <div><span>orchestrator/services/provider_keys.py</span><em>+41 −0</em></div>
-          <div><span>tests/routes/test_models.py</span><em>+33 −2</em></div>
-        </div>
       </div>
     </div>
   )
@@ -106,8 +68,7 @@ function Hero() {
         <a className="secondary" href={GITHUB_URL}><Github size={18} /> Star on GitHub</a>
       </div>
       <div className="heroStage">
-        <ScreenshotSlot src="/images/hero-app.png" label="Drop flashy hero app screenshot here" kicker="image placeholder" />
-        <div className="mockOverlay"><AppMock /></div>
+        <ScreenshotSlot src="/images/hero-app.png" label="Fluxion workspace run screenshot" kicker="product image" />
       </div>
     </section>
   )
@@ -150,58 +111,62 @@ function SplitSection() {
           <li>Per-thread model switching from the app</li>
         </ul>
       </div>
-      <ScreenshotSlot src="/images/model-picker.png" label="Drop model picker screenshot here" tall />
+      <ScreenshotSlot src="/images/model-picker.png" label="Fluxion model picker screenshot" />
     </section>
   )
 }
 
 function WorkSection() {
   return (
-    <section className="section workGrid">
+    <section className="section workGrid textOnly">
       <div className="workCopy">
         <span className="label">repo work</span>
-        <h2>Better than another terminal tab.</h2>
+        <h2>Watch it work through the codebase.</h2>
         <p>
           The agent can inspect your codebase, edit files, run commands, search the web,
           extract pages, and return with a verified change instead of a vague suggestion.
         </p>
       </div>
-      <ScreenshotSlot src="/images/agent-run.png" label="Drop agent run screenshot here" />
-      <ScreenshotSlot src="/images/workspace-diff.png" label="Drop diff/review screenshot here" />
     </section>
   )
 }
 
 function LocalSection() {
   return (
-    <section id="local" className="section split reverse">
-      <ScreenshotSlot src="/images/local-history.png" label="Drop local history screenshot here" tall />
-      <div>
-        <span className="label">local app</span>
-        <h2>Your chats, settings, and workspace context stay on your machine.</h2>
-        <p>
-          The macOS package starts a localhost service, opens the browser UI, and stores
-          conversations outside the app bundle so updates do not wipe your history.
-        </p>
-        <ul>
-          <li>Unsigned macOS app package</li>
-          <li>Persistent SQLite conversations</li>
-          <li>Open-source fallback from source</li>
-        </ul>
-      </div>
+    <section id="local" className="section localText">
+      <span className="label">local app</span>
+      <h2>Your chats, settings, and workspace context stay on your machine.</h2>
+      <p>
+        The macOS package starts a localhost service, opens the browser UI, and stores
+        conversations outside the app bundle so updates do not wipe your history.
+      </p>
+      <ul>
+        <li>Unsigned macOS app package</li>
+        <li>Persistent SQLite conversations</li>
+        <li>Open-source fallback from source</li>
+      </ul>
     </section>
   )
 }
 
 function TerminalBlock() {
+  const [copied, setCopied] = useState(false)
+
+  const copyInstall = async () => {
+    await navigator.clipboard.writeText(INSTALL_COMMANDS)
+    setCopied(true)
+    window.setTimeout(() => setCopied(false), 1300)
+  }
+
   return (
     <section className="section terminalSection">
       <div className="terminalWindow">
-        <div className="terminalTop"><i /><i /><i /><span>~/fluxion</span></div>
-        <pre>{`$ unzip Fluxion-macos-arm64.zip
-$ mv Fluxion.app /Applications/
-$ xattr -dr com.apple.quarantine /Applications/Fluxion.app
-$ open /Applications/Fluxion.app
+        <div className="terminalTop">
+          <i /><i /><i />
+          <span>~/fluxion</span>
+          <button type="button" onClick={copyInstall}>{copied ? "Copied" : "Copy"}</button>
+        </div>
+        <pre>{`$ ${INSTALL_COMMANDS.split("\n").join("\n$ ")}
 ✓ local service running at http://127.0.0.1:9000`}</pre>
       </div>
       <div>

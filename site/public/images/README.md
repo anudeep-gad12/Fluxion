@@ -1,12 +1,8 @@
 # Fluxion landing page screenshots
 
-Drop final screenshots here without changing code:
+Generated product-style UI images used by `site/src/main.tsx`:
 
-- `hero-app.png` — big hero screenshot/mockup
-- `model-picker.png` — model/provider picker
-- `agent-run.png` — agent working through a repo task
-- `workspace-diff.png` — edits/diff/review screenshot
-- `local-history.png` — conversations/local history screenshot
-- `og.png` — social share image, recommended 1200x630
+- `hero-app.png` — wide Fluxion workspace run with realistic sidebar, timeline, tool calls, diff, live HUD, and composer.
+- `model-picker.png` — realistic model selector with Fireworks cloud presets and local runtimes.
 
-The page renders polished placeholders until these files are added.
+These are sanitized mock product shots based on the current app UI. They use common demo workspaces such as Dashboard, React Starter, API Sandbox, and Docs Site, and avoid fake screens like sign-in previews.
