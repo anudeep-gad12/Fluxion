@@ -67,6 +67,10 @@ rm -rf /Applications/Fluxion.app
 
 Fluxion can use hosted providers or local models.
 
+Recommended starting point: for hosted models, try Fireworks with Kimi K2.6, GLM-5.1, or MiniMax M2.7.
+
+For local models, I use Qwen3.6 27B and Qwen3.6 35B-A3B downloaded through LM Studio.
+
 ### Hosted providers
 
 Add model provider keys in the model picker for:
