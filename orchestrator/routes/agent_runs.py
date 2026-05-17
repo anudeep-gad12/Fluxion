@@ -25,6 +25,11 @@ from orchestrator.logging_config import (
     set_component,
     set_request_id,
 )
+from orchestrator.agent.tool_result_payloads import (
+    bash_output_from_result_data,
+    display_result_data,
+    parse_stored_result_detail,
+)
 from orchestrator.reasoning_controls import ReasoningSettings
 from orchestrator.schemas import (
     AgentCitationResponse,
@@ -1106,33 +1111,42 @@ async def get_agent_run_trace(run_id: str, http_request: Request):
 
     # Get all tool calls
     tool_calls_raw = await agent_repo.get_tool_calls_for_run(run_id)
-    tool_calls = [
-        AgentToolCallResponse(
-            id=tc["id"],  # DB column is 'id', not 'tool_call_id'
-            run_id=tc["run_id"],
-            step_id=tc["step_id"],
-            tool_name=tc["tool_name"],
-            arguments=(
-                tc.get("arguments", {})
-                if isinstance(tc.get("arguments"), dict)
-                else json.loads(tc.get("arguments", "{}"))
-            ),
-            status=tc["status"],
-            result_summary=tc.get("result_summary"),
-            error_message=tc.get("error_message"),
-            duration_ms=tc.get("duration_ms"),
-            created_at=tc["created_at"],
-            started_at=tc.get("started_at"),
-            completed_at=tc.get("completed_at"),
-            idempotency_key=tc.get("idempotency_key", ""),
-            execution_attempt=tc.get("execution_attempt", 1),
-            approval_decision=tc.get("approval_decision"),
-            approval_policy=tc.get("approval_policy"),
-            approval_decided_at=tc.get("approval_decided_at"),
-            result_detail=tc.get("result_detail"),
+    tool_calls = []
+    for tc in tool_calls_raw:
+        tool_name = tc["tool_name"]
+        stored_result_data = parse_stored_result_detail(tc.get("result_detail"))
+        tool_calls.append(
+            AgentToolCallResponse(
+                id=tc["id"],  # DB column is 'id', not 'tool_call_id'
+                run_id=tc["run_id"],
+                step_id=tc["step_id"],
+                tool_name=tool_name,
+                arguments=(
+                    tc.get("arguments", {})
+                    if isinstance(tc.get("arguments"), dict)
+                    else json.loads(tc.get("arguments", "{}"))
+                ),
+                status=tc["status"],
+                result_summary=tc.get("result_summary"),
+                error_message=tc.get("error_message"),
+                duration_ms=tc.get("duration_ms"),
+                created_at=tc["created_at"],
+                started_at=tc.get("started_at"),
+                completed_at=tc.get("completed_at"),
+                idempotency_key=tc.get("idempotency_key", ""),
+                execution_attempt=tc.get("execution_attempt", 1),
+                approval_decision=tc.get("approval_decision"),
+                approval_policy=tc.get("approval_policy"),
+                approval_decided_at=tc.get("approval_decided_at"),
+                result_detail=tc.get("result_detail"),
+                result_data=display_result_data(tool_name, stored_result_data),
+                bash_output=(
+                    bash_output_from_result_data(stored_result_data)
+                    if tool_name == "bash"
+                    else None
+                ),
+            )
         )
-        for tc in tool_calls_raw
-    ]
 
     # Get all citations
     citations_raw = await agent_repo.get_citations_for_run(run_id)

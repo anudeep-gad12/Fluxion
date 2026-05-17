@@ -1,12 +1,18 @@
 """Database connection management."""
 
+import os
+import shutil
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
+
 import aiosqlite
+
 from orchestrator.config import DB_PATH
+from orchestrator.runtime_paths import schema_path
 
 # Read schema from file
-SCHEMA_PATH = Path(__file__).parent / "schema.sql"
+SCHEMA_PATH = schema_path()
 
 class Database:
     """Async SQLite database manager."""
@@ -22,6 +28,7 @@ class Database:
             self._connection = await aiosqlite.connect(":memory:")
         else:
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
+            self._backup_database_file_once()
             self._connection = await aiosqlite.connect(self.db_path)
         self._connection.row_factory = aiosqlite.Row
         await self._connection.execute("PRAGMA foreign_keys = ON")
@@ -35,6 +42,24 @@ class Database:
         await self._run_migrations()
 
         await self._connection.commit()
+
+    def _backup_database_file_once(self) -> None:
+        """Create one packaged-build SQLite backup per app version before migrations."""
+        if os.environ.get("FLUXION_PACKAGED", "false").lower() != "true":
+            return
+        if not self.db_path.exists() or not self.db_path.is_file():
+            return
+
+        version = os.environ.get("FLUXION_APP_VERSION", "unknown")
+        safe_version = "".join(ch if ch.isalnum() or ch in ".-_" else "_" for ch in version)
+        marker = self.db_path.with_name(f"{self.db_path.name}.backup-{safe_version}.done")
+        if marker.exists():
+            return
+
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        backup = self.db_path.with_name(f"{self.db_path.name}.backup-{timestamp}")
+        shutil.copy2(self.db_path, backup)
+        marker.write_text(str(backup), encoding="utf-8")
 
     async def _run_migrations(self) -> None:
         """Run schema migrations for existing databases."""

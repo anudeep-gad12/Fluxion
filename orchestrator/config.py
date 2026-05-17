@@ -15,12 +15,14 @@ from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, field_validator, model_validator
 
+from orchestrator.runtime_paths import chat_config_path
+
 # =============================================================================
 # Base Paths
 # =============================================================================
 
 BASE_DIR = Path(__file__).parent.parent
-CHAT_CONFIG_PATH = Path(__file__).parent / "chat_config.yaml"
+CHAT_CONFIG_PATH = chat_config_path()
 
 # Database path - configurable for Railway volumes or other persistent storage
 # Default: var/traces.sqlite (relative to project root)

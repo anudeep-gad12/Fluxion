@@ -1,4 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { toast } from 'sonner';
 import { approveAgentToolCall, denyAgentToolCall } from '@/api/client';
 import { cn } from '@/lib/utils';
 import { formatAgentCost, formatAgentTokens, useDerivedAgentPhase } from '@/lib/agentLiveState';
@@ -114,13 +115,17 @@ export const AgentLiveHUD = memo(function AgentLiveHUD({
       } else {
         await denyAgentToolCall(pendingApproval.run_id, pendingApproval.id);
       }
-    } catch {
+    } catch (error: unknown) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      const apiError = error as { status?: number };
+      console.error(`[Approval] ${decision} failed for ${pendingApproval.run_id}/${pendingApproval.id}:`, error);
       // 404/409 means the approval was already processed or the run moved on.
       // Clear the stale pending state so the UI unblocks.
       useStore.getState().updateAgentToolCall(pendingApproval.run_id, pendingApproval.id, {
         approval_required: false,
         status: decision === 'approve' ? 'running' : 'error',
       });
+      toast.error(`${decision} failed: ${apiError.status || 'N/A'} - ${errMsg}`);
     } finally {
       decidingRef.current = false;
       setDeciding(null);

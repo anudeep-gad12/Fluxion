@@ -37,6 +37,10 @@ from orchestrator.agent.state_machine import (
     AgentStateMachine,
     MaxStepsExceededError,
 )
+from orchestrator.agent.tool_result_payloads import (
+    bash_output_from_result_data,
+    display_result_data,
+)
 from orchestrator.logging_config import get_logger
 from orchestrator.providers.usage import add_usage, estimate_cost, normalize_usage
 from orchestrator.reasoning_controls import ReasoningSettings, apply_reasoning_settings
@@ -5325,15 +5329,12 @@ To provide your final answer, respond WITHOUT calling any tools."""
             "result_summary": result.result_summary,
             "duration_ms": result.duration_ms,
         }
-        if tool_call.name in ("write_file", "edit_file") and result.result_data:
-            emit_kwargs["result_data"] = str(result.result_data)[:10000]
-        if tool_call.name == "bash" and isinstance(result.result_data, dict):
-            emit_kwargs["bash_output"] = {
-                "stdout": str(result.result_data.get("stdout", ""))[:10000],
-                "stderr": str(result.result_data.get("stderr", ""))[:10000],
-                "exit_code": result.result_data.get("exit_code"),
-                "truncated": bool(result.result_data.get("truncated")),
-            }
+        diff_data = display_result_data(tool_call.name, result.result_data)
+        if diff_data:
+            emit_kwargs["result_data"] = diff_data
+        bash_output = bash_output_from_result_data(result.result_data)
+        if tool_call.name == "bash" and bash_output:
+            emit_kwargs["bash_output"] = bash_output
         self._emit(event_callback, "tool_result", **emit_kwargs)
 
         # Trace: tool_result

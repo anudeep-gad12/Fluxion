@@ -331,6 +331,8 @@ class AgentToolCallResponse(BaseModel):
     approval_policy: Optional[str] = None
     approval_decided_at: Optional[str] = None
     result_detail: Optional[str] = None
+    result_data: Optional[str] = None
+    bash_output: Optional[dict[str, Any]] = None
 
 
 class AgentCitationResponse(BaseModel):

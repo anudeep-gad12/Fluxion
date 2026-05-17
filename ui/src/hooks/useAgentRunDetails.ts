@@ -16,6 +16,45 @@ const MAX_HISTORICAL_TRACE_REQUESTS = 2;
 let historicalTraceActiveCount = 0;
 const historicalTraceQueue: Array<() => void> = [];
 
+function parseResultDetail(resultDetail?: string | null): unknown {
+  if (!resultDetail) return null;
+  try {
+    return JSON.parse(resultDetail);
+  } catch {
+    return resultDetail;
+  }
+}
+
+function resultDataFromTraceToolCall(tc: AgentToolCall): string | undefined {
+  if (tc.result_data) return tc.result_data;
+  if (tc.tool_name !== 'write_file' && tc.tool_name !== 'edit_file') return undefined;
+
+  const payload = parseResultDetail(tc.result_detail);
+  if (typeof payload === 'string') return payload;
+  if (payload && typeof payload === 'object') {
+    const diff = (payload as Record<string, unknown>).diff ?? (payload as Record<string, unknown>).preview;
+    return typeof diff === 'string' ? diff : undefined;
+  }
+  return undefined;
+}
+
+function bashOutputFromTraceToolCall(
+  tc: AgentToolCall
+): AgentToolCall['bash_output'] | undefined {
+  if (tc.bash_output) return tc.bash_output;
+  if (tc.tool_name !== 'bash') return undefined;
+
+  const payload = parseResultDetail(tc.result_detail);
+  if (!payload || typeof payload !== 'object') return undefined;
+  const data = payload as Record<string, unknown>;
+  return {
+    stdout: String(data.stdout ?? ''),
+    stderr: String(data.stderr ?? ''),
+    exit_code: typeof data.exit_code === 'number' ? data.exit_code : undefined,
+    truncated: Boolean(data.truncated ?? data.timed_out),
+  };
+}
+
 function runHistoricalTraceTask<T>(task: () => Promise<T>): Promise<T> {
   return new Promise((resolve, reject) => {
     const start = () => {
@@ -74,6 +113,9 @@ function loadHistoricalAgentRun(runId: string): Promise<AgentUIState> {
       completed_at: tc.completed_at,
       idempotency_key: tc.idempotency_key,
       execution_attempt: tc.execution_attempt,
+      result_detail: tc.result_detail,
+      result_data: resultDataFromTraceToolCall(tc),
+      bash_output: bashOutputFromTraceToolCall(tc),
     }));
 
     const citations: AgentCitation[] = trace.citations.map((c) => ({
