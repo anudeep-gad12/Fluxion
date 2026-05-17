@@ -18,14 +18,18 @@ Download the latest macOS release from GitHub Releases:
 Fluxion-macos-arm64.zip
 ```
 
-Unzip it, move `Fluxion.app` to `/Applications`, then run:
+If the zip is in your Downloads folder, run:
 
 ```bash
+cd ~/Downloads
+unzip -o Fluxion-macos-arm64.zip
+rm -rf /Applications/Fluxion.app
+mv Fluxion.app /Applications/
 xattr -dr com.apple.quarantine /Applications/Fluxion.app
 open /Applications/Fluxion.app
 ```
 
-Fluxion is unsigned, so right-click → Open is unreliable. The quarantine command above is the normal install path for now.
+Fluxion is unsigned, so right-click → Open is unreliable. The command path above avoids the repeated macOS prompts you can hit when moving the app manually.
 
 When launched, Fluxion starts a local service and opens the app at:
 
