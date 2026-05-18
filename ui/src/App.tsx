@@ -4,7 +4,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { Routes, Route, Navigate, useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import { ConversationList } from '@/components/ConversationList';
-import { ConversationView } from '@/components/ConversationView';
+import { ConversationView, isConversationMissing } from '@/components/ConversationView';
 import { useStore, useHasActiveRun } from '@/hooks/useStore';
 import { cn } from '@/lib/utils';
 import { PanelLeftClose, PanelLeft, GripVertical, Plus, Menu, X } from 'lucide-react';
@@ -17,17 +17,25 @@ const SIDEBAR_PREF_KEY = 'reasoner_sidebar_pref';
 // Component to sync URL params with store
 function ConversationSync() {
   const { conversationId } = useParams<{ conversationId: string }>();
+  const navigate = useNavigate();
   const selectedConversationId = useStore((s) => s.selectedConversationId);
   const selectConversation = useStore((s) => s.selectConversation);
 
   useEffect(() => {
+    if (conversationId && isConversationMissing(conversationId)) {
+      if (selectedConversationId) {
+        selectConversation(null);
+      }
+      navigate('/conversations', { replace: true });
+      return;
+    }
     // Sync URL → store when URL changes
     if (conversationId && conversationId !== selectedConversationId) {
       selectConversation(conversationId);
     } else if (!conversationId && selectedConversationId) {
       selectConversation(null);
     }
-  }, [conversationId, selectedConversationId, selectConversation]);
+  }, [conversationId, navigate, selectedConversationId, selectConversation]);
 
   return <ConversationView />;
 }
@@ -161,16 +169,16 @@ function AppLayout() {
   }, [handleMouseMove]);
 
   return (
-    <div className="h-[100dvh] flex bg-background">
+    <div className="fluxion-app-bg h-[100dvh] flex text-zinc-100">
       {/* Mobile header - only show on mobile */}
       {isMobile && (
-        <header className="ui-panel fixed top-0 left-0 right-0 z-40 flex h-14 items-center justify-between border-b border-zinc-900/90 px-4">
+        <header className="fluxion-topbar fixed top-0 left-0 right-0 z-40 flex h-14 items-center justify-between border-b px-4">
           <div className="flex items-center gap-2">
             {/* Hamburger menu - respect demo mode restrictions */}
             {(isOwner || !isDemoMode) && (
               <button
                 onClick={() => handleSidebarToggle(false)}
-                className="ui-transition -ml-2 rounded-xl p-2 hover:bg-accent/80"
+                className="ui-transition -ml-2 rounded-xl p-2 text-zinc-400 hover:bg-white/[0.055] hover:text-cyan-100"
                 aria-label="Open menu"
               >
                 <Menu className="h-6 w-6" />
@@ -195,7 +203,7 @@ function AppLayout() {
       {/* Left Sidebar - Conversation List */}
       <aside
         className={cn(
-          "ui-panel border-r border-zinc-900/90 flex flex-col flex-shrink-0 ui-transition relative",
+          "ui-panel border-r border-white/10 flex flex-col flex-shrink-0 ui-transition relative",
           // Mobile: fixed overlay drawer
           isMobile && "fixed md:static inset-y-0 left-0 z-50 w-[80vw] max-w-[320px]",
           isMobile && (sidebarCollapsed ? "-translate-x-full" : "translate-x-0"),
@@ -206,14 +214,14 @@ function AppLayout() {
         )}
         style={!isMobile && !sidebarCollapsed ? { width: sidebarWidth } : undefined}
       >
-        <div className="flex items-center justify-between border-b border-zinc-900/90 px-4 py-4">
-          <h1 className="text-lg font-bold text-zinc-100 font-mono">fluxion&gt;</h1>
+        <div className="flex items-center justify-between border-b border-white/10 px-4 py-4">
+          <h1 className="font-mono text-lg font-semibold tracking-[-0.04em] text-zinc-50">fluxion&gt;</h1>
           {/* Mobile: close button, Desktop: collapse button */}
           <Button
             variant="ghost"
             size="icon"
             onClick={() => handleSidebarToggle(true)}
-            className="h-8 w-8"
+            className="h-8 w-8 text-zinc-500"
           >
             {isMobile ? <X className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
           </Button>
@@ -225,7 +233,7 @@ function AppLayout() {
         {/* Resize handle - only show on desktop */}
         {!isMobile && (
           <div
-            className="group absolute right-0 top-0 bottom-0 w-1 cursor-col-resize ui-transition hover:bg-zinc-800"
+            className="group absolute right-0 top-0 bottom-0 w-1 cursor-col-resize ui-transition hover:bg-white/10"
             onMouseDown={handleMouseDown}
           >
             <div className="absolute right-0 top-1/2 -translate-y-1/2 opacity-0 ui-transition group-hover:opacity-100">
@@ -237,7 +245,7 @@ function AppLayout() {
 
       {/* Collapsed sidebar strip with New Chat button - hide on mobile */}
       {sidebarCollapsed && !isMobile && (
-        <div className="ui-panel flex flex-col items-center gap-2 border-r border-zinc-900/90 p-2.5">
+        <div className="ui-panel flex flex-col items-center gap-2 border-r border-white/10 p-2.5">
           {/* Expand button - only show for owners or when not in demo mode */}
           {(isOwner || !isDemoMode) && (
             <Button

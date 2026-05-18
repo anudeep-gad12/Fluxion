@@ -6,6 +6,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from orchestrator.app import app
+from orchestrator.routes import workspaces as workspace_routes
 
 
 @pytest.mark.asyncio
@@ -101,3 +102,51 @@ async def test_search_workspace_files_caps_results(tmp_path: Path):
 
     assert response.status_code == 200
     assert len(response.json()["entries"]) == 3
+
+
+@pytest.mark.asyncio
+async def test_search_workspace_files_skips_problematic_file_entries(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    (tmp_path / "good.py").write_text("print('ok')")
+    (tmp_path / "bad.py").write_text("print('bad')")
+    original_is_file = Path.is_file
+
+    def flaky_is_file(path: Path) -> bool:
+        if path.name == "bad.py":
+            raise OSError("iCloud placeholder unavailable")
+        return original_is_file(path)
+
+    monkeypatch.setattr(Path, "is_file", flaky_is_file)
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.get(
+            "/api/workspaces/search-files",
+            params={"workspace_path": str(tmp_path), "q": ".py"},
+        )
+
+    assert response.status_code == 200
+    assert [entry["path"] for entry in response.json()["entries"]] == ["good.py"]
+
+
+@pytest.mark.asyncio
+async def test_search_workspace_files_returns_best_effort_when_walk_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    def failing_walk(*args, **kwargs):
+        raise OSError("directory unavailable")
+
+    monkeypatch.setattr(workspace_routes.os, "walk", failing_walk)
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.get(
+            "/api/workspaces/search-files",
+            params={"workspace_path": str(tmp_path), "q": ""},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["entries"] == []

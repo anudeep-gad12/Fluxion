@@ -62,11 +62,11 @@ function ConversationCard({
   return (
     <div
       className={cn(
-        'ui-transition cursor-pointer rounded-[0.9rem] border border-zinc-800/90 bg-zinc-950/66 px-3.5 py-3.5',
+        'ui-transition cursor-pointer rounded-[1rem] border border-white/10 bg-white/[0.025] px-3.5 py-3.5',
         'min-h-[60px] sm:min-h-0',
-        isSelected && 'border-cyan-500/35 bg-zinc-950/98 ring-1 ring-cyan-500/10',
-        !isSelected && 'hover:border-zinc-700/95 hover:bg-zinc-950/82',
-        isChecked && 'border-zinc-600/95 bg-zinc-950/90'
+        isSelected && 'border-cyan-300/30 bg-cyan-300/[0.055] ring-1 ring-cyan-300/10',
+        !isSelected && 'hover:border-white/16 hover:bg-white/[0.045]',
+        isChecked && 'border-white/18 bg-white/[0.055]'
       )}
       onClick={isSelectMode ? onToggleCheck : onClick}
     >
@@ -135,7 +135,7 @@ function WorkspaceSection({
             onToggle();
           }
         }}
-        className="ui-transition group ui-panel block w-full rounded-[1rem] border border-zinc-800/90 px-3.5 py-3.5 text-left hover:border-cyan-500/25"
+        className="ui-transition group fluxion-card block w-full rounded-[1.15rem] border px-3.5 py-3.5 text-left hover:border-cyan-300/24 hover:bg-white/[0.045]"
       >
         <div className="flex items-start gap-3.5">
           <button
@@ -145,7 +145,7 @@ function WorkspaceSection({
               onToggle();
             }}
             onMouseDown={(event) => event.stopPropagation()}
-            className="ui-transition mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl border border-zinc-800 bg-zinc-950/95 text-zinc-400 hover:border-cyan-500/30 hover:text-cyan-100"
+            className="ui-transition mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl border border-white/10 bg-black/20 text-zinc-400 hover:border-cyan-300/28 hover:bg-cyan-300/[0.055] hover:text-cyan-100"
             title={isOpen ? 'Collapse workspace' : 'Expand workspace'}
           >
             {isOpen ? (
@@ -177,7 +177,7 @@ function WorkspaceSection({
                 </div>
               </div>
               <div className="flex flex-shrink-0 items-center gap-2 pt-0.5">
-                <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full border border-zinc-800 bg-zinc-950/95 px-1.5 text-[10px] text-zinc-400">
+                <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full border border-white/10 bg-white/[0.035] px-1.5 text-[10px] text-zinc-400">
                   {group.conversations.length}
                 </span>
                 {!group.isGeneral && (
@@ -414,9 +414,9 @@ export function ConversationList() {
 
   return (
     <div className="h-full flex flex-col">
-      <div className="border-b border-zinc-900 px-3 py-3 sm:px-4">
+      <div className="border-b border-white/10 px-3 py-3 sm:px-4">
         <div className="flex items-center justify-between gap-3">
-          <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-zinc-300">
+          <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-400">
             Workspaces
           </div>
           <div className="flex items-center gap-1">
@@ -425,7 +425,7 @@ export function ConversationList() {
               variant="ghost"
               onClick={() => setAllWorkspaceSections(!allWorkspaceSectionsOpen)}
               disabled={workspaceGroups.length === 0}
-              className="h-9 w-9 rounded-lg p-0 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
+              className="h-9 w-9 rounded-lg p-0 text-zinc-400 hover:bg-white/[0.055] hover:text-zinc-100"
               title={allWorkspaceSectionsOpen ? 'Collapse all' : 'Expand all'}
             >
               {allWorkspaceSectionsOpen ? (
@@ -439,7 +439,7 @@ export function ConversationList() {
               variant="ghost"
               onClick={() => setWorkspacePickerOpen(true)}
               disabled={hasActiveRun}
-              className="h-9 w-9 rounded-lg p-0 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100"
+              className="h-9 w-9 rounded-lg p-0 text-zinc-300 hover:bg-white/[0.055] hover:text-zinc-100"
               title="Create workspace"
             >
               <Plus className="h-4 w-4" />
@@ -460,7 +460,7 @@ export function ConversationList() {
                   }
                 }}
                 title={selectedIds.size === conversations.length ? 'Deselect all' : 'Select all'}
-                className="h-9 rounded-lg px-2 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100 sm:h-8"
+                className="h-9 rounded-lg px-2 text-zinc-300 hover:bg-white/[0.055] hover:text-zinc-100 sm:h-8"
               >
                 {selectedIds.size === conversations.length ? 'None' : 'All'}
               </Button>
@@ -479,7 +479,7 @@ export function ConversationList() {
       </div>
 
       {isSelectMode && selectedIds.size > 0 && (
-        <div className="flex items-center justify-between border-b border-zinc-600 bg-zinc-950/92 px-3 py-2 sm:px-4">
+        <div className="flex items-center justify-between border-b border-white/10 bg-white/[0.035] px-3 py-2 sm:px-4">
           <span className="text-sm text-zinc-300">{selectedIds.size} selected</span>
           <Button
             size="sm"
@@ -493,11 +493,11 @@ export function ConversationList() {
         </div>
       )}
 
-      <div className="flex-1 space-y-4 overflow-y-auto bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.03),_transparent_40%)] p-3 sm:p-4">
+      <div className="flex-1 space-y-4 overflow-y-auto bg-[radial-gradient(circle_at_top,_rgba(121,230,255,0.045),_transparent_38%)] p-3 sm:p-4">
         {isLoading && conversations.length === 0 ? (
           <div className="text-sm text-muted-foreground">Loading conversations...</div>
         ) : workspaceGroups.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-zinc-600 bg-zinc-950/70 px-4 py-6 text-sm text-zinc-300">
+          <div className="rounded-[1rem] border border-dashed border-white/14 bg-white/[0.025] px-4 py-6 text-sm text-zinc-300">
             No workspaces yet.
           </div>
         ) : (

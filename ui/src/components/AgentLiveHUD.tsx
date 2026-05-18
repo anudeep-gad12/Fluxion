@@ -134,7 +134,7 @@ export const AgentLiveHUD = memo(function AgentLiveHUD({
 
   return (
     <div className="flex-shrink-0 px-3 pb-2 sm:px-4 md:px-6">
-      <div className="ui-panel ui-elevated animate-in fade-in slide-in-from-bottom-2 duration-200 rounded-[1.2rem] border border-cyan-500/18 px-3.5 py-3 font-mono text-xs">
+      <div className="fluxion-card-strong animate-in fade-in slide-in-from-bottom-2 duration-200 rounded-[1.25rem] border px-3.5 py-3 font-mono text-xs">
         {pendingApproval ? (
           <div className="space-y-3">
             <div className="flex flex-wrap items-start justify-between gap-3">
@@ -174,7 +174,7 @@ export const AgentLiveHUD = memo(function AgentLiveHUD({
               </pre>
             ) : null}
 
-            <div className="flex flex-wrap items-center gap-2 border-t border-zinc-900/90 pt-3">
+            <div className="flex flex-wrap items-center gap-2 border-t border-white/10 pt-3">
               <button
                 type="button"
                 onClick={() => decide('approve')}
@@ -223,7 +223,7 @@ export const AgentLiveHUD = memo(function AgentLiveHUD({
               </div>
             </div>
 
-            <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-zinc-900/90 pt-3">
+            <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-white/10 pt-3">
               <MetricPill label="ctx" value={currentContextPct} caution={phase.isContextWarning} />
               <MetricPill label="compact" value={String(compactionCount)} caution={phase.isCompactionWarning} />
               <MetricPill label="elapsed" value={<ElapsedClock startedAt={startedAt} />} />

@@ -118,7 +118,7 @@ export function WorkspacePickerDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange} className="max-w-3xl">
       <DialogHeader>
-        <DialogTitle className="font-mono text-sm text-zinc-100">Choose workspace</DialogTitle>
+        <DialogTitle>Choose workspace</DialogTitle>
         <DialogDescription className="font-mono text-[12px] leading-6 text-zinc-500">
           Browse to the repo root. Enter opens a folder. Cmd/Ctrl+Enter selects the current path.
         </DialogDescription>
@@ -211,8 +211,8 @@ export function WorkspacePickerDialog({
                   className={cn(
                     'ui-transition block w-full rounded-[0.95rem] px-3 py-2.5 text-left outline-none',
                     activeIndex === index
-                      ? 'border border-cyan-500/28 bg-cyan-500/[0.10] text-zinc-50'
-                      : 'border border-transparent text-zinc-300 hover:border-zinc-800/80 hover:bg-zinc-900/75 hover:text-cyan-100',
+                      ? 'border border-cyan-300/28 bg-cyan-300/[0.08] text-zinc-50'
+                      : 'border border-transparent text-zinc-300 hover:border-white/10 hover:bg-white/[0.045] hover:text-cyan-100',
                     entry.hidden ? 'text-zinc-500' : '',
                   )}
                 >

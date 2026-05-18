@@ -48,6 +48,22 @@ port_listening() {
     lsof -nP -iTCP:"$1" -sTCP:LISTEN > /dev/null 2>&1
 }
 
+stop_packaged_service() {
+    # A locally installed Fluxion.app also owns port 9000 through a KeepAlive
+    # LaunchAgent. Source dev must unload it first, otherwise browser requests
+    # to 127.0.0.1:9000 can hit the packaged server instead of this checkout.
+    if [ "$(uname -s)" != "Darwin" ]; then
+        return
+    fi
+
+    local label="io.fluxion.local"
+    local domain="gui/$(id -u)"
+    if launchctl print "$domain/$label" > /dev/null 2>&1; then
+        launchctl bootout "$domain/$label" > /dev/null 2>&1 || true
+        log "Stopped installed Fluxion.app service for source dev"
+    fi
+}
+
 wait_for_port() {
     local port=$1
     local timeout=${2:-10}
@@ -115,6 +131,7 @@ kill_port() {
 # Start the API server
 start_api() {
     log "Starting API server on port $API_PORT..."
+    stop_packaged_service
     kill_port "$API_PORT"
     cd "$PROJECT_DIR"
 

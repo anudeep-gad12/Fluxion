@@ -181,7 +181,10 @@ export async function listConversations(
 }
 
 export async function getConversation(conversationId: string): Promise<ConversationDetailResponse> {
-  return withRetry(() => fetchJson(`${API_BASE}/conversations/${conversationId}`));
+  // Do not retry 404s here. Deleted/stale conversation URLs need to clear
+  // immediately so workspace drafts and @ file mentions keep using the current
+  // workspace instead of staying locked to a missing conversation.
+  return fetchJson(`${API_BASE}/conversations/${conversationId}`);
 }
 
 export interface ConversationTraceEvent extends TraceEvent {
@@ -699,7 +702,18 @@ export async function searchWorkspaceFiles(
   params.set('workspace_path', workspacePath);
   params.set('q', query);
   params.set('limit', String(limit));
-  return fetchJson<WorkspaceFileSearchResponse>(`${API_BASE}/workspaces/search-files?${params}`);
+  const queryString = params.toString();
+  try {
+    return await fetchJson<WorkspaceFileSearchResponse>(`${API_BASE}/workspaces/search-files?${queryString}`);
+  } catch (error) {
+    // Safari/localhost can occasionally fail absolute localhost:9000 requests
+    // while the Vite same-origin proxy still works. @ file mentions should not
+    // break on that transport detail.
+    if (API_BASE !== API_PATH && !(error instanceof ApiError && error.status > 0)) {
+      return fetchJson<WorkspaceFileSearchResponse>(`${API_PATH}/workspaces/search-files?${queryString}`);
+    }
+    throw error;
+  }
 }
 
 export async function getTerminalSession(

@@ -20,7 +20,7 @@ export function Dialog({ open, onOpenChange, children, className }: DialogProps)
                 onClick={() => onOpenChange(false)}
             />
             {/* Content - relative z-10 to sit above backdrop */}
-            <div className={cn("ui-panel ui-elevated relative z-10 w-full max-w-md overflow-hidden rounded-[1.4rem] border border-border/90 mx-4 animate-in fade-in zoom-in-95 duration-200", className)}>
+            <div className={cn("ui-panel-strong ui-elevated relative z-10 mx-4 w-full max-w-md overflow-hidden rounded-[1.55rem] border border-white/10 animate-in fade-in zoom-in-95 duration-200", className)}>
                 {children}
             </div>
         </div>
@@ -49,7 +49,7 @@ export function DialogTitle({
     className?: string;
 }) {
     return (
-        <h2 className={cn("text-base font-semibold tracking-[0.01em] text-zinc-100", className)}>
+        <h2 className={cn("text-base font-bold tracking-[-0.035em] text-zinc-50", className)}>
             {children}
         </h2>
     );
@@ -63,7 +63,7 @@ export function DialogDescription({
     className?: string;
 }) {
     return (
-        <p className={cn("mt-1 text-sm leading-6 text-muted-foreground", className)}>
+        <p className={cn("mt-1.5 text-sm leading-6 text-zinc-500", className)}>
             {children}
         </p>
     );

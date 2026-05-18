@@ -31,8 +31,8 @@ const STATUS_STYLES: Record<string, string> = {
   running: 'border-emerald-500/20 bg-emerald-500/[0.08] text-emerald-300',
   stale: 'border-amber-500/20 bg-amber-500/[0.08] text-amber-300',
   error: 'border-red-500/20 bg-red-500/[0.08] text-red-300',
-  idle: 'border-zinc-800/90 bg-zinc-950/90 text-zinc-400',
-  closed: 'border-zinc-800/90 bg-zinc-950/90 text-zinc-400',
+  idle: 'border-white/10 bg-white/[0.035] text-zinc-400',
+  closed: 'border-white/10 bg-white/[0.035] text-zinc-400',
 };
 
 export function IntegratedTerminal({
@@ -150,9 +150,9 @@ export function IntegratedTerminal({
       fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
       fontSize: 12,
       theme: {
-        background: '#09090b',
+        background: '#07080a',
         foreground: '#e4e4e7',
-        cursor: '#fafafa',
+        cursor: '#f5f7fb',
       },
       scrollback: 5000,
     });
@@ -373,14 +373,14 @@ export function IntegratedTerminal({
   return (
     <div
       className={cn(
-        'flex min-h-0 flex-shrink-0 overflow-hidden bg-black/96',
-        isRightDock ? 'h-full border-l border-zinc-900/90' : 'flex-col border-t border-zinc-900/90'
+        'fluxion-card-strong flex min-h-0 flex-shrink-0 overflow-hidden bg-black/96',
+        isRightDock ? 'h-full border-l border-white/10' : 'flex-col border-t border-white/10'
       )}
       style={isRightDock ? { width: terminalState.width } : { height: terminalState.height }}
     >
       {isRightDock && (
         <div
-          className="ui-transition relative h-full w-3 cursor-col-resize border-r border-zinc-900/90 bg-zinc-950 hover:bg-zinc-900"
+          className="ui-transition relative h-full w-3 cursor-col-resize border-r border-white/10 bg-black/35 hover:bg-white/[0.055]"
           onMouseDown={handleHorizontalResize}
         >
           <span className="absolute left-1/2 top-1/2 h-16 w-px -translate-x-1/2 -translate-y-1/2 bg-zinc-700/80" />
@@ -389,28 +389,28 @@ export function IntegratedTerminal({
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {!isRightDock && (
           <div
-            className="ui-transition h-2 cursor-row-resize bg-zinc-950 hover:bg-zinc-900"
+            className="ui-transition h-2 cursor-row-resize bg-black/35 hover:bg-white/[0.055]"
             onMouseDown={handleVerticalResize}
           />
         )}
-        <div className="border-b border-zinc-900/90 bg-zinc-950 px-3 py-2.5 font-mono text-xs">
+        <div className="border-b border-white/10 bg-black/30 px-3 py-2.5 font-mono text-xs">
           <div className="flex flex-col gap-2">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0 flex-1 space-y-1.5">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="rounded-full border border-zinc-800/90 bg-zinc-950 px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-zinc-300">
+                  <span className="rounded-full border border-white/10 bg-white/[0.035] px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-zinc-300">
                     terminal
                   </span>
                   <span className={cn('rounded-full px-2 py-0.5 text-[10px] uppercase tracking-[0.16em]', statusClassName)}>
                     {terminalState.status}
                   </span>
-                  <div className="flex overflow-hidden rounded-full border border-zinc-800/90 bg-zinc-950/95">
+                  <div className="flex overflow-hidden rounded-full border border-white/10 bg-white/[0.025]">
                     <button
                       onClick={() => handleDockToggle('bottom')}
                       className={cn(
                         'ui-transition px-2 py-0.5 text-[10px] uppercase tracking-[0.16em]',
                         terminalState.dock === 'bottom'
-                          ? 'bg-cyan-500/[0.08] text-cyan-100'
+                          ? 'bg-cyan-300/[0.08] text-cyan-100'
                           : 'text-zinc-500 hover:text-zinc-200'
                       )}
                       type="button"
@@ -420,9 +420,9 @@ export function IntegratedTerminal({
                     <button
                       onClick={() => handleDockToggle('right')}
                       className={cn(
-                        'ui-transition border-l border-zinc-800/90 px-2 py-0.5 text-[10px] uppercase tracking-[0.16em]',
+                        'ui-transition border-l border-white/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.16em]',
                         terminalState.dock === 'right'
-                          ? 'bg-cyan-500/[0.08] text-cyan-100'
+                          ? 'bg-cyan-300/[0.08] text-cyan-100'
                           : 'text-zinc-500 hover:text-zinc-200'
                       )}
                       type="button"
@@ -469,7 +469,7 @@ export function IntegratedTerminal({
             </div>
           )}
         </div>
-        <div className="min-h-0 min-w-0 flex-1 bg-black">
+        <div className="min-h-0 min-w-0 flex-1 bg-[#07080a]">
           <div
             ref={containerRef}
             className="h-full min-w-0 w-full px-3 py-2"
