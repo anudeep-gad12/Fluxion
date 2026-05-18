@@ -402,7 +402,7 @@ function ModelPicker({
       className="max-h-[90vh] max-w-6xl"
     >
       <DialogHeader>
-        <DialogTitle className="font-mono text-sm text-zinc-100">Select model</DialogTitle>
+        <DialogTitle>Select model</DialogTitle>
       </DialogHeader>
       <DialogContent className="space-y-4 overflow-hidden">
         {error && (
@@ -414,7 +414,7 @@ function ModelPicker({
           )}
           {registryProviders.map(([providerName, info]) => (
                 <section key={providerName} className="premium-panel overflow-hidden">
-                  <div className="flex items-center justify-between border-b border-zinc-800/80 px-4 py-3">
+                  <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
                     <div>
                       <p className="premium-section-label">{providerName}</p>
                       <p className="mt-1 text-[12px] text-zinc-500">{info.models.length} cloud preset{info.models.length !== 1 ? 's' : ''}</p>
@@ -435,14 +435,14 @@ function ModelPicker({
                           className={cn(
                             'ui-transition mb-1 block w-full rounded-[1rem] border px-4 py-3 text-left last:mb-0',
                             isActive
-                              ? 'border-cyan-500/28 bg-cyan-500/[0.10] text-zinc-50'
-                              : 'border-transparent bg-transparent text-zinc-300 hover:border-zinc-800/80 hover:bg-zinc-900/75 hover:text-cyan-100',
+                              ? 'border-cyan-300/30 bg-cyan-300/[0.075] text-zinc-50'
+                              : 'border-transparent bg-transparent text-zinc-300 hover:border-white/10 hover:bg-white/[0.045] hover:text-cyan-100',
                             isBusy && 'opacity-60',
                           )}
                         >
                           <div className="flex items-start justify-between gap-4">
                             <div className="min-w-0">
-                              <div className="truncate text-[13px] font-medium text-inherit">{model.display_name}</div>
+                              <div className="truncate text-[13px] font-semibold tracking-[-0.02em] text-inherit">{model.display_name}</div>
                               <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-zinc-500">
                                 <span>{Math.round(model.context_window / 1024)}k ctx</span>
                                 {model.supports_vision && <span>vision</span>}
@@ -452,7 +452,7 @@ function ModelPicker({
                               </div>
                             </div>
                             {isActive && (
-                              <span className="rounded-full border border-cyan-500/26 bg-cyan-500/[0.12] px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-cyan-100">
+                              <span className="rounded-full border border-cyan-300/26 bg-cyan-300/[0.10] px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-cyan-100">
                                 active
                               </span>
                             )}
@@ -466,7 +466,7 @@ function ModelPicker({
 
               {providerSections.map((section) => (
                 <section key={section.key} className="premium-panel overflow-hidden">
-                  <div className="border-b border-zinc-800/80 px-4 py-3">
+                  <div className="border-b border-white/10 px-4 py-3">
                     <p className="premium-section-label">{section.label}</p>
                     <p className="mt-1 text-[12px] text-zinc-500">{section.models.length} local runtime{section.models.length !== 1 ? 's' : ''}</p>
                   </div>
@@ -486,18 +486,18 @@ function ModelPicker({
                           className={cn(
                             'ui-transition mb-1 block w-full rounded-[1rem] border px-4 py-3 text-left last:mb-0',
                             isActive
-                              ? 'border-cyan-500/28 bg-cyan-500/[0.10] text-zinc-50'
-                              : 'border-transparent text-zinc-300 hover:border-zinc-800/80 hover:bg-zinc-900/75 hover:text-cyan-100',
+                              ? 'border-cyan-300/30 bg-cyan-300/[0.075] text-zinc-50'
+                              : 'border-transparent text-zinc-300 hover:border-white/10 hover:bg-white/[0.045] hover:text-cyan-100',
                             isBusy && 'opacity-60',
                           )}
                         >
                           <div className="flex items-start justify-between gap-4">
                             <div className="min-w-0">
-                              <div className="truncate text-[13px] font-medium text-inherit">{model.name}</div>
+                              <div className="truncate text-[13px] font-semibold tracking-[-0.02em] text-inherit">{model.name}</div>
                               <div className="mt-1 text-[11px] text-zinc-500">{model.size_display}</div>
                             </div>
                             {isActive && (
-                              <span className="rounded-full border border-cyan-500/26 bg-cyan-500/[0.12] px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-cyan-100">
+                              <span className="rounded-full border border-cyan-300/26 bg-cyan-300/[0.10] px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-cyan-100">
                                 active
                               </span>
                             )}
@@ -510,7 +510,7 @@ function ModelPicker({
               ))}
 
           <section className="premium-panel overflow-hidden">
-                <div className="border-b border-zinc-800/80 px-4 py-3">
+                <div className="border-b border-white/10 px-4 py-3">
                   <p className="premium-section-label">provider api keys</p>
                   <p className="mt-1 text-[12px] text-zinc-500">Persisted for cloud providers and loaded into runtime on startup.</p>
                 </div>
@@ -520,14 +520,14 @@ function ModelPicker({
                     return (
                       <div
                         key={providerKey.provider}
-                        className="rounded-[1rem] border border-zinc-800/85 bg-zinc-950/72 px-3.5 py-3"
+                        className="rounded-[1rem] border border-white/10 bg-white/[0.025] px-3.5 py-3"
                       >
                         <div className="mb-3 flex items-start justify-between gap-3 text-[11px] font-mono">
                           <div className="min-w-0">
                             <div className="uppercase text-zinc-300">{providerKey.provider}</div>
                             <div className="mt-1 truncate text-zinc-500">{providerKey.api_key_env}</div>
                           </div>
-                          <div className="shrink-0 rounded-full border border-zinc-800/90 bg-zinc-900/85 px-2.5 py-1 text-[10px] uppercase tracking-[0.16em] text-zinc-400">
+                          <div className="shrink-0 rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[10px] uppercase tracking-[0.16em] text-zinc-400">
                             {providerKey.has_key ? `saved · ${providerKey.source}` : 'not set'}
                           </div>
                         </div>
@@ -617,7 +617,7 @@ function ReasoningSettingsDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange} className="max-w-3xl">
       <DialogHeader>
-        <DialogTitle className="font-mono text-sm text-zinc-100">Reasoning settings</DialogTitle>
+        <DialogTitle>Reasoning settings</DialogTitle>
       </DialogHeader>
       <DialogContent className="space-y-4">
         {!draft || !capabilities ? (
@@ -819,6 +819,15 @@ function ReasoningSettingsDialog({
 
 // Empty string constant to avoid creating new references
 const EMPTY_STRING = '';
+const missingConversationIds = new Set<string>();
+
+export function markConversationMissing(conversationId: string) {
+  missingConversationIds.add(conversationId);
+}
+
+export function isConversationMissing(conversationId: string): boolean {
+  return missingConversationIds.has(conversationId);
+}
 
 const RunMessage = memo(function RunMessage({
   run,
@@ -851,7 +860,7 @@ const RunMessage = memo(function RunMessage({
           <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-zinc-500">you</span>
         </div>
         <div className="min-w-0 flex-1">
-          <div className="ui-panel rounded-[1.55rem] border border-zinc-800/90 px-6 py-5 shadow-[0_18px_38px_rgba(0,0,0,0.16),inset_0_1px_0_rgba(255,255,255,0.025)]">
+          <div className="fluxion-card rounded-[1.35rem] border px-6 py-5">
             <span className="whitespace-pre-wrap text-[14px] leading-[1.9] text-zinc-50">
               {run.user_message || run.prompt}
             </span>
@@ -867,7 +876,7 @@ const RunMessage = memo(function RunMessage({
           <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-zinc-500">reply</span>
         </div>
         <div className="min-w-0 flex-1">
-          <div className="rounded-[1.55rem] border border-zinc-800/85 bg-zinc-950/78 px-6 py-5 shadow-[0_24px_44px_rgba(0,0,0,0.18),inset_0_1px_0_rgba(255,255,255,0.02)]">
+          <div className="fluxion-card-strong rounded-[1.35rem] border px-6 py-5">
             <ThinkingPanel
               summary={run.thinking_summary}
               isStreaming={isThinking}
@@ -950,12 +959,14 @@ function extractActiveMention(value: string, cursor: number): { start: number; e
 function MentionPicker({
   open,
   loading,
+  error,
   entries,
   selectedIndex,
   onSelect,
 }: {
   open: boolean;
   loading: boolean;
+  error: string | null;
   entries: WorkspaceFileEntry[];
   selectedIndex: number;
   onSelect: (entry: WorkspaceFileEntry) => void;
@@ -971,9 +982,11 @@ function MentionPicker({
   if (!open) return null;
 
   return (
-    <div className="ui-panel ui-elevated absolute left-0 right-0 bottom-full z-20 mb-2 max-h-64 overflow-y-auto rounded-[1rem] border border-zinc-800/95">
+    <div className="ui-panel-strong ui-elevated absolute left-0 right-0 bottom-full z-50 mb-2 max-h-64 overflow-y-auto rounded-[1rem] border border-white/10">
       {loading ? (
         <div className="px-3 py-2 text-[11px] font-mono text-zinc-300">searching files...</div>
+      ) : error ? (
+        <div className="px-3 py-2 text-[11px] font-mono text-red-300">{error}</div>
       ) : entries.length === 0 ? (
         <div className="px-3 py-2 text-[11px] font-mono text-zinc-500">no matching files</div>
       ) : (
@@ -991,8 +1004,8 @@ function MentionPicker({
             className={cn(
               "ui-transition block w-full px-3 py-2.5 text-left font-mono text-[11px]",
               index === selectedIndex
-                ? "bg-cyan-500/[0.10] text-zinc-50"
-                : "text-zinc-300 hover:bg-cyan-500/[0.08] hover:text-cyan-100"
+                ? "bg-cyan-300/[0.08] text-zinc-50"
+                : "text-zinc-300 hover:bg-white/[0.045] hover:text-cyan-100"
             )}
           >
             <div className="truncate">{entry.path}</div>
@@ -1020,7 +1033,7 @@ function EmptyStatePulse({
   const model = modelStatus?.model_name || 'model';
 
   return (
-    <div className="w-full max-w-xl space-y-6 font-mono text-center">
+    <div className="w-full max-w-xl space-y-6 text-center">
       <div className="relative mx-auto h-20 w-80 max-w-full overflow-hidden opacity-80">
         <svg
           viewBox="0 0 320 80"
@@ -1044,18 +1057,18 @@ function EmptyStatePulse({
         <div className="fluxion-trace absolute left-0 top-0 h-full w-28 bg-gradient-to-r from-transparent via-zinc-500/20 to-transparent" />
       </div>
 
-      <div className="grid grid-cols-3 gap-px overflow-hidden rounded-[1.2rem] border border-zinc-800/95 bg-zinc-900/90 text-left">
-        <div className="bg-background px-3 py-3">
+      <div className="grid grid-cols-3 gap-px overflow-hidden rounded-[1.2rem] border border-white/10 bg-white/10 text-left">
+        <div className="bg-black/35 px-3 py-3">
           <div className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">mode</div>
           <div className="truncate pt-1 text-[12px] text-zinc-200">{mode}</div>
         </div>
-        <div className="bg-background px-3 py-3">
+        <div className="bg-black/35 px-3 py-3">
           <div className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">workspace</div>
           <div className={cn("truncate pt-1 text-[12px]", workspacePath.trim() ? "text-zinc-200" : "text-zinc-400")}>
             {workspaceName}
           </div>
         </div>
-        <div className="bg-background px-3 py-3">
+        <div className="bg-black/35 px-3 py-3">
           <div className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">{provider}</div>
           <div className="truncate pt-1 text-[12px] text-zinc-200">{model}</div>
         </div>
@@ -1147,6 +1160,7 @@ export function ConversationView() {
   const [mentionResults, setMentionResults] = useState<WorkspaceFileEntry[]>([]);
   const [mentionOpen, setMentionOpen] = useState(false);
   const [mentionLoading, setMentionLoading] = useState(false);
+  const [mentionError, setMentionError] = useState<string | null>(null);
   const [mentionSelectedIndex, setMentionSelectedIndex] = useState(0);
   const [activeMention, setActiveMention] = useState<{ start: number; end: number; query: string } | null>(null);
   const [permissionPolicy, setPermissionPolicy] = useState<'strict' | 'relaxed' | 'yolo'>(
@@ -1194,6 +1208,7 @@ export function ConversationView() {
     setActiveMention(null);
     setMentionOpen(false);
     setMentionLoading(false);
+    setMentionError(null);
     setMentionResults([]);
     setMentionSelectedIndex(0);
   }, []);
@@ -1317,7 +1332,7 @@ export function ConversationView() {
   );
   const lockedWorkspacePath = (conversation?.workspace_path || '').trim();
   const hasConversationWorkspace = lockedWorkspacePath.length > 0;
-  const isWorkspaceLocked = selectedConversationId !== null;
+  const isWorkspaceLocked = selectedConversationId !== null && !!conversation;
   const effectiveWorkspacePath = isWorkspaceLocked ? lockedWorkspacePath : draftWorkspacePath.trim();
   const anyDialogOpen = (
     workspacePickerOpen
@@ -1512,14 +1527,22 @@ export function ConversationView() {
             }
           }
         }
-      } catch (error) {
-        // Conversation might not exist (deleted) - silently ignore
+      } catch (error: unknown) {
+        // Conversation might not exist anymore after deletes or stale URLs.
+        // Clear the stale selected id so draft workspace state keeps working,
+        // including @ file mentions in the composer.
         console.error('Failed to load conversation:', error);
+        if ((error as { status?: number })?.status === 404) {
+          markConversationMissing(selectedConversationId!);
+          selectConversation(null);
+          setRuns(selectedConversationId!, []);
+          navigate('/conversations', { replace: true });
+        }
       }
     }
 
     loadConversation();
-  }, [selectedConversationId, setRuns, updateConversation, subscribe, subscribeAgent]);
+  }, [navigate, selectConversation, selectedConversationId, setRuns, updateConversation, subscribe, subscribeAgent]);
 
   // Scroll on new runs
   useEffect(() => {
@@ -1975,6 +1998,7 @@ export function ConversationView() {
     const nextCursor = mention.start + entry.path.length;
     setMessage(nextMessage);
     setMentionOpen(false);
+    setMentionError(null);
     setMentionResults([]);
     setActiveMention(null);
     requestAnimationFrame(() => {
@@ -1990,19 +2014,38 @@ export function ConversationView() {
     if (mode !== 'agent' || !effectiveWorkspacePath) {
       setActiveMention(null);
       setMentionOpen(false);
+      setMentionError(null);
       return;
     }
     const mention = extractActiveMention(value, selectionStart ?? value.length);
+    const mentionChanged = Boolean(
+      mention
+      && (
+        !activeMention
+        || mention.query !== activeMention.query
+        || mention.start !== activeMention.start
+        || mention.end !== activeMention.end
+      )
+    );
     setActiveMention((prev) => {
       if (!mention && !prev) return prev;
       if (!mention || !prev) return mention;
-      if (mention.query === prev.query && mention.start === prev.start) return prev;
+      if (mention.query === prev.query && mention.start === prev.start && mention.end === prev.end) return prev;
       return mention;
     });
     if (!mention) {
       setMentionOpen(false);
+      setMentionLoading(false);
+      setMentionError(null);
+      return;
     }
-  }, [effectiveWorkspacePath, mode]);
+    setMentionOpen(true);
+    if (mentionChanged) {
+      setMentionSelectedIndex(0);
+      setMentionLoading(true);
+      setMentionError(null);
+    }
+  }, [activeMention, effectiveWorkspacePath, mode]);
 
   const handleMessageChange = useCallback((e: ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value;
@@ -2446,12 +2489,14 @@ export function ConversationView() {
           if (cancelled) return;
           setMentionResults(response.entries);
           setMentionSelectedIndex(0);
+          setMentionError(null);
           setMentionOpen(true);
         })
-        .catch(() => {
+        .catch((error: unknown) => {
           if (cancelled) return;
           setMentionResults([]);
-          setMentionOpen(false);
+          setMentionError((error as { message?: string })?.message || 'file search failed');
+          setMentionOpen(true);
         })
         .finally(() => {
           if (!cancelled) {
@@ -2543,7 +2588,7 @@ export function ConversationView() {
     return (
       <div className="h-full flex flex-col">
         {/* Status bar */}
-        <div className="ui-panel border-b border-zinc-900/90 px-3 py-2.5 sm:px-4 flex items-center justify-between font-mono text-[11px]">
+        <div className="fluxion-topbar border-b px-3 py-2.5 sm:px-4 flex items-center justify-between font-mono text-[11px]">
           <div className="flex items-center gap-3">
             <button
               type="button"
@@ -2618,7 +2663,7 @@ export function ConversationView() {
         </div>
         <div className="flex-shrink-0 space-y-3 p-3 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-4 sm:pb-[max(1rem,env(safe-area-inset-bottom))]">
           {/* Prompt area */}
-          <div className="ui-panel ui-transition relative overflow-visible rounded-[1.1rem] border border-zinc-800/90 px-1 focus-within:border-cyan-500/30 focus-within:ring-1 focus-within:ring-cyan-500/10">
+          <div className="fluxion-composer ui-transition relative z-30 overflow-visible rounded-[1.2rem] border px-1">
             <div className="flex items-start gap-3 p-4">
               <span className="mt-0.5 select-none font-mono text-sm text-cyan-200/80">&gt;</span>
               <textarea
@@ -2639,6 +2684,7 @@ export function ConversationView() {
             <MentionPicker
               open={mentionOpen}
               loading={mentionLoading}
+              error={mentionError}
               entries={mentionResults}
               selectedIndex={mentionSelectedIndex}
               onSelect={handleMentionSelect}
@@ -2774,7 +2820,7 @@ export function ConversationView() {
 
   return (
     <div className="h-full flex flex-col">
-      <div className="ui-panel flex items-center justify-between border-b border-zinc-900/90 px-3 py-2.5 font-mono text-[11px] sm:px-4 md:px-6">
+        <div className="fluxion-topbar flex items-center justify-between border-b px-3 py-2.5 font-mono text-[11px] sm:px-4 md:px-6">
         <div className="flex items-center gap-3 truncate mr-4">
           <button
             type="button"
@@ -2895,7 +2941,7 @@ export function ConversationView() {
               </div>
             )}
             {/* Prompt area */}
-            <div className="ui-panel ui-transition relative overflow-visible rounded-[1.1rem] border border-zinc-800/90 px-1 focus-within:border-cyan-500/30 focus-within:ring-1 focus-within:ring-cyan-500/10">
+            <div className="fluxion-composer ui-transition relative z-30 overflow-visible rounded-[1.2rem] border px-1">
               <div className="flex items-start gap-3 p-4">
                 <span className="mt-0.5 select-none font-mono text-sm text-cyan-200/80">&gt;</span>
                 <textarea
@@ -2916,6 +2962,7 @@ export function ConversationView() {
               <MentionPicker
                 open={mentionOpen}
                 loading={mentionLoading}
+                error={mentionError}
                 entries={mentionResults}
                 selectedIndex={mentionSelectedIndex}
                 onSelect={handleMentionSelect}

@@ -121,10 +121,10 @@ function DiffBlock({ diff }: { diff: string }) {
   const { beforeLabel, afterLabel, rows } = parseUnifiedDiff(diff);
 
   return (
-    <div className="max-h-96 overflow-auto border-l border-zinc-800/90 pl-3 font-mono text-xs">
-      <div className="sticky top-0 z-10 grid grid-cols-2 border-b border-zinc-900/90 bg-[rgba(10,10,12,0.96)] text-zinc-500">
-        <div className="truncate border-r border-zinc-900/90 px-2 py-1">{beforeLabel}</div>
-        <div className="truncate px-2 py-1">{afterLabel}</div>
+    <div className="max-h-96 overflow-auto rounded-[1rem] border border-white/10 bg-black/25 font-mono text-xs">
+      <div className="sticky top-0 z-10 grid grid-cols-2 border-b border-white/10 bg-[rgba(7,8,10,0.96)] text-zinc-500">
+        <div className="truncate border-r border-white/10 px-2.5 py-1.5">{beforeLabel}</div>
+        <div className="truncate px-2.5 py-1.5">{afterLabel}</div>
       </div>
       <div>
         {rows.map((row, index) => {
@@ -156,7 +156,7 @@ function DiffBlock({ diff }: { diff: string }) {
             <div key={`${index}-${row.oldText}-${row.newText}`} className="grid grid-cols-2">
               <pre
                 className={cn(
-                  'px-2 py-0.5 whitespace-pre-wrap break-words min-h-[1.25rem] border-r border-zinc-900/90',
+                  'px-2.5 py-0.5 whitespace-pre-wrap break-words min-h-[1.25rem] border-r border-white/10',
                   oldClass
                 )}
               >
@@ -164,7 +164,7 @@ function DiffBlock({ diff }: { diff: string }) {
               </pre>
               <pre
                 className={cn(
-                  'px-2 py-0.5 whitespace-pre-wrap break-words min-h-[1.25rem]',
+                  'px-2.5 py-0.5 whitespace-pre-wrap break-words min-h-[1.25rem]',
                   newClass
                 )}
               >

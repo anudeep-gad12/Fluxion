@@ -3,6 +3,7 @@
 Read-only helpers for choosing local workspaces and searching files from the browser UI.
 """
 
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -18,8 +19,16 @@ _IGNORED_DIRS = {
     ".next",
     ".turbo",
     ".cache",
+    ".ruff_cache",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".venv",
+    "venv",
     "__pycache__",
 }
+
+_MAX_SEARCH_SCANNED_FILES = 10_000
+_EMPTY_QUERY_BUFFER_MULTIPLIER = 25
 
 
 def _resolve_workspace_path(path: Optional[str]) -> Path:
@@ -82,19 +91,32 @@ async def search_workspace_files(
     workspace = _resolve_workspace_path(workspace_path)
     query = q.strip().lower()
     matches: list[dict[str, str]] = []
+    scanned = 0
+    empty_query_buffer = max(limit * _EMPTY_QUERY_BUFFER_MULTIPLIER, limit)
 
     try:
-        for root, dirs, files in workspace.walk(top_down=True):
+        for root, dirs, files in os.walk(workspace, topdown=True, onerror=lambda _e: None):
             dirs[:] = [
                 name
                 for name in dirs
                 if not name.startswith(".") and name not in _IGNORED_DIRS
             ]
             for filename in files:
+                if scanned >= _MAX_SEARCH_SCANNED_FILES:
+                    break
+                scanned += 1
+
                 if filename.startswith("."):
                     continue
-                file_path = root / filename
-                rel_path = file_path.relative_to(workspace).as_posix()
+
+                try:
+                    file_path = Path(root) / filename
+                    if not file_path.is_file():
+                        continue
+                    rel_path = file_path.relative_to(workspace).as_posix()
+                except (OSError, ValueError):
+                    continue
+
                 if query and query not in rel_path.lower():
                     continue
                 matches.append(
@@ -103,7 +125,15 @@ async def search_workspace_files(
                         "name": filename,
                     }
                 )
-    except PermissionError:
+
+                if not query and len(matches) >= empty_query_buffer:
+                    break
+
+            if scanned >= _MAX_SEARCH_SCANNED_FILES or (
+                not query and len(matches) >= empty_query_buffer
+            ):
+                break
+    except OSError:
         pass
 
     matches.sort(

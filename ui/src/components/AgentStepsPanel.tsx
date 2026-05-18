@@ -34,7 +34,7 @@ function TimelineItem({
 }
 
 function cnBaseDot(className: string): string {
-  return `absolute left-[1px] top-2.5 h-2.5 w-2.5 rounded-full border border-zinc-950 ${className}`;
+  return `absolute left-[1px] top-2.5 h-2.5 w-2.5 rounded-full border border-[#07080a] ${className}`;
 }
 
 function summarize(content: string): string {
@@ -59,7 +59,7 @@ function ThinkingBlock({
   const preview = summarize(content);
 
   return (
-    <div className="space-y-2 border-l border-zinc-800/90 pl-3">
+    <div className="space-y-2 border-l border-white/10 pl-3">
       <button
         type="button"
         onClick={onToggle}
@@ -67,7 +67,7 @@ function ThinkingBlock({
       >
         <div className="space-y-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-full border border-zinc-900/90 bg-transparent px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.14em] text-zinc-300">
+            <span className="rounded-full border border-white/10 bg-white/[0.025] px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.14em] text-zinc-300">
               thinking
             </span>
             {isLive && (
@@ -81,7 +81,7 @@ function ThinkingBlock({
         <span className="mt-0.5 text-zinc-500">{expanded ? '▾' : '▸'}</span>
       </button>
       {expanded && (
-        <div className="border-t border-zinc-900/90 pt-3 text-zinc-200">
+        <div className="border-t border-white/10 pt-3 text-zinc-200">
           <AnswerMarkdown content={content} />
           {isLive && (
             <span className="agent-caret ml-1 inline-block h-3 w-1.5 translate-y-0.5 bg-cyan-400/70" />
@@ -115,7 +115,7 @@ function stepChipClass(stepState: string, isCurrentStep: boolean, isActive: bool
   if (stepState === 'tool_calling') {
     return 'border-amber-500/14 bg-amber-500/[0.04] text-amber-100';
   }
-  return 'border-zinc-900/90 bg-transparent text-zinc-300';
+  return 'border-white/10 bg-white/[0.025] text-zinc-300';
 }
 
 function PendingStepCard() {
@@ -275,7 +275,7 @@ export function AgentStepsPanel({ agentState }: AgentStepsPanelProps) {
                   }
                   isLast={nextIsLast()}
                 >
-                  <div className="border-l border-zinc-800/90 pl-3">
+                  <div className="border-l border-white/10 pl-3">
                     <ToolCallCard toolCall={toolCall} />
                   </div>
                 </TimelineItem>

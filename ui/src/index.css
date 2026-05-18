@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700;800&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -6,26 +6,38 @@
 
 @layer base {
   :root {
-    --background: 240 8% 3%;
+    color-scheme: dark;
+    --background: 220 18% 3%;
     --foreground: 0 0% 100%;
-    --card: 240 7% 5%;
+    --card: 220 16% 7%;
     --card-foreground: 0 0% 100%;
-    --popover: 240 7% 6%;
+    --popover: 220 15% 7%;
     --popover-foreground: 0 0% 100%;
     --primary: 194 100% 72%;
-    --primary-foreground: 240 8% 3%;
-    --secondary: 240 5% 11%;
-    --secondary-foreground: 0 0% 82%;
-    --muted: 240 5% 10%;
-    --muted-foreground: 240 5% 68%;
-    --accent: 196 55% 13%;
+    --primary-foreground: 220 18% 3%;
+    --secondary: 220 12% 11%;
+    --secondary-foreground: 222 18% 84%;
+    --muted: 220 10% 11%;
+    --muted-foreground: 222 9% 64%;
+    --accent: 196 45% 12%;
     --accent-foreground: 0 0% 100%;
     --destructive: 0 0% 60%;
     --destructive-foreground: 0 0% 100%;
-    --border: 240 5% 24%;
-    --input: 240 5% 24%;
+    --border: 220 10% 20%;
+    --input: 220 10% 20%;
     --ring: 194 100% 78%;
-    --radius: 0.8rem;
+    --radius: 1rem;
+    --fluxion-bg: #07080a;
+    --fluxion-panel: rgba(18, 20, 24, 0.72);
+    --fluxion-panel-strong: rgba(24, 27, 32, 0.9);
+    --fluxion-line: rgba(255, 255, 255, 0.1);
+    --fluxion-line-strong: rgba(255, 255, 255, 0.18);
+    --fluxion-text: #f5f7fb;
+    --fluxion-muted: #9ba0aa;
+    --fluxion-dim: #686d78;
+    --fluxion-cyan: #79e6ff;
+    --fluxion-green: #77e69b;
+    --fluxion-violet: #bda2ff;
     --ease-ui: cubic-bezier(0.22, 1, 0.36, 1);
     --duration-fast: 140ms;
     --duration-ui: 220ms;
@@ -51,13 +63,25 @@
 
   body {
     @apply bg-background text-foreground antialiased;
-    font-family: "IBM Plex Mono", "SFMono-Regular", ui-monospace, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     text-rendering: optimizeLegibility;
-    font-feature-settings: "liga" 1, "calt" 1;
+    font-feature-settings: "liga" 1, "calt" 1, "cv02" 1, "cv03" 1, "cv04" 1;
+    letter-spacing: -0.014em;
+    background:
+      radial-gradient(circle at 52% -16%, rgba(90, 126, 255, 0.16), transparent 34rem),
+      radial-gradient(circle at 86% 12%, rgba(121, 230, 255, 0.08), transparent 24rem),
+      linear-gradient(rgba(255,255,255,0.022) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.022) 1px, transparent 1px),
+      var(--fluxion-bg);
+    background-size: auto, auto, 54px 54px, 54px 54px, auto;
   }
 
   code,
-  pre {
+  pre,
+  textarea,
+  input,
+  select,
+  .font-mono {
     font-family: "IBM Plex Mono", "SFMono-Regular", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   }
 }
@@ -213,35 +237,69 @@
   }
 
   .premium-chip {
-    @apply ui-transition inline-flex items-center gap-2 rounded-full border border-zinc-800/90 bg-zinc-950/60 px-3 py-1.5 font-mono text-[11px] text-zinc-300 hover:border-cyan-500/30 hover:bg-cyan-500/10 hover:text-cyan-100;
+    @apply ui-transition inline-flex items-center gap-2 rounded-full border px-3 py-1.5 font-mono text-[11px] text-zinc-300 hover:text-cyan-100;
+    border-color: var(--fluxion-line);
+    background: rgba(255, 255, 255, 0.035);
   }
 
   .premium-chip-active {
-    @apply border-cyan-500/30 bg-cyan-500/10 text-cyan-100;
+    @apply text-cyan-100;
+    border-color: rgba(121, 230, 255, 0.24);
+    background: rgba(121, 230, 255, 0.075);
   }
 
   .premium-chip-muted {
-    @apply border-zinc-800/90 bg-zinc-950/40 text-zinc-500 hover:border-zinc-700 hover:bg-zinc-900/70 hover:text-zinc-200;
+    @apply text-zinc-500 hover:text-zinc-200;
+    border-color: var(--fluxion-line);
+    background: rgba(255, 255, 255, 0.024);
   }
 
   .premium-field {
-    @apply ui-transition w-full rounded-[1rem] border border-zinc-800/90 bg-zinc-950/90 px-3.5 py-2.5 text-sm text-zinc-100 outline-none placeholder:text-zinc-500 focus:border-cyan-500/30 focus:bg-zinc-950 focus:ring-1 focus:ring-cyan-500/20 disabled:text-zinc-500;
+    @apply ui-transition w-full rounded-[1rem] border px-3.5 py-2.5 text-sm text-zinc-100 outline-none placeholder:text-zinc-500 focus:ring-1 disabled:text-zinc-500;
+    border-color: var(--fluxion-line);
+    background: rgba(5, 6, 8, 0.72);
+    box-shadow: inset 0 1px rgba(255, 255, 255, 0.035);
+  }
+
+  .premium-field:focus {
+    border-color: rgba(121, 230, 255, 0.28);
+    background: rgba(5, 6, 8, 0.92);
+    --tw-ring-color: rgba(121, 230, 255, 0.16);
   }
 
   .premium-panel {
-    @apply rounded-[1rem] border border-zinc-800/90 bg-zinc-950/60;
+    @apply rounded-[1.15rem] border;
+    border-color: var(--fluxion-line);
+    background: var(--fluxion-panel);
+    box-shadow: inset 0 1px rgba(255, 255, 255, 0.05);
   }
 
   .premium-subtle-button {
-    @apply ui-transition inline-flex items-center justify-center rounded-full border border-zinc-800/90 bg-zinc-950 px-3 py-1.5 font-mono text-[11px] text-zinc-300 hover:border-cyan-500/30 hover:bg-cyan-500/10 hover:text-cyan-100 disabled:text-zinc-600 disabled:hover:border-zinc-800/90 disabled:hover:bg-zinc-950;
+    @apply ui-transition inline-flex items-center justify-center rounded-full border px-3 py-1.5 font-mono text-[11px] text-zinc-300 hover:text-cyan-100 disabled:text-zinc-600;
+    border-color: var(--fluxion-line);
+    background: rgba(255, 255, 255, 0.035);
+  }
+
+  .premium-subtle-button:hover {
+    border-color: rgba(121, 230, 255, 0.22);
+    background: rgba(121, 230, 255, 0.065);
   }
 
   .premium-primary-button {
-    @apply ui-transition inline-flex items-center justify-center rounded-full bg-zinc-100 px-4 py-1.5 font-mono text-[11px] text-zinc-950 hover:bg-white disabled:opacity-60;
+    @apply ui-transition inline-flex items-center justify-center rounded-full border px-4 py-1.5 font-mono text-[11px] font-semibold text-zinc-950 disabled:opacity-60;
+    border-color: rgba(245, 247, 251, 0.92);
+    background: #f6f7fb;
+    box-shadow: 0 14px 36px rgba(255, 255, 255, 0.08);
+  }
+
+  .premium-primary-button:hover {
+    background: #fff;
+    transform: translateY(-1px);
   }
 
   .premium-section-label {
-    @apply text-[10px] uppercase tracking-[0.18em] text-zinc-500;
+    @apply text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-500;
+    letter-spacing: 0.16em;
   }
 }
 
@@ -330,11 +388,74 @@ textarea:focus {
 }
 
 .ui-elevated {
-  box-shadow: 0 0 0 1px rgba(24, 24, 27, 0.35);
+  box-shadow:
+    0 24px 80px rgba(0, 0, 0, 0.34),
+    inset 0 1px rgba(255, 255, 255, 0.055);
 }
 
 .ui-panel {
-  background: rgba(12, 12, 15, 0.96);
+  background: var(--fluxion-panel);
+  backdrop-filter: blur(18px);
+}
+
+.ui-panel-strong {
+  background: var(--fluxion-panel-strong);
+  backdrop-filter: blur(18px);
+}
+
+.fluxion-card {
+  border-color: var(--fluxion-line);
+  background: var(--fluxion-panel);
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.05);
+}
+
+.fluxion-card-strong {
+  border-color: var(--fluxion-line-strong);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.018)),
+    var(--fluxion-panel-strong);
+  box-shadow:
+    0 24px 70px rgba(0, 0, 0, 0.28),
+    inset 0 1px rgba(255, 255, 255, 0.065);
+}
+
+.fluxion-topbar {
+  background: rgba(7, 8, 10, 0.78);
+  border-color: var(--fluxion-line);
+  backdrop-filter: blur(20px);
+}
+
+.fluxion-composer {
+  border-color: var(--fluxion-line-strong);
+  background:
+    radial-gradient(circle at 5% 0%, rgba(121, 230, 255, 0.055), transparent 18rem),
+    rgba(8, 9, 12, 0.88);
+  box-shadow:
+    0 20px 70px rgba(0, 0, 0, 0.32),
+    inset 0 1px rgba(255, 255, 255, 0.06);
+}
+
+.fluxion-composer:focus-within {
+  border-color: rgba(121, 230, 255, 0.3);
+  box-shadow:
+    0 22px 80px rgba(0, 0, 0, 0.34),
+    0 0 0 1px rgba(121, 230, 255, 0.1),
+    inset 0 1px rgba(255, 255, 255, 0.075);
+}
+
+.fluxion-pill {
+  border-color: var(--fluxion-line);
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.fluxion-app-bg {
+  background:
+    radial-gradient(circle at 52% -20%, rgba(90, 126, 255, 0.12), transparent 34rem),
+    radial-gradient(circle at 86% 12%, rgba(121, 230, 255, 0.06), transparent 24rem),
+    linear-gradient(rgba(255,255,255,0.018) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.018) 1px, transparent 1px),
+    var(--fluxion-bg);
+  background-size: auto, auto, 54px 54px, 54px 54px, auto;
 }
 
 .ui-transition {
@@ -348,7 +469,7 @@ textarea:focus {
 }
 
 .ui-focus-ring {
-  @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-200/80 focus-visible:ring-offset-0;
+  @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200/60 focus-visible:ring-offset-0;
 }
 
 .ui-text-strong {
