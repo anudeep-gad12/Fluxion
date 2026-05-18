@@ -252,7 +252,7 @@ _is_production = is_hosted_production()
 app = FastAPI(
     title="Fluxion",
     description="Local AI Chat",
-    version="0.2.0",
+    version=app_version(),
     lifespan=lifespan,
     # Disable docs in production to avoid exposing API schema
     docs_url=None if _is_production else "/docs",

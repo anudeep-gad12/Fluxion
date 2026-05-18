@@ -1,6 +1,6 @@
 [project]
 name = "reasoning-runtime"
-version = "0.1.0"
+version = "0.1.1"
 description = "Local reasoning runtime with orchestrator API"
 readme = "README.md"
 requires-python = ">=3.11"

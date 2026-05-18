@@ -18,7 +18,7 @@ APP_NAME = "Fluxion"
 APP_LABEL = "io.fluxion.local"
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = "9000"
-DEFAULT_VERSION = "0.1.0"
+DEFAULT_VERSION = "0.1.1"
 DEFAULT_BUILD_ID = "source"
 
 

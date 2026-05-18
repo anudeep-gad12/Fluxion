@@ -44,6 +44,4 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            dist/macos/Fluxion-macos-*.zip
-            dist/macos/SHA256SUMS
+          files: dist/macos/Fluxion-macos-*.zip

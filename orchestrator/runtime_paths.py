@@ -29,7 +29,7 @@ def is_hosted_production() -> bool:
 
 def app_version() -> str:
     """Return the runtime app version."""
-    return os.environ.get("FLUXION_APP_VERSION", "0.1.0")
+    return os.environ.get("FLUXION_APP_VERSION", "0.1.1")
 
 
 def build_id() -> str:
