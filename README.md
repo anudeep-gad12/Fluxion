@@ -12,13 +12,14 @@ Fluxion does not bundle, sell, or download models. Bring your own provider keys 
 
 ## Install
 
-Download the latest macOS release from GitHub Releases:
+Homebrew is the easiest path:
 
-```text
-Fluxion-macos-arm64.zip
+```bash
+brew install --cask anudeep-gad12/tap/fluxion
+open /Applications/Fluxion.app
 ```
 
-If the zip is in your Downloads folder, run:
+Manual fallback: download `Fluxion-macos-arm64.zip` from GitHub Releases, then run:
 
 ```bash
 cd ~/Downloads
@@ -29,7 +30,7 @@ xattr -dr com.apple.quarantine /Applications/Fluxion.app
 open /Applications/Fluxion.app
 ```
 
-Fluxion is unsigned, so right-click → Open is unreliable. The command path above avoids the repeated macOS prompts you can hit when moving the app manually.
+Fluxion is unsigned, so manual installs may hit repeated macOS prompts unless you use the command path above.
 
 When launched, Fluxion starts a local service and opens the app at:
 
