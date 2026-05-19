@@ -68,6 +68,7 @@ log "Assembling ${APP_NAME}.app"
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR/ui"
 cp "$BUILD_ROOT/pyinstaller-dist/fluxion-server" "$RESOURCES_DIR/fluxion-server"
 cp -R "$ROOT_DIR/ui/dist" "$RESOURCES_DIR/ui/dist"
+cp "$ROOT_DIR/assets/macos/Fluxion.icns" "$RESOURCES_DIR/Fluxion.icns"
 
 cat > "$MACOS_DIR/$APP_NAME" <<LAUNCHER
 #!/usr/bin/env bash
@@ -98,6 +99,8 @@ cat > "$CONTENTS_DIR/Info.plist" <<PLIST
   <string>$APP_NAME</string>
   <key>CFBundleDisplayName</key>
   <string>$APP_NAME</string>
+  <key>CFBundleIconFile</key>
+  <string>Fluxion</string>
   <key>CFBundleVersion</key>
   <string>$VERSION</string>
   <key>CFBundleShortVersionString</key>
