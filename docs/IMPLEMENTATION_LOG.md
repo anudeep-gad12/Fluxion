@@ -9,6 +9,7 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| main | Homebrew site CTA + tag-derived releases — updated Fluxion.cc to show Homebrew as a subtle copyable install pill under the normal download/source CTAs, and changed macOS packaging to derive release version from the pushed `v*` tag so future releases do not require editing version files | done | 2026-05-19 |
 | main | macOS app icon — added a native Fluxion `~>` icon asset, generated a macOS `.icns`, and wired the packaged app bundle Info.plist/resources so GitHub release builds no longer use the default white app icon | done | 2026-05-19 |
 | main | Homebrew tap distribution — created `anudeep-gad12/homebrew-tap` with the initial Fluxion cask for `brew install --cask anudeep-gad12/tap/fluxion`, verified tap metadata with Homebrew, and updated README install docs to make the tap the primary install path with manual zip fallback | done | 2026-05-19 |
 | main | v0.1.1 release prep — bumped packaged/source app version metadata to 0.1.1, tied the FastAPI app version to the runtime version, and narrowed tag-release uploads to the macOS app zip asset only | done | 2026-05-18 |

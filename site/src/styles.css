@@ -137,6 +137,33 @@ h3 { font-size: 20px; letter-spacing: -0.04em; }
 .secondary { background: rgba(255,255,255,0.035); color: #d6d9df; }
 .primary:hover { transform: translateY(-1px); }
 .secondary:hover { background: rgba(255,255,255,0.07); color: #fff; }
+.brewLine {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+  color: var(--dim);
+  font-size: 14px;
+}
+.brewCommand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255,255,255,0.025);
+  color: #d6d9df;
+  padding: 10px 12px 10px 14px;
+  cursor: pointer;
+}
+.brewCommand:hover { color: #fff; background: rgba(255,255,255,0.045); }
+.brewCommand code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  letter-spacing: -0.02em;
+}
+.brewCommand svg { color: var(--dim); }
+.brewCommand:hover svg { color: #fff; }
 
 .heroStage { position: relative; width: 100%; margin-top: 74px; }
 .shot {

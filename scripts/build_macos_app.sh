@@ -3,7 +3,15 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_NAME="Fluxion"
-VERSION="${FLUXION_APP_VERSION:-$(cd "$ROOT_DIR" && python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml","rb"))["project"]["version"])')}"
+if [[ -n "${FLUXION_APP_VERSION:-}" ]]; then
+  VERSION="$FLUXION_APP_VERSION"
+elif [[ -n "${GITHUB_REF_NAME:-}" && "${GITHUB_REF_NAME}" == v* ]]; then
+  VERSION="${GITHUB_REF_NAME#v}"
+elif TAG="$(cd "$ROOT_DIR" && git describe --tags --exact-match 2>/dev/null)" && [[ "$TAG" == v* ]]; then
+  VERSION="${TAG#v}"
+else
+  VERSION="$(cd "$ROOT_DIR" && python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml","rb"))["project"]["version"])')"
+fi
 if [[ -n "${FLUXION_BUILD_ID:-}" ]]; then
   BUILD_ID="$FLUXION_BUILD_ID"
 elif [[ -n "${GITHUB_SHA:-}" ]]; then

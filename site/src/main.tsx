@@ -1,13 +1,12 @@
 import React, { useState } from "react"
 import ReactDOM from "react-dom/client"
-import { ArrowUpRight, Box, Code2, Database, Download, Github, Laptop, Sparkles } from "lucide-react"
+import { ArrowUpRight, Box, Check, Code2, Copy, Database, Download, Github, Laptop, Sparkles } from "lucide-react"
 import "./styles.css"
 
 const GITHUB_URL = "https://github.com/anudeep-gad12/Fluxion"
 const DOWNLOAD_URL = "https://github.com/anudeep-gad12/Fluxion/releases/latest/download/Fluxion-macos-arm64.zip"
-const INSTALL_COMMANDS = `unzip Fluxion-macos-arm64.zip
-mv Fluxion.app /Applications/
-xattr -dr com.apple.quarantine /Applications/Fluxion.app
+const BREW_COMMAND = "brew install --cask anudeep-gad12/tap/fluxion"
+const INSTALL_COMMANDS = `${BREW_COMMAND}
 open /Applications/Fluxion.app`
 
 type ShotProps = {
@@ -54,6 +53,26 @@ function Header() {
   )
 }
 
+function BrewInstallPill() {
+  const [copied, setCopied] = useState(false)
+
+  const copyInstall = async () => {
+    await navigator.clipboard.writeText(BREW_COMMAND)
+    setCopied(true)
+    window.setTimeout(() => setCopied(false), 1300)
+  }
+
+  return (
+    <div className="brewLine">
+      <span>or install with Homebrew</span>
+      <button type="button" className="brewCommand" onClick={copyInstall} aria-label="Copy Homebrew install command">
+        <code>{BREW_COMMAND}</code>
+        {copied ? <Check size={15} /> : <Copy size={15} />}
+      </button>
+    </div>
+  )
+}
+
 function Hero() {
   return (
     <section id="top" className="hero section">
@@ -67,6 +86,7 @@ function Hero() {
         <a className="primary" href={DOWNLOAD_URL}><Download size={18} /> Download for macOS</a>
         <a className="secondary" href={GITHUB_URL}><Github size={18} /> Star on GitHub</a>
       </div>
+      <BrewInstallPill />
       <div className="heroStage">
         <ScreenshotSlot src="/images/hero-app.png" label="Fluxion workspace run screenshot" kicker="product image" />
       </div>
@@ -171,10 +191,10 @@ function TerminalBlock() {
       </div>
       <div>
         <span className="label">install</span>
-        <h2>Download, clear quarantine, open.</h2>
+        <h2>Install with Homebrew, open Fluxion.</h2>
         <p>
-          Fluxion is unsigned for now. The install path is simple and conversations
-          live outside the app bundle, so replacing the app keeps your data intact.
+          Homebrew downloads the release zip, installs Fluxion.app into Applications,
+          and keeps upgrades simple. Manual zip install stays available from GitHub.
         </p>
       </div>
     </section>
