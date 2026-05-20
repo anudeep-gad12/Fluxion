@@ -10,6 +10,10 @@ Fluxion is new and macOS-only right now. Expect bugs and rough edges.
 
 Fluxion does not bundle, sell, or download models. Bring your own provider keys or local model files.
 
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/3ae00e01-80ee-405a-a92f-7a309ab586d3" alt="Fluxion demo" width="900">
+</p>
+
 ## Install
 
 Homebrew is the easiest path:
