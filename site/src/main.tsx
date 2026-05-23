@@ -226,10 +226,15 @@ function App() {
       <TerminalBlock />
       <FinalCta />
       <footer>
-        <span className="logoMark">~&gt;</span>
-        <span>© 2026 Fluxion · Apache-2.0</span>
-        <a href={GITHUB_URL}>GitHub</a>
-        <a href={DOWNLOAD_URL}>Download</a>
+        <div className="footerBrand">
+          <span className="logoMark">~&gt;</span>
+          <span>© 2026 Fluxion · Apache-2.0</span>
+          <span>Built by <a href="https://anudeep.cc">Anudeep</a></span>
+        </div>
+        <div className="footerLinks">
+          <a href={GITHUB_URL}>GitHub</a>
+          <a href={DOWNLOAD_URL}>Download</a>
+        </div>
       </footer>
     </main>
   )
