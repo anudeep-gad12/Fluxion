@@ -80,3 +80,45 @@ def test_yolo_auto_approves_mutating_tool(tmp_path):
 
     assert decision.needs_approval is False
     assert decision.permission_level == "auto"
+
+
+def test_relaxed_apply_patch_requires_approval(tmp_path):
+    decision = classify_tool_call(
+        policy="relaxed",
+        tool_name="apply_patch",
+        arguments={"patch": "*** Begin Patch\n*** End Patch"},
+        base_permission_level="confirm",
+        workspace_path=str(tmp_path),
+    )
+    assert decision.needs_approval is True
+    assert decision.permission_level == "confirm"
+
+
+def test_relaxed_exec_command_uses_bash_classifier(tmp_path):
+    read_only = classify_tool_call(
+        policy="relaxed",
+        tool_name="exec_command",
+        arguments={"cmd": "git status && rg foo ."},
+        base_permission_level="dangerous",
+        workspace_path=str(tmp_path),
+    )
+    mutating = classify_tool_call(
+        policy="relaxed",
+        tool_name="exec_command",
+        arguments={"cmd": "touch x"},
+        base_permission_level="dangerous",
+        workspace_path=str(tmp_path),
+    )
+    assert read_only.needs_approval is False
+    assert mutating.needs_approval is True
+
+
+def test_relaxed_write_stdin_auto_allowed_after_session_approval(tmp_path):
+    decision = classify_tool_call(
+        policy="relaxed",
+        tool_name="write_stdin",
+        arguments={"session_id": 1, "chars": "q"},
+        base_permission_level="dangerous",
+        workspace_path=str(tmp_path),
+    )
+    assert decision.needs_approval is False

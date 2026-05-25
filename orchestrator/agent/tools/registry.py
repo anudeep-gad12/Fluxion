@@ -179,6 +179,7 @@ def create_browser_agent_tool_registry(
 
     if capabilities.get("filesystem", False):
         wd = working_dir or os.getcwd()
+        from .apply_patch_tool import ApplyPatchTool
         from .edit_file import EditFileTool
         from .glob_tool import GlobTool
         from .grep_tool import GrepTool
@@ -192,13 +193,18 @@ def create_browser_agent_tool_registry(
         registry.register(ListDirectoryTool(working_dir=wd))
         registry.register(GlobTool(working_dir=wd))
         registry.register(GrepTool(working_dir=wd))
+        registry.register(ApplyPatchTool(working_dir=wd))
         registry.register(WriteFileTool(working_dir=wd))
         registry.register(EditFileTool(working_dir=wd))
 
     if capabilities.get("bash", False):
         wd = working_dir or os.getcwd()
         from .bash_tool import BashTool
+        from .command_session import CommandSessionManager, ExecCommandTool, WriteStdinTool
 
+        command_manager = CommandSessionManager(working_dir=wd)
+        registry.register(ExecCommandTool(command_manager))
+        registry.register(WriteStdinTool(command_manager))
         registry.register(BashTool(working_dir=wd))
 
     logger.info(

@@ -333,7 +333,7 @@ Records individual tool executions, including approval decisions for permission-
 | `idempotency_key` | TEXT | Hash for crash recovery |
 | `execution_attempt` | INTEGER | Retry count |
 | `result_summary` | TEXT | Brief result (not full output) |
-| `result_detail` | TEXT | Full result (up to 10k chars) for write/edit/bash tools |
+| `result_detail` | TEXT | Full result (up to 10k chars) for write/edit/patch/command tools |
 | `approval_decision` | TEXT | `approved`, `denied`, `auto`, `timeout` |
 | `approval_policy` | TEXT | `strict`, `relaxed`, `yolo` — policy in effect |
 | `approval_decided_at` | TEXT | ISO 8601 timestamp of approval/denial |
@@ -380,9 +380,9 @@ Tracks file changes and command executions made by agent tools. Enables auditing
 |--------|------|-------------|
 | `id` | TEXT PK | UUID identifier |
 | `run_id` | TEXT FK | Reference to runs |
-| `artifact_type` | TEXT | `file_write`, `file_edit`, `command_run` |
+| `artifact_type` | TEXT | `file_write`, `file_edit`, `file_patch`, `command_run` |
 | `file_path` | TEXT | Path of affected file (NULL for commands) |
-| `action` | TEXT | Tool that created this: `write_file`, `edit_file`, `bash_tool` |
+| `action` | TEXT | Tool that created this: `write_file`, `edit_file`, `apply_patch`, `exec_command`, `write_stdin`, or legacy `bash` |
 | `detail` | TEXT | Change summary (diff for edits, output for commands) |
 | `tool_call_id` | TEXT FK | Reference to agent_tool_calls |
 | `created_at` | TEXT | ISO 8601 timestamp |
@@ -649,7 +649,7 @@ class AgentToolCallResponse(BaseModel):
     arguments: dict
     status: AgentToolCallStatus
     result_summary: Optional[str]
-    result_detail: Optional[str]          # Full output for write/edit/bash tools
+    result_detail: Optional[str]          # Full output for write/edit/patch/command tools
     approval_decision: Optional[str]      # approved | denied | auto | timeout
     approval_policy: Optional[str]        # strict | relaxed | yolo
     approval_decided_at: Optional[str]    # ISO 8601 timestamp
@@ -695,7 +695,7 @@ class RunArtifactResponse(BaseModel):
     run_id: str
     artifact_type: str       # file_write | file_edit | command_run
     file_path: Optional[str]
-    action: str              # write_file | edit_file | bash_tool
+    action: str              # write_file | edit_file | apply_patch | exec_command | write_stdin | bash
     detail: Optional[str]
     tool_call_id: Optional[str]
     created_at: str

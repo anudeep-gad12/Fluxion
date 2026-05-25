@@ -68,7 +68,7 @@ Fluxion is an AI chat application with multi-strategy reasoning capabilities. It
 
 - **Web UI + REST API**: Browser-first product surface plus backend APIs
 - **Chat + Coding Agent**: Plain chat runs and browser coding-agent runs
-- **Filesystem Tools**: bash, glob, grep, read_file, edit_file, write_file, list_directory
+- **Filesystem Tools**: apply_patch, exec_command/write_stdin, bash, glob, grep, read_file, edit_file, write_file, list_directory
 - **Tool Approval Flow**: Permission-gated tool execution (strict/relaxed/yolo policies)
 - **Multi-Provider Support**: DeepInfra, ChatGPT (OAuth), llama-server, vLLM, Ollama
 - **Streaming-First**: Real-time token streaming via Server-Sent Events (SSE)
@@ -121,10 +121,12 @@ orchestrator/                     # Backend (FastAPI)
 │   └── tools/
 │       ├── base.py               # BaseTool protocol, ToolResult, ToolSchema
 │       ├── registry.py           # Tool registry
-│       ├── bash_tool.py          # Shell command execution (dangerous)
+│       ├── apply_patch_tool.py   # Atomic Codex-style patches (confirm)
+│       ├── command_session.py    # exec_command/write_stdin sessions (dangerous)
+│       ├── bash_tool.py          # Legacy shell command execution (dangerous)
 │       ├── read_file.py          # File reading with line numbers (auto)
 │       ├── write_file.py         # File creation/overwrite (confirm)
-│       ├── edit_file.py          # Exact string replacement (confirm)
+│       ├── edit_file.py          # Exact string replacement fallback (confirm)
 │       ├── glob_tool.py          # File pattern matching (auto)
 │       ├── grep_tool.py          # Regex content search (auto)
 │       ├── list_directory.py     # Tree-style directory listing (auto)
@@ -748,10 +750,13 @@ Profiles configure the agent's tool set, system prompt, and context strategy:
 
 | Tool | Description | Permission | Idempotent | Profile |
 |------|-------------|------------|------------|---------|
-| `bash` | Shell command execution | `dangerous` | No | coding |
+| `apply_patch` | Atomic Codex-style add/update/delete/move patches | `confirm` | No | coding |
+| `exec_command` | Shell command session with resumable output | `dangerous` | No | coding |
+| `write_stdin` | Poll/write to a running command session | `dangerous` | No | coding |
+| `bash` | Legacy shell command execution | `dangerous` | No | coding |
 | `read_file` | Read file with line numbers | `auto` | Yes | coding |
 | `write_file` | Create/overwrite file | `confirm` | No | coding |
-| `edit_file` | Exact string replacement | `confirm` | No | coding |
+| `edit_file` | Exact string replacement fallback | `confirm` | No | coding |
 | `glob` | File pattern matching | `auto` | Yes | coding |
 | `grep` | Regex content search (uses ripgrep if available) | `auto` | Yes | coding |
 | `list_directory` | Tree-style directory listing | `auto` | Yes | coding |

@@ -26,9 +26,6 @@ from orchestrator.agent.coding_session import (
 )
 from orchestrator.agent.context_pruner import ContextPruner
 from orchestrator.agent.permissions import classify_tool_call
-from orchestrator.context.budget import ContextBudget
-from orchestrator.context.context_profile import ModelContextProfile
-from orchestrator.context.history_builder import HistoryBuilder
 from orchestrator.agent.recovery import (
     build_recovery_messages,
     create_idempotency_key,
@@ -41,6 +38,9 @@ from orchestrator.agent.tool_result_payloads import (
     bash_output_from_result_data,
     display_result_data,
 )
+from orchestrator.context.budget import ContextBudget
+from orchestrator.context.context_profile import ModelContextProfile
+from orchestrator.context.history_builder import HistoryBuilder
 from orchestrator.logging_config import get_logger
 from orchestrator.providers.usage import add_usage, estimate_cost, normalize_usage
 from orchestrator.reasoning_controls import ReasoningSettings, apply_reasoning_settings
@@ -219,27 +219,50 @@ class WorkingMemory:
         return "\n\n".join(sections)
 
     def render_coding_metadata(self) -> Optional[str]:
-        """Render neutral transcript-supporting metadata for coding prompts."""
-        lines: List[str] = []
+        """Render concise current coding state where the model reliably sees it."""
+        lines: List[str] = [f"- current_request: {self.objective}"]
         if self.files_changed:
             lines.append(
-                "- touched_files: "
+                "- changed_files: "
                 + ", ".join(list(self.files_changed.keys())[-8:])
             )
+            diff_summary = " | ".join(
+                f"{path}: {summary}"
+                for path, summary in list(self.files_changed.items())[-6:]
+            )
+            lines.append(f"- compact_diff_summary: {diff_summary}")
         if self.files_inspected:
             lines.append(
                 "- referenced_files: "
                 + ", ".join(list(self.files_inspected.keys())[-8:])
             )
+        if self.recent_commands:
+            lines.append(
+                "- recent_commands: "
+                + " | ".join(self.recent_commands[-4:])
+            )
+        if self.validation_results:
+            lines.append(
+                "- recent_command_outcomes: "
+                + " | ".join(self.validation_results[-4:])
+            )
+            failing = [
+                item
+                for item in self.validation_results[-8:]
+                if any(
+                    marker in item.lower()
+                    for marker in ("failed", "error", "exit 1", "timed out")
+                )
+            ]
+            if failing:
+                lines.append("- failing_test_summary: " + " | ".join(failing[-3:]))
         if self.stale_file_summaries:
             stale = " | ".join(
                 f"{path}: {reason}"
                 for path, reason in list(self.stale_file_summaries.items())[-6:]
             )
             lines.append(f"- stale_files: {stale}")
-        if not lines:
-            return None
-        return "CODING SESSION METADATA\n" + "\n".join(lines)
+        return "CODING SESSION CURRENT STATE\n" + "\n".join(lines)
 
 
 # =============================================================================
@@ -651,11 +674,27 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     diff_summary = self._summarize_diff(result.result_data) or summary
                     memory.files_changed[file_path] = diff_summary[:500]
                     memory.current_hypothesis = f"Changed {file_path}"
-            elif tool_call.name == "bash":
+            elif tool_call.name == "apply_patch":
+                if result.success:
+                    changed_files = []
+                    if isinstance(result.result_data, dict):
+                        changed_files = list(result.result_data.get("changed_files") or [])
+                    diff_summary = self._summarize_diff(result.result_data) or summary
+                    for file_path in changed_files:
+                        canonical = self._canonical_workspace_path(str(file_path))
+                        memory.files_changed[canonical] = diff_summary[:500]
+                    if changed_files:
+                        changed_preview = ", ".join(map(str, changed_files[:3]))
+                        memory.current_hypothesis = f"Changed {changed_preview}"
+            elif tool_call.name in {"bash", "exec_command", "write_stdin"}:
                 memory.validation_results.append(summary[:500])
                 diagnostics = self._extract_bash_diagnostics(result.result_data, summary)
                 memory.validation_results.extend(item[:500] for item in diagnostics)
-                command = str(tool_call.arguments.get("command", "")).strip()
+                command = str(
+                    tool_call.arguments.get("command")
+                    or tool_call.arguments.get("cmd")
+                    or f"write_stdin session {tool_call.arguments.get('session_id', '')}"
+                ).strip()
                 if command:
                     memory.recent_commands.append(command[:500])
             else:
@@ -904,6 +943,8 @@ To provide your final answer, respond WITHOUT calling any tools."""
 
     def _summarize_diff(self, result_data: Any) -> Optional[str]:
         """Compress a diff into a short description."""
+        if isinstance(result_data, dict):
+            result_data = result_data.get("diff") or result_data.get("preview") or ""
         if not isinstance(result_data, str):
             return None
         additions = 0
@@ -1104,7 +1145,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
 
     def _resolve_workspace_file(self, file_path: str) -> Optional[Path]:
         """Resolve a workspace file using tool resolvers when available."""
-        for tool_name in ("read_file", "write_file", "edit_file", "view_image"):
+        for tool_name in ("read_file", "write_file", "edit_file", "apply_patch", "view_image"):
             tool = self._registry.get(tool_name)
             resolver = getattr(tool, "_resolve_path", None)
             if callable(resolver):
@@ -1279,8 +1320,54 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 )
                 session_state.note_modified_file(file_path)
                 file_state = self._build_file_state_from_write(tool_call, result, run_id)
-            elif tool_call.name == "bash":
-                command = str(tool_call.arguments.get("command", "")).strip()
+            elif tool_call.name == "apply_patch":
+                changed_files = []
+                if result.success and isinstance(result.result_data, dict):
+                    changed_files = list(result.result_data.get("changed_files") or [])
+                for changed_file in changed_files:
+                    file_path = self._canonical_workspace_path(str(changed_file))
+                    session_state.note_modified_file(file_path)
+                    resolved = self._resolve_workspace_file(file_path)
+                    if resolved and resolved.exists() and resolved.is_file():
+                        patch_state = CodingFileState(
+                            path=file_path,
+                            summary=(
+                                self._summarize_diff(result.result_data)
+                                or result.result_summary
+                            )[:1500],
+                            content_hash=self._hash_file_contents(resolved),
+                            source=tool_call.name,
+                            captured_at=datetime.now(timezone.utc).isoformat(),
+                            last_modified_run_id=run_id,
+                        )
+                        patch_state.add_span(
+                            line_start=None,
+                            line_end=None,
+                            excerpt=self._excerpt_from_file(resolved),
+                            reason="patch-context",
+                        )
+                        existing = session_state.file_evidence.get(file_path)
+                        if existing is not None:
+                            existing.summary = patch_state.summary or existing.summary
+                            existing.content_hash = patch_state.content_hash or existing.content_hash
+                            existing.source = patch_state.source or existing.source
+                            existing.captured_at = patch_state.captured_at or existing.captured_at
+                            existing.last_modified_run_id = patch_state.last_modified_run_id
+                            for span in patch_state.spans:
+                                existing.add_span(
+                                    line_start=span.line_start,
+                                    line_end=span.line_end,
+                                    excerpt=span.excerpt,
+                                    reason=span.reason,
+                                )
+                        else:
+                            session_state.file_evidence[file_path] = patch_state
+            elif tool_call.name in {"bash", "exec_command", "write_stdin"}:
+                command = str(
+                    tool_call.arguments.get("command")
+                    or tool_call.arguments.get("cmd")
+                    or f"write_stdin session {tool_call.arguments.get('session_id', '')}"
+                ).strip()
                 if command:
                     session_state.recent_commands.append(command[:500])
             if file_state is None:
@@ -3582,6 +3669,11 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 cost=self._current_cost(),
             )
         finally:
+            close_all = getattr(self._registry, "close_all", None)
+            if callable(close_all):
+                maybe_close = close_all()
+                if inspect.isawaitable(maybe_close):
+                    await maybe_close
             self._active_conversation_id = None
             self._active_coding_session_state = None
 
@@ -4145,7 +4237,10 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 files_inspected.append(str(arguments.get("path")))
             elif tool_name in {"write_file", "edit_file"} and arguments.get("file_path"):
                 files_changed.append(str(arguments.get("file_path")))
-            elif tool_name == "bash" and summary:
+            elif tool_name == "apply_patch":
+                changed = (entry.get("result_metadata") or {}).get("changed_files") or []
+                files_changed.extend(str(item) for item in changed[:8])
+            elif tool_name in {"bash", "exec_command", "write_stdin"} and summary:
                 command_outcomes.append(summary)
             elif tool_name == "web_extract":
                 for url in arguments.get("urls", [])[:2]:
@@ -5070,6 +5165,8 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 diff_preview = self._compute_write_diff_preview(tool_call.arguments)
             elif tool_call.name == "edit_file":
                 diff_preview = self._compute_edit_diff_preview(tool_call.arguments)
+            elif tool_call.name == "apply_patch":
+                diff_preview = str(tool_call.arguments.get("patch", ""))[:5000]
 
             self._emit(
                 event_callback,
@@ -5143,7 +5240,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
 
     def _get_workspace_path(self) -> Optional[str]:
         """Return the browser agent workspace path, if available."""
-        for tool_name in ("bash", "read_file", "write_file", "edit_file"):
+        for tool_name in ("exec_command", "apply_patch", "bash", "read_file", "write_file", "edit_file"):
             tool = self._registry.get(tool_name)
             working_dir = getattr(tool, "_working_dir", None)
             if isinstance(working_dir, Path):
@@ -5258,7 +5355,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
         """
         # Capture full result_detail for write tools
         result_detail = None
-        if tool_call.name in ("write_file", "edit_file", "bash") and result.result_data:
+        if tool_call.name in ("write_file", "edit_file", "apply_patch", "bash", "exec_command", "write_stdin") and result.result_data:
             result_detail = json.dumps(result.result_data, ensure_ascii=False)[:10000]
 
         # Record completion
@@ -5272,14 +5369,17 @@ To provide your final answer, respond WITHOUT calling any tools."""
         )
 
         # Record file change artifact for write tools
-        if result.success and tool_call.name in ("write_file", "edit_file", "bash"):
+        if result.success and tool_call.name in ("write_file", "edit_file", "apply_patch", "bash", "exec_command", "write_stdin"):
             artifact_type = {
                 "write_file": "file_write",
                 "edit_file": "file_edit",
+                "apply_patch": "file_patch",
                 "bash": "command_run",
+                "exec_command": "command_run",
+                "write_stdin": "command_run",
             }.get(tool_call.name, tool_call.name)
             file_path = tool_call.arguments.get(
-                "file_path", tool_call.arguments.get("command", "")
+                "file_path", tool_call.arguments.get("command", tool_call.arguments.get("cmd", ""))
             )
             try:
                 await self._repo.create_run_artifact(
@@ -5333,7 +5433,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
         if diff_data:
             emit_kwargs["result_data"] = diff_data
         bash_output = bash_output_from_result_data(result.result_data)
-        if tool_call.name == "bash" and bash_output:
+        if tool_call.name in {"bash", "exec_command", "write_stdin"} and bash_output:
             emit_kwargs["bash_output"] = bash_output
         self._emit(event_callback, "tool_result", **emit_kwargs)
 
@@ -5542,10 +5642,12 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 })
             return self._bounded_json({"extractions": extractions}, 4000)
 
-        if tool_name == "bash" and isinstance(data, dict):
+        if tool_name in {"bash", "exec_command", "write_stdin"} and isinstance(data, dict):
             return self._bounded_json(
                 {
-                    "command": data.get("command", ""),
+                    "command": data.get("command") or data.get("cmd") or data.get("cmd", ""),
+                    "session_id": data.get("session_id"),
+                    "status": data.get("status"),
                     "exit_code": data.get("exit_code"),
                     "timed_out": data.get("timed_out", False),
                     "stdout": self._truncate_text_to_tokens(str(data.get("stdout", "")), 1500, preserve_tail=True),
@@ -5568,7 +5670,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 3000,
             )
 
-        if tool_name in {"write_file", "edit_file"}:
+        if tool_name in {"write_file", "edit_file", "apply_patch"}:
             payload = data if isinstance(data, dict) else {"result": str(data)}
             bounded = {
                 "file_path": payload.get("file_path"),
@@ -6003,7 +6105,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
         if not result.success:
             return True
 
-        if tool_name in {"write_file", "edit_file", "web_search", "web_extract"}:
+        if tool_name in {"write_file", "edit_file", "apply_patch", "web_search", "web_extract"}:
             return True
 
         return False
@@ -6016,7 +6118,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
             distinct_files_modified, retries, profile name.
         """
         read_tools = {"read_file", "glob", "grep", "list_directory"}
-        write_tools = {"write_file", "edit_file"}
+        write_tools = {"write_file", "edit_file", "apply_patch"}
 
         total_tool_calls = len(self._tool_call_log)
         files_read: set = set()
@@ -6049,6 +6151,9 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 fp = arguments.get("file_path", "")
                 if fp:
                     files_modified.add(fp)
+                if tool_name == "apply_patch":
+                    for changed in (entry.get("result_metadata") or {}).get("changed_files") or []:
+                        files_modified.add(str(changed))
                 if not first_write_seen:
                     first_write_seen = True
 
@@ -6060,6 +6165,8 @@ To provide your final answer, respond WITHOUT calling any tools."""
             primary_arg = ""
             if tool_name in ("read_file", "write_file", "edit_file"):
                 primary_arg = arguments.get("file_path", "")
+            elif tool_name == "apply_patch":
+                primary_arg = str(arguments.get("patch", ""))[:120]
             elif tool_name == "grep":
                 primary_arg = arguments.get("pattern", "")
             elif tool_name == "glob":

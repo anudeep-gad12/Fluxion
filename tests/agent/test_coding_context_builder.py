@@ -55,8 +55,8 @@ def test_builder_replays_transcript_and_metadata_in_order():
         "user",
         "assistant",
     ]
-    assert "CODING SESSION METADATA" in context.messages[1]["content"]
-    assert "touched_files: src/chart.ts" in context.messages[1]["content"]
+    assert "CODING SESSION CURRENT STATE" in context.messages[1]["content"]
+    assert "changed_files: src/chart.ts" in context.messages[1]["content"]
     assert context.metadata_included is True
 
 

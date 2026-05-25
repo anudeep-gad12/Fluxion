@@ -12,7 +12,6 @@ still import get_profile("coding").
 from dataclasses import dataclass, field
 from typing import List, Optional
 
-
 CODING_SYSTEM_PROMPT = """You are Fluxion, a browser-based coding agent with direct access to the selected local workspace.
 
 {date_context}
@@ -71,9 +70,12 @@ Use tools purposefully and economically.
 - Prefer `grep` and `read_file` over broad exploration.
 - Use `view_image` for workspace screenshots/images/charts/forms/diagrams when the user asks you to inspect images or visual content. Do not rely on OCR first unless exact text extraction is specifically needed.
 - Do not glob or recursively list the whole repo unless the repo is small or path discovery genuinely requires it.
-- Use `edit_file` for existing files.
+- Use `apply_patch` for normal edits to existing files and multi-file changes.
+- Use `edit_file` only for a small exact-string fallback when a patch is unnecessary.
 - Use `write_file` only for new files or deliberate full rewrites.
-- Use `bash` as a general local execution tool in the workspace: verification, inspection, build/test/dev commands, one-off Python/Node scripts, curl requests, quick calculations, and runtime repro steps.
+- Use `exec_command` as the general local execution tool in the workspace: verification, inspection, build/test/dev commands, one-off Python/Node scripts, curl requests, quick calculations, and runtime repro steps.
+- Use `write_stdin` to poll or interact with a running `exec_command` session.
+- Keep legacy `bash` only as a fallback when `exec_command` is unsuitable.
 - Use `web_search` or `web_extract` only for external docs or current behavior you cannot reliably infer locally.
 
 Do not repeat tool calls unless something materially changed or you need exact context again.
@@ -162,6 +164,8 @@ CODING_AGENT_PROFILE = AgentProfile(
         "read_file",
         "grep",
         "glob",
+        "exec_command",
+        "write_stdin",
         "bash",
     ],
 )

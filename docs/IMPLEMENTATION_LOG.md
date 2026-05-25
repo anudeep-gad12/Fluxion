@@ -9,6 +9,7 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| feature/codex-runtime-primitives | Codex runtime primitives — added workspace-safe atomic `apply_patch`, long-running `exec_command` sessions with `write_stdin` polling/input, registered the new coding tools while keeping legacy `bash`, tightened coding prompts/tool descriptions/current-state metadata, and extended tests for patch operations, command sessions, permissions, registry wiring, and agent tool flows | done | 2026-05-25 |
 | main | Landing footer credit — added a subtle “Built by Anudeep” footer credit on Fluxion.cc linking to `anudeep.cc`, keeping the existing license/GitHub/download footer links intact | done | 2026-05-23 |
 | main | README demo GIF — added the hosted Fluxion demo GIF to the README via GitHub user-attachments so the repo does not carry the large binary asset | done | 2026-05-20 |
 | main | Homebrew site CTA + tag-derived releases — updated Fluxion.cc to show Homebrew as a subtle copyable install pill under the normal download/source CTAs, and changed macOS packaging to derive release version from the pushed `v*` tag so future releases do not require editing version files | done | 2026-05-19 |

@@ -205,15 +205,17 @@ class CodingSessionContextBuilder:
     def _render_neutral_metadata(self, session_state: CodingSessionState) -> str:
         session_state.normalize()
         lines: list[str] = []
+        if session_state.objective:
+            lines.append("- current_request: " + session_state.objective)
         if session_state.modified_files:
-            lines.append("- touched_files: " + ", ".join(session_state.modified_files[-8:]))
+            lines.append("- changed_files: " + ", ".join(session_state.modified_files[-8:]))
         if session_state.read_files:
             lines.append("- referenced_files: " + ", ".join(session_state.read_files[-8:]))
         if session_state.recent_commands:
             lines.append("- recent_commands: " + " | ".join(session_state.recent_commands[-4:]))
         if not lines:
             return ""
-        return "CODING SESSION METADATA\n" + "\n".join(lines)
+        return "CODING SESSION CURRENT STATE\n" + "\n".join(lines)
 
     def _entries_to_messages(
         self,

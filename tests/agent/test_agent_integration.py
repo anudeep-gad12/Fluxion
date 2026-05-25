@@ -1010,5 +1010,5 @@ class TestAgentIntegrationCodingContinuation:
 
         assert result.success is True
         first_system = provider.complete_streaming.call_args.kwargs["messages"][0]["content"]
-        assert "CODING SESSION METADATA" in first_system
+        assert "CODING SESSION CURRENT STATE" in first_system
         assert "referenced_files: ui/src/components/SummaryCards.tsx" in first_system

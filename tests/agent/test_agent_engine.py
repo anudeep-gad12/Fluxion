@@ -1,10 +1,11 @@
 """Tests for AgentEngine."""
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 import hashlib
 import json
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from orchestrator.agent.agent_engine import (
     AgentEngine,
@@ -18,12 +19,18 @@ from orchestrator.agent.coding_session import (
     CodingSessionEntry,
     CodingSessionState,
 )
-from orchestrator.agent.tools.read_file import ReadFileTool
-from orchestrator.agent.tools.bash_tool import BashTool
-from orchestrator.agent.tools.base import ToolResult
 from orchestrator.agent.state_machine import RecoveryContext
+from orchestrator.agent.tools.apply_patch_tool import ApplyPatchTool
+from orchestrator.agent.tools.base import ToolResult
+from orchestrator.agent.tools.bash_tool import BashTool
+from orchestrator.agent.tools.command_session import (
+    CommandSessionManager,
+    ExecCommandTool,
+    WriteStdinTool,
+)
+from orchestrator.agent.tools.read_file import ReadFileTool
+from orchestrator.agent.tools.registry import ToolRegistry
 from orchestrator.providers.base import LLMResponse
-
 
 # =============================================================================
 # Test Fixtures
@@ -1312,7 +1319,7 @@ class TestCodingSessionPersistence:
         assert "Progress so far: fixed" not in flattened
         assert "Double-check the cache path" not in flattened
         assert [message["role"] for message in messages] == ["system", "system", "user"]
-        assert "CODING SESSION METADATA" in messages[1]["content"]
+        assert "CODING SESSION CURRENT STATE" in messages[1]["content"]
         assert repo.list_coding_session_entries.await_args.kwargs["include_compacted"] is False
         assert engine._last_stored_context is not None
         assert engine._last_stored_context["stored_tokens"] > 0
@@ -2238,6 +2245,142 @@ class TestAgentEngineToolExecution:
         assert len(tool_starts) == 1
         assert len(tool_results) == 1
         assert tool_results[0]["success"] is True
+
+
+    @pytest.mark.asyncio
+    async def test_model_can_edit_two_files_with_one_apply_patch_call(self, tmp_path):
+        (tmp_path / "a.txt").write_text("one\n", encoding="utf-8")
+        (tmp_path / "b.txt").write_text("two\n", encoding="utf-8")
+        patch_text = """*** Begin Patch
+*** Update File: a.txt
+@@
+-one
++ONE
+*** Update File: b.txt
+@@
+-two
++TWO
+*** End Patch"""
+        provider = MagicMock()
+        provider.complete_streaming = AsyncMock(
+            side_effect=[
+                LLMResponse(
+                    text="Patching both files.",
+                    tool_calls=[
+                        {
+                            "id": "tc-patch",
+                            "function": {
+                                "name": "apply_patch",
+                                "arguments": json.dumps({"patch": patch_text}),
+                            },
+                        }
+                    ],
+                ),
+                LLMResponse(text="Done.", tool_calls=None),
+            ]
+        )
+        registry = ToolRegistry()
+        registry.register(ApplyPatchTool(str(tmp_path)))
+        mock_sm = create_mock_state_machine(
+            can_continue_sequence=[True, True, False],
+            step_sequence=[{"step_number": 1, "id": "step-1"}, {"step_number": 2, "id": "step-2"}],
+        )
+        mock_sm.record_tool_call = AsyncMock(return_value={"id": "tc-patch"})
+
+        with patch("orchestrator.agent.agent_engine.AgentStateMachine", return_value=mock_sm):
+            engine = AgentEngine(provider=provider, repo=create_mock_repo(), registry=registry)
+            events = []
+            result = await engine.run(
+                "run-patch",
+                "edit files",
+                event_callback=lambda e: events.append(e),
+            )
+
+        assert result.success is True
+        assert (tmp_path / "a.txt").read_text(encoding="utf-8") == "ONE\n"
+        assert (tmp_path / "b.txt").read_text(encoding="utf-8") == "TWO\n"
+        tool_result = next(e for e in events if e["type"] == "tool_result")
+        assert tool_result["tool_name"] == "apply_patch"
+        assert "a.txt" in tool_result["result_data"]
+        assert "b.txt" in tool_result["result_data"]
+
+    @pytest.mark.asyncio
+    async def test_model_can_run_and_poll_exec_command(self, tmp_path):
+        provider = MagicMock()
+        provider.complete_streaming = AsyncMock(
+            side_effect=[
+                LLMResponse(
+                    text="Running focused check.",
+                    tool_calls=[
+                        {
+                            "id": "tc-exec",
+                            "function": {
+                                "name": "exec_command",
+                                "arguments": json.dumps(
+                                    {
+                                        "cmd": (
+                                            "python3 -c 'import time; "
+                                            "print(\"start\", flush=True); "
+                                            "time.sleep(.3); "
+                                            "print(\"done\", flush=True)'"
+                                        ),
+                                        "yield_time_ms": 50,
+                                    }
+                                ),
+                            },
+                        }
+                    ],
+                ),
+                LLMResponse(
+                    text="Polling.",
+                    tool_calls=[
+                        {
+                            "id": "tc-poll",
+                            "function": {
+                                "name": "write_stdin",
+                                "arguments": '{"session_id":1,"yield_time_ms":1000}',
+                            },
+                        }
+                    ],
+                ),
+                LLMResponse(text="Done.", tool_calls=None),
+            ]
+        )
+        manager = CommandSessionManager(str(tmp_path))
+        registry = ToolRegistry()
+        registry.register(ExecCommandTool(manager))
+        registry.register(WriteStdinTool(manager))
+        mock_sm = create_mock_state_machine(
+            can_continue_sequence=[True, True, True, False],
+            step_sequence=[
+                {"step_number": 1, "id": "step-1"},
+                {"step_number": 2, "id": "step-2"},
+                {"step_number": 3, "id": "step-3"},
+            ],
+        )
+        mock_sm.record_tool_call = AsyncMock(
+            side_effect=lambda *args, **kwargs: {"id": kwargs["tool_call_id"]}
+        )
+
+        with patch(
+            "orchestrator.agent.agent_engine.AgentStateMachine",
+            return_value=mock_sm,
+        ):
+            engine = AgentEngine(provider=provider, repo=create_mock_repo(), registry=registry)
+            events = []
+            result = await engine.run(
+                "run-exec",
+                "run tests",
+                event_callback=lambda e: events.append(e),
+            )
+
+        assert result.success is True
+        command_events = [e for e in events if e["type"] == "tool_result"]
+        assert command_events[0]["tool_name"] == "exec_command"
+        assert command_events[0]["bash_output"]["exit_code"] is None
+        assert command_events[1]["tool_name"] == "write_stdin"
+        assert command_events[1]["bash_output"]["exit_code"] == 0
+        assert "done" in command_events[1]["bash_output"]["stdout"]
 
     @pytest.mark.asyncio
     async def test_handles_unknown_tool(self):

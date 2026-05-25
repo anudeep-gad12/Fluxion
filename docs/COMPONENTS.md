@@ -882,9 +882,38 @@ class BaseTool(Protocol):
 
 **Note**: This tool exists but is not registered. Use `LocalPythonTool` or `DaytonaPythonTool` instead.
 
+### `orchestrator/agent/tools/apply_patch_tool.py`
+
+**Purpose**: Workspace-safe Codex-style atomic patches for add/update/delete/move edits.
+
+**Class**: `ApplyPatchTool`
+
+**Permission**: `confirm` (requires approval in strict/relaxed modes)
+
+**Features**:
+- Parses `*** Begin Patch` / `*** End Patch` payloads
+- Supports Add File, Update File, Delete File, and Move to operations
+- Validates every path remains inside the selected workspace
+- Computes all changes before writing so malformed multi-file patches do not partially apply
+- Returns changed files plus unified diff data for model context and UI display
+
+### `orchestrator/agent/tools/command_session.py`
+
+**Purpose**: Codex-style command sessions for commands that may outlive one tool call.
+
+**Classes**: `CommandSessionManager`, `ExecCommandTool`, `WriteStdinTool`
+
+**Permission**: `dangerous` for `exec_command`; `write_stdin` reuses the running session
+
+**Features**:
+- `exec_command` returns completed output for quick commands or a `session_id` when still running
+- `write_stdin` polls a running command and can send stdin text
+- Captures stdout/stderr, exit code, timeout status, and truncated output summaries
+- Cleans up remaining command sessions when the agent tool registry closes
+
 ### `orchestrator/agent/tools/bash_tool.py`
 
-**Purpose**: Shell command execution with persistent working directory.
+**Purpose**: Legacy shell command execution with persistent working directory.
 
 **Class: `BashTool`**
 
@@ -906,7 +935,7 @@ class BaseTool(Protocol):
 - Configurable timeout (default 120s, max 600s)
 - Output truncated at 30,000 chars
 - Returns exit code, stdout, stderr in metadata
-- Prompt guidance now explicitly treats `bash` as the general local execution tool for verification, build/test/dev commands, quick scripts, curl, repro steps, and calculations
+- Prompt guidance now prefers `exec_command` for local execution and keeps `bash` as a compatibility fallback
 
 ### `orchestrator/agent/tools/read_file.py`
 
@@ -923,7 +952,7 @@ class BaseTool(Protocol):
     "parameters": {
         "file_path": {"type": "string"},
         "offset": {"type": "integer", "description": "Start line (1-based)"},
-        "limit": {"type": "integer", "description": "Max lines (default 2000)"}
+        "limit": {"type": "integer", "description": "Max lines (default 250, max 400)"}
     }
 }
 ```
@@ -931,7 +960,7 @@ class BaseTool(Protocol):
 **Features**:
 - 1-based line numbering (cat -n style)
 - Binary file detection (rejects null bytes)
-- Long line truncation at 2000 chars
+- Long line truncation at 300 chars
 - Path resolution relative to working_dir
 
 ### `orchestrator/agent/tools/write_file.py`
@@ -1485,7 +1514,7 @@ async with self._seq_lock:
 - Agent engine creates a Future when a tool needs approval, emits `tool_approval_required` SSE event
 - `/approve` resolves the Future with `True`, `/deny` resolves with `False`
 - Approval timeout: 5 minutes (tool is denied if no response)
-- `relaxed` policy is tool-aware, not blanket: read-only filesystem/web tools auto-run, write/edit operations still require approval, and bash commands are classified before auto-approval
+- `relaxed` policy is tool-aware, not blanket: read-only filesystem/web tools auto-run, write/edit/patch operations still require approval, and exec/bash commands are classified before auto-approval
 
 **Pause/Resume Flow**:
 - Agent checks `pause_signal` (asyncio.Event) between steps

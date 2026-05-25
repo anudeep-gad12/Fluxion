@@ -8,7 +8,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-
 READ_ONLY_TOOLS = {
     "read_file",
     "view_image",
@@ -160,12 +159,16 @@ def classify_tool_call(
     if tool_name in READ_ONLY_TOOLS:
         return PermissionDecision(False, "auto", "read-only tool allowed in relaxed mode")
 
-    if tool_name in {"write_file", "edit_file"}:
+    if tool_name in {"write_file", "edit_file", "apply_patch"}:
         return PermissionDecision(True, "confirm", "filesystem mutations require approval")
 
-    if tool_name == "bash":
+    if tool_name == "write_stdin":
+        return PermissionDecision(False, "auto", "stdin writes to an approved running command session")
+
+    if tool_name in {"bash", "exec_command"}:
+        command_arg = "cmd" if tool_name == "exec_command" else "command"
         return classify_bash_command(
-            command=str(arguments.get("command", "")),
+            command=str(arguments.get(command_arg, "")),
             workspace_path=workspace_path,
         )
 

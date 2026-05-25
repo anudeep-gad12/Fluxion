@@ -42,9 +42,8 @@ class ReadFileTool:
             name="read_file",
             description=(
                 "Read the contents of a file with line numbers. "
-                "Reads up to 2000 lines by default — just pass file_path, "
-                "do NOT set a small limit. Only use offset/limit to page "
-                "through files longer than 2000 lines."
+                "Reads up to 250 lines by default and 400 lines max. "
+                "Only use offset/limit to page through longer files."
             ),
             parameters={
                 "type": "object",
