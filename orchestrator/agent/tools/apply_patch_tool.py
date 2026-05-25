@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import difflib
+import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -14,6 +15,10 @@ from .base import ToolResult, ToolSchema
 
 logger = get_logger(__name__)
 
+_HUNK_HEADER_RE = re.compile(
+    r"^@@\s+-\d+(?:,(?P<old_count>\d+))?\s+\+\d+(?:,(?P<new_count>\d+))?"
+)
+
 PatchKind = Literal["add", "update", "delete"]
 
 
@@ -22,6 +27,8 @@ class PatchHunk:
     """One update hunk in Codex apply_patch format."""
 
     lines: list[tuple[str, str]] = field(default_factory=list)
+    old_count: Optional[int] = None
+    new_count: Optional[int] = None
 
 
 @dataclass
@@ -108,6 +115,31 @@ class ApplyPatchTool:
         except ValueError:
             return str(path)
 
+    def _parse_hunk_header(self, header: str) -> PatchHunk:
+        """Parse optional line counts from a unified/Codex hunk header."""
+        match = _HUNK_HEADER_RE.match(header)
+        if not match:
+            return PatchHunk()
+        old_count = int(match.group("old_count") or "1")
+        new_count = int(match.group("new_count") or "1")
+        return PatchHunk(old_count=old_count, new_count=new_count)
+
+    def _infer_loose_hunk_prefix(self, hunk: PatchHunk) -> Optional[str]:
+        """Infer prefix for model-emitted hunk lines missing +/-/space.
+
+        Some models wrap a normal unified diff in Codex headers but drop the `+`
+        prefix for appended blocks after a `+` blank line. Use hunk line counts
+        to repair only the safe case where the old side is already fully
+        consumed and the new side still has room.
+        """
+        if hunk.old_count is None or hunk.new_count is None:
+            return None
+        old_used = sum(1 for prefix, _ in hunk.lines if prefix in {" ", "-"})
+        new_used = sum(1 for prefix, _ in hunk.lines if prefix in {" ", "+"})
+        if old_used >= hunk.old_count and new_used < hunk.new_count:
+            return "+"
+        return None
+
     def _parse(self, patch: str) -> list[PatchOperation]:
         lines = patch.splitlines()
         if not lines or lines[0].strip() != "*** Begin Patch":
@@ -190,7 +222,7 @@ class ApplyPatchTool:
                         op.replace_lines = replacement
                         continue
                     if current.startswith("@@"):
-                        current_hunk = PatchHunk()
+                        current_hunk = self._parse_hunk_header(current)
                         op.hunks.append(current_hunk)
                         i += 1
                         continue
@@ -207,9 +239,23 @@ class ApplyPatchTool:
                         if current_hunk is None:
                             current_hunk = PatchHunk()
                             op.hunks.append(current_hunk)
-                        current_hunk.lines.append((current[0], current[1:]))
+                        inferred_prefix = (
+                            self._infer_loose_hunk_prefix(current_hunk)
+                            if current.startswith(" ")
+                            else None
+                        )
+                        if inferred_prefix == "+":
+                            current_hunk.lines.append(("+", current))
+                        else:
+                            current_hunk.lines.append((current[0], current[1:]))
                         i += 1
                         continue
+                    if current_hunk is not None:
+                        inferred_prefix = self._infer_loose_hunk_prefix(current_hunk)
+                        if inferred_prefix is not None:
+                            current_hunk.lines.append((inferred_prefix, current))
+                            i += 1
+                            continue
                     if current == "":
                         if current_hunk is None:
                             current_hunk = PatchHunk()

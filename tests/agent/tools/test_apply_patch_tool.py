@@ -159,6 +159,43 @@ body {
 
 
 @pytest.mark.asyncio
+async def test_update_repairs_missing_plus_prefix_in_added_tail(tmp_path):
+    path = tmp_path / "style.css"
+    path.write_text(
+        ".plain-link.external::before {\n"
+        "  transition: none;\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    tool = ApplyPatchTool(str(tmp_path))
+
+    result = await tool.execute(
+        patch="""*** Begin Patch
+*** Update File: style.css
+@@ -1,3 +1,16 @@
+ .plain-link.external::before {
+   transition: none;
+ }
++
+/* Micro-elevation utilities */
+.micro-lift {
+  transition: transform 150ms ease, box-shadow 150ms ease;
+}
+
+.micro-lift:hover {
+  transform: translateY(-1px);
+}
+*** End Patch"""
+    )
+
+    assert result.success is True
+    content = path.read_text(encoding="utf-8")
+    assert "/* Micro-elevation utilities */" in content
+    assert ".micro-lift:hover" in content
+    assert "+.micro-lift {" in result.result_data["diff"]
+
+
+@pytest.mark.asyncio
 async def test_rejects_malformed_patch(tmp_path):
     tool = ApplyPatchTool(str(tmp_path))
     result = await tool.execute(
