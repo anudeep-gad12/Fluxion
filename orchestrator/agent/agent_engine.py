@@ -2717,6 +2717,13 @@ To provide your final answer, respond WITHOUT calling any tools."""
         coding_session_state: Optional[CodingSessionState] = None
         coding_session_dirty = False
         ephemeral_messages: List[Dict[str, Any]] = []
+        # Plan Mode exploration must not become durable coding-session context.
+        # The approved implementation run should start from the plan and re-read
+        # files, not replay plan-time file evidence as if it were implementation
+        # state.
+        coding_session_persistence_enabled = (
+            self._is_coding_profile() and self._collaboration_mode != "plan"
+        )
 
         # Initialize findings for this run
         self._findings = []
@@ -2774,7 +2781,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
             self._active_conversation_id = conversation_id
             self._active_coding_session_state = None
             coding_session_had_entries = False
-            if self._is_coding_profile() and conversation_id:
+            if coding_session_persistence_enabled and conversation_id:
                 session_record, coding_session_state = await self._load_coding_session_state_record(
                     conversation_id
                 )
@@ -2854,7 +2861,11 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 if steer_queue:
                     while steer_queue:
                         steer_msg = steer_queue.pop(0)
-                        if self._is_coding_profile() and conversation_id and coding_session_state is not None:
+                        if (
+                            coding_session_persistence_enabled
+                            and conversation_id
+                            and coding_session_state is not None
+                        ):
                             await self._persist_coding_session_user_message(
                                 conversation_id=conversation_id,
                                 run_id=run_id,
@@ -2877,7 +2888,11 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         )
 
                 compacted_now = False
-                if self._is_coding_profile() and conversation_id and coding_session_state is not None:
+                if (
+                    coding_session_persistence_enabled
+                    and conversation_id
+                    and coding_session_state is not None
+                ):
                     pruned_messages, self._context_budget, context_usage_payload = (
                         await self._prepare_coding_prompt_messages(
                             conversation_id=conversation_id,
@@ -3396,7 +3411,11 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     self._record_tool_call_recovery(working_memory, recovery_notes)
                     edit_failures = self._edit_failure_contexts(tool_results)
                     self._record_edit_failure_recovery(working_memory, edit_failures)
-                    if coding_session_state is not None and conversation_id:
+                    if (
+                        coding_session_persistence_enabled
+                        and coding_session_state is not None
+                        and conversation_id
+                    ):
                         coding_session_dirty = True
                         await self._persist_coding_session_step_entries(
                             conversation_id=conversation_id,

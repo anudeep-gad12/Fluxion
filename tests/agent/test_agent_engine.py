@@ -19,6 +19,7 @@ from orchestrator.agent.coding_session import (
     CodingSessionEntry,
     CodingSessionState,
 )
+from orchestrator.agent.plan_mode import PlanDecision
 from orchestrator.agent.state_machine import RecoveryContext
 from orchestrator.agent.tools.apply_patch_tool import ApplyPatchTool
 from orchestrator.agent.tools.base import ToolResult
@@ -1875,6 +1876,104 @@ class TestAgentEngineRun:
         assert "14 million" in result.final_answer
         assert any(e["type"] == "agent_started" for e in events)
         assert any(e["type"] == "agent_complete" for e in events)
+
+    @pytest.mark.asyncio
+    async def test_plan_mode_does_not_persist_coding_session_context(self, tmp_path: Path):
+        """Plan exploration reads must not replay as implementation file evidence."""
+        (tmp_path / "src").mkdir()
+        (tmp_path / "src" / "App.tsx").write_text(
+            "export function App() { return <div>Hello</div>; }\n",
+            encoding="utf-8",
+        )
+
+        provider = MagicMock()
+        provider.complete_streaming = AsyncMock(
+            side_effect=[
+                LLMResponse(
+                    text="I'll inspect first.",
+                    tool_calls=[
+                        {
+                            "id": "tc-read",
+                            "type": "function",
+                            "function": {
+                                "name": "read_file",
+                                "arguments": '{"file_path": "src/App.tsx"}',
+                            },
+                        }
+                    ],
+                ),
+                LLMResponse(
+                    text=(
+                        "Ready.\n"
+                        "<proposed_plan>\n"
+                        "Update src/App.tsx after re-reading it in Default Mode.\n"
+                        "</proposed_plan>"
+                    )
+                ),
+            ]
+        )
+
+        registry = create_mock_registry()
+        read_tool = ReadFileTool(str(tmp_path))
+        registry.get.side_effect = (
+            lambda name: read_tool if name == "read_file" else None
+        )
+        registry.get_openai_schemas.return_value = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "read_file",
+                    "description": "Read file",
+                    "parameters": {"type": "object", "properties": {}},
+                },
+            }
+        ]
+        repo = create_mock_repo()
+        mock_sm = create_mock_state_machine(
+            can_continue_sequence=[True, True, False],
+            step_sequence=[
+                {"step_number": 1, "id": "step-1"},
+                {"step_number": 2, "id": "step-2"},
+            ],
+        )
+        mock_sm.record_tool_call.return_value = {"id": "tc-read", "status": "pending"}
+
+        async def approve_plan(
+            _run_id: str, _plan_id: str, _markdown: str
+        ) -> PlanDecision:
+            return PlanDecision(decision="approved", implementation_run_id="impl-run")
+
+        with patch(
+            "orchestrator.agent.agent_engine.AgentStateMachine",
+            return_value=mock_sm,
+        ):
+            profile = MagicMock()
+            profile.name = "coding"
+            profile.max_steps = 5
+            engine = AgentEngine(
+                provider=provider,
+                repo=repo,
+                registry=registry,
+                profile=profile,
+                planning_enabled=False,
+                collaboration_mode="plan",
+                plan_approval_callback=approve_plan,
+            )
+            result = await engine.run(
+                run_id="plan-run",
+                query="Plan the App update",
+                conversation_id="conv-plan",
+            )
+
+        assert result.success is True
+        assert (
+            result.approved_plan
+            == "Update src/App.tsx after re-reading it in Default Mode."
+        )
+        repo.get_coding_session_state.assert_not_awaited()
+        repo.get_latest_coding_session_entry_seq.assert_not_awaited()
+        repo.append_coding_session_entries.assert_not_awaited()
+        repo.upsert_coding_session_state.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_raw_tool_results_persist_for_full_run(self):
