@@ -468,6 +468,24 @@ class TestAgentEngineHelpers:
         assert engine._clean_answer(None) == ""
 
 
+def test_apply_patch_failure_recovery_message_prefers_retry_patch():
+    engine = AgentEngine(
+        provider=create_mock_provider(),
+        repo=create_mock_repo(),
+        registry=create_mock_registry(),
+    )
+    failures = [{"error": "Unexpected patch line: Update File: src/index.css"}]
+
+    messages = engine._build_apply_patch_failure_recovery_messages(failures)
+
+    assert messages
+    content = messages[0]["content"]
+    assert "Do not switch to edit_file" in content
+    assert "*** Update File: path/to/file" in content
+    assert "--- a/path/to/file" in content
+    assert "Never send placeholder-only patches" in content
+
+
 class TestAgentEngineToolParsing:
     """Tests for tool call parsing."""
 

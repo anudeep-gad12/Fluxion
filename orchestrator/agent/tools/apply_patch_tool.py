@@ -75,11 +75,12 @@ class ApplyPatchTool:
         return ToolSchema(
             name="apply_patch",
             description=(
-                "Apply a Codex-style workspace patch atomically. Prefer this for edits "
-                "to existing files and multi-file changes. Format starts with "
-                "*** Begin Patch and ends with *** End Patch; supports Add File, "
-                "Update File, Delete File, and optional Move to headers. All paths "
-                "must stay inside the workspace. Returns changed files and a unified diff."
+                "Apply a workspace patch atomically. Prefer this for edits to existing "
+                "files and multi-file changes. Use a complete patch, not a placeholder. "
+                "Valid formats: (1) Codex headers: *** Begin Patch, *** Update File: "
+                "path, @@ hunk, +/-/space lines, *** End Patch; (2) conventional "
+                "unified diff wrapped in *** Begin Patch / *** End Patch using --- "
+                "a/path and +++ b/path. Returns changed files and a unified diff."
             ),
             parameters={
                 "type": "object",
@@ -171,6 +172,31 @@ class ApplyPatchTool:
             return token[2:]
         return token
 
+    def _is_operation_header(
+        self, line: str, *, include_unified_diff: bool = True
+    ) -> bool:
+        """Return whether a line starts a new file operation."""
+        headers = (
+            "*** Add File: ",
+            "*** Delete File: ",
+            "*** Update File: ",
+            "Add File: ",
+            "Delete File: ",
+            "Update File: ",
+        )
+        return line.startswith(headers) or (
+            include_unified_diff and line.startswith("--- ")
+        )
+
+    def _strip_optional_stars(self, line: str, header: str) -> Optional[str]:
+        """Strip either `*** Header: ` or `Header: ` from a line."""
+        starred = f"*** {header}"
+        if line.startswith(starred):
+            return line.removeprefix(starred).strip()
+        if line.startswith(header):
+            return line.removeprefix(header).strip()
+        return None
+
     def _parse_unified_operation(
         self, lines: list[str], start_index: int
     ) -> tuple[PatchOperation, int]:
@@ -198,11 +224,7 @@ class ApplyPatchTool:
         current_hunk: Optional[PatchHunk] = None
         while i < len(lines) - 1:
             current = lines[i]
-            if current.startswith("--- "):
-                break
-            if current.startswith("*** Add File: ") or current.startswith(
-                "*** Delete File: "
-            ) or current.startswith("*** Update File: "):
+            if self._is_operation_header(current):
                 break
             if current.startswith("@@"):
                 current_hunk = self._parse_hunk_header(current)
@@ -248,13 +270,14 @@ class ApplyPatchTool:
                 operations.append(op)
                 continue
 
-            if line.startswith("*** Add File: "):
-                path = line.removeprefix("*** Add File: ").strip()
+            add_path = self._strip_optional_stars(line, "Add File: ")
+            if add_path is not None:
+                path = add_path
                 if not path:
                     raise ApplyPatchParseError("Add File header missing path")
                 i += 1
                 add_lines: list[str] = []
-                while i < len(lines) - 1 and not lines[i].startswith("*** "):
+                while i < len(lines) - 1 and not self._is_operation_header(lines[i]):
                     current = lines[i]
                     if not current.startswith("+"):
                         raise ApplyPatchParseError(
@@ -265,16 +288,18 @@ class ApplyPatchTool:
                 operations.append(PatchOperation(kind="add", path=path, add_lines=add_lines))
                 continue
 
-            if line.startswith("*** Delete File: "):
-                path = line.removeprefix("*** Delete File: ").strip()
+            delete_path = self._strip_optional_stars(line, "Delete File: ")
+            if delete_path is not None:
+                path = delete_path
                 if not path:
                     raise ApplyPatchParseError("Delete File header missing path")
                 operations.append(PatchOperation(kind="delete", path=path))
                 i += 1
                 continue
 
-            if line.startswith("*** Update File: "):
-                path = line.removeprefix("*** Update File: ").strip()
+            update_path = self._strip_optional_stars(line, "Update File: ")
+            if update_path is not None:
+                path = update_path
                 if not path:
                     raise ApplyPatchParseError("Update File header missing path")
                 op = PatchOperation(kind="update", path=path)
@@ -282,21 +307,24 @@ class ApplyPatchTool:
                 current_hunk: Optional[PatchHunk] = None
                 while (
                     i < len(lines) - 1
-                    and not lines[i].startswith("*** Add File: ")
-                    and not lines[i].startswith("*** Delete File: ")
-                    and not lines[i].startswith("*** Update File: ")
+                    and not self._is_operation_header(
+                        lines[i], include_unified_diff=False
+                    )
                 ):
                     current = lines[i]
-                    if current.startswith("*** Move to: "):
+                    move_path = self._strip_optional_stars(current, "Move to: ")
+                    if move_path is not None:
                         if op.new_path is not None:
                             raise ApplyPatchParseError(
                                 f"Update File '{path}' has multiple Move to headers"
                             )
-                        op.new_path = current.removeprefix("*** Move to: ").strip()
+                        op.new_path = move_path
                         if not op.new_path:
                             raise ApplyPatchParseError("Move to header missing path")
                         i += 1
                         continue
+                    if current.strip() == "*** End Patch":
+                        break
                     if current == "***" and current_hunk is None and not op.hunks:
                         # Be tolerant of a common model mistake: emitting
                         # `*** Update File: path` followed by `***` and then
@@ -307,9 +335,9 @@ class ApplyPatchTool:
                         replacement: list[str] = []
                         while (
                             i < len(lines) - 1
-                            and not lines[i].startswith("*** Add File: ")
-                            and not lines[i].startswith("*** Delete File: ")
-                            and not lines[i].startswith("*** Update File: ")
+                            and not self._is_operation_header(
+                        lines[i], include_unified_diff=False
+                    )
                         ):
                             replacement.append(lines[i])
                             i += 1
@@ -535,7 +563,15 @@ class ApplyPatchTool:
                     "operations": [c.action for c in changes],
                 },
             )
-        except (ApplyPatchParseError, ValueError, UnicodeDecodeError) as e:
+        except ApplyPatchParseError as e:
+            return ToolResult(
+                success=False,
+                result_summary=f"Patch failed: {str(e)[:100]}",
+                error_message=str(e),
+                duration_ms=int((time.perf_counter() - start_time) * 1000),
+                metadata={"failure_type": "malformed_patch"},
+            )
+        except (ValueError, UnicodeDecodeError) as e:
             return ToolResult(
                 success=False,
                 result_summary=f"Patch failed: {str(e)[:100]}",

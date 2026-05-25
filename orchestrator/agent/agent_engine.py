@@ -735,6 +735,88 @@ To provide your final answer, respond WITHOUT calling any tools."""
         memory.recent_raw_evidence.extend(note[:500] for note in recovery_notes)
         memory.recent_raw_evidence = memory.recent_raw_evidence[-8:]
 
+
+    def _apply_patch_failure_contexts(
+        self,
+        tool_results: List[tuple[ParsedToolCall, "ToolResult"]],
+    ) -> List[Dict[str, Any]]:
+        """Extract malformed apply_patch failures that need format recovery."""
+        failures: List[Dict[str, Any]] = []
+        for tool_call, result in tool_results:
+            if tool_call.name != "apply_patch" or result.success:
+                continue
+            metadata = result.metadata if isinstance(result.metadata, dict) else {}
+            error = str(result.error_message or result.result_summary or "")
+            malformed = metadata.get("failure_type") == "malformed_patch" or any(
+                marker in error
+                for marker in (
+                    "Unexpected patch line",
+                    "Malformed",
+                    "has no hunks",
+                    "Patch must",
+                )
+            )
+            if malformed:
+                failures.append({"error": error[:500]})
+        return failures
+
+    def _build_apply_patch_failure_recovery_messages(
+        self,
+        failures: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """Build targeted recovery guidance after malformed apply_patch calls."""
+        if not failures:
+            return []
+        errors = " | ".join(
+            str(item.get("error") or "")[:180] for item in failures[:2]
+        )
+        return [
+            {
+                "role": "system",
+                "content": (
+                    "apply_patch format recovery required. The previous patch failed "
+                    f"before changing files: {errors}. Do not switch to edit_file or "
+                    "write_file just because the patch format was wrong. Retry with one "
+                    "complete apply_patch call containing actual hunks. Valid examples:\n\n"
+                    "*** Begin Patch\n"
+                    "*** Update File: path/to/file\n"
+                    "@@\n"
+                    " old context line\n"
+                    "-old line\n"
+                    "+new line\n"
+                    "*** End Patch\n\n"
+                    "or:\n\n"
+                    "*** Begin Patch\n"
+                    "--- a/path/to/file\n"
+                    "+++ b/path/to/file\n"
+                    "@@ -1,2 +1,2 @@\n"
+                    " old context line\n"
+                    "-old line\n"
+                    "+new line\n"
+                    "*** End Patch\n\n"
+                    "Never send placeholder-only patches such as `Update File: path` "
+                    "with no hunks."
+                ),
+            }
+        ]
+
+    def _record_apply_patch_failure_recovery(
+        self,
+        memory: WorkingMemory,
+        failures: List[Dict[str, Any]],
+    ) -> None:
+        """Persist apply_patch format recovery hints into working memory."""
+        if not failures:
+            return
+        memory.unresolved_tasks.append(
+            "Retry apply_patch with a complete patch; previous patch was malformed."
+        )
+        memory.recent_raw_evidence.append(
+            "apply_patch failed due to malformed/placeholder patch syntax."
+        )
+        memory.unresolved_tasks = memory.unresolved_tasks[-6:]
+        memory.recent_raw_evidence = memory.recent_raw_evidence[-8:]
+
     def _edit_failure_contexts(
         self,
         tool_results: List[tuple[ParsedToolCall, "ToolResult"]],
@@ -3409,6 +3491,10 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     messages.append(assistant_message)
                     self._update_working_memory_from_tools(working_memory, tool_results)
                     self._record_tool_call_recovery(working_memory, recovery_notes)
+                    apply_patch_failures = self._apply_patch_failure_contexts(tool_results)
+                    self._record_apply_patch_failure_recovery(
+                        working_memory, apply_patch_failures
+                    )
                     edit_failures = self._edit_failure_contexts(tool_results)
                     self._record_edit_failure_recovery(working_memory, edit_failures)
                     if (
@@ -3452,6 +3538,16 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         }
                         )
                         step_metadata[tool_call.id] = step_number
+
+                    if apply_patch_failures:
+                        for recovery_message in (
+                            self._build_apply_patch_failure_recovery_messages(
+                                apply_patch_failures
+                            )
+                        ):
+                            messages.append(recovery_message)
+                            if self._is_coding_profile():
+                                ephemeral_messages.append(recovery_message)
 
                     if edit_failures:
                         for recovery_message in self._build_edit_failure_recovery_messages(

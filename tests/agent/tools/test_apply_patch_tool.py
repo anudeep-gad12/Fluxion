@@ -159,6 +159,42 @@ body {
 
 
 @pytest.mark.asyncio
+async def test_update_accepts_missing_star_operation_header(tmp_path):
+    path = tmp_path / "style.css"
+    path.write_text("body {\n  color: red;\n}\n", encoding="utf-8")
+    tool = ApplyPatchTool(str(tmp_path))
+
+    result = await tool.execute(
+        patch="""*** Begin Patch
+Update File: style.css
+@@
+ body {
+-  color: red;
++  color: blue;
+ }
+*** End Patch"""
+    )
+
+    assert result.success is True
+    assert path.read_text(encoding="utf-8") == "body {\n  color: blue;\n}\n"
+
+
+@pytest.mark.asyncio
+async def test_malformed_patch_sets_recovery_metadata(tmp_path):
+    tool = ApplyPatchTool(str(tmp_path))
+
+    result = await tool.execute(
+        patch="""*** Begin Patch
+Update File: style.css
+*** End Patch"""
+    )
+
+    assert result.success is False
+    assert result.metadata["failure_type"] == "malformed_patch"
+    assert "no hunks" in result.error_message
+
+
+@pytest.mark.asyncio
 async def test_update_accepts_bare_unified_diff_inside_patch(tmp_path):
     path = tmp_path / "style.css"
     path.write_text(
