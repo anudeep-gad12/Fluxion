@@ -159,6 +159,41 @@ body {
 
 
 @pytest.mark.asyncio
+async def test_update_accepts_bare_unified_diff_inside_patch(tmp_path):
+    path = tmp_path / "style.css"
+    path.write_text(
+        ":root {\n"
+        "    --background: oklch(0.145 0.003 270);\n"
+        "    --foreground: oklch(0.96 0.003 270);\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    tool = ApplyPatchTool(str(tmp_path))
+
+    result = await tool.execute(
+        patch="""*** Begin Patch
+--- a/style.css
++++ b/style.css
+@@ -1,4 +1,4 @@
+ :root {
+-    --background: oklch(0.145 0.003 270);
+-    --foreground: oklch(0.96 0.003 270);
++    --background: oklch(0.12 0.01 30);
++    --foreground: oklch(0.96 0.01 30);
+ }
+*** End Patch"""
+    )
+
+    assert result.success is True
+    assert path.read_text(encoding="utf-8") == (
+        ":root {\n"
+        "    --background: oklch(0.12 0.01 30);\n"
+        "    --foreground: oklch(0.96 0.01 30);\n"
+        "}\n"
+    )
+
+
+@pytest.mark.asyncio
 async def test_update_repairs_missing_plus_prefix_in_added_tail(tmp_path):
     path = tmp_path / "style.css"
     path.write_text(

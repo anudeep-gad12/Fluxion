@@ -140,6 +140,95 @@ class ApplyPatchTool:
             return "+"
         return None
 
+    def _append_update_line(self, hunk: PatchHunk, line: str) -> bool:
+        """Append a hunk body line, repairing safe missing + prefixes."""
+        if line.startswith((" ", "-", "+")):
+            inferred_prefix = (
+                self._infer_loose_hunk_prefix(hunk) if line.startswith(" ") else None
+            )
+            if inferred_prefix == "+":
+                hunk.lines.append(("+", line))
+            else:
+                hunk.lines.append((line[0], line[1:]))
+            return True
+        inferred_prefix = self._infer_loose_hunk_prefix(hunk)
+        if inferred_prefix is not None:
+            hunk.lines.append((inferred_prefix, line))
+            return True
+        if line == "":
+            hunk.lines.append((" ", ""))
+            return True
+        return False
+
+    def _strip_unified_path(self, header: str, prefix: str) -> str:
+        """Extract a path token from a unified diff ---/+++ header."""
+        token = (
+            header.removeprefix(prefix).strip().split("\t", 1)[0].split(" ", 1)[0]
+        )
+        if token in {"/dev/null", "dev/null"}:
+            return "/dev/null"
+        if token.startswith("a/") or token.startswith("b/"):
+            return token[2:]
+        return token
+
+    def _parse_unified_operation(
+        self, lines: list[str], start_index: int
+    ) -> tuple[PatchOperation, int]:
+        """Parse a conventional unified diff file block inside Begin/End."""
+        if start_index + 1 >= len(lines) - 1 or not lines[start_index + 1].startswith(
+            "+++ "
+        ):
+            raise ApplyPatchParseError("Unified diff missing +++ file header")
+
+        old_path = self._strip_unified_path(lines[start_index], "--- ")
+        new_path = self._strip_unified_path(lines[start_index + 1], "+++ ")
+        if old_path == "/dev/null" and new_path == "/dev/null":
+            raise ApplyPatchParseError("Unified diff cannot use /dev/null for both paths")
+
+        path = new_path if old_path == "/dev/null" else old_path
+        op = PatchOperation(kind="update", path=path)
+        if (
+            old_path != "/dev/null"
+            and new_path != "/dev/null"
+            and old_path != new_path
+        ):
+            op.new_path = new_path
+
+        i = start_index + 2
+        current_hunk: Optional[PatchHunk] = None
+        while i < len(lines) - 1:
+            current = lines[i]
+            if current.startswith("--- "):
+                break
+            if current.startswith("*** Add File: ") or current.startswith(
+                "*** Delete File: "
+            ) or current.startswith("*** Update File: "):
+                break
+            if current.startswith("@@"):
+                current_hunk = self._parse_hunk_header(current)
+                op.hunks.append(current_hunk)
+                i += 1
+                continue
+            if current.startswith("\\ No newline at end of file"):
+                i += 1
+                continue
+            if current_hunk is None:
+                if not current.strip():
+                    i += 1
+                    continue
+                raise ApplyPatchParseError(
+                    f"Unified diff line appeared before hunk header: {current[:80]}"
+                )
+            if not self._append_update_line(current_hunk, current):
+                raise ApplyPatchParseError(
+                    f"Malformed unified diff line: {current[:80]}"
+                )
+            i += 1
+
+        if not op.hunks:
+            raise ApplyPatchParseError(f"Unified diff for '{path}' has no hunks")
+        return op, i
+
     def _parse(self, patch: str) -> list[PatchOperation]:
         lines = patch.splitlines()
         if not lines or lines[0].strip() != "*** Begin Patch":
@@ -154,6 +243,11 @@ class ApplyPatchTool:
             if not line.strip():
                 i += 1
                 continue
+            if line.startswith("--- "):
+                op, i = self._parse_unified_operation(lines, i)
+                operations.append(op)
+                continue
+
             if line.startswith("*** Add File: "):
                 path = line.removeprefix("*** Add File: ").strip()
                 if not path:
@@ -235,32 +329,12 @@ class ApplyPatchTool:
                         # treat these as +/- body lines, every hunk fails to match.
                         i += 1
                         continue
-                    if current.startswith((" ", "-", "+")):
-                        if current_hunk is None:
-                            current_hunk = PatchHunk()
-                            op.hunks.append(current_hunk)
-                        inferred_prefix = (
-                            self._infer_loose_hunk_prefix(current_hunk)
-                            if current.startswith(" ")
-                            else None
-                        )
-                        if inferred_prefix == "+":
-                            current_hunk.lines.append(("+", current))
-                        else:
-                            current_hunk.lines.append((current[0], current[1:]))
-                        i += 1
-                        continue
-                    if current_hunk is not None:
-                        inferred_prefix = self._infer_loose_hunk_prefix(current_hunk)
-                        if inferred_prefix is not None:
-                            current_hunk.lines.append((inferred_prefix, current))
-                            i += 1
-                            continue
-                    if current == "":
-                        if current_hunk is None:
-                            current_hunk = PatchHunk()
-                            op.hunks.append(current_hunk)
-                        current_hunk.lines.append((" ", ""))
+                    if current_hunk is None and current.startswith((" ", "-", "+")):
+                        current_hunk = PatchHunk()
+                        op.hunks.append(current_hunk)
+                    if current_hunk is not None and self._append_update_line(
+                        current_hunk, current
+                    ):
                         i += 1
                         continue
                     raise ApplyPatchParseError(f"Malformed update line in '{path}': {current[:80]}")
