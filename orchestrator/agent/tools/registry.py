@@ -1,7 +1,7 @@
 """Tool registry for coding-agent tool management."""
 
 import os
-from typing import TYPE_CHECKING, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from orchestrator.logging_config import get_logger
 
@@ -128,6 +128,8 @@ def create_browser_agent_tool_registry(
     capabilities: dict,
     working_dir: Optional[str] = None,
     python_provider: Optional[str] = None,
+    collaboration_mode: str = "default",
+    user_input_callback: Optional[Any] = None,
 ) -> ToolRegistry:
     """Create the browser-first agent tool registry from capability flags.
 
@@ -207,10 +209,16 @@ def create_browser_agent_tool_registry(
         registry.register(WriteStdinTool(command_manager))
         registry.register(BashTool(working_dir=wd))
 
+    if collaboration_mode == "plan":
+        from .request_user_input import RequestUserInputTool
+
+        registry.register(RequestUserInputTool(user_input_callback))
+
     logger.info(
         "Browser agent tool registry created",
         extra={
             "capabilities": capabilities,
+            "collaboration_mode": collaboration_mode,
             "working_dir": working_dir,
             "tools": registry.tool_names,
         },

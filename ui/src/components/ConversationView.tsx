@@ -1166,6 +1166,9 @@ export function ConversationView() {
   const [permissionPolicy, setPermissionPolicy] = useState<'strict' | 'relaxed' | 'yolo'>(
     () => (localStorage.getItem('reasoner_permission_policy') as 'strict' | 'relaxed' | 'yolo') || 'strict'
   );
+  const [collaborationMode, setCollaborationMode] = useState<'default' | 'plan'>(
+    () => (localStorage.getItem('reasoner_collaboration_mode') as 'default' | 'plan') || 'default'
+  );
   const [viewportWidth, setViewportWidth] = useState(
     () => (typeof window !== 'undefined' ? window.innerWidth : 1440)
   );
@@ -1216,6 +1219,10 @@ export function ConversationView() {
   useEffect(() => {
     localStorage.setItem('reasoner_permission_policy', permissionPolicy);
   }, [permissionPolicy]);
+
+  useEffect(() => {
+    localStorage.setItem('reasoner_collaboration_mode', collaborationMode);
+  }, [collaborationMode]);
 
   useEffect(() => {
     if (conversation?.workspace_path) {
@@ -1808,6 +1815,7 @@ export function ConversationView() {
           workspace_path: effectiveWorkspacePath || undefined,
           filesystem_enabled: !!effectiveWorkspacePath,
           permission_policy: permissionPolicy,
+          collaboration_mode: collaborationMode,
           capabilities: {
             web: true,
             filesystem: !!effectiveWorkspacePath,
@@ -1910,6 +1918,33 @@ export function ConversationView() {
     // Refresh usage after successful send
     refreshUsage();
   };
+
+  const handlePlanImplementationStarted = useCallback((implementation: {
+    run_id: string;
+    stream_token?: string;
+  }) => {
+    if (!selectedConversationId) return;
+    setCollaborationMode('default');
+    setPendingRunId(implementation.run_id);
+    if (implementation.stream_token) {
+      localStorage.setItem(`stream_token:${implementation.run_id}`, implementation.stream_token);
+    }
+    subscribedRunRef.current = implementation.run_id;
+    subscribeAgent(implementation.run_id, 0, implementation.stream_token);
+    const run: Run = {
+      run_id: implementation.run_id,
+      created_at: new Date().toISOString(),
+      status: 'running',
+      mode: 'agent',
+      profile: 'agent',
+      prompt: 'Implement approved plan',
+      user_message: 'Implement approved plan',
+      conversation_id: selectedConversationId,
+      conversation_summary: conversation?.summary || '',
+    };
+    addRun(selectedConversationId, run);
+    setEvents(implementation.run_id, []);
+  }, [addRun, conversation?.summary, selectedConversationId, setEvents, subscribeAgent]);
 
   // Handle stream completion - clear pending state.
   // Guard: only fire when we have a selected conversation (prevents false
@@ -2773,6 +2808,15 @@ export function ConversationView() {
                     <option value="relaxed">relaxed</option>
                     <option value="yolo">yolo</option>
                   </select>
+                  <select
+                    value={collaborationMode}
+                    onChange={(e) => setCollaborationMode(e.target.value as 'default' | 'plan')}
+                    className="bg-transparent border-none outline-none text-[11px] font-mono text-zinc-300 cursor-pointer"
+                    title="Collaboration mode"
+                  >
+                    <option value="default">default</option>
+                    <option value="plan">plan</option>
+                  </select>
                 </>
               )}
               <span className="text-zinc-700">|</span>
@@ -2911,6 +2955,7 @@ export function ConversationView() {
               runId={activeAgentRun.run_id}
               runCreatedAt={activeAgentRun.created_at}
               agentState={activeAgentHudState}
+              onImplementationStarted={handlePlanImplementationStarted}
             />
           )}
 
@@ -3048,6 +3093,15 @@ export function ConversationView() {
                       <option value="relaxed">relaxed</option>
                       <option value="yolo">yolo</option>
                       </select>
+                    <select
+                      value={collaborationMode}
+                      onChange={(e) => setCollaborationMode(e.target.value as 'default' | 'plan')}
+                      className="bg-transparent border-none outline-none text-[11px] font-mono text-zinc-300 cursor-pointer"
+                      title="Collaboration mode"
+                    >
+                      <option value="default">default</option>
+                      <option value="plan">plan</option>
+                    </select>
                     </>
                   )}
                   <button

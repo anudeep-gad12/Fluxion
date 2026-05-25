@@ -33,6 +33,7 @@ class PatchOperation:
     new_path: Optional[str] = None
     add_lines: list[str] = field(default_factory=list)
     hunks: list[PatchHunk] = field(default_factory=list)
+    replace_lines: Optional[list[str]] = None
 
 
 @dataclass
@@ -170,9 +171,36 @@ class ApplyPatchTool:
                             raise ApplyPatchParseError("Move to header missing path")
                         i += 1
                         continue
+                    if current == "***" and current_hunk is None and not op.hunks:
+                        # Be tolerant of a common model mistake: emitting
+                        # `*** Update File: path` followed by `***` and then
+                        # the complete replacement file with no +/- prefixes.
+                        # Treat this as an atomic full-file replacement instead
+                        # of forcing the model into write_file allow_overwrite.
+                        i += 1
+                        replacement: list[str] = []
+                        while (
+                            i < len(lines) - 1
+                            and not lines[i].startswith("*** Add File: ")
+                            and not lines[i].startswith("*** Delete File: ")
+                            and not lines[i].startswith("*** Update File: ")
+                        ):
+                            replacement.append(lines[i])
+                            i += 1
+                        op.replace_lines = replacement
+                        continue
                     if current.startswith("@@"):
                         current_hunk = PatchHunk()
                         op.hunks.append(current_hunk)
+                        i += 1
+                        continue
+                    if current_hunk is None and (
+                        current.startswith("--- ") or current.startswith("+++ ")
+                    ):
+                        # Be tolerant of models that wrap a conventional unified
+                        # diff in Codex *** Update File blocks. The file paths are
+                        # already carried by the Update File/Move to headers; if we
+                        # treat these as +/- body lines, every hunk fails to match.
                         i += 1
                         continue
                     if current.startswith((" ", "-", "+")):
@@ -190,7 +218,7 @@ class ApplyPatchTool:
                         i += 1
                         continue
                     raise ApplyPatchParseError(f"Malformed update line in '{path}': {current[:80]}")
-                if not op.hunks and op.new_path is None:
+                if not op.hunks and op.new_path is None and op.replace_lines is None:
                     raise ApplyPatchParseError(f"Update File '{path}' has no hunks or move target")
                 operations.append(op)
                 continue
@@ -306,7 +334,12 @@ class ApplyPatchTool:
             if dest != source and dest.exists():
                 raise ApplyPatchParseError(f"Move target already exists: {op.new_path}")
             old_content = source.read_text(encoding="utf-8")
-            new_content = self._apply_hunks(old_content, op.hunks, self._display_path(source))
+            if op.replace_lines is not None:
+                new_content = "\n".join(op.replace_lines)
+                if op.replace_lines:
+                    new_content += "\n"
+            else:
+                new_content = self._apply_hunks(old_content, op.hunks, self._display_path(source))
             action = "move" if dest != source and new_content == old_content else "update"
             if dest != source and new_content != old_content:
                 action = "move/update"

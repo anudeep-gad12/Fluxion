@@ -30,6 +30,11 @@ from orchestrator.agent.tool_result_payloads import (
     display_result_data,
     parse_stored_result_detail,
 )
+from orchestrator.agent.plan_mode import (
+    PlanDecision,
+    build_plan_implementation_prompt,
+    normalize_collaboration_mode,
+)
 from orchestrator.reasoning_controls import ReasoningSettings
 from orchestrator.schemas import (
     AgentCitationResponse,
@@ -39,7 +44,11 @@ from orchestrator.schemas import (
     AgentToolCallResponse,
     CreateAgentRunRequest,
     CreateAgentRunResponse,
+    PlanApprovalRequest,
+    PlanApprovalResponse,
+    PlanRejectRequest,
     RunArtifactResponse,
+    UserInputResponseRequest,
 )
 from orchestrator.storage.db import get_db
 from orchestrator.routes.workspaces import _resolve_workspace_path
@@ -70,6 +79,9 @@ _run_tokens: Dict[str, str] = {}  # Per-run stream auth tokens
 _run_sessions: Dict[str, str] = {}  # Per-run session IDs for access control
 # run_id -> {tool_call_id -> Future[bool]}
 _approval_queues: Dict[str, Dict[str, asyncio.Future]] = {}
+_plan_approval_queues: Dict[str, Dict[str, asyncio.Future]] = {}
+_pending_plan_approvals: Dict[str, Dict[str, Dict[str, Any]]] = {}
+_user_input_queues: Dict[str, Dict[str, asyncio.Future]] = {}
 
 
 def _format_background_error(error: BaseException) -> str:
@@ -105,6 +117,9 @@ _EVENT_TYPE_MAP = {
     "thinking": "thinking",
     "tool_start": "tool_start",
     "tool_approval_required": "tool_approval_required",
+    "plan_approval_required": "plan_approval_required",
+    "plan_approved": "plan_approved",
+    "user_input_required": "user_input_required",
     "tool_result": "tool_result",
     "synthesizing": "agent_state",
     "answer_token": "answer",
@@ -230,6 +245,9 @@ async def _cleanup_run(run_id: str, delay_seconds: float = 5.0) -> None:
     _event_notify.pop(run_id, None)
     _run_sessions.pop(run_id, None)
     _approval_queues.pop(run_id, None)
+    _plan_approval_queues.pop(run_id, None)
+    _pending_plan_approvals.pop(run_id, None)
+    _user_input_queues.pop(run_id, None)
     logger.debug("Cleaned up run state", extra={"run_id": run_id})
 
     # Schedule history cleanup (keep longer for resumption)
@@ -269,6 +287,7 @@ async def _run_agent_task(
     agent_capabilities: Optional[dict] = None,
     reasoning_settings: Optional[ReasoningSettings] = None,
     image_attachments: Optional[list[dict]] = None,
+    collaboration_mode: str = "default",
 ) -> None:
     """Background task that runs the agent.
 
@@ -389,6 +408,53 @@ async def _run_agent_task(
             finally:
                 _approval_queues.get(rid, {}).pop(tool_call_id, None)
 
+        async def plan_approval_callback(
+            rid: str, plan_id: str, markdown: str
+        ) -> PlanDecision:
+            loop = asyncio.get_event_loop()
+            future = loop.create_future()
+            _plan_approval_queues.setdefault(rid, {})[plan_id] = future
+            _pending_plan_approvals.setdefault(rid, {})[plan_id] = {
+                "plan_id": plan_id,
+                "markdown": markdown,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+            try:
+                result = await asyncio.wait_for(future, timeout=1800)
+                if isinstance(result, PlanDecision):
+                    return result
+                return PlanDecision(**result)
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "Plan approval timed out",
+                    extra={"run_id": rid, "plan_id": plan_id, "timeout_seconds": 1800},
+                )
+                return PlanDecision(decision="rejected", feedback="Plan approval timed out.")
+            finally:
+                _plan_approval_queues.get(rid, {}).pop(plan_id, None)
+                _pending_plan_approvals.get(rid, {}).pop(plan_id, None)
+
+        async def user_input_callback(questions: list[dict[str, Any]]) -> dict[str, Any]:
+            request_id = str(uuid.uuid4())
+            loop = asyncio.get_event_loop()
+            future = loop.create_future()
+            _user_input_queues.setdefault(run_id, {})[request_id] = future
+            event_callback(
+                {
+                    "type": "user_input_required",
+                    "run_id": run_id,
+                    "request_id": request_id,
+                    "questions": questions,
+                }
+            )
+            try:
+                result = await asyncio.wait_for(future, timeout=1800)
+                return result if isinstance(result, dict) else {}
+            except asyncio.TimeoutError:
+                return {}
+            finally:
+                _user_input_queues.get(run_id, {}).pop(request_id, None)
+
         # Create engine and run
         engine = await create_agent_engine(
             model_name=model_override,
@@ -402,6 +468,13 @@ async def _run_agent_task(
             python_provider=python_provider,
             agent_capabilities=agent_capabilities,
             reasoning_settings=reasoning_settings,
+            collaboration_mode=collaboration_mode,
+            plan_approval_callback=(
+                plan_approval_callback if collaboration_mode == "plan" else None
+            ),
+            user_input_callback=(
+                user_input_callback if collaboration_mode == "plan" else None
+            ),
         )
         db = await get_db()
         trace_repo = TraceRepo(db)
@@ -440,6 +513,9 @@ async def _run_agent_task(
                     "total_tokens": result.total_tokens,
                     "usage": result.usage,
                     "cost": result.cost,
+                    "approved_plan": result.approved_plan,
+                    "implementation_run_id": result.implementation_run_id,
+                    "implementation_stream_token": result.implementation_stream_token,
                     "context_usage": result.context_usage,
                     "stored_context": result.stored_context,
                     "context_profile": result.context_profile,
@@ -530,6 +606,7 @@ async def create_agent_run(request: CreateAgentRunRequest, http_request: Request
                     )
 
     run_id = str(uuid.uuid4())
+    collaboration_mode = normalize_collaboration_mode(request.collaboration_mode)
 
     try:
         # Initialize state
@@ -616,6 +693,7 @@ async def create_agent_run(request: CreateAgentRunRequest, http_request: Request
             "workspace_path": workspace_path,
             "capabilities": capabilities,
             "permission_policy": request.permission_policy,
+            "collaboration_mode": collaboration_mode,
             "reasoning_settings": reasoning_settings.model_dump(),
             "image_attachments_count": len(request.image_attachments),
         }
@@ -628,6 +706,7 @@ async def create_agent_run(request: CreateAgentRunRequest, http_request: Request
             model_config=model_config,
             user_message=request.query,
             session_id=session_id,
+            collaboration_mode=collaboration_mode,
         )
 
         # Update agent-specific fields
@@ -658,6 +737,7 @@ async def create_agent_run(request: CreateAgentRunRequest, http_request: Request
                 agent_capabilities=capabilities,
                 reasoning_settings=reasoning_settings,
                 image_attachments=request.image_attachments,
+                collaboration_mode=collaboration_mode,
             )
         )
 
@@ -667,6 +747,7 @@ async def create_agent_run(request: CreateAgentRunRequest, http_request: Request
                 "run_id": run_id,
                 "query_length": len(request.query),
                 "max_steps": request.max_steps,
+                "collaboration_mode": collaboration_mode,
             },
         )
 
@@ -686,6 +767,9 @@ async def create_agent_run(request: CreateAgentRunRequest, http_request: Request
         _event_notify.pop(run_id, None)
         _run_tokens.pop(run_id, None)
         _run_sessions.pop(run_id, None)
+        _plan_approval_queues.pop(run_id, None)
+        _pending_plan_approvals.pop(run_id, None)
+        _user_input_queues.pop(run_id, None)
         raise
     except Exception as e:
         # Clean up on failure
@@ -695,6 +779,9 @@ async def create_agent_run(request: CreateAgentRunRequest, http_request: Request
         _event_notify.pop(run_id, None)
         _run_tokens.pop(run_id, None)
         _run_sessions.pop(run_id, None)
+        _plan_approval_queues.pop(run_id, None)
+        _pending_plan_approvals.pop(run_id, None)
+        _user_input_queues.pop(run_id, None)
         logger.error("Failed to start agent run", extra={"error": str(e)}, exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to start agent run")
 
@@ -747,6 +834,7 @@ async def get_agent_run_status(run_id: str, http_request: Request):
         last_compacted_at_step=usage_stats.get("last_compacted_at_step"),
         created_at=run.get("created_at", ""),
         updated_at=run.get("updated_at"),
+        collaboration_mode=normalize_collaboration_mode(run.get("collaboration_mode")),
     )
 
 
@@ -963,6 +1051,14 @@ async def cancel_agent_run(run_id: str, http_request: Request):
     for future in pending_approvals.values():
         if not future.done():
             future.set_result(False)
+    pending_plans = _plan_approval_queues.pop(run_id, {})
+    for future in pending_plans.values():
+        if not future.done():
+            future.set_result(PlanDecision(decision="rejected", feedback="Run cancelled."))
+    pending_inputs = _user_input_queues.pop(run_id, {})
+    for future in pending_inputs.values():
+        if not future.done():
+            future.set_result({})
 
     # Signal cancellation to SSE clients via history + notify
     _active_runs.pop(run_id, None)
@@ -1069,6 +1165,106 @@ async def steer_agent_run(run_id: str, http_request: Request):
     )
 
     return {"run_id": run_id, "status": "queued", "queue_size": len(queue)}
+
+
+@router.post("/runs/{run_id}/plan/reject", response_model=PlanApprovalResponse)
+async def reject_agent_plan(
+    run_id: str,
+    request: PlanRejectRequest,
+    http_request: Request,
+):
+    """Reject a pending Plan Mode proposal and keep the same run planning."""
+    session_id, is_owner = get_session_context(http_request)
+    if not is_owner and run_id in _run_sessions:
+        run_session = _run_sessions.get(run_id)
+        if run_session and run_session != session_id:
+            raise HTTPException(status_code=404, detail="Run not found")
+
+    future = _plan_approval_queues.get(run_id, {}).get(request.plan_id)
+    if future is None or future.done():
+        raise HTTPException(status_code=404, detail="Pending plan approval not found")
+
+    future.set_result(
+        PlanDecision(decision="rejected", feedback=(request.feedback or "").strip())
+    )
+    return PlanApprovalResponse(
+        status="rejected",
+        run_id=run_id,
+        plan_id=request.plan_id,
+    )
+
+
+@router.post("/runs/{run_id}/plan/approve", response_model=PlanApprovalResponse)
+async def approve_agent_plan(
+    run_id: str,
+    request: PlanApprovalRequest,
+    http_request: Request,
+):
+    """Approve a Plan Mode proposal and start a Default Mode implementation run."""
+    session_id, is_owner = get_session_context(http_request)
+    db = await get_db()
+    trace_repo = TraceRepo(db)
+    original_run = await trace_repo.get_run_with_session_check(
+        run_id,
+        session_id=session_id,
+        is_owner=is_owner,
+    )
+    if not original_run:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    future = _plan_approval_queues.get(run_id, {}).get(request.plan_id)
+    pending = _pending_plan_approvals.get(run_id, {}).get(request.plan_id)
+    if future is None or future.done() or not pending:
+        raise HTTPException(status_code=404, detail="Pending plan approval not found")
+
+    plan_markdown = pending.get("markdown", "")
+    model_config = original_run.get("model_config") or {}
+    implementation_request = CreateAgentRunRequest(
+        query=build_plan_implementation_prompt(plan_markdown),
+        conversation_id=original_run.get("conversation_id"),
+        max_steps=int(model_config.get("max_steps") or 1000),
+        workspace_path=model_config.get("workspace_path"),
+        filesystem_enabled=bool(model_config.get("workspace_path")),
+        capabilities=model_config.get("capabilities") or {},
+        permission_policy=model_config.get("permission_policy") or "strict",
+        collaboration_mode="default",
+    )
+    implementation = await create_agent_run(implementation_request, http_request)
+    decision = PlanDecision(
+        decision="approved",
+        implementation_run_id=implementation.run_id,
+        implementation_stream_token=implementation.stream_token,
+    )
+    future.set_result(decision)
+    return PlanApprovalResponse(
+        status="approved",
+        run_id=run_id,
+        plan_id=request.plan_id,
+        implementation_run_id=implementation.run_id,
+        implementation_stream_token=implementation.stream_token,
+        implementation_stream_url=implementation.stream_url,
+    )
+
+
+@router.post("/runs/{run_id}/input/{request_id}")
+async def answer_user_input(
+    run_id: str,
+    request_id: str,
+    request: UserInputResponseRequest,
+    http_request: Request,
+):
+    """Answer a pending Plan Mode request_user_input prompt."""
+    session_id, is_owner = get_session_context(http_request)
+    if not is_owner and run_id in _run_sessions:
+        run_session = _run_sessions.get(run_id)
+        if run_session and run_session != session_id:
+            raise HTTPException(status_code=404, detail="Run not found")
+
+    future = _user_input_queues.get(run_id, {}).get(request_id)
+    if future is None or future.done():
+        raise HTTPException(status_code=404, detail="Pending user input not found")
+    future.set_result(request.answers)
+    return {"run_id": run_id, "request_id": request_id, "status": "answered"}
 
 
 @router.get("/runs/{run_id}/trace", response_model=AgentRunTraceResponse)
@@ -1206,6 +1402,7 @@ async def get_agent_run_trace(run_id: str, http_request: Request):
         artifacts=artifacts,
         system_events=system_events,
         final_answer=run.get("final_answer"),
+        collaboration_mode=normalize_collaboration_mode(run.get("collaboration_mode")),
         usage=usage_stats.get("usage"),
         cost=usage_stats.get("cost"),
         context_usage=usage_stats.get("context_usage"),

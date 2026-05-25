@@ -1,6 +1,12 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { approveAgentToolCall, denyAgentToolCall } from '@/api/client';
+import {
+  answerAgentUserInput,
+  approveAgentPlan,
+  approveAgentToolCall,
+  denyAgentToolCall,
+  rejectAgentPlan,
+} from '@/api/client';
 import { cn } from '@/lib/utils';
 import { formatAgentCost, formatAgentTokens, useDerivedAgentPhase } from '@/lib/agentLiveState';
 import { useStore } from '@/hooks/useStore';
@@ -75,12 +81,18 @@ interface AgentLiveHUDProps {
   runId: string;
   runCreatedAt: string;
   agentState: AgentUIState;
+  onImplementationStarted?: (run: {
+    run_id: string;
+    stream_token?: string;
+    stream_url?: string;
+  }) => void;
 }
 
 export const AgentLiveHUD = memo(function AgentLiveHUD({
   runId,
   runCreatedAt,
   agentState,
+  onImplementationStarted,
 }: AgentLiveHUDProps) {
   const phase = useDerivedAgentPhase(agentState, runId);
   const startedAt = agentState.steps[0]?.created_at || runCreatedAt;
@@ -89,6 +101,10 @@ export const AgentLiveHUD = memo(function AgentLiveHUD({
     : '—';
   const compactionCount = (agentState.compaction_count ?? agentState.context_usage?.compactions_so_far) ?? 0;
   const [deciding, setDeciding] = useState<'approve' | 'deny' | null>(null);
+  const [planDecision, setPlanDecision] = useState<'approve' | 'reject' | null>(null);
+  const [rejectFeedback, setRejectFeedback] = useState('');
+  const [userInputSubmitting, setUserInputSubmitting] = useState<string | null>(null);
+  const [userInputAnswers, setUserInputAnswers] = useState<Record<string, string>>({});
   const decidingRef = useRef(false);
   const pendingApproval = useMemo(
     () =>
@@ -104,6 +120,10 @@ export const AgentLiveHUD = memo(function AgentLiveHUD({
       decidingRef.current = false;
     }
   }, [pendingApproval]);
+
+  useEffect(() => {
+    setUserInputAnswers({});
+  }, [agentState.pendingUserInput?.request_id]);
 
   const decide = async (decision: 'approve' | 'deny') => {
     if (!pendingApproval || decidingRef.current) return;
@@ -132,10 +152,178 @@ export const AgentLiveHUD = memo(function AgentLiveHUD({
     }
   };
 
+  const decidePlan = async (decision: 'approve' | 'reject') => {
+    const pendingPlan = agentState.pendingPlanApproval;
+    if (!pendingPlan || planDecision) return;
+    setPlanDecision(decision);
+    try {
+      if (decision === 'approve') {
+        const response = await approveAgentPlan(pendingPlan.run_id, pendingPlan.plan_id);
+        useStore.getState().updateAgentState(pendingPlan.run_id, {
+          pendingPlanApproval: { ...pendingPlan, status: 'approved' },
+        });
+        if (response.implementation_run_id) {
+          onImplementationStarted?.({
+            run_id: response.implementation_run_id,
+            stream_token: response.implementation_stream_token,
+            stream_url: response.implementation_stream_url,
+          });
+        }
+      } else {
+        await rejectAgentPlan(pendingPlan.run_id, pendingPlan.plan_id, rejectFeedback);
+        useStore.getState().updateAgentState(pendingPlan.run_id, {
+          pendingPlanApproval: { ...pendingPlan, status: 'rejected' },
+          agentState: 'running',
+        });
+        setRejectFeedback('');
+      }
+    } catch (error: unknown) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      toast.error(`plan ${decision} failed: ${errMsg}`);
+    } finally {
+      setPlanDecision(null);
+    }
+  };
+
+  const submitUserInput = async () => {
+    const pendingInput = agentState.pendingUserInput;
+    if (!pendingInput || userInputSubmitting) return;
+    setUserInputSubmitting(pendingInput.request_id);
+    try {
+      await answerAgentUserInput(pendingInput.run_id, pendingInput.request_id, userInputAnswers);
+      useStore.getState().updateAgentState(pendingInput.run_id, {
+        pendingUserInput: undefined,
+        agentState: 'running',
+      });
+    } catch (error: unknown) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      toast.error(`answer failed: ${errMsg}`);
+    } finally {
+      setUserInputSubmitting(null);
+    }
+  };
+
   return (
     <div className="flex-shrink-0 px-3 pb-2 sm:px-4 md:px-6">
-      <div className="fluxion-card-strong animate-in fade-in slide-in-from-bottom-2 duration-200 rounded-[1.25rem] border px-3.5 py-3 font-mono text-xs">
-        {pendingApproval ? (
+      <div
+        className={cn(
+          'fluxion-card-strong animate-in fade-in slide-in-from-bottom-2 duration-200 rounded-[1.25rem] border px-3.5 py-3 font-mono text-xs',
+          agentState.pendingPlanApproval?.status === 'pending'
+            ? 'mx-auto max-w-5xl px-4 py-4 md:px-5 md:py-4'
+            : ''
+        )}
+      >
+        {agentState.pendingPlanApproval?.status === 'pending' ? (
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <span className="h-2 w-2 rounded-full bg-violet-300/90" />
+                  <span className="text-[11px] uppercase tracking-[0.18em] text-violet-200">
+                    plan
+                  </span>
+                  <span className="text-zinc-600">/</span>
+                  <span className="truncate text-[12px] text-zinc-100">
+                    approval required
+                  </span>
+                </div>
+                <div className="mt-1.5 text-[11px] text-zinc-500">
+                  Review the proposed plan. Reject keeps planning; approve starts implementation.
+                </div>
+              </div>
+              <div className="rounded-full border border-violet-500/24 bg-violet-500/[0.09] px-2.5 py-1 text-[10px] uppercase tracking-[0.18em] text-violet-100">
+                waiting
+              </div>
+            </div>
+
+            <pre className="max-h-[min(58vh,42rem)] overflow-auto rounded-[1rem] border border-zinc-800/90 bg-zinc-950/92 px-4 py-4 whitespace-pre-wrap text-[12px] leading-6 text-zinc-300 md:text-[13px] md:leading-7">
+              {agentState.pendingPlanApproval.markdown}
+            </pre>
+
+            <textarea
+              value={rejectFeedback}
+              onChange={(event) => setRejectFeedback(event.target.value)}
+              placeholder="Optional reject feedback"
+              className="min-h-16 w-full resize-none rounded-[1rem] border border-zinc-800/90 bg-zinc-950/80 px-3 py-2 text-[11px] leading-5 text-zinc-200 outline-none placeholder:text-zinc-600 focus:border-violet-500/30"
+            />
+
+            <div className="flex flex-wrap items-center gap-2 border-t border-white/10 pt-3">
+              <button
+                type="button"
+                onClick={() => decidePlan('approve')}
+                disabled={planDecision !== null}
+                className="ui-transition rounded-full border border-emerald-500/20 bg-emerald-500/[0.08] px-3 py-1.5 text-[11px] uppercase tracking-[0.16em] text-emerald-100 hover:border-emerald-400/30 hover:text-white disabled:cursor-not-allowed disabled:border-zinc-800 disabled:bg-zinc-900 disabled:text-zinc-500"
+              >
+                {planDecision === 'approve' ? 'approving…' : 'approve'}
+              </button>
+              <button
+                type="button"
+                onClick={() => decidePlan('reject')}
+                disabled={planDecision !== null}
+                className="ui-transition rounded-full border border-red-500/20 bg-red-500/[0.08] px-3 py-1.5 text-[11px] uppercase tracking-[0.16em] text-red-100 hover:border-red-400/30 hover:text-white disabled:cursor-not-allowed disabled:border-zinc-800 disabled:bg-zinc-900 disabled:text-zinc-500"
+              >
+                {planDecision === 'reject' ? 'rejecting…' : 'reject'}
+              </button>
+              <MetricPill label="mode" value="plan" caution />
+              <MetricPill label="elapsed" value={<ElapsedClock startedAt={startedAt} />} />
+            </div>
+          </div>
+        ) : agentState.pendingUserInput ? (
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="h-2 w-2 rounded-full bg-violet-300/90" />
+              <span className="text-[11px] uppercase tracking-[0.18em] text-violet-200">
+                input
+              </span>
+              <span className="text-zinc-600">/</span>
+              <span className="text-[12px] text-zinc-100">planning question</span>
+            </div>
+            {agentState.pendingUserInput.questions.map((question) => (
+              <div key={question.id} className="rounded-[1rem] border border-zinc-800/90 bg-zinc-950/70 p-3">
+                <div className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">
+                  {question.header}
+                </div>
+                <div className="mt-1 text-[12px] text-zinc-100">{question.question}</div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {question.options.map((option) => (
+                    <button
+                      key={option.label}
+                      type="button"
+                      onClick={() => setUserInputAnswers((current) => ({
+                        ...current,
+                        [question.id]: option.label,
+                      }))}
+                      disabled={userInputSubmitting !== null}
+                      className={cn(
+                        'ui-transition rounded-full border px-3 py-1.5 text-left text-[11px] hover:border-violet-400/30 hover:text-white disabled:cursor-not-allowed disabled:border-zinc-800 disabled:bg-zinc-900 disabled:text-zinc-500',
+                        userInputAnswers[question.id] === option.label
+                          ? 'border-violet-400/40 bg-violet-500/18 text-white'
+                          : 'border-violet-500/20 bg-violet-500/[0.08] text-violet-100'
+                      )}
+                      title={option.description}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+            <div className="flex items-center gap-2 border-t border-white/10 pt-3">
+              <button
+                type="button"
+                onClick={submitUserInput}
+                disabled={
+                  userInputSubmitting !== null
+                  || agentState.pendingUserInput.questions.some((question) => !userInputAnswers[question.id])
+                }
+                className="ui-transition rounded-full border border-emerald-500/20 bg-emerald-500/[0.08] px-3 py-1.5 text-[11px] uppercase tracking-[0.16em] text-emerald-100 hover:border-emerald-400/30 hover:text-white disabled:cursor-not-allowed disabled:border-zinc-800 disabled:bg-zinc-900 disabled:text-zinc-500"
+              >
+                {userInputSubmitting ? 'sending…' : 'send'}
+              </button>
+              <MetricPill label="mode" value="plan" caution />
+            </div>
+          </div>
+        ) : pendingApproval ? (
           <div className="space-y-3">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0 flex-1">

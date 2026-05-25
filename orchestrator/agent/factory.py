@@ -7,6 +7,7 @@ from orchestrator.context.context_profile import resolve_model_context_profile
 from orchestrator.logging_config import get_logger
 from orchestrator.providers.factory import create_provider
 from orchestrator.reasoning_controls import ReasoningSettings, infer_provider_family
+from orchestrator.agent.plan_mode import PLAN_MODE_INSTRUCTIONS, normalize_collaboration_mode
 from orchestrator.storage.db import get_db
 from orchestrator.storage.repositories.agent_repo import AgentRepo
 from orchestrator.storage.repositories.trace_repo import TraceRepo
@@ -37,6 +38,9 @@ async def create_agent_engine(
     python_provider: Optional[str] = None,
     agent_capabilities: Optional[dict] = None,
     reasoning_settings: Optional[ReasoningSettings] = None,
+    collaboration_mode: str = "default",
+    plan_approval_callback: Optional[object] = None,
+    user_input_callback: Optional[object] = None,
 ) -> AgentEngine:
     """Create a fully configured coding agent engine."""
     del query  # Agent runs are coding-only now.
@@ -77,11 +81,14 @@ async def create_agent_engine(
         "bash": bool(filesystem_enabled or working_dir),
         "python": True,
     }
+    resolved_collaboration_mode = normalize_collaboration_mode(collaboration_mode)
     registry = create_browser_agent_tool_registry(
         config,
         capabilities,
         working_dir,
         python_provider=python_provider,
+        collaboration_mode=resolved_collaboration_mode,
+        user_input_callback=user_input_callback,
     )
 
     db = await get_db()
@@ -102,6 +109,8 @@ async def create_agent_engine(
             date_context=date_context,
             project_context=project_context,
         )
+    if resolved_collaboration_mode == "plan":
+        system_prompt = f"{system_prompt}\n\n{PLAN_MODE_INSTRUCTIONS}"
 
     context_profile = resolve_model_context_profile(
         model_name=resolve_name,
@@ -176,6 +185,8 @@ async def create_agent_engine(
         input_cost_per_million=input_cost_per_million,
         cached_input_cost_per_million=cached_input_cost_per_million,
         output_cost_per_million=output_cost_per_million,
+        collaboration_mode=resolved_collaboration_mode,
+        plan_approval_callback=plan_approval_callback,
     )
 
     logger.info(
@@ -185,6 +196,7 @@ async def create_agent_engine(
             "max_steps": engine._max_steps,
             "tools": registry.tool_names,
             "profile": profile.name,
+            "collaboration_mode": resolved_collaboration_mode,
         },
     )
 

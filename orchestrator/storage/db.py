@@ -252,6 +252,10 @@ class Database:
             "CREATE INDEX IF NOT EXISTS idx_conversation_rewind_checkpoints_conversation_created "
             "ON conversation_rewind_checkpoints(conversation_id, created_at)"
         )
+        # Migration 18: Browser collaboration mode for agent runs
+        await self._add_column_if_not_exists(
+            "runs", "collaboration_mode", "TEXT DEFAULT 'default'"
+        )
 
     async def _create_table_if_not_exists(
         self, table: str, create_sql: str

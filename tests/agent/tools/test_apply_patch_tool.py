@@ -105,6 +105,60 @@ async def test_multiple_files(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_update_ignores_unified_diff_file_headers(tmp_path):
+    path = tmp_path / "app.py"
+    path.write_text("def main():\n    return 'old'\n")
+    tool = ApplyPatchTool(str(tmp_path))
+
+    result = await tool.execute(
+        patch="""*** Begin Patch
+*** Update File: app.py
+--- app.py
++++ app.py
+@@ -1,2 +1,2 @@
+ def main():
+-    return 'old'
++    return 'new'
+*** End Patch"""
+    )
+
+    assert result.success is True
+    assert path.read_text() == "def main():\n    return 'new'\n"
+
+
+@pytest.mark.asyncio
+async def test_update_accepts_full_file_replacement_marker(tmp_path):
+    path = tmp_path / "style.css"
+    path.write_text("body {\n  color: red;\n}\n")
+    tool = ApplyPatchTool(str(tmp_path))
+
+    result = await tool.execute(
+        patch="""*** Begin Patch
+*** Update File: style.css
+***
+body {
+  color: blue;
+}
+
+.plain-link {
+  text-decoration: none;
+}
+*** End Patch"""
+    )
+
+    assert result.success is True
+    assert path.read_text() == (
+        "body {\n"
+        "  color: blue;\n"
+        "}\n"
+        "\n"
+        ".plain-link {\n"
+        "  text-decoration: none;\n"
+        "}\n"
+    )
+
+
+@pytest.mark.asyncio
 async def test_rejects_malformed_patch(tmp_path):
     tool = ApplyPatchTool(str(tmp_path))
     result = await tool.execute(

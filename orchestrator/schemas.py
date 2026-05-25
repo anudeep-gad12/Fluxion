@@ -1,7 +1,7 @@
 """Pydantic schemas for API requests and responses."""
 
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -394,6 +394,7 @@ class CreateAgentRunRequest(BaseModel):
     filesystem_enabled: bool = False
     working_dir: Optional[str] = None
     permission_policy: str = "strict"
+    collaboration_mode: Literal["default", "plan"] = "default"
     python_provider: Optional[str] = (
         None  # "local" or "daytona" — overrides PYTHON_PROVIDER env var
     )
@@ -430,6 +431,7 @@ class AgentRunStatusResponse(BaseModel):
     last_compacted_at_step: Optional[int] = None
     created_at: str
     updated_at: Optional[str] = None
+    collaboration_mode: Literal["default", "plan"] = "default"
 
 
 class RunArtifactResponse(BaseModel):
@@ -445,6 +447,36 @@ class RunArtifactResponse(BaseModel):
     created_at: str
 
 
+class PlanApprovalRequest(BaseModel):
+    """Approve a pending Plan Mode plan."""
+
+    plan_id: str
+
+
+class PlanRejectRequest(BaseModel):
+    """Reject a pending Plan Mode plan with optional feedback."""
+
+    plan_id: str
+    feedback: Optional[str] = None
+
+
+class PlanApprovalResponse(BaseModel):
+    """Plan approval/rejection endpoint response."""
+
+    status: str
+    run_id: str
+    plan_id: str
+    implementation_run_id: Optional[str] = None
+    implementation_stream_token: Optional[str] = None
+    implementation_stream_url: Optional[str] = None
+
+
+class UserInputResponseRequest(BaseModel):
+    """Answers for a pending Plan Mode request_user_input tool call."""
+
+    answers: dict[str, Any]
+
+
 class AgentRunTraceResponse(BaseModel):
     """Full trace of an agent run."""
 
@@ -457,6 +489,7 @@ class AgentRunTraceResponse(BaseModel):
     artifacts: list[RunArtifactResponse] = []
     system_events: list[AgentSystemEventResponse] = []
     final_answer: Optional[str] = None
+    collaboration_mode: Literal["default", "plan"] = "default"
     usage: Optional[dict[str, Any]] = None
     cost: Optional[dict[str, Any]] = None
     context_usage: Optional[dict[str, Any]] = None

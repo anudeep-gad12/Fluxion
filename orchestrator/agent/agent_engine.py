@@ -13,6 +13,7 @@ import inspect
 import json
 import re
 import time
+import uuid
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -26,6 +27,12 @@ from orchestrator.agent.coding_session import (
 )
 from orchestrator.agent.context_pruner import ContextPruner
 from orchestrator.agent.permissions import classify_tool_call
+from orchestrator.agent.plan_mode import (
+    PLAN_MODE_MUTATING_TOOLS,
+    PlanDecision,
+    extract_proposed_plan,
+    normalize_collaboration_mode,
+)
 from orchestrator.agent.recovery import (
     build_recovery_messages,
     create_idempotency_key,
@@ -108,6 +115,9 @@ class AgentResult:
     last_compacted_at_step: Optional[int] = None
     usage: Optional[Dict[str, int]] = None
     cost: Optional[Dict[str, Any]] = None
+    approved_plan: Optional[str] = None
+    implementation_run_id: Optional[str] = None
+    implementation_stream_token: Optional[str] = None
 
 
 @dataclass
@@ -428,6 +438,8 @@ To provide your final answer, respond WITHOUT calling any tools."""
         cached_input_cost_per_million: Optional[float] = None,
         output_cost_per_million: Optional[float] = None,
         context_profile: Optional[ModelContextProfile] = None,
+        collaboration_mode: str = "default",
+        plan_approval_callback: Optional[Callable[[str, str, str], Any]] = None,
     ) -> None:
         """Initialize agent engine.
 
@@ -514,6 +526,11 @@ To provide your final answer, respond WITHOUT calling any tools."""
         self._input_cost_per_million = input_cost_per_million
         self._cached_input_cost_per_million = cached_input_cost_per_million
         self._output_cost_per_million = output_cost_per_million
+        self._collaboration_mode = normalize_collaboration_mode(collaboration_mode)
+        self._plan_approval_callback = plan_approval_callback
+        self._approved_plan: Optional[str] = None
+        self._implementation_run_id: Optional[str] = None
+        self._implementation_stream_token: Optional[str] = None
 
 
         # Permission system
@@ -3521,6 +3538,92 @@ To provide your final answer, respond WITHOUT calling any tools."""
                             extra={"answer_length": len(final_answer)},
                         )
 
+                    if self._collaboration_mode == "plan":
+                        proposed_plan = extract_proposed_plan(final_answer)
+                        if proposed_plan is not None and proposed_plan.markdown:
+                            plan_id = str(uuid.uuid4())
+                            await self._repo.create_run_artifact(
+                                run_id=run_id,
+                                artifact_type="proposed_plan",
+                                file_path=None,
+                                action="plan_mode",
+                                detail=proposed_plan.markdown,
+                            )
+                            self._emit(
+                                event_callback,
+                                "plan_approval_required",
+                                run_id=run_id,
+                                plan_id=plan_id,
+                                markdown=proposed_plan.markdown,
+                                visible_answer=proposed_plan.visible_answer,
+                                step_number=step_number,
+                            )
+                            decision = await self._await_plan_decision(
+                                run_id=run_id,
+                                plan_id=plan_id,
+                                markdown=proposed_plan.markdown,
+                            )
+                            if decision.decision == "rejected":
+                                await state_machine.complete_step(
+                                    decision="plan_rejected",
+                                    thinking_text=thinking_text,
+                                )
+                                rejection_message = {
+                                    "role": "user",
+                                    "content": (
+                                        "The user rejected the proposed plan. "
+                                        "Continue planning and revise it using this feedback:\n\n"
+                                        f"{(decision.feedback or '').strip() or 'No specific feedback provided.'}"
+                                    ),
+                                }
+                                messages.append(
+                                    {
+                                        "role": "assistant",
+                                        "content": proposed_plan.markdown,
+                                    }
+                                )
+                                messages.append(rejection_message)
+                                if self._is_coding_profile():
+                                    ephemeral_messages.append(rejection_message)
+                                continue
+
+                            self._approved_plan = proposed_plan.markdown
+                            self._implementation_run_id = decision.implementation_run_id
+                            self._implementation_stream_token = decision.implementation_stream_token
+                            final_answer = proposed_plan.visible_answer or proposed_plan.markdown
+                            self._emit(
+                                event_callback,
+                                "plan_approved",
+                                run_id=run_id,
+                                plan_id=plan_id,
+                                implementation_run_id=decision.implementation_run_id,
+                                implementation_stream_token=decision.implementation_stream_token,
+                            )
+                        else:
+                            await state_machine.complete_step(
+                                decision="plan_missing_block",
+                                thinking_text=thinking_text,
+                            )
+                            if final_answer:
+                                messages.append(
+                                    {
+                                        "role": "assistant",
+                                        "content": final_answer,
+                                    }
+                                )
+                            missing_plan_message = {
+                                "role": "user",
+                                "content": (
+                                    "Plan Mode requires the final plan to be wrapped in "
+                                    "<proposed_plan>...</proposed_plan>. Continue planning "
+                                    "and produce the required plan block."
+                                ),
+                            }
+                            messages.append(missing_plan_message)
+                            if self._is_coding_profile():
+                                ephemeral_messages.append(missing_plan_message)
+                            continue
+
                     # Append assistant response to messages for cross-turn context.
                     # Keep only final answer text in long-lived scaffold.
                     if final_answer:
@@ -3680,6 +3783,29 @@ To provide your final answer, respond WITHOUT calling any tools."""
     # =========================================================================
     # Private Methods
     # =========================================================================
+
+    async def _await_plan_decision(
+        self,
+        *,
+        run_id: str,
+        plan_id: str,
+        markdown: str,
+    ) -> PlanDecision:
+        """Wait for the browser HUD to approve or reject a proposed plan."""
+        if self._plan_approval_callback is None:
+            return PlanDecision(decision="approved")
+
+        decision = await self._plan_approval_callback(run_id, plan_id, markdown)
+        if isinstance(decision, PlanDecision):
+            return decision
+        if isinstance(decision, dict):
+            return PlanDecision(
+                decision="rejected" if decision.get("decision") == "rejected" else "approved",
+                feedback=decision.get("feedback"),
+                implementation_run_id=decision.get("implementation_run_id"),
+                implementation_stream_token=decision.get("implementation_stream_token"),
+            )
+        return PlanDecision(decision="approved")
 
     def _emit(
         self,
@@ -5112,6 +5238,22 @@ To provide your final answer, respond WITHOUT calling any tools."""
             )
             return prep
 
+        if (
+            self._collaboration_mode == "plan"
+            and tool_call.name in PLAN_MODE_MUTATING_TOOLS
+        ):
+            prep["early_result"] = ToolResult(
+                success=False,
+                result_summary=f"Blocked {tool_call.name} in Plan Mode",
+                error_message=(
+                    "Plan Mode is read-only. Do not modify files, run commands, "
+                    "execute Python, or apply patches. Continue planning using "
+                    "inspection tools only, then produce a <proposed_plan> block."
+                ),
+                duration_ms=0,
+            )
+            return prep
+
         # Validate required arguments
         required_args = tool.schema.parameters.get("required", [])
         missing_args = [arg for arg in required_args if arg not in tool_call.arguments]
@@ -6350,6 +6492,9 @@ To provide your final answer, respond WITHOUT calling any tools."""
             last_compacted_at_step=self._last_compacted_at_step,
             usage=self._usage_totals.copy(),
             cost=self._current_cost(),
+            approved_plan=self._approved_plan,
+            implementation_run_id=self._implementation_run_id,
+            implementation_stream_token=self._implementation_stream_token,
         )
 
     async def _store_turn_summary(

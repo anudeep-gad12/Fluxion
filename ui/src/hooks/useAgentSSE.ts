@@ -16,6 +16,9 @@ import type {
   ThinkingEvent,
   ToolStartEvent,
   ToolApprovalRequiredEvent,
+  PlanApprovalRequiredEvent,
+  PlanApprovedEvent,
+  UserInputRequiredEvent,
   ToolResultEvent,
   AnswerEvent,
   TokenUsage,
@@ -76,6 +79,7 @@ export function useAgentSSE(runId: string | null) {
           updateAgentState(id, {
             currentStep: status.current_step,
             maxSteps: status.max_steps,
+            collaboration_mode: status.collaboration_mode,
           });
         })
         .catch(() => {});
@@ -238,6 +242,54 @@ export function useAgentSSE(runId: string | null) {
                 diff_preview: approvalEvent.diff_preview,
               });
             }
+            break;
+          }
+
+          case 'plan_approval_required': {
+            const planEvent = event as PlanApprovalRequiredEvent;
+            updateAgentState(id, {
+              agentState: 'awaiting_plan_approval',
+              pendingPlanApproval: {
+                plan_id: planEvent.plan_id,
+                run_id: id,
+                markdown: planEvent.markdown,
+                visible_answer: planEvent.visible_answer,
+                created_at: planEvent.timestamp,
+                status: 'pending',
+              },
+            });
+            break;
+          }
+
+          case 'plan_approved': {
+            const planEvent = event as PlanApprovedEvent;
+            const currentState = useStore.getState().agentRunState[id];
+            updateAgentState(id, {
+              pendingPlanApproval: currentState?.pendingPlanApproval
+                ? { ...currentState.pendingPlanApproval, status: 'approved' }
+                : undefined,
+              agentState: 'complete',
+            });
+            if (planEvent.implementation_stream_token && planEvent.implementation_run_id) {
+              localStorage.setItem(
+                `stream_token:${planEvent.implementation_run_id}`,
+                planEvent.implementation_stream_token,
+              );
+            }
+            break;
+          }
+
+          case 'user_input_required': {
+            const inputEvent = event as UserInputRequiredEvent;
+            updateAgentState(id, {
+              agentState: 'awaiting_user_input',
+              pendingUserInput: {
+                request_id: inputEvent.request_id,
+                run_id: id,
+                questions: inputEvent.questions,
+                created_at: inputEvent.timestamp,
+              },
+            });
             break;
           }
 

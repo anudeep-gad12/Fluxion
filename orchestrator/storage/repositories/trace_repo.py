@@ -37,6 +37,7 @@ class TraceRepo:
         user_message: Optional[str] = None,
         system_prompt: Optional[str] = None,
         session_id: Optional[str] = None,
+        collaboration_mode: str = "default",
     ) -> dict[str, Any]:
         """Start a new run.
 
@@ -65,15 +66,15 @@ class TraceRepo:
                 run_id, conversation_id, created_at,
                 user_message, system_prompt_snapshot,
                 profile_name, mode, model_config_snapshot,
-                status, usage_stats, session_id
+                status, usage_stats, session_id, collaboration_mode
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 run_id, conversation_id, now,
                 user_message, system_prompt,
                 profile_name, mode, config_snapshot,
-                "running", usage_stats, session_id
+                "running", usage_stats, session_id, collaboration_mode
             ),
         )
         await self.db.conn.commit()

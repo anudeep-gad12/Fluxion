@@ -24,6 +24,8 @@ export type AgentToolCallStatus =
   | 'timeout'
   | 'interrupted';
 
+export type CollaborationMode = 'default' | 'plan';
+
 // =============================================================================
 // Data Models (mirror backend schemas)
 // =============================================================================
@@ -122,6 +124,7 @@ export interface CreateAgentRunRequest {
   workspace_path?: string;
   filesystem_enabled?: boolean;
   permission_policy?: 'strict' | 'relaxed' | 'yolo';
+  collaboration_mode?: CollaborationMode;
   capabilities?: {
     web: boolean;
     filesystem: boolean;
@@ -162,6 +165,7 @@ export interface AgentRunStatus {
   last_compacted_at_step?: number;
   created_at: string;
   updated_at?: string;
+  collaboration_mode?: CollaborationMode;
 }
 
 /** Full agent run trace */
@@ -174,6 +178,7 @@ export interface AgentRunTrace {
   citations: AgentCitation[];
   system_events?: AgentSystemEvent[];
   final_answer?: string;
+  collaboration_mode?: CollaborationMode;
   usage?: TokenUsage;
   cost?: CostUsage | null;
   context_usage?: ContextUsage;
@@ -194,6 +199,9 @@ export type AgentSSEEventType =
   | 'thinking' // thinking text tokens
   | 'tool_start' // tool beginning execution
   | 'tool_approval_required' // tool waiting for browser approval
+  | 'plan_approval_required' // proposed plan waiting for HUD approval
+  | 'plan_approved' // plan was approved and implementation started
+  | 'user_input_required' // Plan Mode question waiting for browser input
   | 'tool_result' // tool finished
   | 'answer' // streaming answer tokens
   | 'complete' // run finished
@@ -257,6 +265,32 @@ export interface ToolApprovalRequiredEvent extends AgentSSEEventBase {
   arguments: Record<string, unknown>;
   permission_level: string;
   diff_preview?: string | null;
+}
+
+export interface PlanApprovalRequiredEvent extends AgentSSEEventBase {
+  type: 'plan_approval_required';
+  plan_id: string;
+  markdown: string;
+  visible_answer?: string;
+  step_number?: number;
+}
+
+export interface PlanApprovedEvent extends AgentSSEEventBase {
+  type: 'plan_approved';
+  plan_id: string;
+  implementation_run_id?: string;
+  implementation_stream_token?: string;
+}
+
+export interface UserInputRequiredEvent extends AgentSSEEventBase {
+  type: 'user_input_required';
+  request_id: string;
+  questions: Array<{
+    id: string;
+    header: string;
+    question: string;
+    options: Array<{ label: string; description: string }>;
+  }>;
 }
 
 /** Tool result event */
@@ -396,6 +430,9 @@ export type AgentSSEEvent =
   | ThinkingEvent
   | ToolStartEvent
   | ToolApprovalRequiredEvent
+  | PlanApprovalRequiredEvent
+  | PlanApprovedEvent
+  | UserInputRequiredEvent
   | ToolResultEvent
   | AnswerEvent
   | CompleteEvent
@@ -433,5 +470,20 @@ export interface AgentUIState {
   compaction_count?: number;
   last_compacted_at_step?: number;
   systemEvents?: AgentSystemEvent[];
+  collaboration_mode?: CollaborationMode;
+  pendingPlanApproval?: {
+    plan_id: string;
+    run_id: string;
+    markdown: string;
+    visible_answer?: string;
+    created_at: string;
+    status: 'pending' | 'approved' | 'rejected';
+  };
+  pendingUserInput?: {
+    request_id: string;
+    run_id: string;
+    questions: UserInputRequiredEvent['questions'];
+    created_at: string;
+  };
   injectedSteers: Array<{ content: string; step_number: number }>;
 }

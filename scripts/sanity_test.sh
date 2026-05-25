@@ -328,25 +328,28 @@ else
     fail "Coding run did not use filesystem inspection tools (tools: ${TOOL_NAMES:-none})"
 fi
 
-if echo "$TOOL_NAMES" | grep -qE "edit_file|write_file"; then
+if echo "$TOOL_NAMES" | grep -qE "apply_patch|edit_file|write_file"; then
     pass "Coding run used edit/write tool ($TOOL_NAMES)"
 else
     fail "Coding run did not use edit/write tool (tools: ${TOOL_NAMES:-none})"
 fi
 
-TRACE1_BASH_STATUS=$(echo "$TRACE1_JSON" | python3 -c "
+TRACE1_COMMAND_STATUS=$(echo "$TRACE1_JSON" | python3 -c "
 import json, sys
 try:
     data = json.loads(sys.stdin.read() or '{}')
-    calls = [tc for tc in data.get('tool_calls', []) if tc.get('tool_name') == 'bash']
+    calls = [
+        tc for tc in data.get('tool_calls', [])
+        if tc.get('tool_name') in ('exec_command', 'bash')
+    ]
     print(calls[-1].get('status', '') if calls else '')
 except Exception:
     print('')
 ")
-if echo "$TOOL_NAMES" | grep -q "bash" && [ "$TRACE1_BASH_STATUS" = "success" ]; then
-    pass "Coding run used bash verification successfully ($TOOL_NAMES)"
+if echo "$TOOL_NAMES" | grep -qE "exec_command|bash" && [ "$TRACE1_COMMAND_STATUS" = "success" ]; then
+    pass "Coding run used command verification successfully ($TOOL_NAMES)"
 else
-    fail "Coding run did not use successful bash verification (tools: ${TOOL_NAMES:-none}, bash_status=${TRACE1_BASH_STATUS:-missing})"
+    fail "Coding run did not use successful command verification (tools: ${TOOL_NAMES:-none}, command_status=${TRACE1_COMMAND_STATUS:-missing})"
 fi
 
 RUN1_STORED_CONTEXT=$(json_get "$RUN1_STATUS_JSON" ".stored_context")

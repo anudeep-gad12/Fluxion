@@ -417,6 +417,45 @@ export async function denyAgentToolCall(
   });
 }
 
+export async function approveAgentPlan(
+  runId: string,
+  planId: string,
+): Promise<{
+  status: string;
+  run_id: string;
+  plan_id: string;
+  implementation_run_id?: string;
+  implementation_stream_token?: string;
+  implementation_stream_url?: string;
+}> {
+  return fetchJson(`${API_BASE}/agent/runs/${runId}/plan/approve`, {
+    method: 'POST',
+    body: JSON.stringify({ plan_id: planId }),
+  });
+}
+
+export async function rejectAgentPlan(
+  runId: string,
+  planId: string,
+  feedback?: string,
+): Promise<{ status: string; run_id: string; plan_id: string }> {
+  return fetchJson(`${API_BASE}/agent/runs/${runId}/plan/reject`, {
+    method: 'POST',
+    body: JSON.stringify({ plan_id: planId, feedback }),
+  });
+}
+
+export async function answerAgentUserInput(
+  runId: string,
+  requestId: string,
+  answers: Record<string, unknown>,
+): Promise<{ status: string; run_id: string; request_id: string }> {
+  return fetchJson(`${API_BASE}/agent/runs/${runId}/input/${encodeURIComponent(requestId)}`, {
+    method: 'POST',
+    body: JSON.stringify({ answers }),
+  });
+}
+
 /**
  * Subscribe to agent run SSE stream with resumption support.
  *
@@ -470,6 +509,9 @@ export function subscribeToAgentRun(
     'thinking',
     'tool_start',
     'tool_approval_required',
+    'plan_approval_required',
+    'plan_approved',
+    'user_input_required',
     'tool_result',
     'answer',
     'paused',

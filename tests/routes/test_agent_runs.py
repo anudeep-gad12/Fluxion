@@ -108,6 +108,9 @@ def client(test_db, mock_agent_engine):
     agent_runs_module._run_tokens.clear()
     agent_runs_module._run_sessions.clear()
     agent_runs_module._approval_queues.clear()
+    agent_runs_module._plan_approval_queues.clear()
+    agent_runs_module._pending_plan_approvals.clear()
+    agent_runs_module._user_input_queues.clear()
 
     async def mock_create_engine(**kwargs):
         return mock_agent_engine
@@ -124,6 +127,9 @@ def client(test_db, mock_agent_engine):
     agent_runs_module._run_tokens.clear()
     agent_runs_module._run_sessions.clear()
     agent_runs_module._approval_queues.clear()
+    agent_runs_module._plan_approval_queues.clear()
+    agent_runs_module._pending_plan_approvals.clear()
+    agent_runs_module._user_input_queues.clear()
 
 
 @pytest.fixture
@@ -136,6 +142,9 @@ async def async_client(test_db, mock_agent_engine):
     agent_runs_module._run_tokens.clear()
     agent_runs_module._run_sessions.clear()
     agent_runs_module._approval_queues.clear()
+    agent_runs_module._plan_approval_queues.clear()
+    agent_runs_module._pending_plan_approvals.clear()
+    agent_runs_module._user_input_queues.clear()
 
     async def mock_create_engine(**kwargs):
         return mock_agent_engine
@@ -152,6 +161,9 @@ async def async_client(test_db, mock_agent_engine):
     agent_runs_module._run_tokens.clear()
     agent_runs_module._run_sessions.clear()
     agent_runs_module._approval_queues.clear()
+    agent_runs_module._plan_approval_queues.clear()
+    agent_runs_module._pending_plan_approvals.clear()
+    agent_runs_module._user_input_queues.clear()
 
 
 # =============================================================================
@@ -207,6 +219,92 @@ class TestCreateAgentRun:
             },
         )
         assert response.status_code == 200
+
+    def test_accepts_plan_collaboration_mode(self, client, test_db):
+        """Plan Mode is accepted and persisted on the run."""
+        response = client.post(
+            "/api/agent/runs",
+            json={
+                "query": "Plan this change",
+                "collaboration_mode": "plan",
+            },
+        )
+        assert response.status_code == 200
+        run_id = response.json()["run_id"]
+
+        async def fetch_mode():
+            cursor = await test_db.conn.execute(
+                "SELECT collaboration_mode FROM runs WHERE run_id = ?",
+                (run_id,),
+            )
+            row = await cursor.fetchone()
+            return row[0]
+
+        loop = asyncio.get_event_loop()
+        assert loop.run_until_complete(fetch_mode()) == "plan"
+
+
+class TestPlanApprovalEndpoints:
+    """Tests for Plan Mode HUD approval endpoints."""
+
+    @pytest.mark.asyncio
+    async def test_reject_plan_resolves_pending_decision(self, async_client):
+        create_response = await async_client.post(
+            "/api/agent/runs",
+            json={"query": "Plan it", "collaboration_mode": "plan"},
+        )
+        assert create_response.status_code == 200
+        run_id = create_response.json()["run_id"]
+        plan_id = "plan-1"
+        future: asyncio.Future = asyncio.get_running_loop().create_future()
+        agent_runs_module._plan_approval_queues[run_id] = {plan_id: future}
+        agent_runs_module._pending_plan_approvals[run_id] = {
+            plan_id: {"plan_id": plan_id, "markdown": "# Plan"}
+        }
+
+        response = await async_client.post(
+            f"/api/agent/runs/{run_id}/plan/reject",
+            json={"plan_id": plan_id, "feedback": "Needs more tests"},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "rejected"
+        decision = await future
+        assert decision.decision == "rejected"
+        assert decision.feedback == "Needs more tests"
+
+    @pytest.mark.asyncio
+    async def test_approve_plan_starts_default_implementation_run(self, async_client):
+        create_response = await async_client.post(
+            "/api/agent/runs",
+            json={
+                "query": "Plan it",
+                "collaboration_mode": "plan",
+                "capabilities": {"web": True, "filesystem": False, "bash": False, "python": False},
+            },
+        )
+        assert create_response.status_code == 200
+        run_id = create_response.json()["run_id"]
+        plan_id = "plan-1"
+        future: asyncio.Future = asyncio.get_running_loop().create_future()
+        agent_runs_module._plan_approval_queues[run_id] = {plan_id: future}
+        agent_runs_module._pending_plan_approvals[run_id] = {
+            plan_id: {"plan_id": plan_id, "markdown": "# Approved Plan"}
+        }
+
+        response = await async_client.post(
+            f"/api/agent/runs/{run_id}/plan/approve",
+            json={"plan_id": plan_id},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "approved"
+        assert data["implementation_run_id"]
+        assert data["implementation_stream_token"]
+        decision = await future
+        assert decision.decision == "approved"
+        assert decision.implementation_run_id == data["implementation_run_id"]
 
     def test_existing_new_conversation_is_retitled_from_first_agent_message(
         self,

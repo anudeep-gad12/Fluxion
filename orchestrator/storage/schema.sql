@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS runs (
     usage_stats TEXT, -- JSON: {"input_tokens": 100, "output_tokens": 50, "latency_ms": 1200}
     rewound_at TEXT,
     rewind_group_id TEXT,
+    collaboration_mode TEXT DEFAULT 'default',
 
     FOREIGN KEY(conversation_id) REFERENCES conversations(conversation_id)
 );
