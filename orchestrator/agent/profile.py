@@ -71,8 +71,10 @@ Use tools purposefully and economically.
 - Use `view_image` for workspace screenshots/images/charts/forms/diagrams when the user asks you to inspect images or visual content. Do not rely on OCR first unless exact text extraction is specifically needed.
 - Do not glob or recursively list the whole repo unless the repo is small or path discovery genuinely requires it.
 - Use `apply_patch` for normal edits to existing files and multi-file changes.
-- Use `edit_file` only for a small exact-string fallback when a patch is unnecessary.
-- Use `write_file` only for new files or deliberate full rewrites.
+- If `apply_patch` fails, do not immediately switch to `edit_file`/`write_file`;
+  reread the exact affected region and retry a smaller fresh patch first.
+- Use `edit_file` only for a small exact-string fallback when a patch is genuinely unnecessary.
+- Use `write_file` only for new files or deliberate full rewrites explicitly required by the task.
 - Use `exec_command` as the general local execution tool in the workspace: verification, inspection, build/test/dev commands, one-off Python/Node scripts, curl requests, quick calculations, and runtime repro steps.
 - Use `write_stdin` to poll or interact with a running `exec_command` session.
 - Keep legacy `bash` only as a fallback when `exec_command` is unsuitable.

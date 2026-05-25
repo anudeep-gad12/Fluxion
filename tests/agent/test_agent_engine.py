@@ -486,6 +486,45 @@ def test_apply_patch_failure_recovery_message_prefers_retry_patch():
     assert "Never send placeholder-only patches" in content
 
 
+def test_apply_patch_hunk_mismatch_recovery_requires_reread_then_patch():
+    engine = AgentEngine(
+        provider=create_mock_provider(),
+        repo=create_mock_repo(),
+        registry=create_mock_registry(),
+    )
+    tool_call = ParsedToolCall(
+        id="tc-patch",
+        name="apply_patch",
+        arguments={
+            "patch": (
+                "*** Begin Patch\n"
+                "--- a/src/index.css\n"
+                "+++ b/src/index.css\n"
+                "@@ -1,1 +1,1 @@\n"
+                "-old\n"
+                "+new\n"
+                "*** End Patch\n"
+            )
+        },
+        raw_arguments="{}",
+    )
+    result = ToolResult(
+        success=False,
+        result_summary="Patch failed: Patch hunk did not match current contents of src/index.css",
+        error_message="Patch hunk did not match current contents of src/index.css",
+    )
+
+    failures = engine._apply_patch_failure_contexts([(tool_call, result)])
+    messages = engine._build_apply_patch_failure_recovery_messages(failures)
+
+    assert failures[0]["failure_type"] == "hunk_mismatch"
+    assert failures[0]["paths"] == ["src/index.css"]
+    content = messages[0]["content"]
+    assert "reread the exact affected file region" in content
+    assert "retry a smaller apply_patch" in content
+    assert "Do not switch to edit_file" in content
+
+
 class TestAgentEngineToolParsing:
     """Tests for tool call parsing."""
 
@@ -3424,6 +3463,80 @@ class TestRedundancyDetection:
         redundant = engine._detect_redundant_calls(calls)
 
         assert redundant == []
+
+    def test_apply_patch_success_updates_file_freshness(self):
+        """Successful apply_patch increments versions for every changed file."""
+        engine = self._make_engine()
+        engine._apply_patch_failures = {
+            "src/App.tsx": {"file_read_sequence_at_failure": 1}
+        }
+        tool_call = ParsedToolCall(
+            id="tc-patch",
+            name="apply_patch",
+            arguments={"patch": "*** Begin Patch\n*** Update File: src/App.tsx\n@@\n-old\n+new\n*** End Patch"},
+            raw_arguments="{}",
+        )
+        result = ToolResult(
+            success=True,
+            result_summary="Applied patch",
+            result_data={"changed_files": ["src/App.tsx"], "diff": ""},
+            metadata={"changed_files": ["src/App.tsx"]},
+        )
+
+        payload = engine._track_file_freshness(tool_call, result)
+
+        assert engine._file_state_versions["src/App.tsx"] == 1
+        assert "src/App.tsx" not in engine._apply_patch_failures
+        assert payload["changed_files"] == ["src/App.tsx"]
+
+    def test_blocks_edit_fallback_after_apply_patch_failure_until_reread(self):
+        """A failed patch blocks edit/write fallback on that file until fresh text is read."""
+        engine = self._make_engine()
+        failed_patch = ParsedToolCall(
+            id="tc-patch",
+            name="apply_patch",
+            arguments={
+                "patch": (
+                    "*** Begin Patch\n"
+                    "*** Update File: src/App.tsx\n"
+                    "@@\n"
+                    "-old\n"
+                    "+new\n"
+                    "*** End Patch"
+                )
+            },
+            raw_arguments="{}",
+        )
+        engine._track_file_freshness(
+            failed_patch,
+            ToolResult(
+                success=False,
+                result_summary="Patch failed: Patch hunk did not match current contents of src/App.tsx",
+                error_message="Patch hunk did not match current contents of src/App.tsx",
+            ),
+        )
+
+        edit_call = ParsedToolCall(
+            id="tc-edit",
+            name="edit_file",
+            arguments={
+                "file_path": "src/App.tsx",
+                "old_string": "old",
+                "new_string": "new",
+            },
+            raw_arguments="{}",
+        )
+        redundant = engine._detect_redundant_calls([edit_call])
+
+        assert len(redundant) == 1
+        assert "retry apply_patch" in redundant[0][1]
+        assert engine._last_redundant_filter_codes["tc-edit"] == (
+            "apply_patch_recovery_required"
+        )
+
+        engine._file_read_sequence = 1
+        engine._file_last_read_sequences["src/App.tsx"] = 1
+        assert engine._detect_redundant_calls([edit_call]) == []
 
     def test_allows_duplicate_web_search_after_state_change(self):
         """Allows repeating a search after new evidence changed the working state."""

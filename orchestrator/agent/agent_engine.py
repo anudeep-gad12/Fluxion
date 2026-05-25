@@ -557,6 +557,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
         self._file_last_read_sequences: Dict[str, int] = {}
         self._file_read_sequence = 0
         self._edit_failures: Dict[str, Dict[str, Any]] = {}
+        self._apply_patch_failures: Dict[str, Dict[str, Any]] = {}
         self._last_redundant_filter_codes: Dict[str, str] = {}
         self._coding_last_step_structural_failure = False
         self._last_context_usage: Optional[Dict[str, Any]] = None
@@ -740,24 +741,37 @@ To provide your final answer, respond WITHOUT calling any tools."""
         self,
         tool_results: List[tuple[ParsedToolCall, "ToolResult"]],
     ) -> List[Dict[str, Any]]:
-        """Extract malformed apply_patch failures that need format recovery."""
+        """Extract apply_patch failures that need patch-first recovery."""
         failures: List[Dict[str, Any]] = []
         for tool_call, result in tool_results:
             if tool_call.name != "apply_patch" or result.success:
                 continue
             metadata = result.metadata if isinstance(result.metadata, dict) else {}
             error = str(result.error_message or result.result_summary or "")
-            malformed = metadata.get("failure_type") == "malformed_patch" or any(
+            failure_type = self._apply_patch_failure_type(result)
+            recoverable = metadata.get("failure_type") == "malformed_patch" or any(
                 marker in error
                 for marker in (
                     "Unexpected patch line",
                     "Malformed",
                     "has no hunks",
                     "Patch must",
+                    "Patch hunk did not match",
                 )
             )
-            if malformed:
-                failures.append({"error": error[:500]})
+            if recoverable:
+                failures.append(
+                    {
+                        "error": error[:500],
+                        "failure_type": failure_type,
+                        "paths": [
+                            self._canonical_workspace_path(path)
+                            for path in self._extract_apply_patch_paths(
+                                str(tool_call.arguments.get("patch", ""))
+                            )
+                        ],
+                    }
+                )
         return failures
 
     def _build_apply_patch_failure_recovery_messages(
@@ -770,14 +784,33 @@ To provide your final answer, respond WITHOUT calling any tools."""
         errors = " | ".join(
             str(item.get("error") or "")[:180] for item in failures[:2]
         )
+        has_hunk_mismatch = any(
+            item.get("failure_type") == "hunk_mismatch" for item in failures
+        )
+        paths = sorted(
+            {
+                str(path)
+                for item in failures[:3]
+                for path in (item.get("paths") or [])
+                if path
+            }
+        )
+        reread_hint = (
+            " First reread the exact affected file region"
+            + (f" ({', '.join(paths[:3])})" if paths else "")
+            + ", then retry a smaller apply_patch built from the fresh text."
+            if has_hunk_mismatch
+            else ""
+        )
         return [
             {
                 "role": "system",
                 "content": (
-                    "apply_patch format recovery required. The previous patch failed "
+                    "apply_patch recovery required. The previous patch failed "
                     f"before changing files: {errors}. Do not switch to edit_file or "
-                    "write_file just because the patch format was wrong. Retry with one "
-                    "complete apply_patch call containing actual hunks. Valid examples:\n\n"
+                    "write_file just because the patch did not apply. Retry with one "
+                    "complete apply_patch call containing actual hunks."
+                    f"{reread_hint} Valid examples:\n\n"
                     "*** Begin Patch\n"
                     "*** Update File: path/to/file\n"
                     "@@\n"
@@ -808,11 +841,22 @@ To provide your final answer, respond WITHOUT calling any tools."""
         """Persist apply_patch format recovery hints into working memory."""
         if not failures:
             return
+        has_hunk_mismatch = any(
+            failure.get("failure_type") == "hunk_mismatch" for failure in failures
+        )
         memory.unresolved_tasks.append(
-            "Retry apply_patch with a complete patch; previous patch was malformed."
+            (
+                "Reread affected file region, then retry apply_patch with a smaller fresh hunk."
+                if has_hunk_mismatch
+                else "Retry apply_patch with a complete patch; previous patch was malformed."
+            )
         )
         memory.recent_raw_evidence.append(
-            "apply_patch failed due to malformed/placeholder patch syntax."
+            (
+                "apply_patch failed because a hunk did not match current file contents."
+                if has_hunk_mismatch
+                else "apply_patch failed due to malformed/placeholder patch syntax."
+            )
         )
         memory.unresolved_tasks = memory.unresolved_tasks[-6:]
         memory.recent_raw_evidence = memory.recent_raw_evidence[-8:]
@@ -1178,14 +1222,124 @@ To provide your final answer, respond WITHOUT calling any tools."""
         except ValueError:
             return str(file_path)
 
+    def _extract_apply_patch_paths(self, patch: str) -> List[str]:
+        """Best-effort target path extraction from model-supplied patch text."""
+        paths: List[str] = []
+        previous_unified_old: Optional[str] = None
+
+        def add_path(raw_path: str) -> None:
+            clean = raw_path.strip()
+            if not clean or clean == "/dev/null":
+                return
+            if "\t" in clean:
+                clean = clean.split("\t", 1)[0].strip()
+            if clean.startswith(("a/", "b/")):
+                clean = clean[2:]
+            if clean and clean not in paths:
+                paths.append(clean)
+
+        for raw_line in str(patch or "").splitlines():
+            line = raw_line.strip()
+            stripped = line.lstrip("*").strip()
+
+            for prefix in ("Update File:", "Add File:", "Delete File:"):
+                if stripped.startswith(prefix):
+                    add_path(stripped[len(prefix) :])
+                    previous_unified_old = None
+                    break
+            else:
+                if stripped.startswith("Move to:"):
+                    add_path(stripped[len("Move to:") :])
+                    previous_unified_old = None
+                elif line.startswith("--- "):
+                    old_path = line[4:].strip()
+                    previous_unified_old = old_path
+                    add_path(old_path)
+                elif line.startswith("+++ "):
+                    new_path = line[4:].strip()
+                    if new_path != "/dev/null":
+                        add_path(new_path)
+                    elif previous_unified_old:
+                        add_path(previous_unified_old)
+                    previous_unified_old = None
+
+        return paths
+
+    def _apply_patch_failure_type(self, result: "ToolResult") -> str:
+        """Classify apply_patch failure so recovery can steer the next action."""
+        metadata = result.metadata if isinstance(result.metadata, dict) else {}
+        if metadata.get("failure_type") == "malformed_patch":
+            return "malformed_patch"
+        error = str(result.error_message or result.result_summary or "")
+        lowered = error.lower()
+        if "hunk did not match" in lowered or "current contents" in lowered:
+            return "hunk_mismatch"
+        if "outside working directory" in lowered or "path" in lowered and "outside" in lowered:
+            return "path_rejected"
+        return "patch_failed"
+
     def _track_file_freshness(
         self,
         tool_call: ParsedToolCall,
         result: "ToolResult",
     ) -> Dict[str, Any]:
         """Update per-file freshness state for edit recovery."""
-        if tool_call.name not in {"read_file", "edit_file", "write_file"}:
+        if tool_call.name not in {"read_file", "edit_file", "write_file", "apply_patch"}:
             return {}
+
+        if tool_call.name == "apply_patch":
+            payload: Dict[str, Any] = {}
+            changed_files: List[str] = []
+            if result.success:
+                if isinstance(result.result_data, dict):
+                    changed_files = [
+                        self._canonical_workspace_path(str(path))
+                        for path in result.result_data.get("changed_files") or []
+                    ]
+                if not changed_files:
+                    metadata = result.metadata if isinstance(result.metadata, dict) else {}
+                    changed_files = [
+                        self._canonical_workspace_path(str(path))
+                        for path in metadata.get("changed_files") or []
+                    ]
+                for changed_file in changed_files:
+                    self._file_state_versions[changed_file] = (
+                        self._file_state_versions.get(changed_file, 0) + 1
+                    )
+                    self._apply_patch_failures.pop(changed_file, None)
+                if changed_files:
+                    self._apply_patch_failures.pop("__global__", None)
+                    payload["changed_files"] = changed_files
+                    payload["file_state_versions_after"] = {
+                        path: self._file_state_versions.get(path, 0)
+                        for path in changed_files
+                    }
+                return payload
+
+            patch_paths = [
+                self._canonical_workspace_path(path)
+                for path in self._extract_apply_patch_paths(
+                    str(tool_call.arguments.get("patch", ""))
+                )
+            ]
+            if not patch_paths:
+                patch_paths = ["__global__"]
+            failure_type = self._apply_patch_failure_type(result)
+            for patch_path in patch_paths:
+                self._apply_patch_failures[patch_path] = {
+                    "arguments": dict(tool_call.arguments),
+                    "failure_type": failure_type,
+                    "error": str(result.error_message or result.result_summary or "")[:500],
+                    "file_read_sequence_at_failure": self._file_last_read_sequences.get(
+                        patch_path, 0
+                    ),
+                    "file_state_version_at_failure": self._file_state_versions.get(
+                        patch_path, 0
+                    ),
+                }
+            payload["file_paths"] = patch_paths
+            payload["failure_type"] = failure_type
+            return payload
 
         file_path = str(tool_call.arguments.get("file_path", "")).strip()
         if not file_path:
@@ -1236,6 +1390,21 @@ To provide your final answer, respond WITHOUT calling any tools."""
     def _has_reread_since_edit_failure(self, file_path: str) -> bool:
         """Return whether the file was reread after the latest tracked edit failure."""
         failure = self._edit_failures.get(file_path)
+        if not failure:
+            return False
+        return self._file_last_read_sequences.get(file_path, 0) > int(
+            failure.get("file_read_sequence_at_failure", 0)
+        )
+
+    def _apply_patch_failure_for_path(self, file_path: str) -> Optional[Dict[str, Any]]:
+        """Return unresolved apply_patch failure for a file, falling back to global."""
+        return self._apply_patch_failures.get(file_path) or self._apply_patch_failures.get(
+            "__global__"
+        )
+
+    def _has_reread_since_apply_patch_failure(self, file_path: str) -> bool:
+        """Return whether the file was reread after the latest apply_patch failure."""
+        failure = self._apply_patch_failure_for_path(file_path)
         if not failure:
             return False
         return self._file_last_read_sequences.get(file_path, 0) > int(
@@ -2825,6 +2994,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
         self._file_last_read_sequences = {}
         self._file_read_sequence = 0
         self._edit_failures = {}
+        self._apply_patch_failures = {}
         self._last_redundant_filter_codes = {}
         self._coding_last_step_structural_failure = False
         self._last_context_usage = None
@@ -3387,6 +3557,9 @@ To provide your final answer, respond WITHOUT calling any tools."""
                             for tc, _ in redundant
                         }
                         edit_reread_only = redundant_codes == {"edit_reread_required"}
+                        apply_patch_recovery_only = redundant_codes == {
+                            "apply_patch_recovery_required"
+                        }
                         logger.info(
                             "Filtered redundant tool calls",
                             extra={"reasons": reasons, "filtered_count": len(redundant)},
@@ -3407,6 +3580,8 @@ To provide your final answer, respond WITHOUT calling any tools."""
                                 thinking_text=thinking_text,
                             )
                             if edit_reread_only:
+                                consecutive_filtered_steps = 0
+                            elif apply_patch_recovery_only:
                                 consecutive_filtered_steps = 0
                             else:
                                 consecutive_filtered_steps += 1
@@ -3453,6 +3628,9 @@ To provide your final answer, respond WITHOUT calling any tools."""
                                     "Reread the relevant file region before retrying the same edit_file call. "
                                     "Do not resend identical stale edit arguments without reacquiring current text."
                                     if edit_reread_only
+                                    else "Reread the exact affected file region, then retry a smaller apply_patch from the fresh text. "
+                                    "Do not switch to edit_file or write_file as a fallback for a failed patch."
+                                    if apply_patch_recovery_only
                                     else "Either provide the final answer now or choose a genuinely different tool call. "
                                     "Only retry the same tool if something materially changed since the last identical call."
                                 )
@@ -6331,6 +6509,24 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         break
             if is_dup:
                 continue
+
+            if tc.name in {"edit_file", "write_file"}:
+                file_path = self._canonical_workspace_path(
+                    str(tc.arguments.get("file_path", ""))
+                )
+                failure = self._apply_patch_failure_for_path(file_path)
+                if failure and not self._has_reread_since_apply_patch_failure(file_path):
+                    redundant.append(
+                        (
+                            tc,
+                            "apply_patch failed for this file; reread the exact current region "
+                            "and retry apply_patch instead of falling back to edit_file/write_file",
+                        )
+                    )
+                    self._last_redundant_filter_codes[tc.id] = (
+                        "apply_patch_recovery_required"
+                    )
+                    continue
 
             seen_in_batch.append({"tool_name": tc.name, "arguments": tc.arguments})
 
