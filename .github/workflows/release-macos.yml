@@ -12,6 +12,8 @@ jobs:
     runs-on: macos-14
     permissions:
       contents: write
+    env:
+      HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
@@ -32,6 +34,20 @@ jobs:
       - name: Build app
         run: ./scripts/build_macos_app.sh
 
+      - name: Capture release metadata
+        id: release_metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          zip_path="$(ls dist/macos/Fluxion-macos-*.zip | head -n 1)"
+          version="${GITHUB_REF_NAME#v}"
+          sha256="$(shasum -a 256 "$zip_path" | awk '{print $1}')"
+
+          echo "zip_path=$zip_path" >> "$GITHUB_OUTPUT"
+          echo "asset_name=$(basename "$zip_path")" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "sha256=$sha256" >> "$GITHUB_OUTPUT"
+
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
@@ -45,3 +61,62 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: dist/macos/Fluxion-macos-*.zip
+
+      - name: Checkout Homebrew tap
+        if: startsWith(github.ref, 'refs/tags/') && env.HOMEBREW_TAP_TOKEN != ''
+        uses: actions/checkout@v4
+        with:
+          repository: anudeep-gad12/homebrew-tap
+          path: homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
+      - name: Update Homebrew cask
+        if: startsWith(github.ref, 'refs/tags/') && env.HOMEBREW_TAP_TOKEN != ''
+        working-directory: homebrew-tap
+        env:
+          VERSION: ${{ steps.release_metadata.outputs.version }}
+          SHA256: ${{ steps.release_metadata.outputs.sha256 }}
+          ASSET_NAME: ${{ steps.release_metadata.outputs.asset_name }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          path = Path("Casks/fluxion.rb")
+          text = path.read_text()
+          text = re.sub(r'version "[^"]+"', f'version "{os.environ["VERSION"]}"', text, count=1)
+          text = re.sub(r'sha256 "[^"]+"', f'sha256 "{os.environ["SHA256"]}"', text, count=1)
+          text = re.sub(
+              r'(releases/download/v#\{version\}/)[^"]+',
+              r'\1' + os.environ["ASSET_NAME"],
+              text,
+              count=1,
+          )
+          path.write_text(text)
+          PY
+
+          git diff -- Casks/fluxion.rb
+
+      - name: Commit Homebrew tap update
+        if: startsWith(github.ref, 'refs/tags/') && env.HOMEBREW_TAP_TOKEN != ''
+        working-directory: homebrew-tap
+        env:
+          VERSION: ${{ steps.release_metadata.outputs.version }}
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- Casks/fluxion.rb; then
+            echo "Homebrew cask already up to date"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks/fluxion.rb
+          git commit -m "Update fluxion cask to ${VERSION}"
+          git push
+
+      - name: Homebrew tap token missing
+        if: startsWith(github.ref, 'refs/tags/') && env.HOMEBREW_TAP_TOKEN == ''
+        run: |
+          echo "::warning::HOMEBREW_TAP_TOKEN is not configured; skipped homebrew-tap update."
