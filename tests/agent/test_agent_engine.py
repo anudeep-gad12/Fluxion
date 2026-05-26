@@ -525,6 +525,35 @@ def test_apply_patch_hunk_mismatch_recovery_requires_reread_then_patch():
     assert "Do not switch to edit_file" in content
 
 
+def test_apply_patch_failure_hides_legacy_write_schemas_for_coding_profile():
+    registry = create_mock_registry()
+    registry.get_openai_schemas.return_value = [
+        {"type": "function", "function": {"name": "read_file"}},
+        {"type": "function", "function": {"name": "apply_patch"}},
+        {"type": "function", "function": {"name": "edit_file"}},
+        {"type": "function", "function": {"name": "write_file"}},
+    ]
+    profile = MagicMock()
+    profile.name = "coding"
+    engine = AgentEngine(
+        provider=create_mock_provider(),
+        repo=create_mock_repo(),
+        registry=registry,
+        profile=profile,
+    )
+    engine._apply_patch_failures = {
+        "src/App.tsx": {"failure_type": "hunk_mismatch"}
+    }
+
+    names = {
+        schema["function"]["name"] for schema in engine._available_tool_schemas()
+    }
+
+    assert {"read_file", "apply_patch"} <= names
+    assert "edit_file" not in names
+    assert "write_file" not in names
+
+
 class TestAgentEngineToolParsing:
     """Tests for tool call parsing."""
 

@@ -1025,6 +1025,13 @@ To provide your final answer, respond WITHOUT calling any tools."""
     def _available_tool_schemas(self) -> List[Dict[str, Any]]:
         """Return tool schemas valid for the active model/provider."""
         tool_schemas = self._registry.get_openai_schemas()
+        if self._is_coding_profile() and self._apply_patch_failures:
+            tool_schemas = [
+                schema
+                for schema in tool_schemas
+                if schema.get("function", {}).get("name")
+                not in {"edit_file", "write_file"}
+            ]
         if bool(getattr(self._provider, "_supports_vision", False)):
             return tool_schemas
         return [

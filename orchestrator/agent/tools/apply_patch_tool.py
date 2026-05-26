@@ -144,13 +144,10 @@ class ApplyPatchTool:
     def _append_update_line(self, hunk: PatchHunk, line: str) -> bool:
         """Append a hunk body line, repairing safe missing + prefixes."""
         if line.startswith((" ", "-", "+")):
-            inferred_prefix = (
-                self._infer_loose_hunk_prefix(hunk) if line.startswith(" ") else None
-            )
-            if inferred_prefix == "+":
-                hunk.lines.append(("+", line))
-            else:
-                hunk.lines.append((line[0], line[1:]))
+            # A leading space is valid unified-diff context. Do not reinterpret
+            # it as an added line based on possibly wrong hunk counts; that can
+            # make a malformed patch "succeed" while duplicating real context.
+            hunk.lines.append((line[0], line[1:]))
             return True
         inferred_prefix = self._infer_loose_hunk_prefix(hunk)
         if inferred_prefix is not None:

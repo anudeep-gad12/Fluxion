@@ -230,11 +230,40 @@ async def test_update_accepts_bare_unified_diff_inside_patch(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_update_repairs_missing_plus_prefix_in_added_tail(tmp_path):
+async def test_update_repairs_unindented_missing_plus_prefix_in_added_tail(tmp_path):
+    path = tmp_path / "style.css"
+    path.write_text("base\n", encoding="utf-8")
+    tool = ApplyPatchTool(str(tmp_path))
+
+    result = await tool.execute(
+        patch="""*** Begin Patch
+*** Update File: style.css
+@@ -1,1 +1,4 @@
+ base
++
+added-one
+added-two
+*** End Patch"""
+    )
+
+    assert result.success is True
+    content = path.read_text(encoding="utf-8")
+    assert content == "base\n\nadded-one\nadded-two\n"
+    assert "+added-one" in result.result_data["diff"]
+
+
+@pytest.mark.asyncio
+async def test_update_does_not_infer_space_prefixed_context_as_addition(tmp_path):
     path = tmp_path / "style.css"
     path.write_text(
-        ".plain-link.external::before {\n"
-        "  transition: none;\n"
+        ":root {\n"
+        "    --background: old;\n"
+        "}\n"
+        "\n"
+        "@layer base {\n"
+        "  body {\n"
+        "    @apply min-h-svh bg-background text-foreground;\n"
+        "    }\n"
         "}\n",
         encoding="utf-8",
     )
@@ -243,27 +272,54 @@ async def test_update_repairs_missing_plus_prefix_in_added_tail(tmp_path):
     result = await tool.execute(
         patch="""*** Begin Patch
 *** Update File: style.css
-@@ -1,3 +1,16 @@
- .plain-link.external::before {
-   transition: none;
+@@ -1,4 +1,4 @@
+ :root {
+-    --background: old;
++    --background: new;
  }
-+
-/* Micro-elevation utilities */
-.micro-lift {
-  transition: transform 150ms ease, box-shadow 150ms ease;
-}
-
-.micro-lift:hover {
-  transform: translateY(-1px);
-}
+ 
+ @layer base {
+@@ -6,3 +6,8 @@
+   body {
+     @apply min-h-svh bg-background text-foreground;
+     }
++  body {
++    background: linear-gradient(black, transparent);
++    }
+ }
 *** End Patch"""
     )
 
     assert result.success is True
     content = path.read_text(encoding="utf-8")
-    assert "/* Micro-elevation utilities */" in content
-    assert ".micro-lift:hover" in content
-    assert "+.micro-lift {" in result.result_data["diff"]
+    assert content.count("@layer base {") == 1
+    assert content.count("  body {") == 2
+    assert "    --background: new;" in content
+    assert "+ @layer base {" not in result.result_data["diff"]
+
+
+@pytest.mark.asyncio
+async def test_update_rejects_indented_missing_plus_added_tail(tmp_path):
+    path = tmp_path / "style.css"
+    path.write_text(".plain-link {\n  color: white;\n}\n", encoding="utf-8")
+    tool = ApplyPatchTool(str(tmp_path))
+
+    result = await tool.execute(
+        patch="""*** Begin Patch
+*** Update File: style.css
+@@ -1,3 +1,8 @@
+ .plain-link {
+   color: white;
+ }
++
+.plain-link:hover {
+  color: orange;
+}
+*** End Patch"""
+    )
+
+    assert result.success is False
+    assert path.read_text(encoding="utf-8") == ".plain-link {\n  color: white;\n}\n"
 
 
 @pytest.mark.asyncio
