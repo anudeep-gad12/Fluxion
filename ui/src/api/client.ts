@@ -331,6 +331,7 @@ import type {
   AgentSSEEvent,
   AgentCitation,
   ContextUsage,
+  StoredContextUsage,
   TokenUsage,
   CostUsage,
   ModelContextProfile,
@@ -475,13 +476,16 @@ export function subscribeToAgentRun(
     run_id: string;
     success: boolean;
     final_answer?: string;
+    error_message?: string;
     citations?: AgentCitation[];
     total_steps: number;
     timing_ms: number;
     total_tokens?: number;
+    status?: string;
     usage?: TokenUsage;
     cost?: CostUsage | null;
     context_usage?: ContextUsage;
+    stored_context?: StoredContextUsage;
     context_profile?: ModelContextProfile;
     compaction_count?: number;
     last_compacted_at_step?: number;

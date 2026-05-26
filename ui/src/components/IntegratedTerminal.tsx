@@ -19,6 +19,8 @@ const MAX_WIDTH = 760;
 
 type TerminalDock = 'bottom' | 'right';
 
+type TerminalStatus = 'idle' | 'connecting' | 'running' | 'closed' | 'stale' | 'error';
+
 interface IntegratedTerminalProps {
   conversationId: string;
   workspacePath: string;
@@ -26,14 +28,21 @@ interface IntegratedTerminalProps {
   dock: TerminalDock;
 }
 
-const STATUS_STYLES: Record<string, string> = {
-  connecting: 'border-cyan-500/22 bg-cyan-500/[0.08] text-cyan-200',
-  running: 'border-emerald-500/20 bg-emerald-500/[0.08] text-emerald-300',
-  stale: 'border-amber-500/20 bg-amber-500/[0.08] text-amber-300',
-  error: 'border-red-500/20 bg-red-500/[0.08] text-red-300',
-  idle: 'border-white/10 bg-white/[0.035] text-zinc-400',
-  closed: 'border-white/10 bg-white/[0.035] text-zinc-400',
+const STATUS_DOT_STYLES: Record<TerminalStatus, string> = {
+  connecting: 'bg-cyan-300',
+  running: 'bg-emerald-300',
+  stale: 'bg-amber-300',
+  error: 'bg-red-300',
+  idle: 'bg-zinc-600',
+  closed: 'bg-zinc-600',
 };
+
+function normalizeStatus(status: string | undefined): TerminalStatus {
+  if (status === 'connecting' || status === 'running' || status === 'stale' || status === 'error' || status === 'closed') {
+    return status;
+  }
+  return 'idle';
+}
 
 export function IntegratedTerminal({
   conversationId,
@@ -49,21 +58,26 @@ export function IntegratedTerminal({
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
+  const socketGenerationRef = useRef(0);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const dragStartRef = useRef<{ x: number; y: number; width: number; height: number } | null>(null);
   const bufferRef = useRef('');
+  const lastSocketStatusRef = useRef<TerminalStatus>('idle');
   const [isRestarting, setIsRestarting] = useState(false);
 
   useEffect(() => {
     bufferRef.current = terminalState?.buffer || '';
   }, [terminalState?.buffer]);
 
+  const replaceTerminalBuffer = useCallback((nextBuffer: string) => {
+    updateTerminalState(conversationId, { buffer: nextBuffer.slice(-120000) });
+  }, [conversationId, updateTerminalState]);
+
   const ensureTerminal = useCallback(async () => {
     if (!containerRef.current || !terminalState?.isOpen || !active) {
       return null;
     }
     updateTerminalState(conversationId, { status: 'connecting' });
-    const fitAddon = fitAddonRef.current;
     const term = terminalRef.current;
     const cols = term?.cols || 120;
     const rows = term?.rows || 30;
@@ -77,15 +91,7 @@ export function IntegratedTerminal({
       status: session.status === 'running' ? 'running' : 'stale',
       buffer: session.replay_buffer || '',
     });
-    if (term) {
-      term.clear();
-      if (session.replay_buffer) {
-        term.write(session.replay_buffer);
-      }
-    }
-    if (fitAddon) {
-      fitAddon.fit();
-    }
+    fitAddonRef.current?.fit();
     return session;
   }, [active, conversationId, terminalState?.isOpen, updateTerminalState, workspacePath]);
 
@@ -93,10 +99,20 @@ export function IntegratedTerminal({
     if (!active || !terminalState?.isOpen) {
       return;
     }
+
+    const generation = socketGenerationRef.current + 1;
+    socketGenerationRef.current = generation;
     socketRef.current?.close();
+    lastSocketStatusRef.current = 'connecting';
+
     const ws = createTerminalWebSocket(conversationId, sessionId);
     socketRef.current = ws;
+
+    const isCurrentSocket = () => socketRef.current === ws && socketGenerationRef.current === generation;
+
     ws.onopen = () => {
+      if (!isCurrentSocket()) return;
+      lastSocketStatusRef.current = 'running';
       updateTerminalState(conversationId, { connected: true, status: 'running' });
       const term = terminalRef.current;
       if (term) {
@@ -104,37 +120,60 @@ export function IntegratedTerminal({
         ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
       }
     };
+
     ws.onmessage = (event) => {
-      const payload = JSON.parse(event.data) as {
-        type: string;
-        data?: string;
-        status?: string;
-      };
+      if (!isCurrentSocket()) return;
+      let payload: { type: string; data?: string; status?: string };
+      try {
+        payload = JSON.parse(event.data) as { type: string; data?: string; status?: string };
+      } catch {
+        updateTerminalState(conversationId, { connected: false, status: 'error' });
+        return;
+      }
+
       if (payload.type === 'output' && payload.data) {
         terminalRef.current?.write(payload.data);
         appendTerminalBuffer(conversationId, payload.data);
+      } else if (payload.type === 'replay') {
+        const replay = payload.data || '';
+        terminalRef.current?.clear();
+        if (replay) {
+          terminalRef.current?.write(replay);
+        }
+        replaceTerminalBuffer(replay);
       } else if (payload.type === 'status') {
+        const nextStatus = normalizeStatus(payload.status);
+        lastSocketStatusRef.current = nextStatus;
         updateTerminalState(conversationId, {
-          status: payload.status === 'stale' ? 'stale' : 'running',
+          connected: nextStatus === 'running',
+          status: nextStatus,
         });
       } else if (payload.type === 'exit') {
+        lastSocketStatusRef.current = 'closed';
         updateTerminalState(conversationId, { connected: false, status: 'closed' });
       }
     };
+
     ws.onclose = () => {
+      if (!isCurrentSocket()) return;
       socketRef.current = null;
+      const lastStatus = lastSocketStatusRef.current;
       updateTerminalState(conversationId, {
         connected: false,
-        status: 'closed',
+        status: lastStatus === 'stale' || lastStatus === 'closed' ? lastStatus : 'error',
       });
     };
+
     ws.onerror = () => {
+      if (!isCurrentSocket()) return;
+      lastSocketStatusRef.current = 'error';
       updateTerminalState(conversationId, { connected: false, status: 'error' });
     };
   }, [
     active,
     appendTerminalBuffer,
     conversationId,
+    replaceTerminalBuffer,
     terminalState?.isOpen,
     updateTerminalState,
   ]);
@@ -150,7 +189,7 @@ export function IntegratedTerminal({
       fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
       fontSize: 12,
       theme: {
-        background: '#07080a',
+        background: '#050609',
         foreground: '#e4e4e7',
         cursor: '#f5f7fb',
       },
@@ -167,15 +206,17 @@ export function IntegratedTerminal({
       term.write(bufferRef.current);
     }
     const disposable = term.onData((data) => {
-      if (socketRef.current?.readyState === WebSocket.OPEN) {
-        socketRef.current.send(JSON.stringify({ type: 'input', data }));
+      const socket = socketRef.current;
+      if (socket?.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ type: 'input', data }));
       }
     });
     resizeObserverRef.current = new ResizeObserver(() => {
       if (!fitAddonRef.current || !terminalRef.current) return;
       fitAddonRef.current.fit();
-      if (socketRef.current?.readyState === WebSocket.OPEN) {
-        socketRef.current.send(
+      const socket = socketRef.current;
+      if (socket?.readyState === WebSocket.OPEN) {
+        socket.send(
           JSON.stringify({
             type: 'resize',
             cols: terminalRef.current.cols,
@@ -190,33 +231,24 @@ export function IntegratedTerminal({
       term.focus();
     });
     const delayedFit = window.setTimeout(() => {
-      if (cancelled) {
-        return;
-      }
+      if (cancelled) return;
       fitAddon.fit();
       term.focus();
-      if (socketRef.current?.readyState === WebSocket.OPEN) {
-        socketRef.current.send(
-          JSON.stringify({
-            type: 'resize',
-            cols: term.cols,
-            rows: term.rows,
-          })
-        );
+      const socket = socketRef.current;
+      if (socket?.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
       }
     }, 80);
     ensureTerminal()
       .then((session) => {
-        if (cancelled) {
-          return;
-        }
+        if (cancelled) return;
         if (session?.session_id) {
           connectSocket(session.session_id);
         }
       })
       .catch(() => {
         if (!cancelled) {
-          updateTerminalState(conversationId, { status: 'error' });
+          updateTerminalState(conversationId, { connected: false, status: 'error' });
         }
       });
 
@@ -226,6 +258,7 @@ export function IntegratedTerminal({
       resizeObserverRef.current = null;
       window.clearTimeout(delayedFit);
       disposable.dispose();
+      socketGenerationRef.current += 1;
       socketRef.current?.close();
       socketRef.current = null;
       term.dispose();
@@ -242,18 +275,11 @@ export function IntegratedTerminal({
     const syncLayout = () => {
       const fitAddon = fitAddonRef.current;
       const term = terminalRef.current;
-      if (!fitAddon || !term) {
-        return;
-      }
+      if (!fitAddon || !term) return;
       fitAddon.fit();
-      if (socketRef.current?.readyState === WebSocket.OPEN) {
-        socketRef.current.send(
-          JSON.stringify({
-            type: 'resize',
-            cols: term.cols,
-            rows: term.rows,
-          })
-        );
+      const socket = socketRef.current;
+      if (socket?.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
       }
     };
 
@@ -265,10 +291,18 @@ export function IntegratedTerminal({
     return () => cancelAnimationFrame(raf);
   }, [active, dock, terminalState?.height, terminalState?.isOpen, terminalState?.width]);
 
+  const handleReconnect = useCallback(() => {
+    const sessionId = terminalState?.session?.session_id;
+    if (!sessionId) return;
+    updateTerminalState(conversationId, { status: 'connecting' });
+    connectSocket(sessionId);
+  }, [connectSocket, conversationId, terminalState?.session?.session_id, updateTerminalState]);
+
   const handleRestart = useCallback(async () => {
     if (!terminalState) return;
     setIsRestarting(true);
     try {
+      socketGenerationRef.current += 1;
       socketRef.current?.close();
       socketRef.current = null;
       terminalRef.current?.clear();
@@ -284,9 +318,6 @@ export function IntegratedTerminal({
         buffer: nextSession.replay_buffer || '',
         status: nextSession.status === 'running' ? 'running' : 'stale',
       });
-      if (nextSession.replay_buffer) {
-        terminalRef.current?.write(nextSession.replay_buffer);
-      }
       connectSocket(nextSession.session_id);
     } finally {
       setIsRestarting(false);
@@ -363,8 +394,10 @@ export function IntegratedTerminal({
     return null;
   }
 
-  const statusClassName = STATUS_STYLES[terminalState.status] || STATUS_STYLES.idle;
+  const status = normalizeStatus(terminalState.status);
   const isRightDock = dock === 'right';
+  const pathLabel = terminalState.session?.workspace_path || workspacePath || '~';
+  const canReconnect = !!terminalState.session?.session_id && (status === 'error' || status === 'stale' || status === 'closed');
   const handleDockToggle = (nextDock: TerminalDock) => {
     updateTerminalState(conversationId, { dock: nextDock });
     requestAnimationFrame(() => fitAddonRef.current?.fit());
@@ -373,103 +406,76 @@ export function IntegratedTerminal({
   return (
     <div
       className={cn(
-        'fluxion-card-strong flex min-h-0 flex-shrink-0 overflow-hidden bg-black/96',
-        isRightDock ? 'h-full border-l border-white/10' : 'flex-col border-t border-white/10'
+        'flex min-h-0 flex-shrink-0 overflow-hidden bg-[#050609]',
+        isRightDock ? 'h-full border-l border-white/[0.08]' : 'flex-col border-t border-white/[0.08]'
       )}
       style={isRightDock ? { width: terminalState.width } : { height: terminalState.height }}
     >
       {isRightDock && (
         <div
-          className="ui-transition relative h-full w-3 cursor-col-resize border-r border-white/10 bg-black/35 hover:bg-white/[0.055]"
+          className="ui-transition relative h-full w-2 cursor-col-resize bg-white/[0.025] hover:bg-white/[0.06]"
           onMouseDown={handleHorizontalResize}
-        >
-          <span className="absolute left-1/2 top-1/2 h-16 w-px -translate-x-1/2 -translate-y-1/2 bg-zinc-700/80" />
-        </div>
+        />
       )}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {!isRightDock && (
           <div
-            className="ui-transition h-2 cursor-row-resize bg-black/35 hover:bg-white/[0.055]"
+            className="ui-transition h-1.5 cursor-row-resize bg-white/[0.025] hover:bg-white/[0.06]"
             onMouseDown={handleVerticalResize}
           />
         )}
-        <div className="border-b border-white/10 bg-black/30 px-3 py-2.5 font-mono text-xs">
-          <div className="flex flex-col gap-2">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0 flex-1 space-y-1.5">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="rounded-full border border-white/10 bg-white/[0.035] px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-zinc-300">
-                    terminal
-                  </span>
-                  <span className={cn('rounded-full px-2 py-0.5 text-[10px] uppercase tracking-[0.16em]', statusClassName)}>
-                    {terminalState.status}
-                  </span>
-                  <div className="flex overflow-hidden rounded-full border border-white/10 bg-white/[0.025]">
-                    <button
-                      onClick={() => handleDockToggle('bottom')}
-                      className={cn(
-                        'ui-transition px-2 py-0.5 text-[10px] uppercase tracking-[0.16em]',
-                        terminalState.dock === 'bottom'
-                          ? 'bg-cyan-300/[0.08] text-cyan-100'
-                          : 'text-zinc-500 hover:text-zinc-200'
-                      )}
-                      type="button"
-                    >
-                      bottom
-                    </button>
-                    <button
-                      onClick={() => handleDockToggle('right')}
-                      className={cn(
-                        'ui-transition border-l border-white/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.16em]',
-                        terminalState.dock === 'right'
-                          ? 'bg-cyan-300/[0.08] text-cyan-100'
-                          : 'text-zinc-500 hover:text-zinc-200'
-                      )}
-                      type="button"
-                    >
-                      right
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex shrink-0 items-center gap-1.5">
-                <button
-                  onClick={handleClear}
-                  className="premium-subtle-button px-2.5 py-1"
-                  type="button"
-                >
-                  clear
-                </button>
-                <button
-                  onClick={handleRestart}
-                  className="premium-subtle-button px-2.5 py-1"
-                  type="button"
-                  disabled={isRestarting}
-                >
-                  {isRestarting ? 'restarting...' : 'restart'}
-                </button>
-                <button
-                  onClick={() => updateTerminalState(conversationId, { isOpen: false })}
-                  className="premium-subtle-button px-2.5 py-1"
-                  type="button"
-                >
-                  collapse
-                </button>
-              </div>
-            </div>
-            <div className="truncate text-[11px] text-zinc-500">
-              {terminalState.session?.workspace_path || workspacePath || '~'}
-            </div>
+        <div className="flex h-8 items-center justify-between gap-3 border-b border-white/[0.07] px-3 font-mono text-[11px] text-zinc-500">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className={cn('h-1.5 w-1.5 rounded-full', STATUS_DOT_STYLES[status])} />
+            <span className={cn(status === 'error' && 'text-red-300', status === 'stale' && 'text-amber-300')}>
+              {workspaceMismatch ? 'workspace changed' : status}
+            </span>
+            <span className="text-zinc-700">·</span>
+            <span className="truncate" title={pathLabel}>{pathLabel}</span>
           </div>
 
-          {workspaceMismatch && (
-            <div className="mt-2 rounded-[0.8rem] border border-amber-500/20 bg-amber-500/[0.06] px-3 py-2 text-[11px] leading-5 text-amber-200/85">
-              Workspace changed. Restart the terminal to attach it to the new path.
-            </div>
-          )}
+          <div className="flex shrink-0 items-center gap-3">
+            <button
+              onClick={() => handleDockToggle('bottom')}
+              className={cn('ui-transition', terminalState.dock === 'bottom' ? 'text-cyan-100' : 'text-zinc-500 hover:text-zinc-200')}
+              type="button"
+            >
+              bottom
+            </button>
+            <button
+              onClick={() => handleDockToggle('right')}
+              className={cn('ui-transition', terminalState.dock === 'right' ? 'text-cyan-100' : 'text-zinc-500 hover:text-zinc-200')}
+              type="button"
+            >
+              right
+            </button>
+            <span className="text-zinc-800">|</span>
+            <button onClick={handleClear} className="ui-transition hover:text-zinc-200" type="button">
+              clear
+            </button>
+            {canReconnect && (
+              <button onClick={handleReconnect} className="ui-transition text-amber-300/85 hover:text-amber-200" type="button">
+                reconnect
+              </button>
+            )}
+            <button
+              onClick={handleRestart}
+              className="ui-transition hover:text-zinc-200 disabled:cursor-wait disabled:text-zinc-700"
+              type="button"
+              disabled={isRestarting}
+            >
+              {isRestarting ? 'restarting...' : 'restart'}
+            </button>
+            <button
+              onClick={() => updateTerminalState(conversationId, { isOpen: false })}
+              className="ui-transition hover:text-zinc-200"
+              type="button"
+            >
+              close
+            </button>
+          </div>
         </div>
-        <div className="min-h-0 min-w-0 flex-1 bg-[#07080a]">
+        <div className="min-h-0 min-w-0 flex-1 bg-[#050609]">
           <div
             ref={containerRef}
             className="h-full min-w-0 w-full px-3 py-2"

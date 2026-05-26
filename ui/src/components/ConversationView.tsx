@@ -76,6 +76,7 @@ type ChatMode = 'chat' | 'agent';
 function formatRunStatusLabel(run: Run): string {
   if (run.status === 'succeeded') return 'done';
   if (run.status === 'failed') return 'failed';
+  if (run.status === 'cancelled') return 'stopped';
   return 'running';
 }
 
@@ -888,6 +889,10 @@ const RunMessage = memo(function RunMessage({
               <ShimmerSkeleton />
             ) : isRunning && !displayText && isThinking ? (
               <ThinkingTimer label="Thinking" />
+            ) : run.status === 'cancelled' ? (
+              <div className="rounded-[1rem] border border-amber-500/16 bg-amber-500/[0.06] px-4 py-3 text-sm text-amber-100/90">
+                stopped by user
+              </div>
             ) : run.status === 'failed' ? (
               <div className="rounded-[1rem] border border-red-500/16 bg-red-500/[0.06] px-4 py-3 text-sm text-red-200/90">
                 [error] {run.error_detail || 'Request failed. Please try again.'}
@@ -1139,6 +1144,7 @@ export function ConversationView() {
   const updateConversation = useStore((s) => s.updateConversation);
   const addConversation = useStore((s) => s.addConversation);
   const addRun = useStore((s) => s.addRun);
+  const updateRun = useStore((s) => s.updateRun);
   const removeRun = useStore((s) => s.removeRun);
   const clearAgentRun = useStore((s) => s.clearAgentRun);
   const setEvents = useStore((s) => s.setEvents);
@@ -1297,6 +1303,7 @@ export function ConversationView() {
   const subscribedRunRef = useRef<string | null>(null);
   const [pendingRunId, setPendingRunId] = useState<string | null>(null);
   const [pendingIsAgent, setPendingIsAgent] = useState(false);
+  const [stoppingRunId, setStoppingRunId] = useState<string | null>(null);
   const [queuedSteers, setQueuedSteers] = useState<string[]>([]);
   const [rewindOpen, setRewindOpen] = useState(false);
   const [rewindLoading, setRewindLoading] = useState(false);
@@ -1307,14 +1314,15 @@ export function ConversationView() {
   const rewindRestoreInFlightRef = useRef(false);
 
   // Track any active run (chat or agent) for UI purposes (auto-scroll, completion detection)
-  const activeRunId = useMemo(() => {
+  const activeRun = useMemo(() => {
     for (let i = runs.length - 1; i >= 0; i -= 1) {
       if (runs[i].status === 'running') {
-        return runs[i].run_id;
+        return runs[i];
       }
     }
     return null;
   }, [runs]);
+  const activeRunId = activeRun?.run_id ?? null;
   const activeAgentRun = useMemo(() => {
     for (let i = runs.length - 1; i >= 0; i -= 1) {
       if (runs[i].status === 'running' && runs[i].mode === 'agent') {
@@ -1502,10 +1510,7 @@ export function ConversationView() {
   const { subscribe, unsubscribe } = useSSE(activeChatRunId);
 
   // Get subscribe/unsubscribe functions from useAgentSSE (agent mode)
-  const {
-    subscribe: subscribeAgent,
-    unsubscribe: unsubscribeAgent,
-  } = useAgentSSE(null); // Manual subscription, not auto
+  const { subscribe: subscribeAgent } = useAgentSSE(null); // Manual subscription, not auto
 
   useEffect(() => {
     if (!selectedConversationId) return;
@@ -1730,7 +1735,7 @@ export function ConversationView() {
     }
 
     // If an agent run is active, steer it instead of creating a new run
-    if (hasActiveRun && activeRunId) {
+    if (canSteerActiveRun && activeRunId) {
       if (imageAttachments.length > 0) {
         toast.error('Image paste is only available before starting a run.');
         return;
@@ -1958,6 +1963,7 @@ export function ConversationView() {
       setPendingRunId(null);
       setPendingIsAgent(false);
       setIsSubmitting(false);
+      setStoppingRunId(null);
       clearMentionState();
       setQueuedSteers([]);
       subscribedRunRef.current = null;
@@ -1965,50 +1971,46 @@ export function ConversationView() {
   }, [clearMentionState, selectedConversationId, activeRunId, pendingRunId]);
 
   const handleStop = async () => {
-    if (!pendingRunId) return;
+    const runIdToStop = pendingRunId ?? activeRunId;
+    if (!runIdToStop || stoppingRunId === runIdToStop) return;
+
+    const runToStop = runs.find((run) => run.run_id === runIdToStop);
+    const isAgentRun = pendingIsAgent || runToStop?.mode === 'agent';
+    setStoppingRunId(runIdToStop);
 
     try {
-      if (pendingIsAgent) {
-        // 1. Unsubscribe from agent stream
-        unsubscribeAgent();
-
-        // 2. Call agent cancel endpoint
-        await cancelAgentRun(pendingRunId);
+      if (isAgentRun) {
+        await cancelAgentRun(runIdToStop);
+        updateRun(runIdToStop, {
+          status: 'cancelled',
+          error_detail: 'Stopped by user',
+        });
       } else {
-        // 1. Unsubscribe from the stream
+        await abortRun(runIdToStop);
         unsubscribe();
-
-        // 2. Call backend abort endpoint
-        await abortRun(pendingRunId);
       }
 
-      // 3. Remove the optimistic run from store
-      removeRun(pendingRunId);
-
-      // 4. Restore user message
-      setMessage(pendingMessage);
+      if (!isAgentRun && pendingMessage) {
+        setMessage(pendingMessage);
+      }
+      if (pendingRunId === runIdToStop) {
+        setPendingRunId(null);
+        setPendingMessage('');
+        setPendingIsAgent(false);
+        setIsSubmitting(false);
+      }
       clearMentionState();
-
-      // 5. Reset state
-      setPendingRunId(null);
-      setPendingMessage('');
-      setPendingIsAgent(false);
-      setIsSubmitting(false);
       scheduleComposerFocus();
     } catch (error) {
       console.error('Failed to abort run:', error);
       toast.error('Failed to stop generation.');
-      // Even if abort fails, clean up UI state
-      setPendingRunId(null);
-      setPendingMessage('');
-      setPendingIsAgent(false);
-      setIsSubmitting(false);
-      scheduleComposerFocus();
+    } finally {
+      setStoppingRunId((current) => (current === runIdToStop ? null : current));
     }
   };
 
-  // Determine if we should show Stop button (active run we started)
-  const isGenerating = !!pendingRunId;
+  const isGenerating = !!pendingRunId || !!activeRunId;
+  const canSteerActiveRun = !!activeRunId && activeRun?.mode === 'agent';
   const terminalAvailable = !!selectedConversationId && mode === 'agent' && isDesktop;
   const preferredTerminalDock = terminalState?.dock ?? 'bottom';
   const canRightDockTerminal = viewportWidth >= 1200;
@@ -2712,7 +2714,7 @@ export function ConversationView() {
                 onClick={handleTextareaSelection}
                 rows={2}
                 className="flex-1 resize-none border-none bg-transparent text-[14px] leading-[1.9] text-zinc-50 outline-none placeholder:text-zinc-500"
-                disabled={isSubmitting || hasActiveRun}
+                disabled={isSubmitting || atLimit || (hasActiveRun && !canSteerActiveRun)}
                 style={{ maxHeight: '200px' }}
               />
             </div>
@@ -2830,25 +2832,33 @@ export function ConversationView() {
                 </button>
               )}
               {mode === 'agent' && isDesktop && <span className="text-zinc-700">|</span>}
-              {isGenerating ? (
-                <button onClick={handleStop} className="text-red-400 hover:text-red-300 transition-colors">
-                  stop
-                </button>
-              ) : (
+              {isGenerating && (
                 <button
-                  onClick={handleSubmit}
-                  disabled={!message.trim() || isSubmitting || hasActiveRun}
+                  onClick={handleStop}
+                  disabled={!!stoppingRunId}
                   className={cn(
                     'transition-colors',
-                    !message.trim() || isSubmitting || hasActiveRun
-                  ? 'text-zinc-700 cursor-not-allowed'
-                      : 'text-cyan-100 hover:text-white'
+                    stoppingRunId ? 'cursor-wait text-red-400/55' : 'text-red-400 hover:text-red-300'
                   )}
-                  title={hasActiveRun ? 'Active run in progress' : undefined}
                 >
-                  {isSubmitting ? 'sending...' : 'send'}
+                  {stoppingRunId ? 'stopping...' : 'stop'}
                 </button>
               )}
+              <button
+                onClick={handleSubmit}
+                disabled={!message.trim() || isSubmitting || atLimit || (hasActiveRun && !canSteerActiveRun)}
+                className={cn(
+                  'transition-colors',
+                  !message.trim() || isSubmitting || atLimit || (hasActiveRun && !canSteerActiveRun)
+                    ? 'text-zinc-700 cursor-not-allowed'
+                    : canSteerActiveRun
+                      ? 'text-amber-400/80 hover:text-amber-300'
+                      : 'text-cyan-100 hover:text-white'
+                )}
+                title={atLimit ? 'Message limit reached' : canSteerActiveRun ? 'Send steering message to agent' : hasActiveRun ? 'Active run in progress' : undefined}
+              >
+                {isSubmitting ? 'sending...' : atLimit ? 'limit reached' : canSteerActiveRun ? 'steer' : 'send'}
+              </button>
             </div>
             <div className="flex items-center gap-3 font-mono text-[11px] text-zinc-500">
               <span className="hidden md:inline">⌘+Enter send</span>
@@ -3134,27 +3144,33 @@ export function ConversationView() {
                     </button>
                   )}
                   <span className="text-zinc-700">|</span>
-                  {isGenerating ? (
-                    <button onClick={handleStop} className="text-red-400 hover:text-red-300 transition-colors">
-                      stop
+                  {isGenerating && (
+                    <button
+                      onClick={handleStop}
+                      disabled={!!stoppingRunId}
+                      className={cn(
+                        'transition-colors',
+                        stoppingRunId ? 'cursor-wait text-red-400/55' : 'text-red-400 hover:text-red-300'
+                      )}
+                    >
+                      {stoppingRunId ? 'stopping...' : 'stop'}
                     </button>
-                ) : (
+                  )}
                   <button
                     onClick={handleSubmit}
-                    disabled={!message.trim() || isSubmitting || atLimit}
+                    disabled={!message.trim() || isSubmitting || atLimit || (hasActiveRun && !canSteerActiveRun)}
                     className={cn(
                       'transition-colors',
-                      !message.trim() || isSubmitting || atLimit
+                      !message.trim() || isSubmitting || atLimit || (hasActiveRun && !canSteerActiveRun)
                         ? 'text-zinc-700 cursor-not-allowed'
-                        : hasActiveRun
+                        : canSteerActiveRun
                           ? 'text-amber-400/80 hover:text-amber-300'
                           : 'text-cyan-100 hover:text-white'
                     )}
-                    title={atLimit ? 'Message limit reached' : hasActiveRun ? 'Send steering message to agent' : undefined}
+                    title={atLimit ? 'Message limit reached' : canSteerActiveRun ? 'Send steering message to agent' : hasActiveRun ? 'Active run in progress' : undefined}
                   >
-                    {isSubmitting ? 'sending...' : atLimit ? 'limit reached' : hasActiveRun ? 'steer' : 'send'}
+                    {isSubmitting ? 'sending...' : atLimit ? 'limit reached' : canSteerActiveRun ? 'steer' : 'send'}
                   </button>
-                )}
                 {showComposerContextStats && (
                   <>
                     <span className="text-zinc-700">|</span>

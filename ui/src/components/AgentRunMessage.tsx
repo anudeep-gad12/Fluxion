@@ -68,7 +68,11 @@ export const AgentRunMessage = memo(function AgentRunMessage({
                 citations={citations}
                 isStreaming={!!isActive}
               />
-            ) : isActive ? null : run.status === 'failed' ? (
+            ) : isActive ? null : run.status === 'cancelled' ? (
+              <div className="border-l border-amber-500/35 pl-4 text-sm text-amber-100/90">
+                stopped by user
+              </div>
+            ) : run.status === 'failed' ? (
               <div className="border-l border-red-500/35 pl-4 text-sm text-red-200/90">
                 [error] {run.error_detail || 'Agent failed. Please try again.'}
               </div>
@@ -82,10 +86,11 @@ export const AgentRunMessage = memo(function AgentRunMessage({
                   className={cn(
                     'rounded-full border border-zinc-900/90 bg-transparent px-2.5 py-1',
                     phase?.accentClassName || 'text-zinc-300',
-                    run.status === 'failed' && 'border-red-500/15 text-red-400/85'
+                    run.status === 'failed' && 'border-red-500/15 text-red-400/85',
+                    run.status === 'cancelled' && 'border-amber-500/15 text-amber-300/85'
                   )}
                 >
-                  {phase?.label || (run.status === 'succeeded' ? 'done' : run.status)}
+                  {phase?.label || (run.status === 'succeeded' ? 'done' : run.status === 'cancelled' ? 'stopped' : run.status)}
                 </span>
                 {agentState?.timing_ms && (
                   <span>{formatAgentDuration(agentState.timing_ms)}</span>

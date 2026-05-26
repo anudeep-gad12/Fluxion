@@ -392,6 +392,7 @@ export function useAgentSSE(runId: string | null) {
         total_steps: number;
         timing_ms: number;
         total_tokens?: number;
+        status?: string;
         usage?: TokenUsage;
         cost?: CostUsage | null;
         context_usage?: ContextUsage;
@@ -411,9 +412,11 @@ export function useAgentSSE(runId: string | null) {
           });
         }
 
+        const wasCancelled = result.status === 'cancelled';
+
         updateAgentState(id, {
           isActive: false,
-          agentState: result.success ? 'complete' : 'error',
+          agentState: wasCancelled ? 'cancelled' : result.success ? 'complete' : 'error',
           timing_ms: result.timing_ms,
           total_tokens: result.total_tokens,
           usage: result.usage,
@@ -431,9 +434,9 @@ export function useAgentSSE(runId: string | null) {
 
         // Update the run in main store
         updateRun(id, {
-          status: result.success ? 'succeeded' : 'failed',
+          status: wasCancelled ? 'cancelled' : result.success ? 'succeeded' : 'failed',
           final_answer: result.final_answer,
-          error_detail: result.success ? undefined : result.error_message,
+          error_detail: wasCancelled ? 'Stopped by user' : result.success ? undefined : result.error_message,
           usage: result.usage,
           cost: result.cost,
           context_usage: result.context_usage,
@@ -469,9 +472,10 @@ export function useAgentSSE(runId: string | null) {
           agentState: 'cancelled',
         });
         updateRun(id, {
-          status: 'failed',
-          error_detail: 'Cancelled by user',
+          status: 'cancelled',
+          error_detail: 'Stopped by user',
         });
+        localStorage.removeItem(`stream_token:${id}`);
       };
 
       const handleDisconnect = () => {
