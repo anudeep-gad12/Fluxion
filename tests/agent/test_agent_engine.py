@@ -3489,8 +3489,8 @@ class TestRedundancyDetection:
         assert "src/App.tsx" not in engine._apply_patch_failures
         assert payload["changed_files"] == ["src/App.tsx"]
 
-    def test_blocks_edit_fallback_after_apply_patch_failure_until_reread(self):
-        """A failed patch blocks edit/write fallback on that file until fresh text is read."""
+    def test_blocks_edit_fallback_after_apply_patch_failure_until_patch_succeeds(self):
+        """A failed patch blocks edit/write fallback even after reread until patch succeeds."""
         engine = self._make_engine()
         failed_patch = ParsedToolCall(
             id="tc-patch",
@@ -3536,7 +3536,70 @@ class TestRedundancyDetection:
 
         engine._file_read_sequence = 1
         engine._file_last_read_sequences["src/App.tsx"] = 1
+        assert len(engine._detect_redundant_calls([edit_call])) == 1
+
+        engine._track_file_freshness(
+            ParsedToolCall(
+                id="tc-patch-2",
+                name="apply_patch",
+                arguments={
+                    "patch": (
+                        "*** Begin Patch\n"
+                        "*** Update File: src/App.tsx\n"
+                        "@@\n"
+                        "-old\n"
+                        "+new\n"
+                        "*** End Patch"
+                    )
+                },
+                raw_arguments="{}",
+            ),
+            ToolResult(
+                success=True,
+                result_summary="Applied patch",
+                result_data={"changed_files": ["src/App.tsx"], "diff": ""},
+                metadata={"changed_files": ["src/App.tsx"]},
+            ),
+        )
         assert engine._detect_redundant_calls([edit_call]) == []
+
+    def test_successful_command_changes_state_for_verification_retry(self):
+        """A successful command/poll allows repeating earlier verification commands."""
+        engine = self._make_engine()
+        engine._tool_state_version = 1
+        engine._tool_call_log = [
+            {
+                "tool_name": "exec_command",
+                "arguments": {"cmd": "npm run build 2>&1", "timeout": 120},
+                "success": False,
+                "step_number": 1,
+                "state_version_after": 1,
+            },
+        ]
+        assert engine._did_tool_call_change_state(
+            "write_stdin", ToolResult(success=True, result_summary="done")
+        )
+        engine._tool_state_version = 2
+        engine._tool_call_log.append(
+            {
+                "tool_name": "write_stdin",
+                "arguments": {"session_id": 2},
+                "success": True,
+                "step_number": 2,
+                "state_version_after": 2,
+            }
+        )
+
+        calls = [
+            ParsedToolCall(
+                id="tc-build",
+                name="exec_command",
+                arguments={"cmd": "npm run build 2>&1", "timeout": 120},
+                raw_arguments="{}",
+            )
+        ]
+
+        assert engine._detect_redundant_calls(calls) == []
 
     def test_allows_duplicate_web_search_after_state_change(self):
         """Allows repeating a search after new evidence changed the working state."""

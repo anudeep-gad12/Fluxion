@@ -1402,15 +1402,6 @@ To provide your final answer, respond WITHOUT calling any tools."""
             "__global__"
         )
 
-    def _has_reread_since_apply_patch_failure(self, file_path: str) -> bool:
-        """Return whether the file was reread after the latest apply_patch failure."""
-        failure = self._apply_patch_failure_for_path(file_path)
-        if not failure:
-            return False
-        return self._file_last_read_sequences.get(file_path, 0) > int(
-            failure.get("file_read_sequence_at_failure", 0)
-        )
-
     def _resolve_workspace_file(self, file_path: str) -> Optional[Path]:
         """Resolve a workspace file using tool resolvers when available."""
         for tool_name in ("read_file", "write_file", "edit_file", "apply_patch", "view_image"):
@@ -3628,7 +3619,8 @@ To provide your final answer, respond WITHOUT calling any tools."""
                                     "Reread the relevant file region before retrying the same edit_file call. "
                                     "Do not resend identical stale edit arguments without reacquiring current text."
                                     if edit_reread_only
-                                    else "Reread the exact affected file region, then retry a smaller apply_patch from the fresh text. "
+                                    else "Retry a smaller apply_patch built from fresh file text. "
+                                    "If you have not reread the affected region yet, reread it first. "
                                     "Do not switch to edit_file or write_file as a fallback for a failed patch."
                                     if apply_patch_recovery_only
                                     else "Either provide the final answer now or choose a genuinely different tool call. "
@@ -6515,12 +6507,12 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     str(tc.arguments.get("file_path", ""))
                 )
                 failure = self._apply_patch_failure_for_path(file_path)
-                if failure and not self._has_reread_since_apply_patch_failure(file_path):
+                if failure:
                     redundant.append(
                         (
                             tc,
-                            "apply_patch failed for this file; reread the exact current region "
-                            "and retry apply_patch instead of falling back to edit_file/write_file",
+                            "apply_patch failed for this file; retry apply_patch with a smaller "
+                            "fresh hunk instead of falling back to edit_file/write_file",
                         )
                     )
                     self._last_redundant_filter_codes[tc.id] = (
@@ -6558,7 +6550,16 @@ To provide your final answer, respond WITHOUT calling any tools."""
         if not result.success:
             return True
 
-        if tool_name in {"write_file", "edit_file", "apply_patch", "web_search", "web_extract"}:
+        if tool_name in {
+            "write_file",
+            "edit_file",
+            "apply_patch",
+            "bash",
+            "exec_command",
+            "write_stdin",
+            "web_search",
+            "web_extract",
+        }:
             return True
 
         return False
