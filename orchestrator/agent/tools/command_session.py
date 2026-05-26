@@ -293,7 +293,10 @@ class ExecCommandTool:
             name="exec_command",
             description=(
                 "Run a shell command in the workspace. Prefer this over bash for tests, "
-                "builds, dev servers, inspection commands, and focused verification. "
+                "builds, dev servers, inspection commands, focused verification, and "
+                "scripted file edits. For edits, use short Python/Node scripts that read "
+                "files, assert expected text exists, write updated content, and exit "
+                "nonzero if a target is missing. "
                 "If the command is still running after yield_time_ms, returns a session_id "
                 "that can be polled or written to with write_stdin."
             ),

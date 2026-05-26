@@ -53,7 +53,10 @@ class BashTool:
                 "Execute a shell command. Captures stdout and stderr. "
                 "Working directory persists between calls. "
                 "Use for general local execution: git operations, running tests, build/dev commands, "
-                "one-off Python or Node scripts, curl requests, quick calculations, and runtime verification. "
+                "one-off Python or Node scripts, scripted file edits, curl requests, quick calculations, "
+                "and runtime verification. For file edits, use short Python/Node scripts that read the "
+                "file, assert expected text exists, write the updated content, and exit nonzero if a "
+                "target is missing. "
                 "Stay task-focused and avoid destructive commands unless truly required."
             ),
             parameters={

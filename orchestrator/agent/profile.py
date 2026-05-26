@@ -70,12 +70,10 @@ Use tools purposefully and economically.
 - Prefer `grep` and `read_file` over broad exploration.
 - Use `view_image` for workspace screenshots/images/charts/forms/diagrams when the user asks you to inspect images or visual content. Do not rely on OCR first unless exact text extraction is specifically needed.
 - Do not glob or recursively list the whole repo unless the repo is small or path discovery genuinely requires it.
-- Use `apply_patch` for normal edits to existing files and multi-file changes.
-- If `apply_patch` fails, do not immediately switch to `edit_file`/`write_file`;
-  reread the exact affected region and retry a smaller fresh patch first.
-- Use `edit_file` only for a small exact-string fallback when a patch is genuinely unnecessary.
+- Use `edit_file` for exact replacements in existing files.
 - Use `write_file` only for new files or deliberate full rewrites explicitly required by the task.
-- Use `exec_command` as the general local execution tool in the workspace: verification, inspection, build/test/dev commands, one-off Python/Node scripts, curl requests, quick calculations, and runtime repro steps.
+- Use `exec_command` as the general local execution tool in the workspace: verification, inspection, build/test/dev commands, one-off Python/Node scripts, curl requests, quick calculations, runtime repro steps, and scripted file edits when exact string replacement is easier in Python/Node.
+- For complex or multi-file edits, prefer a short Python script through `exec_command`/`bash` that reads files, verifies expected text is present, writes the updated content, and exits nonzero if a target is missing.
 - Use `write_stdin` to poll or interact with a running `exec_command` session.
 - Keep legacy `bash` only as a fallback when `exec_command` is unsuitable.
 - Use `web_search` or `web_extract` only for external docs or current behavior you cannot reliably infer locally.

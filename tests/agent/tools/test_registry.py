@@ -252,7 +252,6 @@ class TestBrowserAgentToolRegistry:
             "list_directory",
             "glob",
             "grep",
-            "apply_patch",
             "write_file",
             "edit_file",
             "exec_command",
@@ -279,4 +278,4 @@ class TestBrowserAgentToolRegistry:
         assert "bash" not in registry.tool_names
         assert "exec_command" not in registry.tool_names
         assert "write_stdin" not in registry.tool_names
-        assert "apply_patch" in registry.tool_names
+        assert "apply_patch" not in registry.tool_names

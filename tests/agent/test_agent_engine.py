@@ -21,7 +21,6 @@ from orchestrator.agent.coding_session import (
 )
 from orchestrator.agent.plan_mode import PlanDecision
 from orchestrator.agent.state_machine import RecoveryContext
-from orchestrator.agent.tools.apply_patch_tool import ApplyPatchTool
 from orchestrator.agent.tools.base import ToolResult
 from orchestrator.agent.tools.bash_tool import BashTool
 from orchestrator.agent.tools.command_session import (
@@ -2433,30 +2432,28 @@ class TestAgentEngineToolExecution:
 
 
     @pytest.mark.asyncio
-    async def test_model_can_edit_two_files_with_one_apply_patch_call(self, tmp_path):
+    async def test_model_can_edit_two_files_with_exec_python_script(self, tmp_path):
         (tmp_path / "a.txt").write_text("one\n", encoding="utf-8")
         (tmp_path / "b.txt").write_text("two\n", encoding="utf-8")
-        patch_text = """*** Begin Patch
-*** Update File: a.txt
-@@
--one
-+ONE
-*** Update File: b.txt
-@@
--two
-+TWO
-*** End Patch"""
+        cmd = (
+            "python3 -c \"from pathlib import Path; "
+            "a=Path('a.txt'); b=Path('b.txt'); "
+            "assert a.read_text(encoding='utf-8') == 'one\\\\n'; "
+            "assert b.read_text(encoding='utf-8') == 'two\\\\n'; "
+            "a.write_text('ONE\\\\n', encoding='utf-8'); "
+            "b.write_text('TWO\\\\n', encoding='utf-8')\""
+        )
         provider = MagicMock()
         provider.complete_streaming = AsyncMock(
             side_effect=[
                 LLMResponse(
-                    text="Patching both files.",
+                    text="Editing both files with a checked Python script.",
                     tool_calls=[
                         {
-                            "id": "tc-patch",
+                            "id": "tc-exec-edit",
                             "function": {
-                                "name": "apply_patch",
-                                "arguments": json.dumps({"patch": patch_text}),
+                                "name": "exec_command",
+                                "arguments": json.dumps({"cmd": cmd}),
                             },
                         }
                     ],
@@ -2465,12 +2462,12 @@ class TestAgentEngineToolExecution:
             ]
         )
         registry = ToolRegistry()
-        registry.register(ApplyPatchTool(str(tmp_path)))
+        registry.register(ExecCommandTool(CommandSessionManager(str(tmp_path))))
         mock_sm = create_mock_state_machine(
             can_continue_sequence=[True, True, False],
             step_sequence=[{"step_number": 1, "id": "step-1"}, {"step_number": 2, "id": "step-2"}],
         )
-        mock_sm.record_tool_call = AsyncMock(return_value={"id": "tc-patch"})
+        mock_sm.record_tool_call = AsyncMock(return_value={"id": "tc-exec-edit"})
 
         with patch("orchestrator.agent.agent_engine.AgentStateMachine", return_value=mock_sm):
             engine = AgentEngine(provider=provider, repo=create_mock_repo(), registry=registry)
@@ -2485,9 +2482,8 @@ class TestAgentEngineToolExecution:
         assert (tmp_path / "a.txt").read_text(encoding="utf-8") == "ONE\n"
         assert (tmp_path / "b.txt").read_text(encoding="utf-8") == "TWO\n"
         tool_result = next(e for e in events if e["type"] == "tool_result")
-        assert tool_result["tool_name"] == "apply_patch"
-        assert "a.txt" in tool_result["result_data"]
-        assert "b.txt" in tool_result["result_data"]
+        assert tool_result["tool_name"] == "exec_command"
+        assert tool_result["success"] is True
 
     @pytest.mark.asyncio
     async def test_model_can_run_and_poll_exec_command(self, tmp_path):
