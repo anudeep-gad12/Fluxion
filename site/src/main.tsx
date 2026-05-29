@@ -4,7 +4,8 @@ import { ArrowUpRight, Box, Check, Code2, Copy, Database, Download, Github, Lapt
 import "./styles.css"
 
 const GITHUB_URL = "https://github.com/anudeep-gad12/Fluxion"
-const DOWNLOAD_URL = "https://github.com/anudeep-gad12/Fluxion/releases/latest/download/Fluxion-macos-arm64.zip"
+const DOWNLOAD_URL = "https://github.com/anudeep-gad12/Fluxion/releases/latest/download/Fluxion-macos-arm64.dmg"
+const DOWNLOAD_ZIP_URL = "https://github.com/anudeep-gad12/Fluxion/releases/latest/download/Fluxion-macos-arm64.zip"
 const BREW_COMMAND = "brew install --cask anudeep-gad12/tap/fluxion"
 const INSTALL_COMMANDS = `${BREW_COMMAND}
 open /Applications/Fluxion.app`
@@ -157,7 +158,7 @@ function LocalSection() {
       <span className="label">local app</span>
       <h2>Your chats, settings, and workspace context stay on your machine.</h2>
       <p>
-        The macOS package starts a localhost service, opens the browser UI, and stores
+        The macOS app runs a local API and opens the Fluxion UI in a native window. It stores
         conversations outside the app bundle so updates do not wipe your history.
       </p>
       <ul>
@@ -193,8 +194,8 @@ function TerminalBlock() {
         <span className="label">install</span>
         <h2>Install with Homebrew, open Fluxion.</h2>
         <p>
-          Homebrew downloads the release zip, installs Fluxion.app into Applications,
-          and keeps upgrades simple. Manual zip install stays available from GitHub.
+          Homebrew installs Fluxion.app from the signed release zip. Manual installs can use
+          the DMG or zip from GitHub. Sparkle delivers updates after the first install.
         </p>
       </div>
     </section>

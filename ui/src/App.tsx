@@ -14,6 +14,13 @@ import { Button } from '@/components/ui/button';
 const OWNER_TOKEN_KEY = 'reasoner_owner_token';
 const SIDEBAR_PREF_KEY = 'reasoner_sidebar_pref';
 
+/** True when the UI is served from the local desktop app (Tauri / packaged API on :9000). */
+function isLocalDesktopApp(): boolean {
+  if (typeof window === 'undefined') return false;
+  const { hostname, port } = window.location;
+  return (hostname === '127.0.0.1' || hostname === 'localhost') && port === '9000';
+}
+
 // Component to sync URL params with store
 function ConversationSync() {
   const { conversationId } = useParams<{ conversationId: string }>();
@@ -58,22 +65,26 @@ function AppLayout() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
 
-  // Owner detection - check localStorage for owner token
+  const localDesktop = isLocalDesktopApp();
+
+  // Owner detection - local desktop app is always owner; web demo uses token/URL
   const [isOwner, setIsOwner] = useState(() => {
+    if (localDesktop) return true;
     const token = localStorage.getItem(OWNER_TOKEN_KEY);
     return Boolean(token && token.length >= 16);
   });
 
-  // Demo mode state - fetched from backend
+  // Demo mode state - fetched from backend (never enabled for local desktop)
   const [isDemoMode, setIsDemoMode] = useState(false);
 
-  // Sidebar state - defaults to collapsed for non-owners in demo mode
+  // Sidebar state - open by default on local desktop
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
-    // If owner, respect their saved preference
+    if (localDesktop) {
+      return localStorage.getItem(SIDEBAR_PREF_KEY) === 'collapsed';
+    }
     if (localStorage.getItem(OWNER_TOKEN_KEY)) {
       return localStorage.getItem(SIDEBAR_PREF_KEY) === 'collapsed';
     }
-    // For non-owners, start collapsed (demo mode will enforce this)
     return true;
   });
   const [sidebarWidth, setSidebarWidth] = useState(392); // default 392px
@@ -101,23 +112,33 @@ function AppLayout() {
 
   // Fetch demo mode status from backend
   useEffect(() => {
+    if (localDesktop) {
+      setIsOwner(true);
+      setIsDemoMode(false);
+      return;
+    }
     fetch('/api/config')
       .then((res) => res.json())
       .then((data) => {
+        if (data.local_app) {
+          setIsOwner(true);
+          setIsDemoMode(false);
+          return;
+        }
         setIsDemoMode(data.demo?.enabled ?? false);
       })
       .catch(() => {
-        // Default to non-demo if config fails
         setIsDemoMode(false);
       });
-  }, []);
+  }, [localDesktop]);
 
-  // Enforce sidebar collapsed for non-owners in demo mode
+  // Enforce sidebar collapsed for non-owners in hosted demo mode only
   useEffect(() => {
+    if (localDesktop) return;
     if (isDemoMode && !isOwner) {
       setSidebarCollapsed(true);
     }
-  }, [isDemoMode, isOwner]);
+  }, [isDemoMode, isOwner, localDesktop]);
 
   // Mobile detection on resize
   useEffect(() => {
@@ -136,8 +157,8 @@ function AppLayout() {
         return;
       }
       setSidebarCollapsed(collapsed);
-      // Save preference for owners
-      if (isOwner) {
+      // Save preference for owners / local desktop
+      if (isOwner || localDesktop) {
         localStorage.setItem(SIDEBAR_PREF_KEY, collapsed ? 'collapsed' : 'open');
       }
     },

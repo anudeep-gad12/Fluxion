@@ -60,6 +60,12 @@ htmlcov/
 
 # Build outputs
 ui/dist/
+src-tauri/target/
+src-tauri/Frameworks/
+src-tauri/binaries/fluxion-server-*
+
+# Keep placeholder sidecar slot
+!src-tauri/binaries/.gitkeep
 
 # Agent outputs
 .pids/

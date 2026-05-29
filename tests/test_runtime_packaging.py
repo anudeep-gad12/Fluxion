@@ -24,8 +24,22 @@ def test_runtime_path_overrides(monkeypatch, tmp_path):
     assert static_dir() == static
 
 
+def test_start_service_requires_launch_agent_flag(monkeypatch, tmp_path):
+    """Tauri/desktop builds should not install LaunchAgents unless explicitly enabled."""
+    monkeypatch.delenv("FLUXION_USE_LAUNCH_AGENT", raising=False)
+    paths = launcher.get_service_paths()
+
+    try:
+        launcher.start_service(paths)
+    except RuntimeError as exc:
+        assert "LaunchAgent mode is disabled" in str(exc)
+    else:
+        raise AssertionError("start_service should require FLUXION_USE_LAUNCH_AGENT")
+
+
 def test_launch_agent_plist_uses_persistent_data_paths(monkeypatch, tmp_path):
     """LaunchAgent should run the app wrapper and store DB/logs outside the app."""
+    monkeypatch.setenv("FLUXION_USE_LAUNCH_AGENT", "true")
     home = tmp_path / "home"
     app = tmp_path / "Fluxion.app"
     launcher_path = app / "Contents" / "MacOS" / "Fluxion"

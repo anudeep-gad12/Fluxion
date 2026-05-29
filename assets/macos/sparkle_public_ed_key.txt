@@ -1,0 +1,2 @@
+# EdDSA public key for Sparkle (SUPublicEDKey). Must match SPARKLE_ED_PRIVATE_KEY in CI.
+qA1ZoMRUwkHhP5IHY1PkKDL7SuplsGVBaYs/nXhCpB4=

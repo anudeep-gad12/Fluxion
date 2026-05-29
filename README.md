@@ -1,6 +1,6 @@
 # Fluxion
 
-Fluxion is a macOS coding agent that runs locally, opens in your browser, and works inside a repo workspace on your machine.
+Fluxion is a macOS coding agent that runs locally in a desktop app and works inside a repo workspace on your machine.
 
 It can read files, edit code, run shell commands, search the web, extract pages, keep local conversation history, and switch between hosted provider models and local models.
 
@@ -16,31 +16,16 @@ Fluxion does not bundle, sell, or download models. Bring your own provider keys 
 
 ## Install
 
-Homebrew is the easiest path:
+Homebrew:
 
 ```bash
 brew install --cask anudeep-gad12/tap/fluxion
 open /Applications/Fluxion.app
 ```
 
-Manual fallback: download `Fluxion-macos-arm64.zip` from GitHub Releases, then run:
+Manual install: download **`Fluxion-macos-arm64.dmg`** from [GitHub Releases](https://github.com/anudeep-gad12/Fluxion/releases/latest), open it, and drag **Fluxion** to Applications.
 
-```bash
-cd ~/Downloads
-unzip -o Fluxion-macos-arm64.zip
-rm -rf /Applications/Fluxion.app
-mv Fluxion.app /Applications/
-xattr -dr com.apple.quarantine /Applications/Fluxion.app
-open /Applications/Fluxion.app
-```
-
-Fluxion is unsigned, so manual installs may hit repeated macOS prompts unless you use the command path above.
-
-When launched, Fluxion starts a local service and opens the app at:
-
-```text
-http://127.0.0.1:9000
-```
+Signed releases pass Gatekeeper without quarantine workarounds. Sparkle delivers in-app updates after the first install.
 
 Your conversations, settings, logs, and provider keys live outside the app bundle:
 
@@ -50,16 +35,16 @@ Your conversations, settings, logs, and provider keys live outside the app bundl
 
 Replacing `/Applications/Fluxion.app` updates the app without deleting your data.
 
-Useful app commands:
+### Legacy LaunchAgent installs
+
+Older builds installed a background `io.fluxion.local` LaunchAgent. The desktop app removes it on startup. To clean up manually:
 
 ```bash
-/Applications/Fluxion.app/Contents/MacOS/Fluxion open
-/Applications/Fluxion.app/Contents/MacOS/Fluxion start
-/Applications/Fluxion.app/Contents/MacOS/Fluxion stop
-/Applications/Fluxion.app/Contents/MacOS/Fluxion status
+launchctl bootout "gui/$(id -u)" ~/Library/LaunchAgents/io.fluxion.local.plist 2>/dev/null || true
+rm -f ~/Library/LaunchAgents/io.fluxion.local.plist
 ```
 
-Uninstall and delete local data:
+### Uninstall
 
 ```bash
 launchctl bootout "gui/$(id -u)" ~/Library/LaunchAgents/io.fluxion.local.plist 2>/dev/null || true
@@ -67,6 +52,29 @@ rm -f ~/Library/LaunchAgents/io.fluxion.local.plist
 rm -rf ~/Library/Application\ Support/Fluxion
 rm -rf /Applications/Fluxion.app
 ```
+
+## Development
+
+Source development still uses the FastAPI backend and Vite UI:
+
+```bash
+./dev.sh start          # API :9000 + UI :3000
+```
+
+Tauri desktop shell (loads `http://127.0.0.1:9000`):
+
+```bash
+./dev.sh api            # terminal 1
+cd src-tauri && cargo tauri dev   # terminal 2
+```
+
+Release build (unsigned local):
+
+```bash
+./scripts/build_macos_tauri.sh
+```
+
+Requires Rust, Xcode CLT, `uv`, and `pnpm`. Set `FLUXION_SPARKLE_PUBLIC_ED_KEY` (or edit `assets/macos/sparkle_public_ed_key.txt`) before a signed Sparkle release.
 
 ## Models
 
@@ -133,31 +141,6 @@ Fluxion ignores Ollama folders, `mmproj` files, and extra GGUF split shards.
 - switch models from the app
 - keep conversation history in local SQLite
 - attach a terminal to a conversation
-
-## Development from source
-
-Source running is for development. The normal user install is the macOS app release.
-
-```bash
-uv sync
-cd ui && pnpm install
-./dev.sh start
-```
-
-Tests:
-
-```bash
-uv run pytest
-./scripts/sanity_test.sh --debug
-```
-
-Useful debugging:
-
-```bash
-./dev.sh traces
-./dev.sh debug
-./dev.sh applogs
-```
 
 ## License
 

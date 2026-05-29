@@ -8,6 +8,7 @@
 #   traces  - View recent traces from SQLite
 #   ui      - Start only the UI
 #   api     - Start only the API
+#   desktop - API on :9000 with built UI (for cargo tauri dev)
 
 set -e
 
@@ -156,6 +157,46 @@ start_api() {
         uv run uvicorn orchestrator.app:app --reload --reload-dir orchestrator --port "$API_PORT" --host 0.0.0.0
     if wait_for_http "http://$CHECK_HOST:$API_PORT/api/health" 20; then
         log "API server started: ${BLUE}http://localhost:$API_PORT${NC}"
+    else
+        warn "API server starting... (check logs/api.log)"
+    fi
+}
+
+# Start API with the built SPA on :9000 (matches the packaged Tauri app URL).
+start_desktop_api() {
+    log "Starting desktop API on port $API_PORT (UI served from ui/dist)..."
+    stop_packaged_service
+    kill_port "$API_PORT"
+    cd "$PROJECT_DIR"
+
+    if [ -f "$PROJECT_DIR/.env" ]; then
+        set -a
+        source "$PROJECT_DIR/.env"
+        set +a
+        log "Loaded .env"
+    fi
+
+    if [ -f "$PROJECT_DIR/.env.provider" ]; then
+        set -a
+        source "$PROJECT_DIR/.env.provider"
+        set +a
+    fi
+
+    if [ ! -f "$PROJECT_DIR/ui/dist/index.html" ]; then
+        log "Building UI (first time)..."
+        (cd "$PROJECT_DIR/ui" && pnpm build)
+    fi
+
+    export SERVE_STATIC=true
+    export FLUXION_STATIC_DIR="$PROJECT_DIR/ui/dist"
+    export FLUXION_PACKAGED=true
+
+    : > "$LOG_DIR/api.log"
+    start_detached "$PID_DIR/api.pid" "$LOG_DIR/api.log" "$PROJECT_DIR" \
+        uv run uvicorn orchestrator.app:app --reload --reload-dir orchestrator --port "$API_PORT" --host 127.0.0.1
+    if wait_for_http "http://$CHECK_HOST:$API_PORT/api/health" 20; then
+        log "Desktop API ready: ${BLUE}http://127.0.0.1:$API_PORT${NC}"
+        log "In another terminal: ${BLUE}cd src-tauri && SPARKLE_FRAMEWORK_PATH=\\$PWD/Frameworks cargo tauri dev${NC}"
     else
         warn "API server starting... (check logs/api.log)"
     fi
@@ -438,6 +479,9 @@ case "${1:-start}" in
         start_api
         log "API only. View logs: ./dev.sh logs"
         ;;
+    desktop)
+        start_desktop_api
+        ;;
     ui)
         start_ui
         ;;
@@ -470,6 +514,7 @@ case "${1:-start}" in
         echo "  stop      Stop all services"
         echo "  restart   Restart all services"
         echo "  api       Start only the API"
+        echo "  desktop   API + built UI on :9000 (for Tauri: cargo tauri dev)"
         echo "  ui        Start only the UI"
         echo "  logs      Tail combined logs (api.log summary + app.log live)"
         echo "  applogs   Tail structured app logs (JSON, pretty-printed)"

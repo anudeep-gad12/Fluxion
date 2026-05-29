@@ -65,6 +65,16 @@ def _is_macos() -> bool:
     return platform.system() == "Darwin"
 
 
+def _use_launch_agent() -> bool:
+    """Return True when the legacy KeepAlive LaunchAgent install path is enabled."""
+    return os.environ.get("FLUXION_USE_LAUNCH_AGENT", "false").lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
 def _detect_app_bundle() -> Path | None:
     override = os.environ.get("FLUXION_APP_BUNDLE")
     if override:
@@ -200,6 +210,11 @@ def _bootout(paths: ServicePaths) -> None:
 
 def start_service(paths: ServicePaths, *, force: bool = False) -> None:
     """Install/update and start the LaunchAgent."""
+    if not _use_launch_agent():
+        raise RuntimeError(
+            "LaunchAgent mode is disabled. Use the Fluxion desktop app (Tauri) or "
+            "`fluxion-server serve` for the local API."
+        )
     if not _is_macos():
         raise RuntimeError("Packaged service management is only supported on macOS")
     if not force and service_status() and health_ok(paths) and launch_agent_matches(paths):
@@ -338,7 +353,14 @@ def serve(paths: ServicePaths) -> None:
 
 
 def open_app(paths: ServicePaths) -> None:
-    """Start the service and open the browser."""
+    """Start the legacy LaunchAgent service and open the browser (pre-Tauri installs)."""
+    if not _use_launch_agent():
+        _log(
+            "LaunchAgent mode is disabled. Open the Fluxion.app desktop client instead."
+        )
+        if health_ok(paths):
+            open_browser()
+        return
     start_service(paths)
     wait_for_health(paths=paths)
     open_browser()

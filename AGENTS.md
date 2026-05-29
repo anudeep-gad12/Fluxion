@@ -24,6 +24,11 @@ Key references:
 just dev              # Start all (API:9000 + UI:3000)
 ./dev.sh start        # Alternative: start all services
 
+# macOS desktop (Tauri)
+./dev.sh desktop                          # API + built UI on :9000, then:
+cd src-tauri && SPARKLE_FRAMEWORK_PATH=$PWD/Frameworks cargo tauri dev
+./scripts/build_macos_tauri.sh            # Release .app (unsigned locally)
+
 # Testing
 uv run pytest         # Run tests
 ./scripts/sanity_test.sh --debug  # Integration tests with live logs

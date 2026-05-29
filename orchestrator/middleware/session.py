@@ -17,7 +17,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from orchestrator.config import get_chat_config
 from orchestrator.logging_config import get_logger
-from orchestrator.runtime_paths import is_hosted_production
+from orchestrator.runtime_paths import is_hosted_production, is_packaged_app
 
 logger = get_logger(__name__)
 
@@ -52,6 +52,12 @@ class SessionMiddleware(BaseHTTPMiddleware):
             Response with session cookie set/refreshed.
         """
         config = get_chat_config()
+
+        # Local desktop app: full access, no demo session cookies.
+        if is_packaged_app():
+            request.state.session_id = None
+            request.state.is_owner = True
+            return await call_next(request)
 
         # Skip session handling if demo mode disabled
         if not config.demo or not config.demo.enabled:

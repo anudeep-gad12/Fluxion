@@ -308,10 +308,15 @@ async def health_check():
 async def get_config():
     """Get demo mode status for frontend."""
     config = get_chat_config()
+    local_app = is_packaged_app() or not is_hosted_production()
+    demo_enabled = False
+    if not local_app and config.demo:
+        demo_enabled = config.demo.enabled
     return {
         "demo": {
-            "enabled": config.demo.enabled if config.demo else False,
+            "enabled": demo_enabled,
         },
+        "local_app": local_app,
         "local_models_enabled": not is_hosted_production(),
     }
 
