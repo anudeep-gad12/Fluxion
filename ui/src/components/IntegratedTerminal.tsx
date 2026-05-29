@@ -26,6 +26,8 @@ interface IntegratedTerminalProps {
   workspacePath: string;
   active: boolean;
   dock: TerminalDock;
+  /** When embedded, outer panel supplies header/resize/close chrome */
+  chrome?: 'full' | 'embedded';
 }
 
 const STATUS_DOT_STYLES: Record<TerminalStatus, string> = {
@@ -49,6 +51,7 @@ export function IntegratedTerminal({
   workspacePath,
   active,
   dock,
+  chrome = 'full',
 }: IntegratedTerminalProps) {
   const terminalState = useConversationTerminal(conversationId);
   const updateTerminalState = useStore((s) => s.updateTerminalState);
@@ -396,6 +399,7 @@ export function IntegratedTerminal({
 
   const status = normalizeStatus(terminalState.status);
   const isRightDock = dock === 'right';
+  const isEmbedded = chrome === 'embedded';
   const pathLabel = terminalState.session?.workspace_path || workspacePath || '~';
   const canReconnect = !!terminalState.session?.session_id && (status === 'error' || status === 'stale' || status === 'closed');
   const handleDockToggle = (nextDock: TerminalDock) => {
@@ -407,49 +411,72 @@ export function IntegratedTerminal({
     <div
       className={cn(
         'flex min-h-0 flex-shrink-0 overflow-hidden bg-[#050609]',
-        isRightDock ? 'h-full border-l border-white/[0.08]' : 'flex-col border-t border-white/[0.08]'
+        isEmbedded
+          ? 'h-full w-full'
+          : isRightDock
+            ? 'h-full border-l border-white/[0.08]'
+            : 'flex-col border-t border-white/[0.08]'
       )}
-      style={isRightDock ? { width: terminalState.width } : { height: terminalState.height }}
+      style={
+        isEmbedded
+          ? undefined
+          : isRightDock
+            ? { width: terminalState.width }
+            : { height: terminalState.height }
+      }
     >
-      {isRightDock && (
+      {!isEmbedded && isRightDock && (
         <div
           className="ui-transition relative h-full w-2 cursor-col-resize bg-white/[0.025] hover:bg-white/[0.06]"
           onMouseDown={handleHorizontalResize}
         />
       )}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        {!isRightDock && (
+        {!isEmbedded && !isRightDock && (
           <div
             className="ui-transition h-1.5 cursor-row-resize bg-white/[0.025] hover:bg-white/[0.06]"
             onMouseDown={handleVerticalResize}
           />
         )}
-        <div className="flex h-8 items-center justify-between gap-3 border-b border-white/[0.07] px-3 font-mono text-[11px] text-zinc-500">
+        <div
+          className={cn(
+            'flex items-center justify-between gap-3 border-b border-white/[0.06] px-3 text-[12px] text-zinc-500',
+            isEmbedded ? 'h-8' : 'h-9'
+          )}
+        >
           <div className="flex min-w-0 items-center gap-2">
             <span className={cn('h-1.5 w-1.5 rounded-full', STATUS_DOT_STYLES[status])} />
             <span className={cn(status === 'error' && 'text-red-300', status === 'stale' && 'text-amber-300')}>
               {workspaceMismatch ? 'workspace changed' : status}
             </span>
-            <span className="text-zinc-700">·</span>
-            <span className="truncate" title={pathLabel}>{pathLabel}</span>
+            {!isEmbedded ? (
+              <>
+                <span className="text-zinc-700">·</span>
+                <span className="truncate" title={pathLabel}>{pathLabel}</span>
+              </>
+            ) : null}
           </div>
 
-          <div className="flex shrink-0 items-center gap-3">
-            <button
-              onClick={() => handleDockToggle('bottom')}
-              className={cn('ui-transition', terminalState.dock === 'bottom' ? 'text-cyan-100' : 'text-zinc-500 hover:text-zinc-200')}
-              type="button"
-            >
-              bottom
-            </button>
-            <button
-              onClick={() => handleDockToggle('right')}
-              className={cn('ui-transition', terminalState.dock === 'right' ? 'text-cyan-100' : 'text-zinc-500 hover:text-zinc-200')}
-              type="button"
-            >
-              right
-            </button>
-            <span className="text-zinc-800">|</span>
+          <div className="flex shrink-0 items-center gap-2">
+            {!isEmbedded ? (
+              <>
+                <button
+                  onClick={() => handleDockToggle('bottom')}
+                  className={cn('ui-transition', terminalState.dock === 'bottom' ? 'text-cyan-100' : 'text-zinc-500 hover:text-zinc-200')}
+                  type="button"
+                >
+                  bottom
+                </button>
+                <button
+                  onClick={() => handleDockToggle('right')}
+                  className={cn('ui-transition', terminalState.dock === 'right' ? 'text-cyan-100' : 'text-zinc-500 hover:text-zinc-200')}
+                  type="button"
+                >
+                  right
+                </button>
+                <span className="text-zinc-800">|</span>
+              </>
+            ) : null}
             <button onClick={handleClear} className="ui-transition hover:text-zinc-200" type="button">
               clear
             </button>
@@ -466,13 +493,15 @@ export function IntegratedTerminal({
             >
               {isRestarting ? 'restarting...' : 'restart'}
             </button>
-            <button
-              onClick={() => updateTerminalState(conversationId, { isOpen: false })}
-              className="ui-transition hover:text-zinc-200"
-              type="button"
-            >
-              close
-            </button>
+            {!isEmbedded ? (
+              <button
+                onClick={() => updateTerminalState(conversationId, { isOpen: false })}
+                className="ui-transition hover:text-zinc-200"
+                type="button"
+              >
+                close
+              </button>
+            ) : null}
           </div>
         </div>
         <div className="min-h-0 min-w-0 flex-1 bg-[#050609]">

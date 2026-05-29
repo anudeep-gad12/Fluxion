@@ -11,9 +11,16 @@ import { AgentLiveHUD } from '@/components/AgentLiveHUD';
 import { MessageActions } from '@/components/MessageActions';
 import { ShimmerSkeleton, ThinkingTimer } from '@/components/StreamingIndicator';
 import { ScrollToBottom } from '@/components/ScrollToBottom';
-import { IntegratedTerminal } from '@/components/IntegratedTerminal';
 import { WorkspacePickerDialog } from '@/components/WorkspacePickerDialog';
 import { VirtualizedConversationRunList } from '@/components/VirtualizedConversationRunList';
+import { ConversationToolbar } from '@/components/desktop/ConversationToolbar';
+import { DesktopChrome } from '@/components/desktop/DesktopChrome';
+import { DesktopInputDock } from '@/components/desktop/DesktopInputDock';
+import { DesktopComposerControls } from '@/components/desktop/DesktopComposerControls';
+import { EmptyState } from '@/components/desktop/EmptyState';
+import { Composer } from '@/components/desktop/Composer';
+import { AgentComposerOptions, AgentContextFooter } from '@/components/desktop/AgentComposerOptions';
+import { isApplePlatform } from '@/lib/platform';
 import {
   createConversation,
   createConversationRun,
@@ -57,6 +64,8 @@ import {
   DialogContent,
 } from '@/components/ui/dialog';
 import { useConversationRuns, useSelectedConversation, useStore, useHasActiveRun, useConversationTerminal } from '@/hooks/useStore';
+import { isLocalDesktopApp } from '@/lib/platform';
+import { DesktopTextOptionGroup } from '@/components/desktop/DesktopTextOptionGroup';
 import { useSSE } from '@/hooks/useSSE';
 import { useAgentSSE } from '@/hooks/useAgentSSE';
 import { useAgentRunDetails } from '@/hooks/useAgentRunDetails';
@@ -107,11 +116,6 @@ function getRunFooterMetrics(run: Run): string[] {
   }
 
   return metrics;
-}
-
-function isApplePlatform(): boolean {
-  if (typeof navigator === 'undefined') return false;
-  return /(Mac|iPhone|iPad|iPod)/i.test(navigator.platform || navigator.userAgent);
 }
 
 function getLineStart(text: string, position: number): number {
@@ -396,6 +400,8 @@ function ModelPicker({
     },
   ].filter((section) => section.models.length > 0);
 
+  const desktop = isLocalDesktopApp();
+
   return (
     <Dialog
       open={open}
@@ -407,21 +413,30 @@ function ModelPicker({
       </DialogHeader>
       <DialogContent className="space-y-4 overflow-hidden">
         {error && (
-          <p className="rounded-xl border border-red-500/20 bg-red-500/[0.08] px-3 py-2 text-xs font-mono text-red-300">{error}</p>
+          <p className="rounded-xl border border-red-500/20 bg-red-500/[0.08] px-3 py-2 text-xs text-red-300">{error}</p>
         )}
         <div className="max-h-[72vh] space-y-4 overflow-y-auto pr-1">
           {loading && (
-            <p className="px-3 py-3 font-mono text-xs text-zinc-300">Loading models...</p>
+            <p className="px-1 py-2 text-xs text-zinc-500">Loading models…</p>
           )}
           {registryProviders.map(([providerName, info]) => (
-                <section key={providerName} className="premium-panel overflow-hidden">
-                  <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+                <section
+                  key={providerName}
+                  className={cn(
+                    desktop ? 'desktop-settings-section' : 'premium-panel overflow-hidden'
+                  )}
+                >
+                  <div className={cn(desktop ? 'mb-2' : 'flex items-center justify-between border-b border-white/10 px-4 py-3')}>
                     <div>
-                      <p className="premium-section-label">{providerName}</p>
-                      <p className="mt-1 text-[12px] text-zinc-500">{info.models.length} cloud preset{info.models.length !== 1 ? 's' : ''}</p>
+                      <p className={cn(desktop ? 'desktop-settings-provider-header capitalize' : 'premium-section-label')}>
+                        {providerName}
+                      </p>
+                      <p className={cn(desktop ? 'desktop-settings-provider-count' : 'mt-1 text-[12px] text-zinc-500')}>
+                        {info.models.length} cloud preset{info.models.length !== 1 ? 's' : ''}
+                      </p>
                     </div>
                   </div>
-                  <div className="p-2">
+                  <div className={cn(!desktop && 'p-2')}>
                     {info.models.map((model: RegistryModelPreset) => {
                       const alias = model.aliases[0] || model.model_id;
                       const isActive = registryData?.active_model_id === model.model_id
@@ -433,18 +448,27 @@ function ModelPicker({
                           key={model.model_id}
                           onClick={() => handleSelectRegistry(alias)}
                           disabled={!!switching}
+                          data-active={desktop && isActive ? 'true' : undefined}
                           className={cn(
-                            'ui-transition mb-1 block w-full rounded-[1rem] border px-4 py-3 text-left last:mb-0',
-                            isActive
+                            desktop
+                              ? 'desktop-settings-list-item'
+                              : 'ui-transition mb-1 block w-full rounded-[1rem] border px-4 py-3 text-left last:mb-0',
+                            !desktop && isActive
                               ? 'border-cyan-300/30 bg-cyan-300/[0.075] text-zinc-50'
-                              : 'border-transparent bg-transparent text-zinc-300 hover:border-white/10 hover:bg-white/[0.045] hover:text-cyan-100',
+                              : !desktop && 'border-transparent bg-transparent text-zinc-300 hover:border-white/10 hover:bg-white/[0.045] hover:text-cyan-100',
                             isBusy && 'opacity-60',
                           )}
                         >
                           <div className="flex items-start justify-between gap-4">
                             <div className="min-w-0">
-                              <div className="truncate text-[13px] font-semibold tracking-[-0.02em] text-inherit">{model.display_name}</div>
-                              <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-zinc-500">
+                              <div className={cn(
+                                desktop ? 'desktop-settings-list-title truncate' : 'truncate text-[13px] font-semibold tracking-[-0.02em] text-inherit'
+                              )}>
+                                {model.display_name}
+                              </div>
+                              <div className={cn(
+                                desktop ? 'desktop-settings-list-meta flex flex-wrap gap-x-3' : 'mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-zinc-500'
+                              )}>
                                 <span>{Math.round(model.context_window / 1024)}k ctx</span>
                                 {model.supports_vision && <span>vision</span>}
                                 {model.input_cost_per_million != null && model.output_cost_per_million != null && (
@@ -453,8 +477,12 @@ function ModelPicker({
                               </div>
                             </div>
                             {isActive && (
-                              <span className="rounded-full border border-cyan-300/26 bg-cyan-300/[0.10] px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-cyan-100">
-                                active
+                              <span className={cn(
+                                desktop
+                                  ? 'desktop-settings-list-active'
+                                  : 'rounded-full border border-cyan-300/26 bg-cyan-300/[0.10] px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-cyan-100'
+                              )}>
+                                {desktop ? 'Active' : 'active'}
                               </span>
                             )}
                           </div>
@@ -466,12 +494,21 @@ function ModelPicker({
               ))}
 
               {providerSections.map((section) => (
-                <section key={section.key} className="premium-panel overflow-hidden">
-                  <div className="border-b border-white/10 px-4 py-3">
-                    <p className="premium-section-label">{section.label}</p>
-                    <p className="mt-1 text-[12px] text-zinc-500">{section.models.length} local runtime{section.models.length !== 1 ? 's' : ''}</p>
+                <section
+                  key={section.key}
+                  className={cn(
+                    desktop ? 'desktop-settings-section' : 'premium-panel overflow-hidden'
+                  )}
+                >
+                  <div className={cn(desktop ? 'mb-2' : 'border-b border-white/10 px-4 py-3')}>
+                    <p className={cn(desktop ? 'desktop-settings-provider-header' : 'premium-section-label')}>
+                      {section.label}
+                    </p>
+                    <p className={cn(desktop ? 'desktop-settings-provider-count' : 'mt-1 text-[12px] text-zinc-500')}>
+                      {section.models.length} local runtime{section.models.length !== 1 ? 's' : ''}
+                    </p>
                   </div>
-                  <div className="p-2">
+                  <div className={cn(!desktop && 'p-2')}>
                     {section.models.map((model) => {
                       const isActive = modelStatus?.provider === 'local' && (
                         section.key === 'local-gguf'
@@ -484,22 +521,37 @@ function ModelPicker({
                           key={model.path}
                           onClick={() => handleSelectLocal(model)}
                           disabled={!!switching}
+                          data-active={desktop && isActive ? 'true' : undefined}
                           className={cn(
-                            'ui-transition mb-1 block w-full rounded-[1rem] border px-4 py-3 text-left last:mb-0',
-                            isActive
+                            desktop
+                              ? 'desktop-settings-list-item'
+                              : 'ui-transition mb-1 block w-full rounded-[1rem] border px-4 py-3 text-left last:mb-0',
+                            !desktop && isActive
                               ? 'border-cyan-300/30 bg-cyan-300/[0.075] text-zinc-50'
-                              : 'border-transparent text-zinc-300 hover:border-white/10 hover:bg-white/[0.045] hover:text-cyan-100',
+                              : !desktop && 'border-transparent text-zinc-300 hover:border-white/10 hover:bg-white/[0.045] hover:text-cyan-100',
                             isBusy && 'opacity-60',
                           )}
                         >
                           <div className="flex items-start justify-between gap-4">
                             <div className="min-w-0">
-                              <div className="truncate text-[13px] font-semibold tracking-[-0.02em] text-inherit">{model.name}</div>
-                              <div className="mt-1 text-[11px] text-zinc-500">{model.size_display}</div>
+                              <div className={cn(
+                                desktop ? 'desktop-settings-list-title truncate' : 'truncate text-[13px] font-semibold tracking-[-0.02em] text-inherit'
+                              )}>
+                                {model.name}
+                              </div>
+                              <div className={cn(
+                                desktop ? 'desktop-settings-list-meta' : 'mt-1 text-[11px] text-zinc-500'
+                              )}>
+                                {model.size_display}
+                              </div>
                             </div>
                             {isActive && (
-                              <span className="rounded-full border border-cyan-300/26 bg-cyan-300/[0.10] px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-cyan-100">
-                                active
+                              <span className={cn(
+                                desktop
+                                  ? 'desktop-settings-list-active'
+                                  : 'rounded-full border border-cyan-300/26 bg-cyan-300/[0.10] px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-cyan-100'
+                              )}>
+                                {desktop ? 'Active' : 'active'}
                               </span>
                             )}
                           </div>
@@ -510,26 +562,41 @@ function ModelPicker({
                 </section>
               ))}
 
-          <section className="premium-panel overflow-hidden">
-                <div className="border-b border-white/10 px-4 py-3">
-                  <p className="premium-section-label">provider api keys</p>
-                  <p className="mt-1 text-[12px] text-zinc-500">Persisted for cloud providers and loaded into runtime on startup.</p>
+          <section className={cn(desktop ? 'desktop-settings-section' : 'premium-panel overflow-hidden')}>
+                <div className={cn(desktop ? 'mb-2' : 'border-b border-white/10 px-4 py-3')}>
+                  <p className={cn(desktop ? 'desktop-settings-provider-header' : 'premium-section-label')}>
+                    Provider API keys
+                  </p>
+                  <p className={cn(desktop ? 'desktop-settings-provider-count' : 'mt-1 text-[12px] text-zinc-500')}>
+                    Persisted for cloud providers and loaded into runtime on startup.
+                  </p>
                 </div>
-                <div className="space-y-3 p-3">
+                <div className={cn(desktop ? '' : 'space-y-3 p-3')}>
                   {providerKeys.map((providerKey) => {
                     const busy = switching === `provider-key:${providerKey.provider}`;
                     return (
                       <div
                         key={providerKey.provider}
-                        className="rounded-[1rem] border border-white/10 bg-white/[0.025] px-3.5 py-3"
+                        className={cn(
+                          desktop
+                            ? 'desktop-settings-key-row'
+                            : 'rounded-[1rem] border border-white/10 bg-white/[0.025] px-3.5 py-3'
+                        )}
                       >
-                        <div className="mb-3 flex items-start justify-between gap-3 text-[11px] font-mono">
+                        <div className={cn(
+                          'flex items-start justify-between gap-3 text-[11px]',
+                          !desktop && 'mb-3 font-mono'
+                        )}>
                           <div className="min-w-0">
-                            <div className="uppercase text-zinc-300">{providerKey.provider}</div>
-                            <div className="mt-1 truncate text-zinc-500">{providerKey.api_key_env}</div>
+                            <div className={cn(desktop ? 'text-zinc-400 capitalize' : 'uppercase text-zinc-300')}>
+                              {providerKey.provider}
+                            </div>
+                            <div className="mt-1 truncate text-zinc-600">{providerKey.api_key_env}</div>
                           </div>
-                          <div className="shrink-0 rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[10px] uppercase tracking-[0.16em] text-zinc-400">
-                            {providerKey.has_key ? `saved · ${providerKey.source}` : 'not set'}
+                          <div className={cn(
+                            desktop ? 'shrink-0 text-zinc-600' : 'shrink-0 rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[10px] uppercase tracking-[0.16em] text-zinc-400'
+                          )}>
+                            {providerKey.has_key ? `Saved · ${providerKey.source}` : 'Not set'}
                           </div>
                         </div>
                         <div className="flex flex-col gap-2 sm:flex-row">
@@ -539,26 +606,26 @@ function ModelPicker({
                               ...drafts,
                               [providerKey.provider]: e.target.value,
                             }))}
-                            placeholder={providerKey.has_key ? 'update api key' : 'enter api key'}
+                            placeholder={providerKey.has_key ? 'Update API key' : 'Enter API key'}
                             type="password"
-                            className="premium-field flex-1"
+                            className={cn(desktop ? 'desktop-settings-field flex-1' : 'premium-field flex-1')}
                           />
                           <div className="flex gap-2">
                             <button
                               onClick={() => handleSaveProviderKey(providerKey.provider)}
                               disabled={!!switching}
-                              className="premium-primary-button"
+                              className={cn(desktop ? 'desktop-settings-btn-primary' : 'premium-primary-button')}
                               type="button"
                             >
-                              {busy ? 'saving...' : 'save'}
+                              {busy ? 'Saving…' : 'Save'}
                             </button>
                             <button
                               onClick={() => handleClearProviderKey(providerKey.provider)}
                               disabled={!!switching || !providerKey.has_key}
-                              className="premium-subtle-button"
+                              className={cn(desktop ? 'desktop-settings-btn-ghost' : 'premium-subtle-button')}
                               type="button"
                             >
-                              clear
+                              Clear
                             </button>
                           </div>
                         </div>
@@ -594,13 +661,20 @@ function ReasoningSettingsDialog({
   const providerFamily = settingsResponse?.provider_family || 'generic';
   const modelName = settingsResponse?.model_name || 'model';
   const isFireworks = providerFamily === 'fireworks';
-  const showReasoningEffort = !isFireworks && capabilities?.reasoning_effort.supported;
-  const showReasoningMaxTokens = providerFamily === 'openrouter' && capabilities?.reasoning_max_tokens.supported;
+  const showReasoningEffort = !isFireworks && !!capabilities?.reasoning_effort?.supported;
+  const showReasoningMaxTokens =
+    providerFamily === 'openrouter' && !!capabilities?.reasoning_max_tokens?.supported;
   const fireworksMode = draft?.fireworks_reasoning_mode ?? 'effort';
   const openRouterMode = draft?.reasoning_max_tokens == null ? 'effort' : 'budget';
   const minFireworksThinkingBudget = 1024;
-  const inputClassName = 'premium-field';
+  const desktop = isLocalDesktopApp();
+  const inputClassName = desktop ? 'desktop-settings-field' : 'premium-field';
   const selectClassName = 'premium-field appearance-none';
+
+  const effortChoices =
+    capabilities?.reasoning_effort?.options?.length
+      ? capabilities.reasoning_effort.options
+      : ['low', 'medium', 'high'];
 
   const disabledReason = (supported?: boolean, reason?: string | null) =>
     supported ? undefined : (reason || 'Unsupported by active provider/model');
@@ -622,21 +696,25 @@ function ReasoningSettingsDialog({
       </DialogHeader>
       <DialogContent className="space-y-4">
         {!draft || !capabilities ? (
-          <p className="text-xs font-mono text-zinc-200">Loading reasoning settings...</p>
+          <p className="text-xs text-zinc-500">Loading reasoning settings…</p>
         ) : (
-          <div className="space-y-4 font-mono text-xs">
-            <section className="premium-panel px-4 py-3.5">
-              <div className="premium-section-label">active model</div>
-              <div className="mt-2 text-sm text-zinc-100">{modelName}</div>
-              <div className="mt-1 text-[11px] uppercase tracking-[0.16em] text-zinc-500">{providerFamily}</div>
+          <div className={cn('space-y-4', !desktop && 'font-mono text-xs')}>
+            <section className={cn(desktop ? 'desktop-settings-section' : 'premium-panel px-4 py-3.5')}>
+              <span className={cn(desktop ? 'desktop-settings-label' : 'premium-section-label')}>Active model</span>
+              <div className={cn(desktop ? 'desktop-settings-model-line' : 'mt-2 text-sm text-zinc-100')}>{modelName}</div>
+              <div className={cn(desktop ? 'desktop-settings-model-provider' : 'mt-1 text-[11px] uppercase tracking-[0.16em] text-zinc-500')}>
+                {providerFamily}
+              </div>
             </section>
 
-            <section className="premium-panel px-4 py-4">
+            <section className={cn(desktop ? 'desktop-settings-section' : 'premium-panel px-4 py-4')}>
               <div className="grid gap-4 sm:grid-cols-2">
                 <label className="space-y-2">
                   <div>
-                    <div className="text-zinc-300">max output</div>
-                    <div className="mt-1 text-[11px] leading-5 text-zinc-500">Upper bound for answer tokens.</div>
+                    <div className={cn(desktop ? 'text-[12px] text-zinc-400' : 'text-zinc-300')}>Max output</div>
+                    <div className={cn(desktop ? 'desktop-settings-hint !mt-1' : 'mt-1 text-[11px] leading-5 text-zinc-500')}>
+                      Upper bound for answer tokens.
+                    </div>
                   </div>
                   <input
                     type="number"
@@ -647,58 +725,24 @@ function ReasoningSettingsDialog({
                   />
                 </label>
                 {showReasoningEffort && !showReasoningMaxTokens && (
-                  <label className="space-y-2">
+                  <div className="space-y-2">
                     <div>
-                      <div className="text-zinc-300">thinking effort</div>
-                      <div className="mt-1 text-[11px] leading-5 text-zinc-500">Provider-managed reasoning depth.</div>
+                      <div className={cn(desktop ? 'text-[12px] text-zinc-400' : 'text-zinc-300')}>Thinking effort</div>
+                      <div className={cn(desktop ? 'desktop-settings-hint !mt-1' : 'mt-1 text-[11px] leading-5 text-zinc-500')}>
+                        Provider-managed reasoning depth.
+                      </div>
                     </div>
-                    <select
-                      value={draft.reasoning_effort ?? ''}
-                      onChange={(e) => update('reasoning_effort', e.target.value || null)}
-                      disabled={!capabilities.reasoning_effort.supported}
-                      title={disabledReason(capabilities.reasoning_effort.supported, capabilities.reasoning_effort.reason)}
-                      className={selectClassName}
-                    >
-                      <option value="">default</option>
-                      {(capabilities.reasoning_effort.options.length ? capabilities.reasoning_effort.options : ['low', 'medium', 'high']).map((opt) => (
-                        <option key={opt} value={opt}>{opt}</option>
-                      ))}
-                    </select>
-                  </label>
-                )}
-              </div>
-            </section>
-
-            {isFireworks ? (
-              <section className="premium-panel px-4 py-4">
-                <div className="premium-section-label">Fireworks controls</div>
-                <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                  <label className="space-y-2">
-                    <div className="text-zinc-300">control mode</div>
-                    <select
-                      value={draft.fireworks_reasoning_mode}
-                      onChange={(e) => {
-                        const nextMode = e.target.value as 'effort' | 'thinking';
-                        updateMany({
-                          fireworks_reasoning_mode: nextMode,
-                          fireworks_thinking_budget_tokens:
-                            nextMode === 'thinking'
-                              ? Math.max(draft.fireworks_thinking_budget_tokens ?? minFireworksThinkingBudget, minFireworksThinkingBudget)
-                              : null,
-                        });
-                      }}
-                      disabled={!capabilities.fireworks_reasoning_mode.supported}
-                      title={disabledReason(capabilities.fireworks_reasoning_mode.supported, capabilities.fireworks_reasoning_mode.reason)}
-                      className={selectClassName}
-                    >
-                      <option value="effort">effort-based</option>
-                      <option value="thinking">budget-based</option>
-                    </select>
-                  </label>
-
-                  {fireworksMode === 'effort' ? (
-                    <label className="space-y-2">
-                      <div className="text-zinc-300">thinking effort</div>
+                    {desktop ? (
+                      <DesktopTextOptionGroup
+                        ariaLabel="Thinking effort"
+                        value={draft.reasoning_effort ?? ''}
+                        onChange={(value) => update('reasoning_effort', value || null)}
+                        options={[
+                          { value: '', label: 'Default' },
+                          ...effortChoices.map((opt) => ({ value: opt, label: opt })),
+                        ]}
+                      />
+                    ) : (
                       <select
                         value={draft.reasoning_effort ?? ''}
                         onChange={(e) => update('reasoning_effort', e.target.value || null)}
@@ -707,14 +751,94 @@ function ReasoningSettingsDialog({
                         className={selectClassName}
                       >
                         <option value="">default</option>
-                        {(capabilities.reasoning_effort.options.length ? capabilities.reasoning_effort.options : ['low', 'medium', 'high']).map((opt) => (
+                        {effortChoices.map((opt) => (
                           <option key={opt} value={opt}>{opt}</option>
                         ))}
                       </select>
-                    </label>
+                    )}
+                  </div>
+                )}
+              </div>
+            </section>
+
+            {isFireworks ? (
+              <section className={cn(desktop ? 'desktop-settings-section' : 'premium-panel px-4 py-4')}>
+                <span className={cn(desktop ? 'desktop-settings-label' : 'premium-section-label')}>Fireworks</span>
+                <div className="mt-3 grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <div className={cn(desktop ? 'text-[12px] text-zinc-400' : 'text-zinc-300')}>Control mode</div>
+                    {desktop ? (
+                      <DesktopTextOptionGroup
+                        ariaLabel="Fireworks control mode"
+                        value={draft.fireworks_reasoning_mode}
+                        onChange={(nextMode) => {
+                          updateMany({
+                            fireworks_reasoning_mode: nextMode,
+                            fireworks_thinking_budget_tokens:
+                              nextMode === 'thinking'
+                                ? Math.max(draft.fireworks_thinking_budget_tokens ?? minFireworksThinkingBudget, minFireworksThinkingBudget)
+                                : null,
+                          });
+                        }}
+                        options={[
+                          { value: 'effort', label: 'Effort' },
+                          { value: 'thinking', label: 'Budget' },
+                        ]}
+                      />
+                    ) : (
+                      <select
+                        value={draft.fireworks_reasoning_mode}
+                        onChange={(e) => {
+                          const nextMode = e.target.value as 'effort' | 'thinking';
+                          updateMany({
+                            fireworks_reasoning_mode: nextMode,
+                            fireworks_thinking_budget_tokens:
+                              nextMode === 'thinking'
+                                ? Math.max(draft.fireworks_thinking_budget_tokens ?? minFireworksThinkingBudget, minFireworksThinkingBudget)
+                                : null,
+                          });
+                        }}
+                        disabled={!capabilities.fireworks_reasoning_mode.supported}
+                        title={disabledReason(capabilities.fireworks_reasoning_mode.supported, capabilities.fireworks_reasoning_mode.reason)}
+                        className={selectClassName}
+                      >
+                        <option value="effort">effort-based</option>
+                        <option value="thinking">budget-based</option>
+                      </select>
+                    )}
+                  </div>
+
+                  {fireworksMode === 'effort' ? (
+                    <div className="space-y-2">
+                      <div className={cn(desktop ? 'text-[12px] text-zinc-400' : 'text-zinc-300')}>Thinking effort</div>
+                      {desktop ? (
+                        <DesktopTextOptionGroup
+                          ariaLabel="Thinking effort"
+                          value={draft.reasoning_effort ?? ''}
+                          onChange={(value) => update('reasoning_effort', value || null)}
+                          options={[
+                            { value: '', label: 'Default' },
+                            ...effortChoices.map((opt) => ({ value: opt, label: opt })),
+                          ]}
+                        />
+                      ) : (
+                        <select
+                          value={draft.reasoning_effort ?? ''}
+                          onChange={(e) => update('reasoning_effort', e.target.value || null)}
+                          disabled={!capabilities.reasoning_effort.supported}
+                          title={disabledReason(capabilities.reasoning_effort.supported, capabilities.reasoning_effort.reason)}
+                          className={selectClassName}
+                        >
+                          <option value="">default</option>
+                          {effortChoices.map((opt) => (
+                            <option key={opt} value={opt}>{opt}</option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
                   ) : (
                     <label className="space-y-2">
-                      <div className="text-zinc-300">max thinking tokens</div>
+                      <div className={cn(desktop ? 'text-[12px] text-zinc-400' : 'text-zinc-300')}>Max thinking tokens</div>
                       <input
                         type="number"
                         min={1024}
@@ -728,53 +852,83 @@ function ReasoningSettingsDialog({
                     </label>
                   )}
                 </div>
-                <p className="mt-3 text-[11px] leading-5 text-zinc-500">
+                <p className={cn(desktop ? 'desktop-settings-hint' : 'mt-3 text-[11px] leading-5 text-zinc-500')}>
                   {fireworksMode === 'effort'
                     ? 'Sends reasoning_effort only.'
                     : 'Sends thinking.budget_tokens only.'}
                 </p>
               </section>
             ) : showReasoningMaxTokens ? (
-              <section className="premium-panel px-4 py-4">
-                <div className="premium-section-label">OpenRouter controls</div>
-                <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                  <label className="space-y-2">
-                    <div className="text-zinc-300">control mode</div>
-                    <select
-                      value={openRouterMode}
-                      onChange={(e) => {
-                        if (e.target.value === 'effort') {
-                          updateMany({ reasoning_max_tokens: null });
-                        } else {
-                          updateMany({ reasoning_max_tokens: draft.reasoning_max_tokens ?? 1024 });
-                        }
-                      }}
-                      className={selectClassName}
-                    >
-                      <option value="effort">effort-based</option>
-                      <option value="budget">budget-based</option>
-                    </select>
-                  </label>
-
-                  {openRouterMode === 'effort' ? (
-                    <label className="space-y-2">
-                      <div className="text-zinc-300">thinking effort</div>
+              <section className={cn(desktop ? 'desktop-settings-section' : 'premium-panel px-4 py-4')}>
+                <span className={cn(desktop ? 'desktop-settings-label' : 'premium-section-label')}>OpenRouter</span>
+                <div className="mt-3 grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <div className={cn(desktop ? 'text-[12px] text-zinc-400' : 'text-zinc-300')}>Control mode</div>
+                    {desktop ? (
+                      <DesktopTextOptionGroup
+                        ariaLabel="OpenRouter control mode"
+                        value={openRouterMode}
+                        onChange={(value) => {
+                          if (value === 'effort') {
+                            updateMany({ reasoning_max_tokens: null });
+                          } else {
+                            updateMany({ reasoning_max_tokens: draft.reasoning_max_tokens ?? 1024 });
+                          }
+                        }}
+                        options={[
+                          { value: 'effort', label: 'Effort' },
+                          { value: 'budget', label: 'Budget' },
+                        ]}
+                      />
+                    ) : (
                       <select
-                        value={draft.reasoning_effort ?? ''}
-                        onChange={(e) => update('reasoning_effort', e.target.value || null)}
-                        disabled={!capabilities.reasoning_effort.supported}
-                        title={disabledReason(capabilities.reasoning_effort.supported, capabilities.reasoning_effort.reason)}
+                        value={openRouterMode}
+                        onChange={(e) => {
+                          if (e.target.value === 'effort') {
+                            updateMany({ reasoning_max_tokens: null });
+                          } else {
+                            updateMany({ reasoning_max_tokens: draft.reasoning_max_tokens ?? 1024 });
+                          }
+                        }}
                         className={selectClassName}
                       >
-                        <option value="">default</option>
-                        {(capabilities.reasoning_effort.options.length ? capabilities.reasoning_effort.options : ['low', 'medium', 'high']).map((opt) => (
-                          <option key={opt} value={opt}>{opt}</option>
-                        ))}
+                        <option value="effort">effort-based</option>
+                        <option value="budget">budget-based</option>
                       </select>
-                    </label>
+                    )}
+                  </div>
+
+                  {openRouterMode === 'effort' ? (
+                    <div className="space-y-2">
+                      <div className={cn(desktop ? 'text-[12px] text-zinc-400' : 'text-zinc-300')}>Thinking effort</div>
+                      {desktop ? (
+                        <DesktopTextOptionGroup
+                          ariaLabel="Thinking effort"
+                          value={draft.reasoning_effort ?? ''}
+                          onChange={(value) => update('reasoning_effort', value || null)}
+                          options={[
+                            { value: '', label: 'Default' },
+                            ...effortChoices.map((opt) => ({ value: opt, label: opt })),
+                          ]}
+                        />
+                      ) : (
+                        <select
+                          value={draft.reasoning_effort ?? ''}
+                          onChange={(e) => update('reasoning_effort', e.target.value || null)}
+                          disabled={!capabilities.reasoning_effort.supported}
+                          title={disabledReason(capabilities.reasoning_effort.supported, capabilities.reasoning_effort.reason)}
+                          className={selectClassName}
+                        >
+                          <option value="">default</option>
+                          {effortChoices.map((opt) => (
+                            <option key={opt} value={opt}>{opt}</option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
                   ) : (
                     <label className="space-y-2">
-                      <div className="text-zinc-300">max thinking tokens</div>
+                      <div className={cn(desktop ? 'text-[12px] text-zinc-400' : 'text-zinc-300')}>Max thinking tokens</div>
                       <input
                         type="number"
                         min={1}
@@ -789,26 +943,28 @@ function ReasoningSettingsDialog({
                 </div>
               </section>
             ) : (
-              <section className="premium-panel px-4 py-3.5 text-[11px] leading-5 text-zinc-500">
+              <section className={cn(
+                desktop ? 'desktop-settings-section text-[11px] text-zinc-600' : 'premium-panel px-4 py-3.5 text-[11px] leading-5 text-zinc-500'
+              )}>
                 This provider has no separate max thinking token setting.
               </section>
             )}
 
-            <div className="flex justify-end gap-2">
+            <div className={cn(desktop ? 'desktop-settings-actions' : 'flex justify-end gap-2')}>
               <button
                 onClick={() => onOpenChange(false)}
-                className="premium-subtle-button"
+                className={cn(desktop ? 'desktop-settings-btn-ghost' : 'premium-subtle-button')}
                 type="button"
               >
-                cancel
+                Cancel
               </button>
               <button
                 onClick={onSave}
                 disabled={saving}
-                className="premium-primary-button"
+                className={cn(desktop ? 'desktop-settings-btn-primary' : 'premium-primary-button')}
                 type="button"
               >
-                {saving ? 'saving...' : 'save'}
+                {saving ? 'Saving…' : 'Save'}
               </button>
             </div>
           </div>
@@ -1022,66 +1178,6 @@ function MentionPicker({
   );
 }
 
-function EmptyStatePulse({
-  mode,
-  workspacePath,
-  modelStatus,
-}: {
-  mode: ChatMode;
-  workspacePath: string;
-  modelStatus: ModelStatus | null;
-}) {
-  const workspaceName = workspacePath.trim()
-    ? workspacePath.trim().split('/').filter(Boolean).pop() || workspacePath.trim()
-    : 'no workspace';
-  const provider = modelStatus?.provider || 'provider';
-  const model = modelStatus?.model_name || 'model';
-
-  return (
-    <div className="w-full max-w-xl space-y-6 text-center">
-      <div className="relative mx-auto h-20 w-80 max-w-full overflow-hidden opacity-80">
-        <svg
-          viewBox="0 0 320 80"
-          aria-hidden="true"
-          className="absolute inset-0 h-full w-full text-zinc-800"
-        >
-          <path
-            d="M8 48 C 52 8, 92 72, 136 38 S 224 12, 312 42"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1"
-          />
-          <path
-            d="M8 52 C 58 26, 91 54, 140 34 S 232 62, 312 26"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1"
-            opacity="0.45"
-          />
-        </svg>
-        <div className="fluxion-trace absolute left-0 top-0 h-full w-28 bg-gradient-to-r from-transparent via-zinc-500/20 to-transparent" />
-      </div>
-
-      <div className="grid grid-cols-3 gap-px overflow-hidden rounded-[1.2rem] border border-white/10 bg-white/10 text-left">
-        <div className="bg-black/35 px-3 py-3">
-          <div className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">mode</div>
-          <div className="truncate pt-1 text-[12px] text-zinc-200">{mode}</div>
-        </div>
-        <div className="bg-black/35 px-3 py-3">
-          <div className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">workspace</div>
-          <div className={cn("truncate pt-1 text-[12px]", workspacePath.trim() ? "text-zinc-200" : "text-zinc-400")}>
-            {workspaceName}
-          </div>
-        </div>
-        <div className="bg-black/35 px-3 py-3">
-          <div className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">{provider}</div>
-          <div className="truncate pt-1 text-[12px] text-zinc-200">{model}</div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function conversationTitleFromMessage(message: string, maxLen = 64): string {
   const cleaned = message.trim().replace(/\s+/g, ' ');
   if (!cleaned) return 'New conversation';
@@ -1153,6 +1249,7 @@ export function ConversationView() {
   const terminalState = useConversationTerminal(selectedConversationId);
   const initTerminalState = useStore((s) => s.initTerminalState);
   const hasActiveRun = useHasActiveRun();
+  const setConversationMode = useStore((s) => s.setConversationMode);
   const updateTerminalState = useStore((s) => s.updateTerminalState);
   const draftWorkspacePath = useStore((s) => s.draftWorkspacePath);
   const setDraftWorkspacePath = useStore((s) => s.setDraftWorkspacePath);
@@ -1161,6 +1258,7 @@ export function ConversationView() {
   const [imageAttachments, setImageAttachments] = useState<ImageAttachment[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [mode, setMode] = useState<ChatMode>('agent');
+  const localDesktop = isLocalDesktopApp();
   const [workspacePickerOpen, setWorkspacePickerOpen] = useState(false);
   const [workspacePickerMode, setWorkspacePickerMode] = useState<'draft' | 'new-conversation'>('draft');
   const [mentionResults, setMentionResults] = useState<WorkspaceFileEntry[]>([]);
@@ -1175,10 +1273,6 @@ export function ConversationView() {
   const [collaborationMode, setCollaborationMode] = useState<'default' | 'plan'>(
     () => (localStorage.getItem('reasoner_collaboration_mode') as 'default' | 'plan') || 'default'
   );
-  const [viewportWidth, setViewportWidth] = useState(
-    () => (typeof window !== 'undefined' ? window.innerWidth : 1440)
-  );
-  const isDesktop = viewportWidth >= 768;
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const verticalMoveColumnRef = useRef<number | null>(null);
@@ -1256,7 +1350,7 @@ export function ConversationView() {
 
     initTerminalState(selectedConversationId, {
       isOpen: savedState.isOpen ?? false,
-      dock: savedState.dock === 'bottom' ? 'bottom' : 'right',
+      dock: 'right',
       height: Number(savedState.height || 260),
       width: Number(savedState.width || 420),
     });
@@ -1279,10 +1373,8 @@ export function ConversationView() {
   }, [selectedConversationId, terminalState]);
 
   useEffect(() => {
-    const handleResize = () => setViewportWidth(window.innerWidth);
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
+    setConversationMode(mode);
+  }, [mode, setConversationMode]);
 
   // Fetch model status and usage on mount
   useEffect(() => {
@@ -1680,53 +1772,6 @@ export function ConversationView() {
     setWorkspacePickerOpen(true);
   }, [hasConversationWorkspace, isWorkspaceLocked]);
 
-  const handleOpenTerminal = useCallback(async () => {
-    if (mode !== 'agent' || !isDesktop) return;
-    if (!effectiveWorkspacePath) {
-      toast.error(
-        selectedConversationId
-          ? 'Create or open a workspace conversation first'
-          : 'Select a workspace first'
-      );
-      if (!selectedConversationId) {
-        setWorkspacePickerOpen(true);
-      }
-      return;
-    }
-
-    let conversationId = selectedConversationId;
-    if (!conversationId) {
-      const response = await createConversation({
-        title: 'Terminal',
-        workspace_path: effectiveWorkspacePath,
-      });
-      conversationId = response.conversation_id;
-      const newConversation: Conversation = {
-        conversation_id: conversationId,
-        created_at: new Date().toISOString(),
-        title: 'Terminal',
-        summary: '',
-        workspace_path: effectiveWorkspacePath,
-        status: 'active',
-        metadata: {},
-      };
-      addConversation(newConversation);
-      setRuns(conversationId, []);
-      navigate(`/conversations/${conversationId}`);
-    }
-
-    updateTerminalState(conversationId, { isOpen: true });
-  }, [
-    addConversation,
-    isDesktop,
-    mode,
-    navigate,
-    selectedConversationId,
-    setRuns,
-    effectiveWorkspacePath,
-    updateTerminalState,
-  ]);
-
   const handleSubmit = async () => {
     if ((!message.trim() && imageAttachments.length === 0) || isSubmitting) return;
     if (imageAttachments.length > 0 && !modelStatus?.supports_vision) {
@@ -2011,15 +2056,6 @@ export function ConversationView() {
 
   const isGenerating = !!pendingRunId || !!activeRunId;
   const canSteerActiveRun = !!activeRunId && activeRun?.mode === 'agent';
-  const terminalAvailable = !!selectedConversationId && mode === 'agent' && isDesktop;
-  const preferredTerminalDock = terminalState?.dock ?? 'bottom';
-  const canRightDockTerminal = viewportWidth >= 1200;
-  const rightTerminalOpen = terminalAvailable
-    && !!terminalState?.isOpen
-    && preferredTerminalDock === 'right'
-    && canRightDockTerminal;
-  const bottomTerminalOpen = terminalAvailable && !!terminalState?.isOpen && !rightTerminalOpen;
-
   // Auto-resize textarea
   const resizeTextarea = useCallback(() => {
     const ta = textareaRef.current;
@@ -2621,48 +2657,184 @@ export function ConversationView() {
     </Dialog>
   );
 
+  const imageAttachmentsRow =
+    imageAttachments.length > 0 ? (
+      <div className="flex flex-wrap gap-1.5 px-1 text-[12px]">
+        {imageAttachments.map((attachment, index) => (
+          <button
+            key={attachment.id || index}
+            type="button"
+            onClick={() => removeImageAttachment(attachment.id)}
+            className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-0.5 text-zinc-400 hover:border-cyan-400/25 hover:text-zinc-200"
+            title="Remove image"
+          >
+            Image {index + 1} ×
+          </button>
+        ))}
+      </div>
+    ) : null;
+
+  const terminalAvailable =
+    localDesktop && mode === 'agent' && !!selectedConversationId && !!effectiveWorkspacePath;
+  const terminalOpen = terminalAvailable && !!terminalState?.isOpen;
+
+  const handleTerminalToggle = useCallback(() => {
+    if (mode !== 'agent' || !localDesktop) return;
+    if (!effectiveWorkspacePath) {
+      toast.error(
+        selectedConversationId
+          ? 'Create or open a workspace conversation first'
+          : 'Select a workspace first'
+      );
+      if (!selectedConversationId) {
+        setWorkspacePickerOpen(true);
+      }
+      return;
+    }
+    if (!selectedConversationId) {
+      setWorkspacePickerOpen(true);
+      return;
+    }
+    updateTerminalState(selectedConversationId, {
+      isOpen: !terminalState?.isOpen,
+    });
+  }, [
+    effectiveWorkspacePath,
+    localDesktop,
+    mode,
+    selectedConversationId,
+    terminalState?.isOpen,
+    updateTerminalState,
+  ]);
+
+  const agentOptionsRow = (
+    <AgentComposerOptions
+      mode={mode}
+      isWorkspaceLocked={isWorkspaceLocked}
+      hasConversationWorkspace={hasConversationWorkspace}
+      effectiveWorkspacePath={effectiveWorkspacePath}
+      draftWorkspacePath={draftWorkspacePath}
+      onDraftWorkspacePathChange={setDraftWorkspacePath}
+      onBrowseWorkspace={() => {
+        setWorkspacePickerMode('draft');
+        handleOpenWorkspacePicker();
+      }}
+      permissionPolicy={permissionPolicy}
+      onPermissionPolicyChange={setPermissionPolicy}
+      collaborationMode={collaborationMode}
+      onCollaborationModeChange={setCollaborationMode}
+    />
+  );
+
+  const desktopWorkspaceLabel = useMemo(() => {
+    if (mode !== 'agent') return null;
+    const path = isWorkspaceLocked ? effectiveWorkspacePath : draftWorkspacePath;
+    const trimmed = path.trim();
+    if (!trimmed) return 'No folder';
+    return trimmed.split('/').filter(Boolean).pop() || trimmed;
+  }, [mode, isWorkspaceLocked, effectiveWorkspacePath, draftWorkspacePath]);
+
+  const desktopWorkspaceTitle = useMemo(() => {
+    if (mode !== 'agent') return undefined;
+    const path = isWorkspaceLocked ? effectiveWorkspacePath : draftWorkspacePath;
+    return path.trim() || undefined;
+  }, [mode, isWorkspaceLocked, effectiveWorkspacePath, draftWorkspacePath]);
+
+  const desktopComposerControls = (
+    <DesktopComposerControls
+      mode={mode}
+      modelStatus={modelStatus}
+      onModelClick={() => setModelPickerOpen(true)}
+      onReasoningClick={() => setReasoningSettingsOpen(true)}
+      showTerminal={terminalAvailable}
+      terminalOpen={terminalOpen}
+      onTerminalClick={handleTerminalToggle}
+      isWorkspaceLocked={isWorkspaceLocked}
+      hasConversationWorkspace={hasConversationWorkspace}
+      effectiveWorkspacePath={effectiveWorkspacePath}
+      draftWorkspacePath={draftWorkspacePath}
+      onDraftWorkspacePathChange={setDraftWorkspacePath}
+      onBrowseWorkspace={() => {
+        setWorkspacePickerMode('draft');
+        handleOpenWorkspacePicker();
+      }}
+      permissionPolicy={permissionPolicy}
+      onPermissionPolicyChange={setPermissionPolicy}
+      collaborationMode={collaborationMode}
+      onCollaborationModeChange={setCollaborationMode}
+    />
+  );
+
+  const agentContextStatsRow = (
+    <AgentContextFooter
+      show={showComposerContextStats}
+      composerContextUtilizationPct={composerContextUtilizationPct ?? null}
+      composerPromptTokens={composerPromptTokens ?? null}
+      composerContextWindow={composerContextWindow ?? null}
+      conversationRawTokens={conversationRawTokens}
+      formatContextTokens={formatContextTokens}
+    />
+  );
+
+  const mentionPickerNode = (
+    <MentionPicker
+      open={mentionOpen}
+      loading={mentionLoading}
+      error={mentionError}
+      entries={mentionResults}
+      selectedIndex={mentionSelectedIndex}
+      onSelect={handleMentionSelect}
+    />
+  );
+
+  const limitHintNode = hasLimit ? (
+    <p
+      className={cn(
+        'text-[11px]',
+        atLimit ? 'text-red-400/80' : usage.remaining <= 3 ? 'text-amber-400' : 'text-zinc-600'
+      )}
+    >
+      {atLimit ? 'No messages left' : `${usage.remaining} messages left`}
+    </p>
+  ) : null;
+
+  const sharedComposerProps = {
+    textareaRef,
+    message,
+    atLimit,
+    isSubmitting,
+    isGenerating,
+    canSteerActiveRun,
+    hasActiveRun,
+    stoppingRunId,
+    messageLength: message.length,
+    maxLength: MAX_INPUT_CHARS,
+    onChange: handleMessageChange,
+    onPaste: handlePaste,
+    onKeyDown: handleKeyDown,
+    onSelect: handleTextareaSelection,
+    onClick: handleTextareaSelection,
+    onSubmit: handleSubmit,
+    onStop: handleStop,
+    mentionPicker: mentionPickerNode,
+    attachmentsRow: imageAttachmentsRow,
+  };
+
   if (!conversation && runs.length === 0) {
     return (
-      <div className="h-full flex flex-col">
-        {/* Status bar */}
-        <div className="fluxion-topbar border-b px-3 py-2.5 sm:px-4 flex items-center justify-between font-mono text-[11px]">
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => setModelPickerOpen(true)}
-              className="ui-transition text-zinc-300 hover:text-cyan-100"
-              title="Switch model"
-            >
-              {modelStatus?.model_name || 'model'}
-              {modelStatus?.context_window ? (
-                <span className="ml-1 text-zinc-500">({Math.round(modelStatus.context_window / 1024)}k)</span>
-              ) : null}
-              {modelStatus?.provider === 'local' && (
-                <span className="ml-1 text-zinc-500">(local)</span>
-              )}
-            </button>
-            <span className="text-zinc-700">|</span>
-            <button
-              onClick={() => setReasoningSettingsOpen(true)}
-              className="ui-transition text-zinc-300 hover:text-cyan-100"
-              title="Open reasoning settings"
-            >
-              reasoning
-            </button>
-            {mode === 'agent' && isDesktop && (
-              <>
-                <span className="text-zinc-700">|</span>
-                <button
-                  onClick={() => void handleOpenTerminal()}
-                  className="ui-transition text-zinc-300 hover:text-cyan-100"
-                  title={effectiveWorkspacePath ? 'Open integrated terminal' : 'Select or open a workspace conversation first'}
-                >
-                  terminal
-                </button>
-              </>
-            )}
-          </div>
-        </div>
+      <div className="flex h-full flex-col">
+        {localDesktop ? (
+          <DesktopChrome title="New conversation" mergeTitlebar />
+        ) : (
+          <ConversationToolbar
+            conversationTitle="New conversation"
+            mode={mode}
+            onModeChange={setMode}
+            modelStatus={modelStatus}
+            onModelClick={() => setModelPickerOpen(true)}
+            onReasoningClick={() => setReasoningSettingsOpen(true)}
+          />
+        )}
         <ModelPicker
           open={modelPickerOpen}
           onOpenChange={setModelPickerOpen}
@@ -2691,219 +2863,65 @@ export function ConversationView() {
             setDraftWorkspacePath(workspacePath);
           }}
         />
-        <div className="flex-1 flex flex-col items-center justify-center gap-4 overflow-y-auto px-3 text-zinc-300 sm:gap-6 sm:px-4 md:px-6 min-h-0">
-          <EmptyStatePulse
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+          <EmptyState
             mode={mode}
             workspacePath={effectiveWorkspacePath}
             modelStatus={modelStatus}
+            onSuggestionClick={(text) => setMessage(text)}
           />
         </div>
-        <div className="flex-shrink-0 space-y-3 p-3 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-4 sm:pb-[max(1rem,env(safe-area-inset-bottom))]">
-          {/* Prompt area */}
-          <div className="fluxion-composer ui-transition relative z-30 overflow-visible rounded-[1.2rem] border px-1">
-            <div className="flex items-start gap-3 p-4">
-              <span className="mt-0.5 select-none font-mono text-sm text-cyan-200/80">&gt;</span>
-              <textarea
-                ref={textareaRef}
-                placeholder={mode === 'agent' ? 'Ask the coding agent...' : 'Ask a question...'}
-                value={message}
-                onChange={handleMessageChange}
-                onPaste={handlePaste}
-                onKeyDown={handleKeyDown}
-                onSelect={handleTextareaSelection}
-                onClick={handleTextareaSelection}
-                rows={2}
-                className="flex-1 resize-none border-none bg-transparent text-[14px] leading-[1.9] text-zinc-50 outline-none placeholder:text-zinc-500"
-                disabled={isSubmitting || atLimit || (hasActiveRun && !canSteerActiveRun)}
-                style={{ maxHeight: '200px' }}
-              />
-            </div>
-            <MentionPicker
-              open={mentionOpen}
-              loading={mentionLoading}
-              error={mentionError}
-              entries={mentionResults}
-              selectedIndex={mentionSelectedIndex}
-              onSelect={handleMentionSelect}
-            />
-          </div>
-          {imageAttachments.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 px-1 font-mono text-[11px]">
-              {imageAttachments.map((attachment, index) => (
-                <button
-                  key={attachment.id || index}
-                  type="button"
-                  onClick={() => removeImageAttachment(attachment.id)}
-                  className="rounded-lg border border-zinc-700 bg-zinc-900 px-2 py-0.5 text-zinc-300 hover:border-cyan-500/30 hover:text-cyan-100"
-                  title="Remove image"
-                >
-                  image {index + 1} ×
-                </button>
-              ))}
-            </div>
-          )}
-          {/* Toolbar */}
-          <div className="flex items-center justify-between px-1.5">
-            <div className="flex items-center gap-3 font-mono text-[11px]">
-              <button
-                onClick={() => setMode('agent')}
-                className={cn(
-                  'transition-colors',
-                  mode === 'agent' ? 'text-cyan-100' : 'text-zinc-500 hover:text-cyan-100'
-                )}
-              >
-                agent
-              </button>
-              <button
-                onClick={() => setMode('chat')}
-                className={cn(
-                  'transition-colors',
-                  mode === 'chat' ? 'text-cyan-100' : 'text-zinc-500 hover:text-cyan-100'
-                )}
-              >
-                chat
-              </button>
-              {mode === 'agent' && (
-                <>
-                  {isWorkspaceLocked ? (
-                    <span
-                      className={cn(
-                        'max-w-52 truncate text-xs font-mono',
-                        hasConversationWorkspace ? 'text-zinc-300' : 'text-zinc-600'
-                      )}
-                      title={
-                        hasConversationWorkspace
-                          ? effectiveWorkspacePath
-                          : 'This conversation has no workspace. Create a new workspace thread from the sidebar.'
-                      }
-                    >
-                      {hasConversationWorkspace ? effectiveWorkspacePath : 'no workspace'}
-                    </span>
-                  ) : (
-                    <>
-                      <input
-                        value={draftWorkspacePath}
-                        onChange={(e) => setDraftWorkspacePath(e.target.value)}
-                        placeholder="/path/to/repo"
-                        className="w-40 sm:w-56 bg-transparent border-none outline-none text-[11px] font-mono text-zinc-300 placeholder:text-zinc-600"
-                        title="Workspace path for filesystem and bash tools"
-                      />
-                      <button
-                        onClick={() => {
-                          setWorkspacePickerMode('draft');
-                          handleOpenWorkspacePicker();
-                        }}
-                        className="ui-transition text-zinc-400 hover:text-cyan-100"
-                        title="Browse local folders"
-                      >
-                        browse
-                      </button>
-                    </>
-                  )}
-                  <select
-                    value={permissionPolicy}
-                    onChange={(e) => setPermissionPolicy(e.target.value as 'strict' | 'relaxed' | 'yolo')}
-                    className="bg-transparent border-none outline-none text-[11px] font-mono text-zinc-300 cursor-pointer"
-                    title="Tool permission policy"
-                  >
-                    <option value="strict">strict</option>
-                    <option value="relaxed">relaxed</option>
-                    <option value="yolo">yolo</option>
-                  </select>
-                  <select
-                    value={collaborationMode}
-                    onChange={(e) => setCollaborationMode(e.target.value as 'default' | 'plan')}
-                    className="bg-transparent border-none outline-none text-[11px] font-mono text-zinc-300 cursor-pointer"
-                    title="Collaboration mode"
-                  >
-                    <option value="default">default</option>
-                    <option value="plan">plan</option>
-                  </select>
-                </>
-              )}
-              <span className="text-zinc-700">|</span>
-              {mode === 'agent' && isDesktop && (
-                <button
-                  onClick={() => void handleOpenTerminal()}
-                  className="ui-transition text-zinc-300 hover:text-cyan-100"
-                  title={effectiveWorkspacePath ? 'Open integrated terminal' : 'Select or open a workspace conversation first'}
-                >
-                  terminal
-                </button>
-              )}
-              {mode === 'agent' && isDesktop && <span className="text-zinc-700">|</span>}
-              {isGenerating && (
-                <button
-                  onClick={handleStop}
-                  disabled={!!stoppingRunId}
-                  className={cn(
-                    'transition-colors',
-                    stoppingRunId ? 'cursor-wait text-red-400/55' : 'text-red-400 hover:text-red-300'
-                  )}
-                >
-                  {stoppingRunId ? 'stopping...' : 'stop'}
-                </button>
-              )}
-              <button
-                onClick={handleSubmit}
-                disabled={!message.trim() || isSubmitting || atLimit || (hasActiveRun && !canSteerActiveRun)}
-                className={cn(
-                  'transition-colors',
-                  !message.trim() || isSubmitting || atLimit || (hasActiveRun && !canSteerActiveRun)
-                    ? 'text-zinc-700 cursor-not-allowed'
-                    : canSteerActiveRun
-                      ? 'text-amber-400/80 hover:text-amber-300'
-                      : 'text-cyan-100 hover:text-white'
-                )}
-                title={atLimit ? 'Message limit reached' : canSteerActiveRun ? 'Send steering message to agent' : hasActiveRun ? 'Active run in progress' : undefined}
-              >
-                {isSubmitting ? 'sending...' : atLimit ? 'limit reached' : canSteerActiveRun ? 'steer' : 'send'}
-              </button>
-            </div>
-            <div className="flex items-center gap-3 font-mono text-[11px] text-zinc-500">
-              <span className="hidden md:inline">⌘+Enter send</span>
-              <span className={message.length > MAX_INPUT_CHARS * 0.9 ? 'text-zinc-400' : ''}>
-                {message.length.toLocaleString()}/{MAX_INPUT_CHARS.toLocaleString()}
-              </span>
-            </div>
-          </div>
-        </div>
+        {localDesktop ? (
+          <DesktopInputDock
+            mode={mode}
+            onModeChange={setMode}
+            workspaceLabel={desktopWorkspaceLabel}
+            workspaceTitle={desktopWorkspaceTitle}
+            queuedSteers={[]}
+            activeAgentRun={null}
+            activeAgentHudState={null}
+            showAgentHud={false}
+            controlsRow={desktopComposerControls}
+            placeholder={
+              mode === 'agent' ? 'Ask the agent…' : 'Ask a question…'
+            }
+            {...sharedComposerProps}
+            metaRow={agentContextStatsRow}
+            limitHint={limitHintNode}
+            disabled={isSubmitting || atLimit || (hasActiveRun && !canSteerActiveRun)}
+          />
+        ) : (
+          <Composer
+            {...sharedComposerProps}
+            placeholder={
+              mode === 'agent' ? 'Ask the coding agent...' : 'Ask a question...'
+            }
+            disabled={isSubmitting || atLimit || (hasActiveRun && !canSteerActiveRun)}
+            agentOptionsRow={agentOptionsRow}
+            contextStatsRow={agentContextStatsRow}
+          />
+        )}
       </div>
     );
   }
 
   return (
-    <div className="h-full flex flex-col">
-        <div className="fluxion-topbar flex items-center justify-between border-b px-3 py-2.5 font-mono text-[11px] sm:px-4 md:px-6">
-        <div className="flex items-center gap-3 truncate mr-4">
-          <button
-            type="button"
-            onClick={() => setModelPickerOpen(true)}
-            className="ui-transition flex-shrink-0 text-zinc-300 hover:text-cyan-100"
-            title="Switch model"
-          >
-            {modelStatus?.model_name || 'model'}
-            {modelStatus?.context_window ? (
-              <span className="ml-1 text-zinc-600">({Math.round(modelStatus.context_window / 1024)}k)</span>
-            ) : null}
-            {modelStatus?.provider === 'local' && (
-              <span className="ml-1 text-zinc-600">(local)</span>
-            )}
-          </button>
-          <span className="text-zinc-700">|</span>
-          <button
-            onClick={() => setReasoningSettingsOpen(true)}
-            className="ui-transition flex-shrink-0 text-zinc-300 hover:text-cyan-100"
-            title="Open reasoning settings"
-          >
-            reasoning
-          </button>
-          <span className="text-zinc-700">|</span>
-          <span className="truncate text-zinc-500">
-            {conversation?.title || 'conversation'}
-          </span>
-        </div>
-      </div>
+    <div className="flex h-full flex-col">
+      {localDesktop ? (
+        <DesktopChrome
+          title={conversation?.title || 'Conversation'}
+          mergeTitlebar
+        />
+      ) : (
+        <ConversationToolbar
+          conversationTitle={conversation?.title || 'Conversation'}
+          mode={mode}
+          onModeChange={setMode}
+          modelStatus={modelStatus}
+          onModelClick={() => setModelPickerOpen(true)}
+          onReasoningClick={() => setReasoningSettingsOpen(true)}
+        />
+      )}
       <ModelPicker
         open={modelPickerOpen}
         onOpenChange={setModelPickerOpen}
@@ -2934,285 +2952,102 @@ export function ConversationView() {
       />
       {rewindDialog}
 
-      <div className="flex min-h-0 flex-1">
-        <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
-          <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-6 md:px-8 md:py-8" ref={scrollRef}>
-            <div className="w-full max-w-[62rem]">
-              <VirtualizedConversationRunList
-                runs={runs}
-                scrollContainerRef={scrollRef}
-                renderRun={renderRunCard}
-              />
-            </div>
-          </div>
-
-          {/* Scroll-to-bottom pill */}
-          <ScrollToBottom
-            scrollRef={scrollRef}
-            isStreaming={!!activeRunId}
-            className={cn(
-              "left-1/2 -translate-x-1/2",
-              bottomTerminalOpen
-                ? "bottom-[calc(6rem+var(--terminal-height,260px))]"
-                : activeAgentHudState?.isActive
-                  ? "bottom-40"
-                  : "bottom-28"
-            )}
-          />
-
-          {activeAgentRun && activeAgentHudState?.isActive && (
-            <AgentLiveHUD
-              runId={activeAgentRun.run_id}
-              runCreatedAt={activeAgentRun.created_at}
-              agentState={activeAgentHudState}
-              onImplementationStarted={handlePlanImplementationStarted}
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        <div className="flex-1 overflow-y-auto px-4 py-6" ref={scrollRef}>
+          <div className="desktop-thread-column w-full">
+            <VirtualizedConversationRunList
+              runs={runs}
+              scrollContainerRef={scrollRef}
+              renderRun={renderRunCard}
             />
-          )}
-
-          {terminalAvailable && selectedConversationId && bottomTerminalOpen && (
-            <div style={{ ['--terminal-height' as string]: `${terminalState?.height ?? 260}px` }}>
-              <IntegratedTerminal
-                key={`${selectedConversationId}-bottom`}
-                conversationId={selectedConversationId}
-                workspacePath={effectiveWorkspacePath}
-                active={terminalAvailable}
-                dock="bottom"
-              />
-            </div>
-          )}
-
-          <div className="flex-shrink-0 space-y-3 p-3 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-4 sm:pb-[max(1rem,env(safe-area-inset-bottom))]">
-            {/* Queued steering messages */}
-            {queuedSteers.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 px-1">
-                {queuedSteers.map((msg, i) => (
-                  <span
-                    key={i}
-                    className="inline-flex items-center gap-1 rounded-full border border-amber-500/18 bg-amber-500/[0.08] px-2.5 py-1 text-[11px] font-mono text-amber-300/85"
-                  >
-                    <span className="text-amber-500/50">queued:</span> {msg.length > 40 ? msg.slice(0, 40) + '...' : msg}
-                  </span>
-                ))}
-              </div>
-            )}
-            {/* Prompt area */}
-            <div className="fluxion-composer ui-transition relative z-30 overflow-visible rounded-[1.2rem] border px-1">
-              <div className="flex items-start gap-3 p-4">
-                <span className="mt-0.5 select-none font-mono text-sm text-cyan-200/80">&gt;</span>
-                <textarea
-                  ref={textareaRef}
-                  placeholder={atLimit ? 'Message limit reached' : hasActiveRun ? 'Steer the agent...' : mode === 'agent' ? 'Ask the coding agent...' : 'Ask a follow-up question...'}
-                  value={message}
-                  onChange={handleMessageChange}
-                  onPaste={handlePaste}
-                  onKeyDown={handleKeyDown}
-                  onSelect={handleTextareaSelection}
-                  onClick={handleTextareaSelection}
-                  rows={2}
-                  className="flex-1 resize-none border-none bg-transparent text-[14px] leading-[1.9] text-zinc-50 outline-none placeholder:text-zinc-500"
-                  disabled={isSubmitting || atLimit}
-                  style={{ maxHeight: '200px' }}
-                />
-              </div>
-              <MentionPicker
-                open={mentionOpen}
-                loading={mentionLoading}
-                error={mentionError}
-                entries={mentionResults}
-                selectedIndex={mentionSelectedIndex}
-                onSelect={handleMentionSelect}
-              />
-            </div>
-            {imageAttachments.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 px-1 font-mono text-[11px]">
-                {imageAttachments.map((attachment, index) => (
-                  <button
-                    key={attachment.id || index}
-                    type="button"
-                    onClick={() => removeImageAttachment(attachment.id)}
-                      className="rounded-lg border border-zinc-800 bg-zinc-950 px-2 py-0.5 text-zinc-300 hover:border-cyan-500/30 hover:text-cyan-100"
-                    title="Remove image"
-                  >
-                    image {index + 1} ×
-                  </button>
-                ))}
-              </div>
-            )}
-            {/* Toolbar */}
-            <div className="flex items-center justify-between px-1.5">
-              <div className="flex items-center gap-3 font-mono text-[11px]">
-                <button
-                  onClick={() => setMode('agent')}
-                  className={cn(
-                    'transition-colors',
-                    mode === 'agent' ? 'text-cyan-100' : 'text-zinc-500 hover:text-cyan-100'
-                  )}
-                >
-                  agent
-                </button>
-                <button
-                  onClick={() => setMode('chat')}
-                  className={cn(
-                    'transition-colors',
-                    mode === 'chat' ? 'text-cyan-100' : 'text-zinc-500 hover:text-cyan-100'
-                  )}
-                >
-                  chat
-                </button>
-                {mode === 'agent' && (
-                  <>
-                    {isWorkspaceLocked ? (
-                      <span
-                        className={cn(
-                          'max-w-52 truncate text-xs font-mono',
-                          hasConversationWorkspace ? 'text-zinc-300' : 'text-zinc-600'
-                        )}
-                        title={
-                          hasConversationWorkspace
-                            ? effectiveWorkspacePath
-                            : 'This conversation has no workspace. Create a new workspace thread from the sidebar.'
-                        }
-                      >
-                        {hasConversationWorkspace ? effectiveWorkspacePath : 'no workspace'}
-                      </span>
-                    ) : (
-                      <>
-                        <input
-                          value={draftWorkspacePath}
-                          onChange={(e) => setDraftWorkspacePath(e.target.value)}
-                          placeholder="/path/to/repo"
-                          className="w-40 sm:w-56 bg-transparent border-none outline-none text-[11px] font-mono text-zinc-300 placeholder:text-zinc-600"
-                          title="Workspace path for filesystem and bash tools"
-                        />
-                        <button
-                          onClick={handleOpenWorkspacePicker}
-                          className="ui-transition text-zinc-400 hover:text-cyan-100"
-                          title="Browse local folders"
-                        >
-                          browse
-                        </button>
-                      </>
-                    )}
-                    <select
-                      value={permissionPolicy}
-                      onChange={(e) => setPermissionPolicy(e.target.value as 'strict' | 'relaxed' | 'yolo')}
-                      className="bg-transparent border-none outline-none text-[11px] font-mono text-zinc-300 cursor-pointer"
-                      title="Tool permission policy"
-                    >
-                      <option value="strict">strict</option>
-                      <option value="relaxed">relaxed</option>
-                      <option value="yolo">yolo</option>
-                      </select>
-                    <select
-                      value={collaborationMode}
-                      onChange={(e) => setCollaborationMode(e.target.value as 'default' | 'plan')}
-                      className="bg-transparent border-none outline-none text-[11px] font-mono text-zinc-300 cursor-pointer"
-                      title="Collaboration mode"
-                    >
-                      <option value="default">default</option>
-                      <option value="plan">plan</option>
-                    </select>
-                    </>
-                  )}
-                  <button
-                    onClick={() => setReasoningSettingsOpen(true)}
-                    className="ui-transition text-zinc-300 hover:text-cyan-100"
-                    title="Configure reasoning settings"
-                  >
-                    reasoning
-                  </button>
-                  {terminalAvailable && selectedConversationId && (
-                    <button
-                      onClick={() => {
-                        if (!effectiveWorkspacePath) {
-                          toast.error(selectedConversationId ? 'Create or open a workspace conversation first' : 'Select a workspace first');
-                          if (!selectedConversationId) {
-                            setWorkspacePickerOpen(true);
-                          }
-                          return;
-                        }
-                        updateTerminalState(selectedConversationId, { isOpen: !terminalState?.isOpen });
-                      }}
-                      className="ui-transition text-zinc-300 hover:text-cyan-100"
-                      title={
-                        effectiveWorkspacePath
-                          ? (terminalState?.isOpen ? 'Collapse terminal' : 'Open terminal')
-                          : 'Select or open a workspace conversation first'
-                      }
-                    >
-                      {terminalState?.isOpen ? 'terminal−' : 'terminal+'}
-                    </button>
-                  )}
-                  <span className="text-zinc-700">|</span>
-                  {isGenerating && (
-                    <button
-                      onClick={handleStop}
-                      disabled={!!stoppingRunId}
-                      className={cn(
-                        'transition-colors',
-                        stoppingRunId ? 'cursor-wait text-red-400/55' : 'text-red-400 hover:text-red-300'
-                      )}
-                    >
-                      {stoppingRunId ? 'stopping...' : 'stop'}
-                    </button>
-                  )}
-                  <button
-                    onClick={handleSubmit}
-                    disabled={!message.trim() || isSubmitting || atLimit || (hasActiveRun && !canSteerActiveRun)}
-                    className={cn(
-                      'transition-colors',
-                      !message.trim() || isSubmitting || atLimit || (hasActiveRun && !canSteerActiveRun)
-                        ? 'text-zinc-700 cursor-not-allowed'
-                        : canSteerActiveRun
-                          ? 'text-amber-400/80 hover:text-amber-300'
-                          : 'text-cyan-100 hover:text-white'
-                    )}
-                    title={atLimit ? 'Message limit reached' : canSteerActiveRun ? 'Send steering message to agent' : hasActiveRun ? 'Active run in progress' : undefined}
-                  >
-                    {isSubmitting ? 'sending...' : atLimit ? 'limit reached' : canSteerActiveRun ? 'steer' : 'send'}
-                  </button>
-                {showComposerContextStats && (
-                  <>
-                    <span className="text-zinc-700">|</span>
-                    <span className="text-zinc-500">
-                      ctx {composerContextUtilizationPct !== null ? `${Math.round(composerContextUtilizationPct)}%` : '—'}
-                    </span>
-                    <span className="text-zinc-500">
-                      {typeof composerPromptTokens === 'number' && composerContextWindow
-                        ? `${formatContextTokens(composerPromptTokens)}/${formatContextTokens(composerContextWindow)}`
-                        : '—'}
-                    </span>
-                    <span className="text-zinc-500">
-                      raw {conversationRawTokens > 0 ? formatContextTokens(conversationRawTokens) : '—'}
-                    </span>
-                  </>
-                )}
-              </div>
-              <div className="flex items-center gap-3 font-mono text-[11px] text-zinc-500">
-                {hasLimit && (
-                  <span className={cn(
-                    atLimit ? 'text-red-500/70' : usage.remaining <= 3 ? 'text-amber-500' : ''
-                  )}>
-                    {atLimit ? 'no messages left' : `${usage.remaining} left`}
-                  </span>
-                )}
-                <span className="hidden md:inline">⌘+Enter send</span>
-                <span className={message.length > MAX_INPUT_CHARS * 0.9 ? 'text-zinc-400' : ''}>
-                  {message.length.toLocaleString()}/{MAX_INPUT_CHARS.toLocaleString()}
-                </span>
-              </div>
-            </div>
           </div>
         </div>
-        {terminalAvailable && selectedConversationId && rightTerminalOpen && (
-          <IntegratedTerminal
-            key={`${selectedConversationId}-right`}
-            conversationId={selectedConversationId}
-            workspacePath={effectiveWorkspacePath}
-            active={terminalAvailable}
-            dock="right"
+
+        <ScrollToBottom
+          scrollRef={scrollRef}
+          isStreaming={!!activeRunId}
+          className={cn(
+            'left-1/2 -translate-x-1/2',
+            localDesktop ? 'bottom-[calc(var(--desktop-dock-height)+1rem)]' : (
+              activeAgentHudState?.isActive ? 'bottom-44' : 'bottom-32'
+            )
+          )}
+        />
+
+        {!localDesktop && activeAgentRun && activeAgentHudState?.isActive ? (
+          <AgentLiveHUD
+            runId={activeAgentRun.run_id}
+            runCreatedAt={activeAgentRun.created_at}
+            agentState={activeAgentHudState}
+            onImplementationStarted={handlePlanImplementationStarted}
           />
-        )}
+        ) : null}
+
+        <div className="flex-shrink-0">
+          {localDesktop ? (
+            <DesktopInputDock
+              mode={mode}
+              onModeChange={setMode}
+              workspaceLabel={desktopWorkspaceLabel}
+              workspaceTitle={desktopWorkspaceTitle}
+              queuedSteers={queuedSteers}
+              activeAgentRun={activeAgentRun}
+              activeAgentHudState={activeAgentHudState ?? null}
+              showAgentHud={!!activeAgentHudState?.isActive}
+              onImplementationStarted={handlePlanImplementationStarted}
+              controlsRow={desktopComposerControls}
+              placeholder={
+                atLimit
+                  ? 'Message limit reached'
+                  : hasActiveRun
+                    ? 'Steer the agent…'
+                    : mode === 'agent'
+                      ? 'Ask the agent…'
+                      : 'Ask a follow-up question…'
+              }
+              {...sharedComposerProps}
+              metaRow={agentContextStatsRow}
+              limitHint={limitHintNode}
+              disabled={isSubmitting || atLimit}
+            />
+          ) : (
+            <>
+              {queuedSteers.length > 0 ? (
+                <div className="mb-2 flex flex-wrap gap-1.5 px-4">
+                  {queuedSteers.map((msg, i) => (
+                    <span
+                      key={i}
+                      className="inline-flex items-center gap-1 rounded-md border border-amber-500/20 bg-amber-500/[0.08] px-2 py-1 text-[12px] text-amber-200/90"
+                    >
+                      <span className="text-amber-500/60">Queued:</span>{' '}
+                      {msg.length > 40 ? `${msg.slice(0, 40)}…` : msg}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+              <Composer
+                {...sharedComposerProps}
+                placeholder={
+                  atLimit
+                    ? 'Message limit reached'
+                    : hasActiveRun
+                      ? 'Steer the agent...'
+                      : mode === 'agent'
+                        ? 'Ask the coding agent...'
+                        : 'Ask a follow-up question...'
+                }
+                disabled={isSubmitting || atLimit}
+                agentOptionsRow={
+                  <>
+                    {agentOptionsRow}
+                    {limitHintNode}
+                  </>
+                }
+                contextStatsRow={agentContextStatsRow}
+              />
+            </>
+          )}
+        </div>
       </div>
     </div>
   );

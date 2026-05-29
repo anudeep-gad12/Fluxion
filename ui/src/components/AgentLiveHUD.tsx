@@ -52,14 +52,14 @@ function MetricPill({
   return (
     <div
       className={cn(
-        'ui-transition inline-flex items-center gap-2 rounded-full border px-2.5 py-1',
+        'ui-transition inline-flex items-center gap-2 rounded-md border px-2 py-1',
         caution
           ? 'border-amber-500/20 bg-amber-500/8 text-amber-200'
-          : 'border-cyan-500/18 bg-cyan-500/[0.07] text-zinc-300'
+          : 'border-white/8 bg-white/[0.04] text-zinc-300'
       )}
     >
-      <span className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">{label}</span>
-      <span className={cn('tabular-nums text-[11px]', highlighted ? 'text-zinc-50' : 'text-current')}>
+      <span className="text-[11px] text-zinc-500">{label}</span>
+      <span className={cn('tabular-nums text-[12px]', highlighted ? 'text-zinc-50' : 'text-current')}>
         {value}
       </span>
     </div>
@@ -81,6 +81,7 @@ interface AgentLiveHUDProps {
   runId: string;
   runCreatedAt: string;
   agentState: AgentUIState;
+  variant?: 'default' | 'desktop';
   onImplementationStarted?: (run: {
     run_id: string;
     stream_token?: string;
@@ -92,6 +93,7 @@ export const AgentLiveHUD = memo(function AgentLiveHUD({
   runId,
   runCreatedAt,
   agentState,
+  variant = 'default',
   onImplementationStarted,
 }: AgentLiveHUDProps) {
   const phase = useDerivedAgentPhase(agentState, runId);
@@ -203,24 +205,65 @@ export const AgentLiveHUD = memo(function AgentLiveHUD({
     }
   };
 
+  const isDesktop = variant === 'desktop';
+  const hasBlockingState =
+    agentState.pendingPlanApproval?.status === 'pending'
+    || !!agentState.pendingUserInput
+    || !!pendingApproval;
+
+  const metricsLine = (
+    <>
+      <span className={cn(phase.isContextWarning && 'text-amber-300/90')}>
+        {currentContextPct} ctx
+      </span>
+      <span className="text-zinc-700"> · </span>
+      <ElapsedClock startedAt={startedAt} />
+      {agentState.total_tokens ? (
+        <>
+          <span className="text-zinc-700"> · </span>
+          <span>{formatAgentTokens(agentState.total_tokens)} tok</span>
+        </>
+      ) : null}
+    </>
+  );
+
+  if (isDesktop && !hasBlockingState) {
+    return (
+      <div className="desktop-status-bar mb-2 px-1">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', phase.indicatorClassName)} />
+          <span className={cn('shrink-0 font-medium capitalize', phase.accentClassName)}>
+            {phase.activeWord}
+          </span>
+          <span className="min-w-0 truncate text-zinc-400">{phase.detail.summary}</span>
+          {phase.detail.toolName ? (
+            <span className="hidden shrink-0 text-zinc-500 sm:inline">· {phase.detail.toolName}</span>
+          ) : null}
+        </div>
+        <div className="shrink-0 tabular-nums">{metricsLine}</div>
+      </div>
+    );
+  }
+
+  const shellClassName = isDesktop
+    ? 'desktop-approval-panel mb-2 text-[12px]'
+    : 'animate-in fade-in slide-in-from-bottom-2 ui-transition rounded-xl border border-white/10 bg-[#18181b] px-3.5 py-3 text-[13px] shadow-lg shadow-black/20 duration-200';
+
+  const labelClass = isDesktop
+    ? 'text-[12px] font-medium text-zinc-300'
+    : 'text-[11px] uppercase tracking-[0.18em]';
+
   return (
-    <div className="flex-shrink-0 px-3 pb-2 sm:px-4 md:px-6">
-      <div
-        className={cn(
-          'fluxion-card-strong animate-in fade-in slide-in-from-bottom-2 duration-200 rounded-[1.25rem] border px-3.5 py-3 font-mono text-xs',
-          agentState.pendingPlanApproval?.status === 'pending'
-            ? 'mx-auto max-w-5xl px-4 py-4 md:px-5 md:py-4'
-            : ''
-        )}
-      >
+    <div className={cn('desktop-thread-column flex-shrink-0', isDesktop ? 'px-0 pb-0' : 'px-4 pb-2')}>
+      <div className={shellClassName}>
         {agentState.pendingPlanApproval?.status === 'pending' ? (
           <div className="space-y-3">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0 flex-1">
                 <div className="flex min-w-0 flex-wrap items-center gap-2">
                   <span className="h-2 w-2 rounded-full bg-violet-300/90" />
-                  <span className="text-[11px] uppercase tracking-[0.18em] text-violet-200">
-                    plan
+                  <span className={cn(labelClass, 'text-violet-200')}>
+                    Plan
                   </span>
                   <span className="text-zinc-600">/</span>
                   <span className="truncate text-[12px] text-zinc-100">
@@ -264,16 +307,20 @@ export const AgentLiveHUD = memo(function AgentLiveHUD({
               >
                 {planDecision === 'reject' ? 'rejecting…' : 'reject'}
               </button>
-              <MetricPill label="mode" value="plan" caution />
-              <MetricPill label="elapsed" value={<ElapsedClock startedAt={startedAt} />} />
+              {!isDesktop ? <MetricPill label="mode" value="plan" caution /> : null}
+              {!isDesktop ? (
+                <MetricPill label="elapsed" value={<ElapsedClock startedAt={startedAt} />} />
+              ) : (
+                <span className="ml-auto tabular-nums text-zinc-500">{metricsLine}</span>
+              )}
             </div>
           </div>
         ) : agentState.pendingUserInput ? (
           <div className="space-y-3">
             <div className="flex flex-wrap items-center gap-2">
               <span className="h-2 w-2 rounded-full bg-violet-300/90" />
-              <span className="text-[11px] uppercase tracking-[0.18em] text-violet-200">
-                input
+              <span className={cn(labelClass, 'text-violet-200')}>
+                Input
               </span>
               <span className="text-zinc-600">/</span>
               <span className="text-[12px] text-zinc-100">planning question</span>
@@ -320,7 +367,7 @@ export const AgentLiveHUD = memo(function AgentLiveHUD({
               >
                 {userInputSubmitting ? 'sending…' : 'send'}
               </button>
-              <MetricPill label="mode" value="plan" caution />
+              {!isDesktop ? <MetricPill label="mode" value="plan" caution /> : null}
             </div>
           </div>
         ) : pendingApproval ? (
@@ -329,8 +376,8 @@ export const AgentLiveHUD = memo(function AgentLiveHUD({
               <div className="min-w-0 flex-1">
                 <div className="flex min-w-0 flex-wrap items-center gap-2">
                   <span className="h-2 w-2 rounded-full bg-amber-300/90" />
-                  <span className="text-[11px] uppercase tracking-[0.18em] text-amber-200">
-                    permission
+                  <span className={cn(labelClass, 'text-amber-200')}>
+                    Permission
                   </span>
                   <span className="text-zinc-600">/</span>
                   <span className="truncate text-[12px] text-zinc-100">
@@ -379,7 +426,11 @@ export const AgentLiveHUD = memo(function AgentLiveHUD({
               >
                 {deciding === 'deny' ? 'denying…' : 'deny'}
               </button>
-              <MetricPill label="elapsed" value={<ElapsedClock startedAt={startedAt} />} />
+              {!isDesktop ? (
+                <MetricPill label="elapsed" value={<ElapsedClock startedAt={startedAt} />} />
+              ) : (
+                <span className="ml-auto tabular-nums text-zinc-500">{metricsLine}</span>
+              )}
             </div>
           </div>
         ) : (
@@ -399,7 +450,7 @@ export const AgentLiveHUD = memo(function AgentLiveHUD({
                     <span className="truncate text-zinc-300">{phase.detail.target}</span>
                   ) : null}
                   {phase.detail.toolName ? (
-                    <span className="rounded-full border border-cyan-500/20 bg-cyan-500/[0.07] px-2 py-0.5 uppercase tracking-[0.14em] text-cyan-100">
+                    <span className="rounded-full border border-cyan-500/20 bg-cyan-500/[0.07] px-2 py-0.5 text-[11px] text-cyan-100">
                       {phase.detail.toolName}
                     </span>
                   ) : null}
@@ -415,7 +466,9 @@ export const AgentLiveHUD = memo(function AgentLiveHUD({
               <MetricPill label="ctx" value={currentContextPct} caution={phase.isContextWarning} />
               <MetricPill label="compact" value={String(compactionCount)} caution={phase.isCompactionWarning} />
               <MetricPill label="elapsed" value={<ElapsedClock startedAt={startedAt} />} />
-              {agentState.total_tokens ? <MetricPill label="tok" value={formatAgentTokens(agentState.total_tokens)} /> : null}
+              {agentState.total_tokens ? (
+                <MetricPill label="tok" value={formatAgentTokens(agentState.total_tokens)} />
+              ) : null}
               {agentState.cost && agentState.usage?.total_tokens ? (
                 <MetricPill label="est" value={formatAgentCost(agentState.cost.total_cost)} />
               ) : null}

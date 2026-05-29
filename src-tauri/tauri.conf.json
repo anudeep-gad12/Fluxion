@@ -6,8 +6,8 @@
   "build": {
     "frontendDist": "../ui/dist",
     "devUrl": "http://127.0.0.1:9000",
-    "beforeDevCommand": "",
-    "beforeBuildCommand": ""
+    "beforeDevCommand": "pnpm --dir ui build",
+    "beforeBuildCommand": "pnpm --dir ui build"
   },
   "app": {
     "withGlobalTauri": false,
@@ -22,7 +22,11 @@
         "resizable": true,
         "fullscreen": false,
         "visible": false,
-        "center": true
+        "center": true,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "acceptFirstMouse": true,
+        "dragDropEnabled": false
       }
     ],
     "security": {

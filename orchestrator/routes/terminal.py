@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, WebSocket, WebSock
 
 from orchestrator.config import get_chat_config
 from orchestrator.middleware.session import COOKIE_NAME
+from orchestrator.runtime_paths import is_hosted_production, is_packaged_app
 from orchestrator.schemas import TerminalSessionRequest, TerminalSessionResponse
 from orchestrator.services.browser_terminal import (
     DEFAULT_COLS,
@@ -27,7 +28,19 @@ def _get_http_session_context(request: Request) -> Tuple[Optional[str], bool]:
     return getattr(request.state, "session_id", None), getattr(request.state, "is_owner", True)
 
 
+def _is_local_dev_owner(websocket: WebSocket) -> bool:
+    """Match SessionMiddleware: localhost source runs are owner when not in production."""
+    if is_hosted_production():
+        return False
+    client_host = websocket.client.host if websocket.client else ""
+    return client_host in {"127.0.0.1", "::1", "localhost"}
+
+
 def _get_ws_session_context(websocket: WebSocket) -> Tuple[Optional[str], bool]:
+    # Keep WebSocket auth aligned with SessionMiddleware (HTTP uses is_packaged_app).
+    if is_packaged_app():
+        return None, True
+
     config = get_chat_config()
     if not config.demo or not config.demo.enabled:
         return None, True
@@ -36,7 +49,17 @@ def _get_ws_session_context(websocket: WebSocket) -> Tuple[Optional[str], bool]:
     owner_token = websocket.query_params.get("owner")
     if owner_secret and owner_token and secrets.compare_digest(owner_token, owner_secret):
         return websocket.cookies.get(COOKIE_NAME), True
+
+    if _is_local_dev_owner(websocket):
+        return websocket.cookies.get(COOKIE_NAME), True
+
     return websocket.cookies.get(COOKIE_NAME), False
+
+
+async def _deny_websocket(websocket: WebSocket, code: int = 4404) -> None:
+    """Reject a WebSocket without uvicorn's pre-accept close (which surfaces as HTTP 403)."""
+    await websocket.accept()
+    await websocket.close(code=code)
 
 
 async def _require_conversation_access(
@@ -139,13 +162,13 @@ async def terminal_websocket(
             is_owner=is_owner,
         )
     except HTTPException:
-        await websocket.close(code=4404)
+        await _deny_websocket(websocket, code=4404)
         return
 
     manager = get_terminal_manager()
     metadata = await manager.get_metadata(conversation_id)
     if not metadata or metadata["session_id"] != session_id:
-        await websocket.close(code=4404)
+        await _deny_websocket(websocket, code=4404)
         return
 
     live_session = await manager.get_live(session_id)

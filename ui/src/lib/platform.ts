@@ -1,0 +1,39 @@
+/** True when the UI is served from the local desktop app (Tauri / packaged API on :9000). */
+export function isLocalDesktopApp(): boolean {
+  if (typeof window === 'undefined') return false;
+  const { hostname, port } = window.location;
+  return (hostname === '127.0.0.1' || hostname === 'localhost') && port === '9000';
+}
+
+/** Apply desktop dataset on <html> for scoped CSS. */
+export function applyDesktopPlatformClass(forceDesktop = false): void {
+  if (typeof document === 'undefined') return;
+  if (forceDesktop || isLocalDesktopApp()) {
+    document.documentElement.dataset.app = 'desktop';
+    return;
+  }
+  delete document.documentElement.dataset.app;
+}
+
+/** Also enable desktop styling when the API reports a local packaged app (e.g. after config fetch). */
+export async function syncDesktopPlatformClassFromApi(): Promise<void> {
+  if (isLocalDesktopApp()) {
+    applyDesktopPlatformClass(true);
+    return;
+  }
+  try {
+    const response = await fetch('/api/config');
+    if (!response.ok) return;
+    const data = (await response.json()) as { local_app?: boolean };
+    if (data.local_app) {
+      applyDesktopPlatformClass(true);
+    }
+  } catch {
+    // Ignore — non-fatal
+  }
+}
+
+export function isApplePlatform(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  return /Mac|iPhone|iPad|iPod/.test(navigator.platform);
+}

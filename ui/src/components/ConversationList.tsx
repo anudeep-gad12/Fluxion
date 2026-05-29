@@ -18,20 +18,29 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import type { Conversation } from '@/types';
+import type { Conversation, Run } from '@/types';
+
+type ThreadStatus = 'idle' | 'running' | 'failed';
+
+function threadStatusForConversation(
+  runs: Run[],
+  streamingRunId: string | null
+): ThreadStatus {
+  if (streamingRunId && runs.some((run) => run.run_id === streamingRunId)) {
+    return 'running';
+  }
+  if (runs.some((run) => run.status === 'running')) {
+    return 'running';
+  }
+  const latest = runs[0];
+  if (latest?.status === 'failed') {
+    return 'failed';
+  }
+  return 'idle';
+}
 
 function workspaceLabel(workspacePath: string): string {
   return workspacePath.split('/').filter(Boolean).pop() || workspacePath;
-}
-
-function workspacePathPreview(workspacePath: string): string {
-  const normalized = workspacePath.trim();
-  if (!normalized) return '';
-  const parts = normalized.split('/').filter(Boolean);
-  if (parts.length <= 3) {
-    return normalized;
-  }
-  return `…/${parts.slice(-3).join('/')}`;
 }
 
 type WorkspaceGroup = {
@@ -47,6 +56,7 @@ function ConversationCard({
   isSelected,
   isSelectMode,
   isChecked,
+  threadStatus,
   onClick,
   onDelete,
   onToggleCheck,
@@ -55,6 +65,7 @@ function ConversationCard({
   isSelected: boolean;
   isSelectMode: boolean;
   isChecked: boolean;
+  threadStatus: ThreadStatus;
   onClick: () => void;
   onDelete: () => void;
   onToggleCheck: () => void;
@@ -62,46 +73,59 @@ function ConversationCard({
   return (
     <div
       className={cn(
-        'ui-transition cursor-pointer rounded-[1rem] border border-white/10 bg-white/[0.025] px-3.5 py-3.5',
-        'min-h-[60px] sm:min-h-0',
-        isSelected && 'border-cyan-300/30 bg-cyan-300/[0.055] ring-1 ring-cyan-300/10',
-        !isSelected && 'hover:border-white/16 hover:bg-white/[0.045]',
-        isChecked && 'border-white/18 bg-white/[0.055]'
+        'desktop-list-item ui-transition group flex min-h-[36px] cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5',
+        isSelected && 'desktop-list-item-selected',
+        isChecked && !isSelected && 'bg-white/[0.05]'
       )}
       onClick={isSelectMode ? onToggleCheck : onClick}
     >
-      <div className="flex items-start justify-between gap-3">
-        {isSelectMode && (
-          <div className="pt-1.5">
-            {isChecked ? (
-              <CheckSquare className="h-5 w-5 sm:h-4 sm:w-4 text-zinc-400" />
-            ) : (
-              <Square className="h-5 w-5 sm:h-4 sm:w-4 text-zinc-400" />
-            )}
-          </div>
-        )}
-        <div className="min-w-0 flex-1">
-          <p className={cn("truncate text-[13px] font-medium leading-6", isSelected ? 'text-zinc-50' : 'text-zinc-100')}>
-            {conversation.title ? truncate(conversation.title, 50) : 'New conversation'}
-          </p>
-          <p className="mt-1 text-[11px] tracking-[0.01em] text-zinc-500">
-            {formatRelativeTime(conversation.created_at)}
-          </p>
+      {isSelectMode && (
+        <div className="shrink-0">
+          {isChecked ? (
+            <CheckSquare className="h-4 w-4 text-zinc-400" />
+          ) : (
+            <Square className="h-4 w-4 text-zinc-500" />
+          )}
         </div>
-        {!isSelectMode && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 flex-shrink-0 rounded-xl text-zinc-500 hover:bg-zinc-900 hover:text-cyan-100"
-            onClick={(e) => {
-              e.stopPropagation();
-              onDelete();
-            }}
+      )}
+        <div className="min-w-0 flex-1">
+          <p
+            className={cn(
+              'flex items-center gap-2 truncate text-[13px] leading-5',
+              isSelected ? 'font-medium text-zinc-50' : 'text-zinc-300'
+            )}
           >
-            <Trash2 className="h-4 w-4" />
-          </Button>
-        )}
+            <span
+              className={cn(
+                'h-1.5 w-1.5 shrink-0 rounded-full',
+                threadStatus === 'running' && 'bg-cyan-400 shadow-[0_0_6px_rgba(121,230,255,0.55)]',
+                threadStatus === 'failed' && 'bg-red-400/90',
+                threadStatus === 'idle' && 'bg-zinc-600'
+              )}
+              aria-hidden
+            />
+            <span className="truncate">
+              {conversation.title ? truncate(conversation.title, 50) : 'New conversation'}
+            </span>
+          </p>
+        <p className="truncate text-[11px] text-zinc-600">
+          {formatRelativeTime(conversation.created_at)}
+        </p>
       </div>
+      {!isSelectMode && (
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7 shrink-0 rounded-md text-zinc-600 opacity-0 hover:bg-white/[0.06] hover:text-zinc-300 group-hover:opacity-100"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete();
+          }}
+          aria-label="Delete conversation"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </Button>
+      )}
     </div>
   );
 }
@@ -124,89 +148,59 @@ function WorkspaceSection({
   children: ReactNode;
 }) {
   return (
-    <div className="space-y-2.5">
-      <div
-        role="button"
-        tabIndex={0}
-        onClick={onToggle}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault();
-            onToggle();
-          }
-        }}
-        className="ui-transition group fluxion-card block w-full rounded-[1.15rem] border px-3.5 py-3.5 text-left hover:border-cyan-300/24 hover:bg-white/[0.045]"
-      >
-        <div className="flex items-start gap-3.5">
-          <button
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation();
-              onToggle();
-            }}
-            onMouseDown={(event) => event.stopPropagation()}
-            className="ui-transition mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl border border-white/10 bg-black/20 text-zinc-400 hover:border-cyan-300/28 hover:bg-cyan-300/[0.055] hover:text-cyan-100"
-            title={isOpen ? 'Collapse workspace' : 'Expand workspace'}
+    <div className="space-y-0.5">
+      <div className="flex items-center gap-1 px-1 py-1">
+        <button
+          type="button"
+          onClick={onToggle}
+          className="ui-transition flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-300"
+          title={isOpen ? 'Collapse workspace' : 'Expand workspace'}
+        >
+          {isOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+        </button>
+        <button
+          type="button"
+          ref={headerButtonRef}
+          onClick={onToggle}
+          onKeyDown={onHeaderKeyDown}
+          className="min-w-0 flex-1 truncate text-left text-[12px] font-semibold text-zinc-500"
+          title={group.workspacePath || group.label}
+        >
+          {group.label}
+        </button>
+        <span className="shrink-0 text-[11px] tabular-nums text-zinc-600">
+          {group.conversations.length}
+        </span>
+        {!group.isGeneral && (
+          <Button
+            size="icon"
+            variant="ghost"
+            className="h-6 w-6 shrink-0 rounded-md text-zinc-500 hover:text-zinc-300"
+            onClick={onNewConversation}
+            title="New conversation in this workspace"
           >
-            {isOpen ? (
-              <ChevronDown className="h-3.5 w-3.5" />
-            ) : (
-              <ChevronRight className="h-3.5 w-3.5" />
-            )}
-          </button>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-start justify-between gap-4">
-              <div className="min-w-0">
-                <button
-                  type="button"
-                  ref={headerButtonRef}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onToggle();
-                  }}
-                  onKeyDown={onHeaderKeyDown}
-                  className="block min-w-0 text-left"
-                  title={group.workspacePath}
-                >
-                  <div className="truncate pr-2 text-[14px] font-medium leading-6 tracking-[0.01em] text-zinc-50">
-                    {group.label}
-                  </div>
-                </button>
-                <div className="mt-1 truncate pr-2 font-mono text-[11px] leading-5 text-zinc-500">
-                  {group.isGeneral ? 'No workspace' : workspacePathPreview(group.workspacePath)}
-                </div>
-              </div>
-              <div className="flex flex-shrink-0 items-center gap-2 pt-0.5">
-                <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full border border-white/10 bg-white/[0.035] px-1.5 text-[10px] text-zinc-400">
-                  {group.conversations.length}
-                </span>
-                {!group.isGeneral && (
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="h-8 w-8 flex-shrink-0 rounded-xl text-zinc-500 hover:bg-zinc-900 hover:text-cyan-100"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onNewConversation();
-                    }}
-                    title="New conversation in this workspace"
-                  >
-                    <Plus className="h-4 w-4" />
-                  </Button>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
+            <Plus className="h-3.5 w-3.5" />
+          </Button>
+        )}
       </div>
-      {isOpen && <div className="space-y-2 pl-4">{children}</div>}
+      {isOpen && <div className="space-y-0.5 pl-1">{children}</div>}
     </div>
   );
 }
 
-export function ConversationList() {
+interface ConversationListProps {
+  workspacePickerOpen?: boolean;
+  onWorkspacePickerOpenChange?: (open: boolean) => void;
+}
+
+export function ConversationList({
+  workspacePickerOpen: controlledPickerOpen,
+  onWorkspacePickerOpenChange: setControlledPickerOpen,
+}: ConversationListProps = {}) {
   const navigate = useNavigate();
   const conversations = useStore((s) => s.conversations);
+  const runsByConversation = useStore((s) => s.runsByConversation);
+  const streamingRunId = useStore((s) => s.streamingRunId);
   const selectedConversationId = useStore((s) => s.selectedConversationId);
   const setConversations = useStore((s) => s.setConversations);
   const removeConversation = useStore((s) => s.removeConversation);
@@ -216,7 +210,10 @@ export function ConversationList() {
   const draftWorkspacePath = useStore((s) => s.draftWorkspacePath);
   const hasActiveRun = useHasActiveRun();
   const [isLoading, setIsLoading] = useState(false);
-  const [workspacePickerOpen, setWorkspacePickerOpen] = useState(false);
+  const [internalPickerOpen, setInternalPickerOpen] = useState(false);
+  const pickerControlled = setControlledPickerOpen !== undefined;
+  const workspacePickerOpen = controlledPickerOpen ?? internalPickerOpen;
+  const setWorkspacePickerOpen = setControlledPickerOpen ?? setInternalPickerOpen;
   const [workspaceSectionsOpen, setWorkspaceSectionsOpen] = useState<Record<string, boolean>>({});
   const workspaceHeaderRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
@@ -414,11 +411,9 @@ export function ConversationList() {
 
   return (
     <div className="h-full flex flex-col">
-      <div className="border-b border-white/10 px-3 py-3 sm:px-4">
-        <div className="flex items-center justify-between gap-3">
-          <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-400">
-            Workspaces
-          </div>
+      <div className="border-b border-white/[0.06] px-2 py-2">
+        <div className="flex items-center justify-between gap-2">
+          <div className="text-[12px] font-semibold text-zinc-500">Workspaces</div>
           <div className="flex items-center gap-1">
             <Button
               size="sm"
@@ -433,16 +428,6 @@ export function ConversationList() {
               ) : (
                 <ChevronRight className="h-4 w-4" />
               )}
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => setWorkspacePickerOpen(true)}
-              disabled={hasActiveRun}
-              className="h-9 w-9 rounded-lg p-0 text-zinc-300 hover:bg-white/[0.055] hover:text-zinc-100"
-              title="Create workspace"
-            >
-              <Plus className="h-4 w-4" />
             </Button>
             {isSelectMode && (
               <Button
@@ -493,7 +478,7 @@ export function ConversationList() {
         </div>
       )}
 
-      <div className="flex-1 space-y-4 overflow-y-auto bg-[radial-gradient(circle_at_top,_rgba(121,230,255,0.045),_transparent_38%)] p-3 sm:p-4">
+      <div className="flex-1 space-y-3 overflow-y-auto p-2">
         {isLoading && conversations.length === 0 ? (
           <div className="text-sm text-muted-foreground">Loading conversations...</div>
         ) : workspaceGroups.length === 0 ? (
@@ -524,6 +509,10 @@ export function ConversationList() {
                     isSelected={conversation.conversation_id === selectedConversationId}
                     isSelectMode={isSelectMode}
                     isChecked={selectedIds.has(conversation.conversation_id)}
+                    threadStatus={threadStatusForConversation(
+                      runsByConversation[conversation.conversation_id] ?? [],
+                      streamingRunId
+                    )}
                     onClick={() => navigate(`/conversations/${conversation.conversation_id}`)}
                     onDelete={() => handleDeleteClick(conversation.conversation_id)}
                     onToggleCheck={() => toggleCheck(conversation.conversation_id)}
@@ -535,17 +524,19 @@ export function ConversationList() {
         )}
       </div>
 
-      <WorkspacePickerDialog
-        open={workspacePickerOpen}
-        onOpenChange={setWorkspacePickerOpen}
-        value={draftWorkspacePath}
-        onSelect={(workspacePath) => {
-          selectConversation(null);
-          rememberWorkspacePath(workspacePath);
-          setDraftWorkspacePath(workspacePath);
-          navigate('/conversations');
-        }}
-      />
+      {!pickerControlled && (
+        <WorkspacePickerDialog
+          open={workspacePickerOpen}
+          onOpenChange={setWorkspacePickerOpen}
+          value={draftWorkspacePath}
+          onSelect={(workspacePath) => {
+            selectConversation(null);
+            rememberWorkspacePath(workspacePath);
+            setDraftWorkspacePath(workspacePath);
+            navigate('/conversations');
+          }}
+        />
+      )}
 
       <ConfirmDialog
         open={deleteModalOpen}

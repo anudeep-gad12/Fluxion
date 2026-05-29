@@ -146,6 +146,29 @@ def test_terminal_websocket_ctrl_c_interrupts_foreground_process(client, tmp_pat
     assert closed.status_code == 200
 
 
+def test_terminal_websocket_allows_packaged_desktop_without_owner_token(client, tmp_path: Path):
+    """Desktop HTTP is owner when FLUXION_PACKAGED=true; WebSocket must match."""
+    conversation_id = _create_conversation(client)
+    workspace = str(tmp_path)
+    created = client.post(
+        f"/api/terminal/conversations/{conversation_id}/session",
+        json={"workspace_path": workspace, "cols": 80, "rows": 24},
+    )
+    assert created.status_code == 200
+    session_id = created.json()["session_id"]
+
+    with patch("orchestrator.routes.terminal.is_packaged_app", return_value=True):
+        with client.websocket_connect(
+            f"/api/terminal/conversations/{conversation_id}/ws?session_id={session_id}"
+        ) as websocket:
+            first = websocket.receive_json()
+            assert first["type"] == "status"
+            assert first["status"] == "running"
+
+    closed = client.post(f"/api/terminal/conversations/{conversation_id}/session/close")
+    assert closed.status_code == 200
+
+
 def test_restart_terminal_session_replaces_workspace(client, tmp_path: Path):
     conversation_id = _create_conversation(client)
     first_workspace = tmp_path / "first"

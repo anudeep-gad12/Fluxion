@@ -152,6 +152,14 @@ start_api() {
         log "Using provider: $(grep '^# Provider:' "$PROJECT_DIR/.env.provider" | cut -d: -f2)"
     fi
 
+    # .env may set SERVE_STATIC=true (e.g. production template) — still need ui/dist for :9000 / Tauri
+    case "${SERVE_STATIC:-}" in
+        true|TRUE|True|1|yes|YES|on|ON)
+            ensure_ui_dist
+            export FLUXION_STATIC_DIR="${FLUXION_STATIC_DIR:-$PROJECT_DIR/ui/dist}"
+            ;;
+    esac
+
     : > "$LOG_DIR/api.log"
     start_detached "$PID_DIR/api.pid" "$LOG_DIR/api.log" "$PROJECT_DIR" \
         uv run uvicorn orchestrator.app:app --reload --reload-dir orchestrator --port "$API_PORT" --host 0.0.0.0
@@ -162,11 +170,35 @@ start_api() {
     fi
 }
 
+# Rebuild ui/dist when sources change (Tauri + ./dev.sh desktop serve static files, not Vite HMR).
+ensure_ui_dist() {
+    local dist_index="$PROJECT_DIR/ui/dist/index.html"
+    local needs_build=0
+
+    if [ "${FORCE_UI_BUILD:-}" = "1" ]; then
+        needs_build=1
+    elif [ ! -f "$dist_index" ]; then
+        needs_build=1
+    elif find "$PROJECT_DIR/ui/src" -type f -newer "$dist_index" -print -quit 2>/dev/null | grep -q .; then
+        needs_build=1
+    elif find "$PROJECT_DIR/ui/index.html" -newer "$dist_index" -print -quit 2>/dev/null | grep -q .; then
+        needs_build=1
+    fi
+
+    if [ "$needs_build" -eq 1 ]; then
+        log "Building UI into ui/dist (required for desktop / Tauri — ./dev.sh ui on :3000 is a different, non-desktop preview)..."
+        (cd "$PROJECT_DIR/ui" && pnpm build)
+    else
+        log "UI dist is up to date (ui/dist)"
+    fi
+}
+
 # Start API with the built SPA on :9000 (matches the packaged Tauri app URL).
 start_desktop_api() {
     log "Starting desktop API on port $API_PORT (UI served from ui/dist)..."
     stop_packaged_service
     kill_port "$API_PORT"
+    FORCE_UI_BUILD=1
     cd "$PROJECT_DIR"
 
     if [ -f "$PROJECT_DIR/.env" ]; then
@@ -182,10 +214,7 @@ start_desktop_api() {
         set +a
     fi
 
-    if [ ! -f "$PROJECT_DIR/ui/dist/index.html" ]; then
-        log "Building UI (first time)..."
-        (cd "$PROJECT_DIR/ui" && pnpm build)
-    fi
+    ensure_ui_dist
 
     export SERVE_STATIC=true
     export FLUXION_STATIC_DIR="$PROJECT_DIR/ui/dist"
@@ -196,7 +225,12 @@ start_desktop_api() {
         uv run uvicorn orchestrator.app:app --reload --reload-dir orchestrator --port "$API_PORT" --host 127.0.0.1
     if wait_for_http "http://$CHECK_HOST:$API_PORT/api/health" 20; then
         log "Desktop API ready: ${BLUE}http://127.0.0.1:$API_PORT${NC}"
+        local ui_built
+        ui_built=$(curl -fsS "http://$CHECK_HOST:$API_PORT/api/health" 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print((d.get('ui') or {}).get('built_at','unknown'))" 2>/dev/null || echo "unknown")
+        log "Serving UI build: ${BLUE}${ui_built}${NC} from ${PROJECT_DIR}/ui/dist"
+        warn "Do NOT use ./dev.sh start (:3000) with Tauri — use ./dev.sh desktop only."
         log "In another terminal: ${BLUE}cd src-tauri && SPARKLE_FRAMEWORK_PATH=\\$PWD/Frameworks cargo tauri dev${NC}"
+        log "After UI edits: ${BLUE}./dev.sh desktop${NC} (rebuilds ui/dist) then quit and reopen Tauri"
     else
         warn "API server starting... (check logs/api.log)"
     fi

@@ -42,6 +42,7 @@ from orchestrator.runtime_paths import (
     is_packaged_app,
     is_static_serving_enabled,
     static_dir,
+    ui_build_info,
 )
 from orchestrator.services.provider_keys import apply_persisted_provider_keys_to_environment
 from orchestrator.storage.db import get_db
@@ -54,7 +55,12 @@ def get_cors_origins() -> list[str]:
     origins = os.environ.get("CORS_ORIGINS", "")
     if origins:
         return [o.strip() for o in origins.split(",")]
-    return ["http://127.0.0.1:3000", "http://localhost:3000"]
+    return [
+        "http://127.0.0.1:3000",
+        "http://localhost:3000",
+        "http://127.0.0.1:9000",
+        "http://localhost:9000",
+    ]
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -237,6 +243,23 @@ async def lifespan(app: FastAPI):
     # Start OAuth callback server on port 1455 (for ChatGPT login)
     await auth.start_callback_server()
 
+    if is_static_serving_enabled():
+        ui_root = static_dir()
+        index_path = ui_root / "index.html"
+        if index_path.is_file():
+            logger.info(
+                "Serving UI from %s",
+                ui_root,
+                extra={"ui_static_dir": str(ui_root), "ui_built_at": ui_build_info().get("built_at")},
+            )
+        else:
+            logger.error(
+                "SERVE_STATIC is enabled but %s is missing. "
+                "Run: ./dev.sh desktop  (or: cd ui && pnpm build)",
+                index_path,
+                extra={"ui_static_dir": str(ui_root)},
+            )
+
     yield
 
     # Shutdown
@@ -295,13 +318,21 @@ app.include_router(terminal.router)
 @app.get("/api/health")
 async def health_check():
     """Health check endpoint."""
-    return {
+    ui_build = ui_build_info()
+    payload = {
         "status": "ok",
         "app": "Fluxion",
         "packaged": is_packaged_app(),
         "version": app_version(),
         "build_id": build_id(),
     }
+    if is_static_serving_enabled():
+        ui_root = static_dir()
+        payload["ui_static_dir"] = str(ui_root)
+        payload["ui_ready"] = (ui_root / "index.html").is_file()
+        if ui_build:
+            payload["ui"] = ui_build
+    return payload
 
 
 @app.get("/api/config")
@@ -321,21 +352,44 @@ async def get_config():
     }
 
 
-# Static file serving for production (when SERVE_STATIC=true)
-STATIC_DIR = static_dir()
-if STATIC_DIR.exists() and is_static_serving_enabled():
-    # Serve static assets with caching
-    app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
+# Static file serving (when SERVE_STATIC=true). Resolve ui/dist on each request so a
+# build that finishes after API startup still works without a manual restart.
+if is_static_serving_enabled():
+    _assets_root = static_dir() / "assets"
+    if _assets_root.is_dir():
+        app.mount("/assets", StaticFiles(directory=_assets_root), name="assets")
+
+    @app.get("/ui-build.json")
+    async def serve_ui_build_stamp():
+        """Expose the UI build stamp for verifying the served bundle."""
+        stamp_path = static_dir() / "ui-build.json"
+        if not stamp_path.is_file():
+            raise HTTPException(status_code=404, detail="UI build stamp missing")
+        return FileResponse(
+            stamp_path,
+            media_type="application/json",
+            headers={"Cache-Control": "no-store"},
+        )
 
     @app.get("/{full_path:path}")
     async def serve_spa(full_path: str):
         """Serve SPA for all non-API routes."""
         if full_path.startswith("api/") or full_path.startswith("auth/"):
             raise HTTPException(status_code=404, detail="Not found")
-        index_path = STATIC_DIR / "index.html"
-        if index_path.exists():
-            return FileResponse(index_path)
-        raise HTTPException(status_code=404, detail="Frontend not built")
+        index_path = static_dir() / "index.html"
+        if index_path.is_file():
+            headers = None
+            if is_packaged_app():
+                headers = {"Cache-Control": "no-store, no-cache, must-revalidate"}
+            return FileResponse(index_path, headers=headers)
+        ui_root = static_dir()
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "Frontend not built. Run ./dev.sh desktop from the repo root "
+                f"(expected index at {ui_root / 'index.html'})."
+            ),
+        )
 
 
 # Run with: uvicorn orchestrator.app:app --host 0.0.0.0 --port 9000

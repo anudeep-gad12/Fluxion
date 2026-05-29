@@ -540,3 +540,95 @@ textarea:focus {
 .fluxion-trace {
   animation: fluxion-trace 4.5s ease-in-out infinite;
 }
+
+/* -------------------------------------------------------------------------- */
+/* Desktop app (Tauri) — tokens + native shell                                 */
+/* -------------------------------------------------------------------------- */
+
+[data-app='desktop'] {
+  --radius: 0.75rem;
+  --sidebar-width-default: 260px;
+}
+
+[data-app='desktop'] code,
+[data-app='desktop'] pre,
+[data-app='desktop'] .font-mono {
+  font-family: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+[data-app='desktop'] textarea,
+[data-app='desktop'] input,
+[data-app='desktop'] select {
+  font-family: inherit;
+}
+
+[data-app='desktop'] .premium-panel {
+  border-radius: 0.75rem;
+  background: var(--desktop-bg-2);
+  box-shadow: none;
+}
+
+[data-app='desktop'] .premium-section-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: var(--desktop-text-secondary);
+}
+
+[data-app='desktop'] .premium-chip,
+[data-app='desktop'] .premium-subtle-button,
+[data-app='desktop'] .premium-field,
+[data-app='desktop'] .premium-primary-button {
+  border-radius: 0.5rem;
+  font-family: inherit;
+  font-size: 0.8125rem;
+  letter-spacing: 0;
+  box-shadow: none;
+}
+
+[data-app='desktop'] .markdown pre,
+[data-app='desktop'] .markdown table {
+  border-radius: 0.5rem;
+}
+
+[data-app='desktop'] .markdown blockquote {
+  border-radius: 0 0.5rem 0.5rem 0;
+}
+
+[data-app='desktop'] .desktop-list-item {
+  border-radius: 0.5rem;
+  border: 1px solid transparent;
+  background: transparent;
+}
+
+[data-app='desktop'] .desktop-list-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* Legacy web composer on desktop build (non-Tauri) */
+[data-app='desktop'] .desktop-send-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9999px;
+  background: var(--desktop-text-primary);
+  color: var(--desktop-bg-0);
+}
+
+[data-app='desktop'] .desktop-send-button-disabled {
+  background: #3f3f46;
+  color: #71717a;
+}
+
+[data-app='desktop'] .desktop-send-button-steer {
+  background: #fbbf24;
+  color: #09090b;
+}
+
+[data-app='desktop'] .desktop-send-button-stop {
+  background: rgba(239, 68, 68, 0.18);
+  color: #fca5a5;
+}

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 from pathlib import Path
@@ -82,3 +83,20 @@ def static_dir() -> Path:
         return bundle_root / "ui" / "dist"
 
     return Path(__file__).parent.parent / "ui" / "dist"
+
+
+def ui_build_info() -> dict[str, str]:
+    """Return build metadata written by the UI Vite bundle step."""
+    stamp_path = static_dir() / "ui-build.json"
+    if not stamp_path.is_file():
+        return {}
+    try:
+        payload = json.loads(stamp_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    built_at = payload.get("builtAt")
+    if isinstance(built_at, str) and built_at.strip():
+        return {"built_at": built_at.strip()}
+    return {}

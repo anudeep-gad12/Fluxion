@@ -1,0 +1,194 @@
+/* Desktop settings surfaces — dialogs, popovers, flat lists */
+
+[data-app='desktop'] .ui-dialog-surface {
+  border-radius: 16px;
+  border: 1px solid var(--desktop-border-subtle);
+  background: var(--desktop-bg-3);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
+}
+
+[data-app='desktop'] .ui-dialog-surface .premium-panel {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+[data-app='desktop'] .desktop-settings-popover {
+  border-radius: 14px;
+  border: 1px solid var(--desktop-border-subtle);
+  background: var(--desktop-bg-3);
+  padding: 14px;
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.42);
+}
+
+[data-app='desktop'] .desktop-settings-label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #71717a;
+  letter-spacing: -0.01em;
+}
+
+[data-app='desktop'] .desktop-settings-section {
+  padding-bottom: 14px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--desktop-border-subtle);
+}
+
+[data-app='desktop'] .desktop-settings-section:last-child {
+  padding-bottom: 0;
+  margin-bottom: 0;
+  border-bottom: none;
+}
+
+[data-app='desktop'] .desktop-settings-field {
+  width: 100%;
+  border: none;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--desktop-text-primary);
+  outline: none;
+  transition: box-shadow 0.12s ease;
+}
+
+[data-app='desktop'] .desktop-settings-field:focus {
+  box-shadow: 0 0 0 1px rgba(121, 230, 255, 0.18);
+}
+
+[data-app='desktop'] .desktop-settings-field::placeholder {
+  color: #52525b;
+}
+
+[data-app='desktop'] .desktop-settings-list-item {
+  display: block;
+  width: 100%;
+  margin-bottom: 2px;
+  padding: 10px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  text-align: left;
+  transition: background 0.12s ease;
+}
+
+[data-app='desktop'] .desktop-settings-list-item:last-child {
+  margin-bottom: 0;
+}
+
+[data-app='desktop'] .desktop-settings-list-item:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+[data-app='desktop'] .desktop-settings-list-item[data-active='true'] {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+[data-app='desktop'] .desktop-settings-list-title {
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  color: var(--desktop-text-primary);
+}
+
+[data-app='desktop'] .desktop-settings-list-meta {
+  margin-top: 3px;
+  font-size: 11px;
+  color: #52525b;
+}
+
+[data-app='desktop'] .desktop-settings-list-active {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--desktop-accent);
+}
+
+[data-app='desktop'] .desktop-settings-provider-header {
+  padding: 0 2px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #71717a;
+}
+
+[data-app='desktop'] .desktop-settings-provider-count {
+  margin-top: 2px;
+  font-size: 11px;
+  color: #52525b;
+}
+
+[data-app='desktop'] .desktop-settings-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
+  padding-top: 4px;
+}
+
+[data-app='desktop'] .desktop-settings-btn-ghost {
+  border: none;
+  border-radius: 6px;
+  padding: 6px 10px;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 500;
+  color: #71717a;
+  transition: color 0.12s ease, background 0.12s ease;
+}
+
+[data-app='desktop'] .desktop-settings-btn-ghost:hover:not(:disabled) {
+  color: var(--desktop-text-primary);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+[data-app='desktop'] .desktop-settings-btn-primary {
+  border: none;
+  border-radius: 6px;
+  padding: 6px 12px;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--desktop-accent);
+  transition: color 0.12s ease, background 0.12s ease;
+}
+
+[data-app='desktop'] .desktop-settings-btn-primary:hover:not(:disabled) {
+  background: var(--desktop-accent-muted);
+}
+
+[data-app='desktop'] .desktop-settings-key-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--desktop-border-subtle);
+}
+
+[data-app='desktop'] .desktop-settings-key-row:last-child {
+  border-bottom: none;
+}
+
+[data-app='desktop'] .desktop-settings-hint {
+  margin-top: 8px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #52525b;
+}
+
+[data-app='desktop'] .desktop-settings-model-line {
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  color: var(--desktop-text-primary);
+}
+
+[data-app='desktop'] .desktop-settings-model-provider {
+  margin-top: 2px;
+  font-size: 11px;
+  color: #52525b;
+  text-transform: capitalize;
+}

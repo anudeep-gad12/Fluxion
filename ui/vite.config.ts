@@ -1,22 +1,31 @@
 import path from "path"
 import { fileURLToPath } from "url"
-import { copyFileSync, mkdirSync } from "fs"
+import { copyFileSync, mkdirSync, writeFileSync } from "fs"
 import react from "@vitejs/plugin-react"
-import { defineConfig } from "vite"
+import { defineConfig, type Plugin } from "vite"
 
 const projectRoot = path.dirname(fileURLToPath(import.meta.url))
+const uiBuildAt = new Date().toISOString()
+
+function uiBuildStampPlugin(buildAt: string): Plugin {
+  return {
+    name: "ui-build-stamp",
+    closeBundle() {
+      mkdirSync("dist/assets", { recursive: true })
+      copyFileSync("public/favicon.svg", "dist/assets/favicon.svg")
+      writeFileSync(
+        "dist/ui-build.json",
+        JSON.stringify({ builtAt: buildAt }, null, 2)
+      )
+    },
+  }
+}
 
 export default defineConfig({
-  plugins: [
-    react(),
-    {
-      name: "copy-favicon",
-      closeBundle() {
-        mkdirSync("dist/assets", { recursive: true })
-        copyFileSync("public/favicon.svg", "dist/assets/favicon.svg")
-      },
-    },
-  ],
+  define: {
+    __UI_BUILD_AT__: JSON.stringify(uiBuildAt),
+  },
+  plugins: [react(), uiBuildStampPlugin(uiBuildAt)],
   resolve: {
     alias: {
       "@": path.resolve(projectRoot, "./src"),

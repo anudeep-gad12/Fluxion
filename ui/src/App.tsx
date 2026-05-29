@@ -5,23 +5,22 @@ import { Routes, Route, Navigate, useParams, useSearchParams, useNavigate } from
 import { Toaster } from 'sonner';
 import { ConversationList } from '@/components/ConversationList';
 import { ConversationView, isConversationMissing } from '@/components/ConversationView';
+import { WorkspacePickerDialog } from '@/components/WorkspacePickerDialog';
+import { TerminalPanel } from '@/components/desktop/TerminalPanel';
+import { DesktopTitlebar } from '@/components/desktop/DesktopTitlebar';
+import { startWindowDrag } from '@/lib/windowDrag';
 import { useStore, useHasActiveRun } from '@/hooks/useStore';
+import { isLocalDesktopApp } from '@/lib/platform';
 import { cn } from '@/lib/utils';
-import { PanelLeftClose, PanelLeft, GripVertical, Plus, Menu, X } from 'lucide-react';
+import { PanelLeftClose, PanelLeft, GripVertical, FolderPlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
-// LocalStorage keys for demo mode
 const OWNER_TOKEN_KEY = 'reasoner_owner_token';
 const SIDEBAR_PREF_KEY = 'reasoner_sidebar_pref';
+const DESKTOP_SIDEBAR_DEFAULT = 272;
+const DESKTOP_SIDEBAR_MIN = 240;
+const DESKTOP_SIDEBAR_MAX = 360;
 
-/** True when the UI is served from the local desktop app (Tauri / packaged API on :9000). */
-function isLocalDesktopApp(): boolean {
-  if (typeof window === 'undefined') return false;
-  const { hostname, port } = window.location;
-  return (hostname === '127.0.0.1' || hostname === 'localhost') && port === '9000';
-}
-
-// Component to sync URL params with store
 function ConversationSync() {
   const { conversationId } = useParams<{ conversationId: string }>();
   const navigate = useNavigate();
@@ -36,7 +35,6 @@ function ConversationSync() {
       navigate('/conversations', { replace: true });
       return;
     }
-    // Sync URL → store when URL changes
     if (conversationId && conversationId !== selectedConversationId) {
       selectConversation(conversationId);
     } else if (!conversationId && selectedConversationId) {
@@ -47,13 +45,10 @@ function ConversationSync() {
   return <ConversationView />;
 }
 
-// Component for /conversations route - shows "new conversation" empty state
-// This clears selection so user can type first message (lazy creation)
 function NewConversationView() {
   const selectConversation = useStore((s) => s.selectConversation);
 
   useEffect(() => {
-    // Clear any selected conversation when on this route
     selectConversation(null);
   }, [selectConversation]);
 
@@ -63,21 +58,23 @@ function NewConversationView() {
 function AppLayout() {
   const hasActiveRun = useHasActiveRun();
   const [searchParams, setSearchParams] = useSearchParams();
-  const navigate = useNavigate();
 
   const localDesktop = isLocalDesktopApp();
+  const conversationMode = useStore((s) => s.conversationMode);
+  const draftWorkspacePath = useStore((s) => s.draftWorkspacePath);
+  const selectConversation = useStore((s) => s.selectConversation);
+  const rememberWorkspacePath = useStore((s) => s.rememberWorkspacePath);
+  const setDraftWorkspacePath = useStore((s) => s.setDraftWorkspacePath);
 
-  // Owner detection - local desktop app is always owner; web demo uses token/URL
   const [isOwner, setIsOwner] = useState(() => {
     if (localDesktop) return true;
     const token = localStorage.getItem(OWNER_TOKEN_KEY);
     return Boolean(token && token.length >= 16);
   });
 
-  // Demo mode state - fetched from backend (never enabled for local desktop)
   const [isDemoMode, setIsDemoMode] = useState(false);
+  const [workspacePickerOpen, setWorkspacePickerOpen] = useState(false);
 
-  // Sidebar state - open by default on local desktop
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     if (localDesktop) {
       return localStorage.getItem(SIDEBAR_PREF_KEY) === 'collapsed';
@@ -87,30 +84,44 @@ function AppLayout() {
     }
     return true;
   });
-  const [sidebarWidth, setSidebarWidth] = useState(392); // default 392px
+
+  const [sidebarWidth, setSidebarWidth] = useState(
+    localDesktop ? DESKTOP_SIDEBAR_DEFAULT : 392
+  );
   const isResizing = useRef(false);
 
-  // Mobile detection - below md: breakpoint (768px)
   const [isMobile, setIsMobile] = useState(() => {
+    if (localDesktop) return false;
     return typeof window !== 'undefined' && window.innerWidth < 768;
   });
 
-  // Check for owner secret in URL params (?owner=<secret>)
   useEffect(() => {
     const ownerParam = searchParams.get('owner');
     if (ownerParam && ownerParam.length >= 16) {
-      // Store the token
       localStorage.setItem(OWNER_TOKEN_KEY, ownerParam);
       setIsOwner(true);
-      // Open sidebar for owner
       setSidebarCollapsed(false);
-      // Remove param from URL (clean up)
       searchParams.delete('owner');
       setSearchParams(searchParams, { replace: true });
     }
   }, [searchParams, setSearchParams]);
 
-  // Fetch demo mode status from backend
+  useEffect(() => {
+    if (!localDesktop) return;
+    void fetch('/api/health')
+      .then((response) => (response.ok ? response.json() : null))
+      .then((payload: { ui?: { built_at?: string } } | null) => {
+        const serverBuiltAt = payload?.ui?.built_at;
+        if (serverBuiltAt && serverBuiltAt !== __UI_BUILD_AT__) {
+          console.warn(
+            '[Fluxion] API is serving a different UI build than this page loaded. Run ./dev.sh desktop and restart Tauri.',
+            { loaded: __UI_BUILD_AT__, server: serverBuiltAt }
+          );
+        }
+      })
+      .catch(() => {});
+  }, [localDesktop]);
+
   useEffect(() => {
     if (localDesktop) {
       setIsOwner(true);
@@ -132,7 +143,6 @@ function AppLayout() {
       });
   }, [localDesktop]);
 
-  // Enforce sidebar collapsed for non-owners in hosted demo mode only
   useEffect(() => {
     if (localDesktop) return;
     if (isDemoMode && !isOwner) {
@@ -140,48 +150,37 @@ function AppLayout() {
     }
   }, [isDemoMode, isOwner, localDesktop]);
 
-  // Mobile detection on resize
   useEffect(() => {
+    if (localDesktop) return;
     const handleResize = () => {
       setIsMobile(window.innerWidth < 768);
     };
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
-  }, []);
+  }, [localDesktop]);
 
-  // Handle sidebar toggle with demo mode enforcement
   const handleSidebarToggle = useCallback(
     (collapsed: boolean) => {
-      // Prevent non-owners from opening sidebar in demo mode
       if (!collapsed && isDemoMode && !isOwner) {
         return;
       }
       setSidebarCollapsed(collapsed);
-      // Save preference for owners / local desktop
       if (isOwner || localDesktop) {
         localStorage.setItem(SIDEBAR_PREF_KEY, collapsed ? 'collapsed' : 'open');
       }
     },
-    [isDemoMode, isOwner]
+    [isDemoMode, isOwner, localDesktop]
   );
 
-  // Navigate to new conversation (blocked during active run)
-  const handleNewConversation = useCallback(() => {
-    if (hasActiveRun) return;
-    navigate('/conversations');
-  }, [navigate, hasActiveRun]);
-
-  const handleMouseDown = useCallback(() => {
-    isResizing.current = true;
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-  }, []);
-
-  const handleMouseMove = useCallback((e: MouseEvent) => {
-    if (!isResizing.current) return;
-    const newWidth = Math.min(Math.max(e.clientX, 280), 520); // min 280, max 520
-    setSidebarWidth(newWidth);
-  }, []);
+  const handleMouseMove = useCallback(
+    (e: MouseEvent) => {
+      if (!isResizing.current) return;
+      const min = localDesktop ? DESKTOP_SIDEBAR_MIN : 280;
+      const max = localDesktop ? DESKTOP_SIDEBAR_MAX : 520;
+      setSidebarWidth(Math.min(Math.max(e.clientX, min), max));
+    },
+    [localDesktop]
+  );
 
   const handleMouseUp = useCallback(() => {
     isResizing.current = false;
@@ -189,110 +188,143 @@ function AppLayout() {
     document.removeEventListener('mouseup', handleMouseUp);
   }, [handleMouseMove]);
 
-  return (
-    <div className="fluxion-app-bg h-[100dvh] flex text-zinc-100">
-      {/* Mobile header - only show on mobile */}
-      {isMobile && (
-        <header className="fluxion-topbar fixed top-0 left-0 right-0 z-40 flex h-14 items-center justify-between border-b px-4">
-          <div className="flex items-center gap-2">
-            {/* Hamburger menu - respect demo mode restrictions */}
-            {(isOwner || !isDemoMode) && (
-              <button
-                onClick={() => handleSidebarToggle(false)}
-                className="ui-transition -ml-2 rounded-xl p-2 text-zinc-400 hover:bg-white/[0.055] hover:text-cyan-100"
-                aria-label="Open menu"
-              >
-                <Menu className="h-6 w-6" />
-              </button>
-            )}
-          </div>
-          {/* New Chat button - disabled during active run */}
-          <span title={hasActiveRun ? "Active run in progress — cannot start new conversation until complete" : "New conversation"}>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={handleNewConversation}
-              disabled={hasActiveRun}
-              className="h-9 w-9"
-            >
-              <Plus className="h-5 w-5" />
-            </Button>
+  const handleMouseDown = useCallback(() => {
+    isResizing.current = true;
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+  }, [handleMouseMove, handleMouseUp]);
+
+  const sidebarContent = (
+    <>
+      {localDesktop ? (
+        <DesktopTitlebar
+          safeLeft
+          className="desktop-sidebar-header flex h-[var(--titlebar-height)] min-h-[var(--titlebar-height)] items-center justify-between pr-3"
+        >
+        <div className="desktop-titlebar-content flex min-w-0 flex-1 items-center gap-2.5">
+          <img
+            src="/assets/favicon.svg"
+            alt=""
+            className="pointer-events-none h-7 w-7 shrink-0 rounded-md"
+            aria-hidden
+          />
+          <span className="pointer-events-none truncate text-[15px] font-semibold tracking-tight text-zinc-50">
+            Fluxion
           </span>
-        </header>
+        </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => handleSidebarToggle(true)}
+          className="desktop-no-drag relative z-10 h-8 w-8 shrink-0 text-zinc-500"
+          aria-label="Collapse sidebar"
+        >
+          <PanelLeftClose className="h-4 w-4" />
+        </Button>
+        </DesktopTitlebar>
+      ) : (
+      <div className="relative flex flex-shrink-0 items-center justify-between px-4 py-4">
+        <div className="flex min-w-0 flex-1 items-center gap-2.5">
+          <img
+            src="/assets/favicon.svg"
+            alt=""
+            className="h-7 w-7 shrink-0 rounded-md"
+            aria-hidden
+          />
+          <span className="truncate text-[15px] font-semibold tracking-tight text-zinc-50">
+            Fluxion
+          </span>
+        </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => handleSidebarToggle(true)}
+          className="h-8 w-8 shrink-0 text-zinc-500"
+          aria-label="Collapse sidebar"
+        >
+          <PanelLeftClose className="h-4 w-4" />
+        </Button>
+      </div>
       )}
 
-      {/* Left Sidebar - Conversation List */}
+      {localDesktop && (
+        <div className="px-2 pb-1 pt-2">
+          <Button
+            variant="ghost"
+            onClick={() => setWorkspacePickerOpen(true)}
+            disabled={hasActiveRun}
+            className={cn(
+              'h-8 w-full justify-start gap-2 rounded-lg px-2.5 text-[13px] font-normal',
+              'text-zinc-400 hover:bg-white/[0.05] hover:text-zinc-100'
+            )}
+            title={
+              hasActiveRun
+                ? 'Active run in progress'
+                : 'Add a workspace folder'
+            }
+          >
+            <FolderPlus className="h-4 w-4 opacity-70" />
+            New workspace
+          </Button>
+        </div>
+      )}
+
+      <div className="flex-1 overflow-hidden">
+        <ConversationList
+          workspacePickerOpen={workspacePickerOpen}
+          onWorkspacePickerOpenChange={setWorkspacePickerOpen}
+        />
+      </div>
+
+    </>
+  );
+
+  const body = (
+    <div className="flex min-h-0 flex-1">
       <aside
         className={cn(
-          "ui-panel border-r border-white/10 flex flex-col flex-shrink-0 ui-transition relative",
-          // Mobile: fixed overlay drawer
-          isMobile && "fixed md:static inset-y-0 left-0 z-50 w-[80vw] max-w-[320px]",
-          isMobile && (sidebarCollapsed ? "-translate-x-full" : "translate-x-0"),
-          // Desktop: normal sidebar behavior
-          !isMobile && (sidebarCollapsed ? "w-0 overflow-hidden" : ""),
-          // Mobile: add padding for fixed header
-          isMobile && "pt-14"
+          'desktop-shell-left ui-panel relative flex flex-shrink-0 flex-col',
+          isMobile && 'fixed inset-y-0 left-0 z-50 w-[80vw] max-w-[320px]',
+          isMobile && (sidebarCollapsed ? '-translate-x-full' : 'translate-x-0'),
+          !isMobile && sidebarCollapsed && 'w-0 overflow-hidden'
         )}
         style={!isMobile && !sidebarCollapsed ? { width: sidebarWidth } : undefined}
       >
-        <div className="flex items-center justify-between border-b border-white/10 px-4 py-4">
-          <h1 className="font-mono text-lg font-semibold tracking-[-0.04em] text-zinc-50">fluxion&gt;</h1>
-          {/* Mobile: close button, Desktop: collapse button */}
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => handleSidebarToggle(true)}
-            className="h-8 w-8 text-zinc-500"
-          >
-            {isMobile ? <X className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
-          </Button>
-        </div>
-        <div className="flex-1 overflow-hidden">
-          <ConversationList />
-        </div>
-
-        {/* Resize handle - only show on desktop */}
-        {!isMobile && (
+        {sidebarContent}
+        {!isMobile && !sidebarCollapsed && (
           <div
-            className="group absolute right-0 top-0 bottom-0 w-1 cursor-col-resize ui-transition hover:bg-white/10"
+            className="group absolute bottom-0 right-0 top-0 w-1 cursor-col-resize hover:bg-white/10"
             onMouseDown={handleMouseDown}
           >
-            <div className="absolute right-0 top-1/2 -translate-y-1/2 opacity-0 ui-transition group-hover:opacity-100">
+            <div className="absolute right-0 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100">
               <GripVertical className="h-6 w-6 text-zinc-600" />
             </div>
           </div>
         )}
       </aside>
 
-      {/* Collapsed sidebar strip with New Chat button - hide on mobile */}
       {sidebarCollapsed && !isMobile && (
-        <div className="ui-panel flex flex-col items-center gap-2 border-r border-white/10 p-2.5">
-          {/* Expand button - only show for owners or when not in demo mode */}
+        <div
+          className="desktop-panel-rail desktop-shell-left ui-panel relative flex flex-shrink-0 flex-col items-center py-3"
+          style={{ width: 'var(--desktop-traffic-light-inset)' }}
+          data-tauri-drag-region
+          onMouseDown={(event) => void startWindowDrag(event)}
+        >
           {(isOwner || !isDemoMode) && (
             <Button
               variant="ghost"
               size="icon"
               onClick={() => handleSidebarToggle(false)}
+              className="desktop-no-drag relative z-10 mt-1"
               title="Open sidebar"
+              aria-label="Open sidebar"
             >
               <PanelLeft className="h-4 w-4" />
             </Button>
           )}
-          {/* New Chat button - always visible, disabled during active run */}
-          <span title={hasActiveRun ? "Active run in progress — cannot start new conversation until complete" : "New conversation"}>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={handleNewConversation}
-              disabled={hasActiveRun}
-            >
-              <Plus className="h-4 w-4" />
-            </Button>
-          </span>
         </div>
       )}
 
-      {/* Mobile backdrop - overlay when sidebar is open */}
       {isMobile && !sidebarCollapsed && (
         <div
           className="fixed inset-0 z-40 bg-black/65 backdrop-blur-[2px]"
@@ -300,28 +332,65 @@ function AppLayout() {
         />
       )}
 
-      {/* Main content - Chat with Routes */}
-      <main
-        className={cn(
-          "flex-1 overflow-hidden flex flex-col",
-          // Mobile: add top padding for fixed header
-          isMobile && "pt-14"
-        )}
-      >
+      <main className="desktop-shell-main flex min-w-0 flex-1 flex-col overflow-hidden">
         <Routes>
           <Route path="/" element={<Navigate to="/conversations" replace />} />
           <Route path="/conversations" element={<NewConversationView />} />
           <Route path="/conversations/:conversationId" element={<ConversationSync />} />
         </Routes>
       </main>
+
+      {localDesktop && (
+        <TerminalPanel agentModeActive={conversationMode === 'agent'} />
+      )}
+    </div>
+  );
+
+  const workspacePicker = (
+    <WorkspacePickerDialog
+      open={workspacePickerOpen}
+      onOpenChange={setWorkspacePickerOpen}
+      value={draftWorkspacePath}
+      onSelect={(workspacePath) => {
+        selectConversation(null);
+        rememberWorkspacePath(workspacePath);
+        setDraftWorkspacePath(workspacePath);
+      }}
+    />
+  );
+
+  if (localDesktop) {
+    return (
+      <div className="fluxion-app-bg flex h-[100dvh] flex-col text-zinc-100">
+        {body}
+        {workspacePicker}
+      </div>
+    );
+  }
+
+  return (
+    <div className="fluxion-app-bg flex h-[100dvh] flex-col text-zinc-100">
+      <div className={cn('flex min-h-0 flex-1 flex-col')}>{body}</div>
+      {workspacePicker}
     </div>
   );
 }
 
 function App() {
+  const desktop = isLocalDesktopApp();
+
   return (
     <>
-      <Toaster position="top-right" richColors closeButton duration={4000} theme="dark" />
+      <Toaster
+        position="top-right"
+        richColors
+        closeButton
+        duration={4000}
+        theme="dark"
+        toastOptions={{
+          className: desktop ? 'sonner-toast border border-white/10 bg-zinc-900 text-zinc-100' : undefined,
+        }}
+      />
       <Routes>
         <Route path="/*" element={<AppLayout />} />
       </Routes>

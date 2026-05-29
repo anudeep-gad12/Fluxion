@@ -60,6 +60,9 @@ interface AppState {
   agentRunState: Record<string, AgentUIState>;
   terminalByConversation: Record<string, TerminalUIState>;
 
+  /** Active conversation UI mode (synced from ConversationView for shell panels). */
+  conversationMode: 'chat' | 'agent';
+
   // Conversation actions
   setConversations: (conversations: Conversation[]) => void;
   addConversation: (conversation: Conversation) => void;
@@ -110,6 +113,7 @@ interface AppState {
   updateTerminalState: (conversationId: string, updates: Partial<TerminalUIState>) => void;
   appendTerminalBuffer: (conversationId: string, chunk: string) => void;
   clearTerminalBuffer: (conversationId: string) => void;
+  setConversationMode: (mode: 'chat' | 'agent') => void;
 }
 
 export const useStore = create<AppState>((set, get) => ({
@@ -131,6 +135,7 @@ export const useStore = create<AppState>((set, get) => ({
   fetchingRuns: new Set<string>(),
   agentRunState: {},
   terminalByConversation: {},
+  conversationMode: 'agent',
 
   // Conversation actions
   setConversations: (conversations) => set({ conversations }),
@@ -542,6 +547,8 @@ export const useStore = create<AppState>((set, get) => ({
         },
       };
     }),
+
+  setConversationMode: (mode) => set({ conversationMode: mode }),
 }));
 
 // Selectors

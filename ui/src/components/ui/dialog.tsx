@@ -20,7 +20,7 @@ export function Dialog({ open, onOpenChange, children, className }: DialogProps)
                 onClick={() => onOpenChange(false)}
             />
             {/* Content - relative z-10 to sit above backdrop */}
-            <div className={cn("ui-panel-strong ui-elevated relative z-10 mx-4 w-full max-w-md overflow-hidden rounded-[1.55rem] border border-white/10 animate-in fade-in zoom-in-95 duration-200", className)}>
+            <div className={cn("ui-dialog-surface relative z-10 mx-4 w-full max-w-md overflow-hidden rounded-xl border border-white/10 bg-[#18181b] shadow-2xl shadow-black/40 animate-in fade-in zoom-in-95 duration-200", className)}>
                 {children}
             </div>
         </div>

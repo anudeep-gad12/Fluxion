@@ -4,7 +4,7 @@
 
 import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import { sanitizeThinking } from '@/lib/utils';
+import { cn, sanitizeThinking } from '@/lib/utils';
 import { ToolCallCard } from '@/components/ToolCallCard';
 import { AnswerMarkdown } from '@/components/AnswerMarkdown';
 import type { AgentToolCall, AgentUIState } from '@/types/agent';
@@ -67,11 +67,11 @@ function ThinkingBlock({
       >
         <div className="space-y-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-full border border-white/10 bg-white/[0.025] px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.14em] text-zinc-300">
+            <span className="rounded-md border border-white/8 bg-white/[0.04] px-2 py-0.5 text-[11px] text-zinc-400">
               thinking
             </span>
             {isLive && (
-              <span className="rounded-full border border-cyan-500/18 bg-cyan-500/[0.04] px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.14em] text-cyan-200">
+              <span className="rounded-md border border-cyan-500/20 bg-cyan-500/[0.08] px-2 py-0.5 text-[11px] text-cyan-200">
                 live
               </span>
             )}
@@ -124,9 +124,9 @@ function PendingStepCard() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <span className="inline-flex h-2 w-2 rounded-full bg-cyan-400 animate-pulse" />
-          <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-cyan-100">thinking</span>
+          <span className="text-[11px] font-medium text-cyan-200">Thinking</span>
         </div>
-        <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-zinc-500">waiting for first trace</span>
+        <span className="text-[11px] text-zinc-500">Waiting for first trace</span>
       </div>
       <div className="mt-3 space-y-2">
         <div className="h-2.5 w-[70%] rounded-full bg-zinc-900 shimmer" />
@@ -188,7 +188,7 @@ export function AgentStepsPanel({ agentState }: AgentStepsPanelProps) {
   }
 
   return (
-    <div className="mb-5 pl-1 font-mono text-xs">
+    <div className="mb-5 pl-1 text-xs">
       <div className="space-y-5">
         {systemEvents.map((event, index) => (
           <TimelineItem
@@ -219,8 +219,14 @@ export function AgentStepsPanel({ agentState }: AgentStepsPanelProps) {
           return (
             <div key={step.id} className="space-y-3">
               <div className="pl-7">
-                <div className="flex flex-wrap items-center gap-2 font-mono text-[10px] uppercase tracking-[0.18em]">
-                  <span className={`rounded-full border px-2 py-0.5 ${stepChipClass(step.state, isCurrentStep, isActive)}`}>
+                <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                  <span
+                    className={cn(
+                      'rounded-md border px-2 py-0.5 capitalize',
+                      stepChipClass(step.state, isCurrentStep, isActive),
+                      isCurrentStep && isActive && 'ring-1 ring-cyan-400/20'
+                    )}
+                  >
                     {formatStepStateLabel(step.state, isCurrentStep, isActive)}
                   </span>
                   {stepToolCalls.length > 0 ? (
