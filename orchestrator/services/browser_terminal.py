@@ -45,6 +45,27 @@ def _normalize_workspace_path(workspace_path: str | None) -> str:
         return str(Path.home())
 
 
+def build_pty_shell_environment(
+    base: dict[str, str] | None,
+    *,
+    cols: int,
+    rows: int,
+) -> dict[str, str]:
+    """Build environment for an interactive PTY shell.
+
+    Parent processes (IDE, CI, uvicorn) often set ``TERM=dumb``; shells and
+    prompts such as Starship require a real terminal type.
+    """
+    env = dict(base or os.environ)
+    env["TERM"] = "xterm-256color"
+    env["COLORTERM"] = "truecolor"
+    env.setdefault("TERM_PROGRAM", "fluxion")
+    env.pop("STARSHIP_SHELL", None)
+    env["COLUMNS"] = str(cols)
+    env["LINES"] = str(rows)
+    return env
+
+
 @dataclass
 class TerminalSession:
     """Live PTY session and bounded replay for one conversation."""
@@ -71,10 +92,7 @@ class TerminalSession:
         master_fd, slave_fd = pty.openpty()
         self.master_fd = master_fd
         self._set_winsize(self.cols, self.rows)
-        env = os.environ.copy()
-        env.setdefault("TERM", "xterm-256color")
-        env["COLUMNS"] = str(self.cols)
-        env["LINES"] = str(self.rows)
+        env = build_pty_shell_environment(os.environ, cols=self.cols, rows=self.rows)
         def _configure_child_terminal() -> None:
             os.setsid()
             fcntl.ioctl(slave_fd, termios.TIOCSCTTY, 0)

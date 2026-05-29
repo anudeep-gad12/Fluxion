@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
 import { FolderOpen, SlidersHorizontal } from 'lucide-react';
-import { cn } from '@/lib/utils';
 import { DesktopTextOptionGroup } from '@/components/desktop/DesktopTextOptionGroup';
 
 interface DesktopRunSettingsMenuProps {
@@ -71,10 +70,8 @@ export function DesktopRunSettingsMenu({
             <span className="desktop-settings-label">Workspace</span>
             {isWorkspaceLocked ? (
               <p
-                className={cn(
-                  'truncate text-[12px]',
-                  hasConversationWorkspace ? 'text-zinc-400' : 'text-zinc-600'
-                )}
+                className="desktop-settings-workspace-locked"
+                data-empty={hasConversationWorkspace ? 'false' : 'true'}
                 title={hasConversationWorkspace ? effectiveWorkspacePath : undefined}
               >
                 {hasConversationWorkspace ? folderName(effectiveWorkspacePath) : 'No folder selected'}

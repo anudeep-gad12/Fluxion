@@ -102,14 +102,11 @@ export function DesktopComposer({
       {mode === 'agent' && workspaceLabel ? (
         <div className="desktop-prompt-header">
           <span
-            className={cn(
-              'flex min-w-0 items-center gap-1 truncate text-[11px]',
-              workspaceLabel === 'No folder' ? 'text-zinc-600' : 'text-zinc-500'
-            )}
+            className="desktop-prompt-workspace flex min-w-0 items-center gap-1 truncate"
             title={workspaceTitle}
           >
             <Folder className="h-3 w-3 shrink-0 opacity-50" aria-hidden />
-            <span className="truncate">{workspaceLabel}</span>
+            <span className={cn('truncate', workspaceLabel === 'No folder' ? '' : 'desktop-prompt-workspace-name')}>{workspaceLabel}</span>
           </span>
         </div>
       ) : null}

@@ -8,6 +8,7 @@ import {
   rejectAgentPlan,
 } from '@/api/client';
 import { cn } from '@/lib/utils';
+import { UnifiedDiffView } from '@/components/ToolCallCard';
 import { formatAgentCost, formatAgentTokens, useDerivedAgentPhase } from '@/lib/agentLiveState';
 import { useStore } from '@/hooks/useStore';
 import type { AgentToolCall } from '@/types/agent';
@@ -65,6 +66,12 @@ function MetricPill({
     </div>
   );
 }
+
+const WEB_APPROVE_BTN =
+  'ui-transition rounded-full border border-emerald-500/20 bg-emerald-500/[0.08] px-3 py-1.5 text-[11px] uppercase tracking-[0.16em] text-emerald-100 hover:border-emerald-400/30 hover:text-white disabled:cursor-not-allowed disabled:border-zinc-800 disabled:bg-zinc-900 disabled:text-zinc-500';
+
+const WEB_DENY_BTN =
+  'ui-transition rounded-full border border-red-500/20 bg-red-500/[0.08] px-3 py-1.5 text-[11px] uppercase tracking-[0.16em] text-red-100 hover:border-red-400/30 hover:text-white disabled:cursor-not-allowed disabled:border-zinc-800 disabled:bg-zinc-900 disabled:text-zinc-500';
 
 function formatApprovalArguments(toolCall: AgentToolCall): string {
   const args = toolCall.arguments || {};
@@ -211,7 +218,21 @@ export const AgentLiveHUD = memo(function AgentLiveHUD({
     || !!agentState.pendingUserInput
     || !!pendingApproval;
 
-  const metricsLine = (
+  const metricsLine = isDesktop ? (
+    <span className="desktop-hud-metrics">
+      <span className={cn(phase.isContextWarning && 'desktop-hud-metrics-warn')}>
+        {currentContextPct} ctx
+      </span>
+      <span className="desktop-hud-metrics-sep"> · </span>
+      <ElapsedClock startedAt={startedAt} />
+      {agentState.total_tokens ? (
+        <>
+          <span className="desktop-hud-metrics-sep"> · </span>
+          <span>{formatAgentTokens(agentState.total_tokens)} tok</span>
+        </>
+      ) : null}
+    </span>
+  ) : (
     <>
       <span className={cn(phase.isContextWarning && 'text-amber-300/90')}>
         {currentContextPct} ctx
@@ -227,20 +248,21 @@ export const AgentLiveHUD = memo(function AgentLiveHUD({
     </>
   );
 
+  const approveBtnClass = isDesktop ? 'desktop-hud-btn-approve' : WEB_APPROVE_BTN;
+  const denyBtnClass = isDesktop ? 'desktop-hud-btn-deny' : WEB_DENY_BTN;
+
   if (isDesktop && !hasBlockingState) {
     return (
       <div className="desktop-status-bar mb-2 px-1">
         <div className="flex min-w-0 flex-1 items-center gap-2">
-          <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', phase.indicatorClassName)} />
-          <span className={cn('shrink-0 font-medium capitalize', phase.accentClassName)}>
-            {phase.activeWord}
-          </span>
-          <span className="min-w-0 truncate text-zinc-400">{phase.detail.summary}</span>
+          <span className="desktop-hud-dot shrink-0" data-kind="live" />
+          <span className="desktop-hud-phase-word shrink-0">{phase.activeWord}</span>
+          <span className="desktop-hud-phase-summary min-w-0 truncate">{phase.detail.summary}</span>
           {phase.detail.toolName ? (
-            <span className="hidden shrink-0 text-zinc-500 sm:inline">· {phase.detail.toolName}</span>
+            <span className="desktop-hud-phase-extra">· {phase.detail.toolName}</span>
           ) : null}
         </div>
-        <div className="shrink-0 tabular-nums">{metricsLine}</div>
+        <div className="shrink-0">{metricsLine}</div>
       </div>
     );
   }
@@ -258,44 +280,48 @@ export const AgentLiveHUD = memo(function AgentLiveHUD({
       <div className={shellClassName}>
         {agentState.pendingPlanApproval?.status === 'pending' ? (
           <div className="space-y-3">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="min-w-0 flex-1">
-                <div className="flex min-w-0 flex-wrap items-center gap-2">
-                  <span className="h-2 w-2 rounded-full bg-violet-300/90" />
-                  <span className={cn(labelClass, 'text-violet-200')}>
+            <div className={isDesktop ? 'desktop-hud-header' : 'flex flex-wrap items-start justify-between gap-3'}>
+              <div className={isDesktop ? 'desktop-hud-header-title' : 'min-w-0 flex-1'}>
+                <div className={isDesktop ? 'desktop-hud-header-title' : 'flex min-w-0 flex-wrap items-center gap-2'}>
+                  <span className={isDesktop ? 'desktop-hud-dot' : 'h-2 w-2 rounded-full bg-violet-300/90'} data-kind={isDesktop ? 'plan' : undefined} />
+                  <span className={isDesktop ? 'desktop-hud-label' : cn(labelClass, 'text-violet-200')} data-kind={isDesktop ? 'plan' : undefined}>
                     Plan
                   </span>
-                  <span className="text-zinc-600">/</span>
-                  <span className="truncate text-[12px] text-zinc-100">
+                  <span className={isDesktop ? 'desktop-hud-sep' : 'text-zinc-600'}>/</span>
+                  <span className={isDesktop ? 'desktop-hud-subtitle truncate' : 'truncate text-[12px] text-zinc-100'}>
                     approval required
                   </span>
                 </div>
-                <div className="mt-1.5 text-[11px] text-zinc-500">
+                <div className={isDesktop ? 'desktop-hud-body' : 'mt-1.5 text-[11px] text-zinc-500'}>
                   Review the proposed plan. Reject keeps planning; approve starts implementation.
                 </div>
               </div>
-              <div className="rounded-full border border-violet-500/24 bg-violet-500/[0.09] px-2.5 py-1 text-[10px] uppercase tracking-[0.18em] text-violet-100">
+              <div className={isDesktop ? 'desktop-hud-waiting' : 'rounded-full border border-violet-500/24 bg-violet-500/[0.09] px-2.5 py-1 text-[10px] uppercase tracking-[0.18em] text-violet-100'}>
                 waiting
               </div>
             </div>
 
-            <pre className="max-h-[min(58vh,42rem)] overflow-auto rounded-[1rem] border border-zinc-800/90 bg-zinc-950/92 px-4 py-4 whitespace-pre-wrap text-[12px] leading-6 text-zinc-300 md:text-[13px] md:leading-7">
-              {agentState.pendingPlanApproval.markdown}
-            </pre>
+            {agentState.pendingPlanApproval.markdown.includes('\n+++ ') ? (
+              <UnifiedDiffView diff={agentState.pendingPlanApproval.markdown} />
+            ) : (
+              <pre className={isDesktop ? 'desktop-hud-pre' : 'max-h-[min(58vh,42rem)] overflow-auto rounded-[1rem] border border-zinc-800/90 bg-zinc-950/92 px-4 py-4 whitespace-pre-wrap text-[12px] leading-6 text-zinc-300 md:text-[13px] md:leading-7'}>
+                {agentState.pendingPlanApproval.markdown}
+              </pre>
+            )}
 
             <textarea
               value={rejectFeedback}
               onChange={(event) => setRejectFeedback(event.target.value)}
               placeholder="Optional reject feedback"
-              className="min-h-16 w-full resize-none rounded-[1rem] border border-zinc-800/90 bg-zinc-950/80 px-3 py-2 text-[11px] leading-5 text-zinc-200 outline-none placeholder:text-zinc-600 focus:border-violet-500/30"
+              className={isDesktop ? 'desktop-hud-field' : 'min-h-16 w-full resize-none rounded-[1rem] border border-zinc-800/90 bg-zinc-950/80 px-3 py-2 text-[11px] leading-5 text-zinc-200 outline-none placeholder:text-zinc-600 focus:border-violet-500/30'}
             />
 
-            <div className="flex flex-wrap items-center gap-2 border-t border-white/10 pt-3">
+            <div className={isDesktop ? 'desktop-hud-actions' : 'flex flex-wrap items-center gap-2 border-t border-white/10 pt-3'}>
               <button
                 type="button"
                 onClick={() => decidePlan('approve')}
                 disabled={planDecision !== null}
-                className="ui-transition rounded-full border border-emerald-500/20 bg-emerald-500/[0.08] px-3 py-1.5 text-[11px] uppercase tracking-[0.16em] text-emerald-100 hover:border-emerald-400/30 hover:text-white disabled:cursor-not-allowed disabled:border-zinc-800 disabled:bg-zinc-900 disabled:text-zinc-500"
+                className={approveBtnClass}
               >
                 {planDecision === 'approve' ? 'approving…' : 'approve'}
               </button>
@@ -303,7 +329,7 @@ export const AgentLiveHUD = memo(function AgentLiveHUD({
                 type="button"
                 onClick={() => decidePlan('reject')}
                 disabled={planDecision !== null}
-                className="ui-transition rounded-full border border-red-500/20 bg-red-500/[0.08] px-3 py-1.5 text-[11px] uppercase tracking-[0.16em] text-red-100 hover:border-red-400/30 hover:text-white disabled:cursor-not-allowed disabled:border-zinc-800 disabled:bg-zinc-900 disabled:text-zinc-500"
+                className={denyBtnClass}
               >
                 {planDecision === 'reject' ? 'rejecting…' : 'reject'}
               </button>
@@ -311,27 +337,27 @@ export const AgentLiveHUD = memo(function AgentLiveHUD({
               {!isDesktop ? (
                 <MetricPill label="elapsed" value={<ElapsedClock startedAt={startedAt} />} />
               ) : (
-                <span className="ml-auto tabular-nums text-zinc-500">{metricsLine}</span>
+                metricsLine
               )}
             </div>
           </div>
         ) : agentState.pendingUserInput ? (
           <div className="space-y-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="h-2 w-2 rounded-full bg-violet-300/90" />
-              <span className={cn(labelClass, 'text-violet-200')}>
+            <div className={isDesktop ? 'desktop-hud-header-title' : 'flex flex-wrap items-center gap-2'}>
+              <span className={isDesktop ? 'desktop-hud-dot' : 'h-2 w-2 rounded-full bg-violet-300/90'} data-kind={isDesktop ? 'plan' : undefined} />
+              <span className={isDesktop ? 'desktop-hud-label' : cn(labelClass, 'text-violet-200')} data-kind={isDesktop ? 'plan' : undefined}>
                 Input
               </span>
-              <span className="text-zinc-600">/</span>
-              <span className="text-[12px] text-zinc-100">planning question</span>
+              <span className={isDesktop ? 'desktop-hud-sep' : 'text-zinc-600'}>/</span>
+              <span className={isDesktop ? 'desktop-hud-subtitle' : 'text-[12px] text-zinc-100'}>planning question</span>
             </div>
             {agentState.pendingUserInput.questions.map((question) => (
-              <div key={question.id} className="rounded-[1rem] border border-zinc-800/90 bg-zinc-950/70 p-3">
-                <div className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">
+              <div key={question.id} className={isDesktop ? 'desktop-hud-question' : 'rounded-[1rem] border border-zinc-800/90 bg-zinc-950/70 p-3'}>
+                <div className={isDesktop ? 'desktop-hud-question-header' : 'text-[10px] uppercase tracking-[0.18em] text-zinc-500'}>
                   {question.header}
                 </div>
-                <div className="mt-1 text-[12px] text-zinc-100">{question.question}</div>
-                <div className="mt-3 flex flex-wrap gap-2">
+                <div className={isDesktop ? 'desktop-hud-question-text' : 'mt-1 text-[12px] text-zinc-100'}>{question.question}</div>
+                <div className={isDesktop ? 'desktop-hud-options' : 'mt-3 flex flex-wrap gap-2'}>
                   {question.options.map((option) => (
                     <button
                       key={option.label}
@@ -341,11 +367,16 @@ export const AgentLiveHUD = memo(function AgentLiveHUD({
                         [question.id]: option.label,
                       }))}
                       disabled={userInputSubmitting !== null}
+                      data-selected={userInputAnswers[question.id] === option.label ? 'true' : 'false'}
                       className={cn(
-                        'ui-transition rounded-full border px-3 py-1.5 text-left text-[11px] hover:border-violet-400/30 hover:text-white disabled:cursor-not-allowed disabled:border-zinc-800 disabled:bg-zinc-900 disabled:text-zinc-500',
-                        userInputAnswers[question.id] === option.label
-                          ? 'border-violet-400/40 bg-violet-500/18 text-white'
-                          : 'border-violet-500/20 bg-violet-500/[0.08] text-violet-100'
+                        isDesktop
+                          ? 'desktop-hud-option'
+                          : cn(
+                              'ui-transition rounded-full border px-3 py-1.5 text-left text-[11px] hover:border-violet-400/30 hover:text-white disabled:cursor-not-allowed disabled:border-zinc-800 disabled:bg-zinc-900 disabled:text-zinc-500',
+                              userInputAnswers[question.id] === option.label
+                                ? 'border-violet-400/40 bg-violet-500/18 text-white'
+                                : 'border-violet-500/20 bg-violet-500/[0.08] text-violet-100'
+                            )
                       )}
                       title={option.description}
                     >
@@ -355,7 +386,7 @@ export const AgentLiveHUD = memo(function AgentLiveHUD({
                 </div>
               </div>
             ))}
-            <div className="flex items-center gap-2 border-t border-white/10 pt-3">
+            <div className={isDesktop ? 'desktop-hud-actions' : 'flex items-center gap-2 border-t border-white/10 pt-3'}>
               <button
                 type="button"
                 onClick={submitUserInput}
@@ -363,7 +394,7 @@ export const AgentLiveHUD = memo(function AgentLiveHUD({
                   userInputSubmitting !== null
                   || agentState.pendingUserInput.questions.some((question) => !userInputAnswers[question.id])
                 }
-                className="ui-transition rounded-full border border-emerald-500/20 bg-emerald-500/[0.08] px-3 py-1.5 text-[11px] uppercase tracking-[0.16em] text-emerald-100 hover:border-emerald-400/30 hover:text-white disabled:cursor-not-allowed disabled:border-zinc-800 disabled:bg-zinc-900 disabled:text-zinc-500"
+                className={approveBtnClass}
               >
                 {userInputSubmitting ? 'sending…' : 'send'}
               </button>
@@ -372,49 +403,53 @@ export const AgentLiveHUD = memo(function AgentLiveHUD({
           </div>
         ) : pendingApproval ? (
           <div className="space-y-3">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="min-w-0 flex-1">
-                <div className="flex min-w-0 flex-wrap items-center gap-2">
-                  <span className="h-2 w-2 rounded-full bg-amber-300/90" />
-                  <span className={cn(labelClass, 'text-amber-200')}>
+            <div className={isDesktop ? 'desktop-hud-header' : 'flex flex-wrap items-start justify-between gap-3'}>
+              <div className={isDesktop ? 'desktop-hud-header-title' : 'min-w-0 flex-1'}>
+                <div className={isDesktop ? 'desktop-hud-header-title' : 'flex min-w-0 flex-wrap items-center gap-2'}>
+                  <span className={isDesktop ? 'desktop-hud-dot' : 'h-2 w-2 rounded-full bg-amber-300/90'} data-kind={isDesktop ? 'permission' : undefined} />
+                  <span className={isDesktop ? 'desktop-hud-label' : cn(labelClass, 'text-amber-200')} data-kind={isDesktop ? 'permission' : undefined}>
                     Permission
                   </span>
-                  <span className="text-zinc-600">/</span>
-                  <span className="truncate text-[12px] text-zinc-100">
+                  <span className={isDesktop ? 'desktop-hud-sep' : 'text-zinc-600'}>/</span>
+                  <span className={isDesktop ? 'desktop-hud-subtitle truncate' : 'truncate text-[12px] text-zinc-100'}>
                     {pendingApproval.tool_name.replace(/_/g, ' ')}
                   </span>
                 </div>
-                <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-2 text-[11px] text-zinc-500">
+                <div className={isDesktop ? 'desktop-hud-meta' : 'mt-1.5 flex min-w-0 flex-wrap items-center gap-2 text-[11px] text-zinc-500'}>
                   {pendingApproval.permission_level ? (
-                    <span className="rounded-full border border-amber-500/18 bg-amber-500/[0.08] px-2 py-0.5 uppercase tracking-[0.14em] text-amber-100">
+                    <span className={isDesktop ? 'desktop-hud-level-chip' : 'rounded-full border border-amber-500/18 bg-amber-500/[0.08] px-2 py-0.5 uppercase tracking-[0.14em] text-amber-100'}>
                       {pendingApproval.permission_level}
                     </span>
                   ) : null}
                   {formatApprovalArguments(pendingApproval) ? (
-                    <span className="truncate text-zinc-300">
+                    <span className={isDesktop ? 'desktop-hud-meta-detail truncate' : 'truncate text-zinc-300'}>
                       {formatApprovalArguments(pendingApproval)}
                     </span>
                   ) : null}
                 </div>
               </div>
 
-              <div className="rounded-full border border-amber-500/24 bg-amber-500/[0.09] px-2.5 py-1 text-[10px] uppercase tracking-[0.18em] text-amber-100">
+              <div className={isDesktop ? 'desktop-hud-waiting' : 'rounded-full border border-amber-500/24 bg-amber-500/[0.09] px-2.5 py-1 text-[10px] uppercase tracking-[0.18em] text-amber-100'} data-kind={isDesktop ? 'permission' : undefined}>
                 waiting
               </div>
             </div>
 
             {typeof pendingApproval.diff_preview === 'string' && pendingApproval.diff_preview.trim() ? (
-              <pre className="max-h-48 overflow-auto rounded-[1rem] border border-zinc-800/90 bg-zinc-950/92 px-3 py-3 whitespace-pre-wrap text-[11px] leading-6 text-zinc-300">
-                {pendingApproval.diff_preview}
-              </pre>
+              pendingApproval.diff_preview.includes('\n+++ ') ? (
+                <UnifiedDiffView diff={pendingApproval.diff_preview} compact />
+              ) : (
+                <pre className={isDesktop ? 'desktop-hud-pre desktop-hud-pre-compact' : 'max-h-48 overflow-auto rounded-[1rem] border border-zinc-800/90 bg-zinc-950/92 px-3 py-3 whitespace-pre-wrap text-[11px] leading-6 text-zinc-300'}>
+                  {pendingApproval.diff_preview}
+                </pre>
+              )
             ) : null}
 
-            <div className="flex flex-wrap items-center gap-2 border-t border-white/10 pt-3">
+            <div className={isDesktop ? 'desktop-hud-actions' : 'flex flex-wrap items-center gap-2 border-t border-white/10 pt-3'}>
               <button
                 type="button"
                 onClick={() => decide('approve')}
                 disabled={deciding !== null}
-                className="ui-transition rounded-full border border-emerald-500/20 bg-emerald-500/[0.08] px-3 py-1.5 text-[11px] uppercase tracking-[0.16em] text-emerald-100 hover:border-emerald-400/30 hover:text-white disabled:cursor-not-allowed disabled:border-zinc-800 disabled:bg-zinc-900 disabled:text-zinc-500"
+                className={approveBtnClass}
               >
                 {deciding === 'approve' ? 'approving…' : 'approve'}
               </button>
@@ -422,14 +457,14 @@ export const AgentLiveHUD = memo(function AgentLiveHUD({
                 type="button"
                 onClick={() => decide('deny')}
                 disabled={deciding !== null}
-                className="ui-transition rounded-full border border-red-500/20 bg-red-500/[0.08] px-3 py-1.5 text-[11px] uppercase tracking-[0.16em] text-red-100 hover:border-red-400/30 hover:text-white disabled:cursor-not-allowed disabled:border-zinc-800 disabled:bg-zinc-900 disabled:text-zinc-500"
+                className={denyBtnClass}
               >
                 {deciding === 'deny' ? 'denying…' : 'deny'}
               </button>
               {!isDesktop ? (
                 <MetricPill label="elapsed" value={<ElapsedClock startedAt={startedAt} />} />
               ) : (
-                <span className="ml-auto tabular-nums text-zinc-500">{metricsLine}</span>
+                metricsLine
               )}
             </div>
           </div>

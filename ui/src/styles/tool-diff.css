@@ -1,0 +1,125 @@
+/* Unified diff viewer (tool cards + approval HUD) */
+
+.tool-diff {
+  max-height: 24rem;
+  overflow: auto;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.25);
+  font-family: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+}
+
+.tool-diff-compact {
+  max-height: 12rem;
+}
+
+.tool-diff-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(7, 8, 10, 0.96);
+  color: #71717a;
+}
+
+.tool-diff-header-cell {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 6px 10px;
+}
+
+.tool-diff-header-cell:first-child {
+  border-right: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.tool-diff-hunk {
+  border-top: 1px solid rgba(34, 211, 238, 0.15);
+  border-bottom: 1px solid rgba(34, 211, 238, 0.15);
+  padding: 2px 10px;
+  color: #67e8f9;
+  background: rgba(34, 211, 238, 0.06);
+}
+
+.tool-diff-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+
+.tool-diff-cell {
+  min-height: 1.25rem;
+  padding: 2px 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.tool-diff-cell-old {
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.tool-diff-cell-remove,
+.tool-diff-cell-change-old {
+  background: rgba(239, 68, 68, 0.18);
+  color: #fca5a5;
+}
+
+.tool-diff-cell-add,
+.tool-diff-cell-change-new {
+  background: rgba(52, 211, 153, 0.18);
+  color: #6ee7b7;
+}
+
+.tool-diff-cell-muted {
+  color: #a1a1aa;
+}
+
+.tool-diff-cell-empty {
+  color: #52525b;
+}
+
+[data-app='desktop'] .tool-diff {
+  border-color: var(--desktop-border-subtle);
+  background: var(--desktop-bg-2);
+}
+
+[data-app='desktop'] .tool-diff-header {
+  border-bottom-color: var(--desktop-border-subtle);
+  background: var(--desktop-bg-1);
+  color: var(--desktop-text-tertiary);
+}
+
+[data-app='desktop'] .tool-diff-header-cell:first-child {
+  border-right-color: var(--desktop-border-subtle);
+}
+
+[data-app='desktop'] .tool-diff-hunk {
+  color: var(--desktop-accent);
+  background: rgba(121, 230, 255, 0.06);
+  border-color: var(--desktop-border-subtle);
+}
+
+[data-app='desktop'] .tool-diff-cell-old {
+  border-right-color: var(--desktop-border-subtle);
+}
+
+[data-app='desktop'] .tool-diff-cell-muted {
+  color: var(--desktop-text-secondary);
+}
+
+[data-app='desktop'] .tool-diff-cell-empty {
+  color: var(--desktop-text-tertiary);
+}
+
+[data-app='desktop'] .tool-diff-cell-remove,
+[data-app='desktop'] .tool-diff-cell-change-old {
+  background: rgba(239, 68, 68, 0.2);
+  color: #fca5a5;
+}
+
+[data-app='desktop'] .tool-diff-cell-add,
+[data-app='desktop'] .tool-diff-cell-change-new {
+  background: rgba(52, 211, 153, 0.2);
+  color: #6ee7b7;
+}

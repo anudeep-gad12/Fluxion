@@ -1,0 +1,389 @@
+/* Desktop transcript + agent steps — matches sidebar/composer tokens */
+
+[data-app='desktop'] .fluxion-card,
+[data-app='desktop'] .fluxion-card-strong {
+  box-shadow: none;
+  background: var(--desktop-bg-2);
+  border-color: var(--desktop-border-subtle);
+}
+
+/* Run layout */
+[data-app='desktop'] .desktop-run {
+  gap: 1rem;
+}
+
+[data-app='desktop'] .desktop-run-role {
+  width: 2.5rem;
+  padding-top: 0.625rem;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--desktop-text-tertiary);
+  font-family: inherit;
+}
+
+[data-app='desktop'] .desktop-run-role-ai {
+  color: var(--desktop-accent);
+  opacity: 0.85;
+}
+
+/* Message cards */
+[data-app='desktop'] .desktop-message-card {
+  border-radius: 16px;
+  border: 1px solid var(--desktop-border-subtle);
+  background: color-mix(in srgb, var(--desktop-bg-2) 88%, var(--desktop-bg-1));
+  padding: 1rem 1.25rem;
+  box-shadow: none;
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--desktop-text-primary);
+}
+
+/* Flat assistant stream (steps + answer) — no outer card on desktop */
+[data-app='desktop'] .desktop-run-stream {
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+[data-app='desktop'] .desktop-run-stream.fluxion-card-strong {
+  padding: 0;
+  border: none;
+  background: transparent;
+}
+
+[data-app='desktop'] .desktop-run-stream .desktop-thinking-panel {
+  margin-bottom: 0;
+}
+
+[data-app='desktop'] .desktop-run-answer {
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--desktop-text-primary);
+}
+
+[data-app='desktop'] .desktop-agent-steps {
+  margin-bottom: 0;
+}
+
+[data-app='desktop'] .desktop-message-card-cancelled {
+  border-radius: 12px;
+  border: 1px solid rgba(251, 191, 36, 0.2);
+  background: rgba(251, 191, 36, 0.06);
+  padding: 0.75rem 1rem;
+  font-size: 13px;
+  color: rgba(254, 243, 199, 0.9);
+}
+
+[data-app='desktop'] .desktop-message-card-error {
+  border-radius: 12px;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  background: rgba(239, 68, 68, 0.06);
+  padding: 0.75rem 1rem;
+  font-size: 13px;
+  color: rgba(254, 202, 202, 0.9);
+}
+
+[data-app='desktop'] .desktop-run-meta {
+  font-family: inherit;
+  font-size: 11px;
+  color: var(--desktop-text-tertiary);
+}
+
+[data-app='desktop'] .desktop-run-meta-pill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 6px;
+  border: 1px solid var(--desktop-border-subtle);
+  background: rgba(255, 255, 255, 0.03);
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--desktop-text-secondary);
+}
+
+[data-app='desktop'] .desktop-run-meta-pill[data-status='succeeded'] {
+  border-color: rgba(52, 211, 153, 0.2);
+  background: rgba(52, 211, 153, 0.06);
+  color: rgba(167, 243, 208, 0.95);
+}
+
+[data-app='desktop'] .desktop-run-meta-pill[data-status='failed'] {
+  border-color: rgba(239, 68, 68, 0.2);
+  background: rgba(239, 68, 68, 0.06);
+  color: rgba(252, 165, 165, 0.95);
+}
+
+[data-app='desktop'] .desktop-run-meta-pill[data-status='cancelled'] {
+  border-color: rgba(251, 191, 36, 0.2);
+  background: rgba(251, 191, 36, 0.06);
+  color: rgba(253, 230, 138, 0.95);
+}
+
+[data-app='desktop'] .desktop-run-meta-pill[data-status='running'] {
+  border-color: rgba(121, 230, 255, 0.2);
+  background: var(--desktop-accent-muted);
+  color: var(--desktop-accent);
+}
+
+/* Agent steps */
+[data-app='desktop'] .desktop-agent-steps {
+  margin-bottom: 1rem;
+  padding-left: 0;
+  font-size: 12px;
+}
+
+[data-app='desktop'] .desktop-step-timeline-line {
+  position: absolute;
+  left: 7px;
+  top: 1rem;
+  bottom: -1rem;
+  width: 1px;
+  background: var(--desktop-border-subtle);
+}
+
+[data-app='desktop'] .desktop-step-timeline-line[data-tone='system'] {
+  background: rgba(167, 139, 250, 0.2);
+}
+
+[data-app='desktop'] .desktop-step-timeline-line[data-tone='steer'] {
+  background: rgba(251, 191, 36, 0.2);
+}
+
+[data-app='desktop'] .desktop-step-dot {
+  position: absolute;
+  left: 1px;
+  top: 0.625rem;
+  height: 0.625rem;
+  width: 0.625rem;
+  border-radius: 9999px;
+  border: 1px solid var(--desktop-bg-1);
+  background: var(--desktop-text-tertiary);
+}
+
+[data-app='desktop'] .desktop-step-dot[data-tone='live'] {
+  background: var(--desktop-accent);
+}
+
+[data-app='desktop'] .desktop-step-dot[data-tone='success'] {
+  background: #34d399;
+}
+
+[data-app='desktop'] .desktop-step-dot[data-tone='error'] {
+  background: #f87171;
+}
+
+[data-app='desktop'] .desktop-step-dot[data-tone='running'] {
+  background: #fbbf24;
+}
+
+[data-app='desktop'] .desktop-step-dot[data-tone='system'] {
+  background: #a78bfa;
+}
+
+[data-app='desktop'] .desktop-step-dot[data-tone='steer'] {
+  background: #fbbf24;
+}
+
+[data-app='desktop'] .desktop-step-chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 6px;
+  border: 1px solid var(--desktop-border-subtle);
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.3;
+  text-transform: capitalize;
+  color: var(--desktop-text-secondary);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+[data-app='desktop'] .desktop-step-chip[data-state='live'] {
+  border-color: rgba(121, 230, 255, 0.22);
+  background: var(--desktop-accent-muted);
+  color: var(--desktop-accent);
+  box-shadow: 0 0 0 1px rgba(121, 230, 255, 0.08);
+}
+
+[data-app='desktop'] .desktop-step-chip[data-state='complete'] {
+  border-color: rgba(52, 211, 153, 0.18);
+  background: rgba(52, 211, 153, 0.06);
+  color: rgba(167, 243, 208, 0.95);
+}
+
+[data-app='desktop'] .desktop-step-chip[data-state='error'] {
+  border-color: rgba(239, 68, 68, 0.18);
+  background: rgba(239, 68, 68, 0.06);
+  color: rgba(252, 165, 165, 0.95);
+}
+
+[data-app='desktop'] .desktop-step-chip[data-state='tool_calling'] {
+  border-color: rgba(251, 191, 36, 0.18);
+  background: rgba(251, 191, 36, 0.06);
+  color: rgba(253, 230, 138, 0.95);
+}
+
+[data-app='desktop'] .desktop-step-block {
+  border-left: 1px solid var(--desktop-border-strong);
+  padding-left: 0.75rem;
+  color: var(--desktop-text-secondary);
+  line-height: 1.55;
+}
+
+[data-app='desktop'] .desktop-step-block[data-tone='system'] {
+  border-left-color: rgba(167, 139, 250, 0.35);
+  color: rgba(221, 214, 254, 0.88);
+}
+
+[data-app='desktop'] .desktop-step-block[data-tone='steer'] {
+  border-left-color: rgba(251, 191, 36, 0.35);
+  color: rgba(254, 243, 199, 0.88);
+}
+
+[data-app='desktop'] .desktop-step-thinking {
+  border-left: 1px solid var(--desktop-border-strong);
+  padding-left: 0.75rem;
+}
+
+[data-app='desktop'] .desktop-step-thinking-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 6px;
+  border: 1px solid var(--desktop-border-subtle);
+  background: rgba(255, 255, 255, 0.04);
+  padding: 2px 8px;
+  font-size: 11px;
+  color: var(--desktop-text-secondary);
+}
+
+[data-app='desktop'] .desktop-step-thinking-badge-live {
+  border-color: rgba(121, 230, 255, 0.2);
+  background: var(--desktop-accent-muted);
+  color: var(--desktop-accent);
+}
+
+[data-app='desktop'] .desktop-step-pending-title {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--desktop-accent);
+}
+
+[data-app='desktop'] .desktop-agent-caret {
+  display: inline-block;
+  height: 0.75rem;
+  width: 0.125rem;
+  margin-left: 0.25rem;
+  vertical-align: 0.125rem;
+  background: var(--desktop-accent);
+  opacity: 0.75;
+}
+
+/* Tool calls */
+[data-app='desktop'] .desktop-tool-call {
+  font-family: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+}
+
+[data-app='desktop'] .desktop-tool-call > div > pre:not(.tool-diff-cell),
+[data-app='desktop'] .desktop-tool-call .border-l pre:not(.tool-diff-cell) {
+  border-color: var(--desktop-border-subtle);
+  background: var(--desktop-bg-3);
+  color: var(--desktop-text-secondary);
+}
+
+[data-app='desktop'] .desktop-tool-call code {
+  border-color: var(--desktop-border-subtle);
+  background: var(--desktop-bg-3);
+  color: var(--desktop-text-secondary);
+}
+
+/* Chat thinking panel */
+[data-app='desktop'] .desktop-thinking-panel {
+  margin-bottom: 1rem;
+  border-radius: 14px;
+  border: 1px solid var(--desktop-border-subtle);
+  background: var(--desktop-bg-2);
+  box-shadow: none;
+}
+
+[data-app='desktop'] .desktop-thinking-panel-toggle {
+  border-color: transparent;
+}
+
+[data-app='desktop'] .desktop-thinking-panel-toggle[data-expanded='true'] {
+  border-bottom: 1px solid var(--desktop-border-subtle);
+}
+
+[data-app='desktop'] .desktop-thinking-panel-badge {
+  border-radius: 6px;
+  border: 1px solid var(--desktop-border-subtle);
+  background: rgba(255, 255, 255, 0.04);
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--desktop-text-secondary);
+  font-family: inherit;
+}
+
+[data-app='desktop'] .desktop-thinking-panel-badge-live {
+  border-color: rgba(121, 230, 255, 0.2);
+  background: var(--desktop-accent-muted);
+  color: var(--desktop-accent);
+}
+
+[data-app='desktop'] .desktop-thinking-panel-live-box {
+  border-radius: 12px;
+  border: 1px solid rgba(121, 230, 255, 0.15);
+  background: var(--desktop-accent-muted);
+}
+
+[data-app='desktop'] .desktop-thinking-panel-inner {
+  border-radius: 12px;
+  border: 1px solid var(--desktop-border-subtle);
+  background: var(--desktop-bg-3);
+}
+
+/* Markdown in thread */
+[data-app='desktop'] .markdown {
+  color: var(--desktop-text-primary);
+}
+
+[data-app='desktop'] .markdown p,
+[data-app='desktop'] .markdown li {
+  color: var(--desktop-text-primary);
+}
+
+[data-app='desktop'] .markdown strong {
+  color: var(--desktop-text-primary);
+}
+
+[data-app='desktop'] .markdown a {
+  color: var(--desktop-accent);
+}
+
+[data-app='desktop'] .markdown code {
+  border-color: var(--desktop-border-subtle);
+  background: var(--desktop-bg-3);
+  color: var(--desktop-text-secondary);
+}
+
+[data-app='desktop'] .markdown pre {
+  border-color: var(--desktop-border-subtle);
+  background: var(--desktop-bg-3);
+}
+
+[data-app='desktop'] .markdown blockquote {
+  border-left-color: var(--desktop-border-strong);
+  color: var(--desktop-text-secondary);
+}
+
+[data-app='desktop'] .thinking-markdown pre {
+  border-color: var(--desktop-border-subtle);
+  background: var(--desktop-bg-3);
+}

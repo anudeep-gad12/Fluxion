@@ -9,14 +9,17 @@ import { ToolCallCard } from '@/components/ToolCallCard';
 import { AnswerMarkdown } from '@/components/AnswerMarkdown';
 import type { AgentToolCall, AgentUIState } from '@/types/agent';
 
+type StepDotTone = 'live' | 'success' | 'error' | 'running' | 'system' | 'steer' | 'default';
+type StepLineTone = 'system' | 'steer';
+
 function TimelineItem({
-  dotClassName,
-  lineClassName,
+  dotTone = 'default',
+  lineTone,
   children,
   isLast = false,
 }: {
-  dotClassName: string;
-  lineClassName?: string;
+  dotTone?: StepDotTone;
+  lineTone?: StepLineTone;
   children: ReactNode;
   isLast?: boolean;
 }) {
@@ -24,17 +27,14 @@ function TimelineItem({
     <div className="relative pl-7">
       {!isLast && (
         <span
-          className={lineClassName || 'absolute left-[7px] top-4 bottom-[-1rem] w-px bg-zinc-800'}
+          className="desktop-step-timeline-line absolute left-[7px] top-4 bottom-[-1rem] w-px bg-zinc-800"
+          data-tone={lineTone}
         />
       )}
-      <span className={cnBaseDot(dotClassName)} />
+      <span className="desktop-step-dot absolute left-[1px] top-2.5 h-2.5 w-2.5 rounded-full border border-[#07080a] bg-zinc-500" data-tone={dotTone} />
       {children}
     </div>
   );
-}
-
-function cnBaseDot(className: string): string {
-  return `absolute left-[1px] top-2.5 h-2.5 w-2.5 rounded-full border border-[#07080a] ${className}`;
 }
 
 function summarize(content: string): string {
@@ -59,7 +59,7 @@ function ThinkingBlock({
   const preview = summarize(content);
 
   return (
-    <div className="space-y-2 border-l border-white/10 pl-3">
+    <div className="desktop-step-thinking desktop-step-block space-y-2 border-l border-white/10 pl-3">
       <button
         type="button"
         onClick={onToggle}
@@ -67,11 +67,11 @@ function ThinkingBlock({
       >
         <div className="space-y-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-md border border-white/8 bg-white/[0.04] px-2 py-0.5 text-[11px] text-zinc-400">
+            <span className="desktop-step-thinking-badge rounded-md border border-white/8 bg-white/[0.04] px-2 py-0.5 text-[11px] text-zinc-400">
               thinking
             </span>
             {isLive && (
-              <span className="rounded-md border border-cyan-500/20 bg-cyan-500/[0.08] px-2 py-0.5 text-[11px] text-cyan-200">
+              <span className="desktop-step-thinking-badge desktop-step-thinking-badge-live rounded-md border border-cyan-500/20 bg-cyan-500/[0.08] px-2 py-0.5 text-[11px] text-cyan-200">
                 live
               </span>
             )}
@@ -84,7 +84,7 @@ function ThinkingBlock({
         <div className="border-t border-white/10 pt-3 text-zinc-200">
           <AnswerMarkdown content={content} />
           {isLive && (
-            <span className="agent-caret ml-1 inline-block h-3 w-1.5 translate-y-0.5 bg-cyan-400/70" />
+            <span className="desktop-agent-caret agent-caret ml-1 inline-block h-3 w-1.5 translate-y-0.5 bg-cyan-400/70" />
           )}
         </div>
       )}
@@ -100,6 +100,14 @@ function formatStepStateLabel(stepState: string, isCurrentStep: boolean, isActiv
   if (stepState === 'complete') return 'done';
   if (stepState === 'error') return 'error';
   return stepState.replace(/_/g, ' ');
+}
+
+function resolveStepState(stepState: string, isCurrentStep: boolean, isActive: boolean): string {
+  if (isCurrentStep && isActive) return 'live';
+  if (stepState === 'complete') return 'complete';
+  if (stepState === 'error') return 'error';
+  if (stepState === 'tool_calling') return 'tool_calling';
+  return stepState;
 }
 
 function stepChipClass(stepState: string, isCurrentStep: boolean, isActive: boolean): string {
@@ -118,13 +126,20 @@ function stepChipClass(stepState: string, isCurrentStep: boolean, isActive: bool
   return 'border-white/10 bg-white/[0.025] text-zinc-300';
 }
 
+function toolCallDotTone(status: AgentToolCall['status']): StepDotTone {
+  if (status === 'success') return 'success';
+  if (status === 'error' || status === 'interrupted') return 'error';
+  if (status === 'pending') return 'default';
+  return 'running';
+}
+
 function PendingStepCard() {
   return (
-    <div className="border-l border-cyan-500/24 pl-3">
+    <div className="desktop-step-block desktop-step-thinking border-l border-cyan-500/24 pl-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <span className="inline-flex h-2 w-2 rounded-full bg-cyan-400 animate-pulse" />
-          <span className="text-[11px] font-medium text-cyan-200">Thinking</span>
+          <span className="desktop-step-pending-title text-[11px] font-medium text-cyan-200">Thinking</span>
         </div>
         <span className="text-[11px] text-zinc-500">Waiting for first trace</span>
       </div>
@@ -188,16 +203,16 @@ export function AgentStepsPanel({ agentState }: AgentStepsPanelProps) {
   }
 
   return (
-    <div className="mb-5 pl-1 text-xs">
+    <div className="desktop-agent-steps mb-5 pl-1 text-xs">
       <div className="space-y-5">
         {systemEvents.map((event, index) => (
           <TimelineItem
             key={`system-${event.seq ?? index}`}
-            dotClassName="bg-violet-400"
-            lineClassName="absolute left-[7px] top-4 bottom-[-1rem] w-px bg-violet-500/20"
+            dotTone="system"
+            lineTone="system"
             isLast={steps.length === 0 && index === systemEvents.length - 1}
           >
-            <div className="border-l border-violet-500/24 pl-3 text-[12px] leading-6 text-violet-100/85">
+            <div className="desktop-step-block border-l border-violet-500/24 pl-3 text-[12px] leading-6 text-violet-100/85" data-tone="system">
               <span className="mr-1 text-violet-300/80">system:</span>
               {event.message}
             </div>
@@ -216,16 +231,19 @@ export function AgentStepsPanel({ agentState }: AgentStepsPanelProps) {
             return itemIndex === itemsCount;
           };
 
+          const chipState = resolveStepState(step.state, isCurrentStep, isActive);
+
           return (
             <div key={step.id} className="space-y-3">
               <div className="pl-7">
                 <div className="flex flex-wrap items-center gap-2 text-[11px]">
                   <span
                     className={cn(
-                      'rounded-md border px-2 py-0.5 capitalize',
+                      'desktop-step-chip rounded-md border px-2 py-0.5 capitalize',
                       stepChipClass(step.state, isCurrentStep, isActive),
                       isCurrentStep && isActive && 'ring-1 ring-cyan-400/20'
                     )}
+                    data-state={chipState}
                   >
                     {formatStepStateLabel(step.state, isCurrentStep, isActive)}
                   </span>
@@ -237,11 +255,11 @@ export function AgentStepsPanel({ agentState }: AgentStepsPanelProps) {
               {stepSteers.map((steer, index) => (
                 <TimelineItem
                   key={`steer-${step.step_number}-${index}`}
-                  dotClassName="bg-amber-400"
-                  lineClassName="absolute left-[7px] top-4 bottom-[-1rem] w-px bg-amber-500/20"
+                  dotTone="steer"
+                  lineTone="steer"
                   isLast={nextIsLast()}
                 >
-                  <div className="border-l border-amber-500/24 pl-3 text-[12px] leading-6 text-amber-100/85">
+                  <div className="desktop-step-block border-l border-amber-500/24 pl-3 text-[12px] leading-6 text-amber-100/85" data-tone="steer">
                     <span className="mr-1 text-amber-300/80">you:</span>
                     {steer.content}
                   </div>
@@ -250,7 +268,7 @@ export function AgentStepsPanel({ agentState }: AgentStepsPanelProps) {
 
               {thinkingEntry && (
                 <TimelineItem
-                  dotClassName={thinkingEntry.isLive ? 'bg-cyan-400' : 'bg-zinc-500'}
+                  dotTone={thinkingEntry.isLive ? 'live' : 'default'}
                   isLast={nextIsLast()}
                 >
                   <ThinkingBlock
@@ -270,25 +288,17 @@ export function AgentStepsPanel({ agentState }: AgentStepsPanelProps) {
               {stepToolCalls.map((toolCall) => (
                 <TimelineItem
                   key={toolCall.id}
-                  dotClassName={
-                    toolCall.status === 'success'
-                      ? 'bg-emerald-500'
-                      : toolCall.status === 'error' || toolCall.status === 'interrupted'
-                        ? 'bg-red-500'
-                        : toolCall.status === 'pending'
-                          ? 'bg-zinc-500'
-                          : 'bg-amber-400'
-                  }
+                  dotTone={toolCallDotTone(toolCall.status)}
                   isLast={nextIsLast()}
                 >
-                  <div className="border-l border-white/10 pl-3">
+                  <div className="desktop-step-block border-l border-white/10 pl-3">
                     <ToolCallCard toolCall={toolCall} />
                   </div>
                 </TimelineItem>
               ))}
 
               {itemsCount === 0 && isCurrentStep && isActive && (
-                <TimelineItem dotClassName="bg-cyan-400" isLast>
+                <TimelineItem dotTone="live" isLast>
                   <PendingStepCard />
                 </TimelineItem>
               )}
@@ -297,7 +307,7 @@ export function AgentStepsPanel({ agentState }: AgentStepsPanelProps) {
         })}
 
         {steps.length === 0 && isActive && (
-          <TimelineItem dotClassName="bg-zinc-600" isLast>
+          <TimelineItem dotTone="default" isLast>
             <PendingStepCard />
           </TimelineItem>
         )}

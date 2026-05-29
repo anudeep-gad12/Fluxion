@@ -35,60 +35,74 @@ export const AgentRunMessage = memo(function AgentRunMessage({
     onRetry(userMessage);
   }, [onRetry, userMessage]);
 
+  const metaStatus =
+    run.status === 'running'
+      ? 'running'
+      : run.status === 'failed'
+        ? 'failed'
+        : run.status === 'cancelled'
+          ? 'cancelled'
+          : 'succeeded';
+
   return (
     <div className="animate-in fade-in slide-in-from-bottom-2 space-y-5 duration-200">
-      <div className="flex gap-4">
+      <div className="desktop-run flex gap-4">
         <div className="w-11 flex-shrink-0 pt-1.5">
-          <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-zinc-500">you</span>
+          <span className="desktop-run-role font-mono text-[10px] uppercase tracking-[0.22em] text-zinc-500">you</span>
         </div>
         <div className="min-w-0 flex-1">
-          <div className="px-1 py-1">
+          <div className="desktop-message-card fluxion-card rounded-[1.35rem] border px-6 py-5">
             <span className="whitespace-pre-wrap text-[14px] leading-[1.9] text-zinc-50">
               {run.user_message || run.prompt}
             </span>
           </div>
-          <div className="mt-2 flex items-center gap-2 px-1">
+          <div className="desktop-run-meta mt-2 flex items-center gap-2 px-1">
             <p className="text-[11px] text-zinc-500">{formatRelativeTime(run.created_at)}</p>
             <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-zinc-600">prompt</span>
           </div>
         </div>
       </div>
 
-      <div className="group/msg flex gap-4">
+      <div className="desktop-run group/msg flex gap-4">
         <div className="w-11 flex-shrink-0 pt-1.5">
-          <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-cyan-200/80">AI</span>
+          <span className="desktop-run-role desktop-run-role-ai font-mono text-[10px] uppercase tracking-[0.22em] text-cyan-200/80">
+            AI
+          </span>
         </div>
         <div className="min-w-0 flex-1">
-          <div className="border-t border-zinc-900/90 pt-5">
+          <div className="desktop-run-stream space-y-4">
             {agentState && <AgentStepsPanel agentState={agentState} />}
 
             {finalAnswer ? (
-              <AnswerWithCitations
-                content={finalAnswer}
-                citations={citations}
-                isStreaming={!!isActive}
-              />
+              <div className="desktop-run-answer">
+                <AnswerWithCitations
+                  content={finalAnswer}
+                  citations={citations}
+                  isStreaming={!!isActive}
+                />
+              </div>
             ) : isActive ? null : run.status === 'cancelled' ? (
-              <div className="border-l border-amber-500/35 pl-4 text-sm text-amber-100/90">
+              <div className="desktop-message-card-cancelled border-l border-amber-500/35 pl-4 text-sm text-amber-100/90">
                 stopped by user
               </div>
             ) : run.status === 'failed' ? (
-              <div className="border-l border-red-500/35 pl-4 text-sm text-red-200/90">
+              <div className="desktop-message-card-error border-l border-red-500/35 pl-4 text-sm text-red-200/90">
                 [error] {run.error_detail || 'Agent failed. Please try again.'}
               </div>
             ) : null}
           </div>
 
           {!isActive && (
-            <div className="mt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-1 font-mono text-[11px]">
+            <div className="desktop-run-meta mt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-1 font-mono text-[11px]">
               <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-zinc-500">
                 <span
                   className={cn(
-                    'rounded-full border border-zinc-900/90 bg-transparent px-2.5 py-1',
+                    'desktop-run-meta-pill rounded-full border border-zinc-900/90 bg-transparent px-2.5 py-1',
                     phase?.accentClassName || 'text-zinc-300',
                     run.status === 'failed' && 'border-red-500/15 text-red-400/85',
                     run.status === 'cancelled' && 'border-amber-500/15 text-amber-300/85'
                   )}
+                  data-status={metaStatus}
                 >
                   {phase?.label || (run.status === 'succeeded' ? 'done' : run.status === 'cancelled' ? 'stopped' : run.status)}
                 </span>

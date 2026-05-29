@@ -413,11 +413,13 @@ function ModelPicker({
       </DialogHeader>
       <DialogContent className="space-y-4 overflow-hidden">
         {error && (
-          <p className="rounded-xl border border-red-500/20 bg-red-500/[0.08] px-3 py-2 text-xs text-red-300">{error}</p>
+          <p className={cn(
+            desktop ? 'desktop-settings-hint-error' : 'rounded-xl border border-red-500/20 bg-red-500/[0.08] px-3 py-2 text-xs text-red-300'
+          )}>{error}</p>
         )}
         <div className="max-h-[72vh] space-y-4 overflow-y-auto pr-1">
           {loading && (
-            <p className="px-1 py-2 text-xs text-zinc-500">Loading models…</p>
+            <p className={cn(desktop ? 'desktop-settings-hint px-1 py-2' : 'px-1 py-2 text-xs text-zinc-500')}>Loading models…</p>
           )}
           {registryProviders.map(([providerName, info]) => (
                 <section
@@ -588,13 +590,13 @@ function ModelPicker({
                           !desktop && 'mb-3 font-mono'
                         )}>
                           <div className="min-w-0">
-                            <div className={cn(desktop ? 'text-zinc-400 capitalize' : 'uppercase text-zinc-300')}>
+                            <div className={cn(desktop ? 'desktop-settings-key-name' : 'uppercase text-zinc-300')}>
                               {providerKey.provider}
                             </div>
-                            <div className="mt-1 truncate text-zinc-600">{providerKey.api_key_env}</div>
+                            <div className={cn(desktop ? 'desktop-settings-key-env' : 'mt-1 truncate text-zinc-600')}>{providerKey.api_key_env}</div>
                           </div>
                           <div className={cn(
-                            desktop ? 'shrink-0 text-zinc-600' : 'shrink-0 rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[10px] uppercase tracking-[0.16em] text-zinc-400'
+                            desktop ? 'desktop-settings-key-status shrink-0' : 'shrink-0 rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[10px] uppercase tracking-[0.16em] text-zinc-400'
                           )}>
                             {providerKey.has_key ? `Saved · ${providerKey.source}` : 'Not set'}
                           </div>
@@ -696,7 +698,7 @@ function ReasoningSettingsDialog({
       </DialogHeader>
       <DialogContent className="space-y-4">
         {!draft || !capabilities ? (
-          <p className="text-xs text-zinc-500">Loading reasoning settings…</p>
+          <p className={cn(desktop ? 'desktop-settings-hint' : 'text-xs text-zinc-500')}>Loading reasoning settings…</p>
         ) : (
           <div className={cn('space-y-4', !desktop && 'font-mono text-xs')}>
             <section className={cn(desktop ? 'desktop-settings-section' : 'premium-panel px-4 py-3.5')}>
@@ -711,7 +713,7 @@ function ReasoningSettingsDialog({
               <div className="grid gap-4 sm:grid-cols-2">
                 <label className="space-y-2">
                   <div>
-                    <div className={cn(desktop ? 'text-[12px] text-zinc-400' : 'text-zinc-300')}>Max output</div>
+                    <div className={cn(desktop ? 'desktop-settings-field-label' : 'text-zinc-300')}>Max output</div>
                     <div className={cn(desktop ? 'desktop-settings-hint !mt-1' : 'mt-1 text-[11px] leading-5 text-zinc-500')}>
                       Upper bound for answer tokens.
                     </div>
@@ -727,7 +729,7 @@ function ReasoningSettingsDialog({
                 {showReasoningEffort && !showReasoningMaxTokens && (
                   <div className="space-y-2">
                     <div>
-                      <div className={cn(desktop ? 'text-[12px] text-zinc-400' : 'text-zinc-300')}>Thinking effort</div>
+                      <div className={cn(desktop ? 'desktop-settings-field-label' : 'text-zinc-300')}>Thinking effort</div>
                       <div className={cn(desktop ? 'desktop-settings-hint !mt-1' : 'mt-1 text-[11px] leading-5 text-zinc-500')}>
                         Provider-managed reasoning depth.
                       </div>
@@ -766,7 +768,7 @@ function ReasoningSettingsDialog({
                 <span className={cn(desktop ? 'desktop-settings-label' : 'premium-section-label')}>Fireworks</span>
                 <div className="mt-3 grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
-                    <div className={cn(desktop ? 'text-[12px] text-zinc-400' : 'text-zinc-300')}>Control mode</div>
+                    <div className={cn(desktop ? 'desktop-settings-field-label' : 'text-zinc-300')}>Control mode</div>
                     {desktop ? (
                       <DesktopTextOptionGroup
                         ariaLabel="Fireworks control mode"
@@ -810,7 +812,7 @@ function ReasoningSettingsDialog({
 
                   {fireworksMode === 'effort' ? (
                     <div className="space-y-2">
-                      <div className={cn(desktop ? 'text-[12px] text-zinc-400' : 'text-zinc-300')}>Thinking effort</div>
+                      <div className={cn(desktop ? 'desktop-settings-field-label' : 'text-zinc-300')}>Thinking effort</div>
                       {desktop ? (
                         <DesktopTextOptionGroup
                           ariaLabel="Thinking effort"
@@ -838,7 +840,7 @@ function ReasoningSettingsDialog({
                     </div>
                   ) : (
                     <label className="space-y-2">
-                      <div className={cn(desktop ? 'text-[12px] text-zinc-400' : 'text-zinc-300')}>Max thinking tokens</div>
+                      <div className={cn(desktop ? 'desktop-settings-field-label' : 'text-zinc-300')}>Max thinking tokens</div>
                       <input
                         type="number"
                         min={1024}
@@ -863,7 +865,7 @@ function ReasoningSettingsDialog({
                 <span className={cn(desktop ? 'desktop-settings-label' : 'premium-section-label')}>OpenRouter</span>
                 <div className="mt-3 grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
-                    <div className={cn(desktop ? 'text-[12px] text-zinc-400' : 'text-zinc-300')}>Control mode</div>
+                    <div className={cn(desktop ? 'desktop-settings-field-label' : 'text-zinc-300')}>Control mode</div>
                     {desktop ? (
                       <DesktopTextOptionGroup
                         ariaLabel="OpenRouter control mode"
@@ -900,7 +902,7 @@ function ReasoningSettingsDialog({
 
                   {openRouterMode === 'effort' ? (
                     <div className="space-y-2">
-                      <div className={cn(desktop ? 'text-[12px] text-zinc-400' : 'text-zinc-300')}>Thinking effort</div>
+                      <div className={cn(desktop ? 'desktop-settings-field-label' : 'text-zinc-300')}>Thinking effort</div>
                       {desktop ? (
                         <DesktopTextOptionGroup
                           ariaLabel="Thinking effort"
@@ -928,7 +930,7 @@ function ReasoningSettingsDialog({
                     </div>
                   ) : (
                     <label className="space-y-2">
-                      <div className={cn(desktop ? 'text-[12px] text-zinc-400' : 'text-zinc-300')}>Max thinking tokens</div>
+                      <div className={cn(desktop ? 'desktop-settings-field-label' : 'text-zinc-300')}>Max thinking tokens</div>
                       <input
                         type="number"
                         min={1}
@@ -944,7 +946,7 @@ function ReasoningSettingsDialog({
               </section>
             ) : (
               <section className={cn(
-                desktop ? 'desktop-settings-section text-[11px] text-zinc-600' : 'premium-panel px-4 py-3.5 text-[11px] leading-5 text-zinc-500'
+                desktop ? 'desktop-settings-section desktop-settings-hint' : 'premium-panel px-4 py-3.5 text-[11px] leading-5 text-zinc-500'
               )}>
                 This provider has no separate max thinking token setting.
               </section>
@@ -1012,28 +1014,28 @@ const RunMessage = memo(function RunMessage({
 
   return (
     <div className="animate-in fade-in slide-in-from-bottom-2 space-y-5 duration-200">
-      <div className="flex gap-4">
+      <div className="desktop-run flex gap-4">
         <div className="w-11 flex-shrink-0 pt-1.5">
-          <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-zinc-500">you</span>
+          <span className="desktop-run-role font-mono text-[10px] uppercase tracking-[0.22em] text-zinc-500">you</span>
         </div>
         <div className="min-w-0 flex-1">
-          <div className="fluxion-card rounded-[1.35rem] border px-6 py-5">
+          <div className="desktop-message-card fluxion-card rounded-[1.35rem] border px-6 py-5">
             <span className="whitespace-pre-wrap text-[14px] leading-[1.9] text-zinc-50">
               {run.user_message || run.prompt}
             </span>
           </div>
-          <p className="mt-2 px-1 text-[11px] text-zinc-500">
+          <p className="desktop-run-meta mt-2 px-1 text-[11px] text-zinc-500">
             {formatRelativeTime(run.created_at)}
           </p>
         </div>
       </div>
 
-      <div className="group/msg flex gap-4">
+      <div className="desktop-run group/msg flex gap-4">
         <div className="w-11 flex-shrink-0 pt-1.5">
-          <span className="font-mono text-[10px] uppercase tracking-[0.22em] text-zinc-500">reply</span>
+          <span className="desktop-run-role font-mono text-[10px] uppercase tracking-[0.22em] text-zinc-500">reply</span>
         </div>
         <div className="min-w-0 flex-1">
-          <div className="fluxion-card-strong rounded-[1.35rem] border px-6 py-5">
+          <div className="desktop-run-stream fluxion-card-strong space-y-4 rounded-[1.35rem] border px-6 py-5">
             <ThinkingPanel
               summary={run.thinking_summary}
               isStreaming={isThinking}
@@ -1046,15 +1048,15 @@ const RunMessage = memo(function RunMessage({
             ) : isRunning && !displayText && isThinking ? (
               <ThinkingTimer label="Thinking" />
             ) : run.status === 'cancelled' ? (
-              <div className="rounded-[1rem] border border-amber-500/16 bg-amber-500/[0.06] px-4 py-3 text-sm text-amber-100/90">
+              <div className="desktop-message-card-cancelled rounded-[1rem] border border-amber-500/16 bg-amber-500/[0.06] px-4 py-3 text-sm text-amber-100/90">
                 stopped by user
               </div>
             ) : run.status === 'failed' ? (
-              <div className="rounded-[1rem] border border-red-500/16 bg-red-500/[0.06] px-4 py-3 text-sm text-red-200/90">
+              <div className="desktop-message-card-error rounded-[1rem] border border-red-500/16 bg-red-500/[0.06] px-4 py-3 text-sm text-red-200/90">
                 [error] {run.error_detail || 'Request failed. Please try again.'}
               </div>
             ) : displayText ? (
-              <div>
+              <div className="desktop-run-answer">
                 <AnswerMarkdown content={extractAnswer(displayText)} />
                 {isStreaming && (
                   <span className="inline-block h-4 w-2 animate-pulse bg-zinc-400 align-[-0.2em] ml-0.5" />
@@ -1065,16 +1067,19 @@ const RunMessage = memo(function RunMessage({
             ) : null}
           </div>
 
-          <div className="mt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-1 font-mono text-[11px]">
+          <div className="desktop-run-meta mt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-1 font-mono text-[11px]">
             <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-zinc-500">
-              <span className={cn(
-                'rounded-full border border-zinc-800/85 bg-zinc-950/72 px-2.5 py-1',
-                run.status === 'succeeded'
-                  ? 'text-emerald-300'
-                  : run.status === 'failed'
-                    ? 'border-red-500/15 text-red-400/85'
-                    : 'text-zinc-400'
-              )}>
+              <span
+                className={cn(
+                  'desktop-run-meta-pill rounded-full border border-zinc-800/85 bg-zinc-950/72 px-2.5 py-1',
+                  run.status === 'succeeded'
+                    ? 'text-emerald-300'
+                    : run.status === 'failed'
+                      ? 'border-red-500/15 text-red-400/85'
+                      : 'text-zinc-400'
+                )}
+                data-status={run.status}
+              >
                 {formatRunStatusLabel(run)}
               </span>
               {run.created_at && (

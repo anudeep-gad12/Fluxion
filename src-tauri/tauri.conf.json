@@ -6,8 +6,8 @@
   "build": {
     "frontendDist": "../ui/dist",
     "devUrl": "http://127.0.0.1:9000",
-    "beforeDevCommand": "pnpm --dir ui build",
-    "beforeBuildCommand": "pnpm --dir ui build"
+    "beforeDevCommand": "bash scripts/tauri-before-dev.sh",
+    "beforeBuildCommand": "bash scripts/tauri-before-build.sh"
   },
   "app": {
     "withGlobalTauri": false,

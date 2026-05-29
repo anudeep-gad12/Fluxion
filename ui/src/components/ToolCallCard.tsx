@@ -117,57 +117,74 @@ function parseUnifiedDiff(diff: string): {
   return { beforeLabel, afterLabel, rows };
 }
 
-function DiffBlock({ diff }: { diff: string }) {
+function cellClass(kind: DiffRow['kind'], side: 'old' | 'new'): string {
+  if (kind === 'hunk') return '';
+  if (kind === 'remove') return side === 'old' ? 'tool-diff-cell-remove' : 'tool-diff-cell-empty';
+  if (kind === 'add') return side === 'new' ? 'tool-diff-cell-add' : 'tool-diff-cell-empty';
+  if (kind === 'change') {
+    return side === 'old' ? 'tool-diff-cell-change-old' : 'tool-diff-cell-change-new';
+  }
+  return 'tool-diff-cell-muted';
+}
+
+export function resolveUnifiedDiff(toolCall: AgentToolCall): string | null {
+  const candidates: string[] = [];
+  if (typeof toolCall.diff_preview === 'string' && toolCall.diff_preview.trim()) {
+    candidates.push(toolCall.diff_preview);
+  }
+  if (typeof toolCall.result_data === 'string' && toolCall.result_data.trim()) {
+    candidates.push(toolCall.result_data);
+  }
+
+  for (const candidate of candidates) {
+    if (candidate.startsWith('--- ') && candidate.includes('\n+++ ')) {
+      return candidate;
+    }
+    try {
+      const parsed = JSON.parse(candidate) as { diff?: string; preview?: string };
+      const nested = parsed.diff ?? parsed.preview;
+      if (typeof nested === 'string' && nested.includes('+++ ')) {
+        return nested;
+      }
+    } catch {
+      // Not JSON — keep scanning candidates.
+    }
+  }
+
+  return null;
+}
+
+export function UnifiedDiffView({
+  diff,
+  compact = false,
+}: {
+  diff: string;
+  compact?: boolean;
+}) {
   const { beforeLabel, afterLabel, rows } = parseUnifiedDiff(diff);
 
   return (
-    <div className="max-h-96 overflow-auto rounded-[1rem] border border-white/10 bg-black/25 font-mono text-xs">
-      <div className="sticky top-0 z-10 grid grid-cols-2 border-b border-white/10 bg-[rgba(7,8,10,0.96)] text-zinc-500">
-        <div className="truncate border-r border-white/10 px-2.5 py-1.5">{beforeLabel}</div>
-        <div className="truncate px-2.5 py-1.5">{afterLabel}</div>
+    <div className={cn('tool-diff', compact && 'tool-diff-compact')}>
+      <div className="tool-diff-header">
+        <div className="tool-diff-header-cell">{beforeLabel}</div>
+        <div className="tool-diff-header-cell">{afterLabel}</div>
       </div>
       <div>
         {rows.map((row, index) => {
           if (row.kind === 'hunk') {
             return (
-              <div
-                key={`${index}-${row.oldText}`}
-                className="border-y border-cyan-900/20 px-2 py-0.5 text-cyan-400"
-              >
+              <div key={`${index}-${row.oldText}`} className="tool-diff-hunk">
                 {row.oldText}
               </div>
             );
           }
 
-          const oldClass =
-            row.kind === 'remove' || row.kind === 'change'
-              ? 'bg-red-950/30 text-red-300'
-              : row.kind === 'add'
-                ? 'text-zinc-700'
-                : 'text-zinc-400';
-          const newClass =
-            row.kind === 'add' || row.kind === 'change'
-              ? 'bg-emerald-950/30 text-emerald-300'
-              : row.kind === 'remove'
-                ? 'text-zinc-700'
-                : 'text-zinc-400';
-
           return (
-            <div key={`${index}-${row.oldText}-${row.newText}`} className="grid grid-cols-2">
-              <pre
-                className={cn(
-                  'px-2.5 py-0.5 whitespace-pre-wrap break-words min-h-[1.25rem] border-r border-white/10',
-                  oldClass
-                )}
-              >
+            <div key={`${index}-${row.oldText}-${row.newText}`} className="tool-diff-row">
+              <pre className={cn('tool-diff-cell tool-diff-cell-old', cellClass(row.kind, 'old'))}>
                 {row.oldText}
               </pre>
-              <pre
-                className={cn(
-                  'px-2.5 py-0.5 whitespace-pre-wrap break-words min-h-[1.25rem]',
-                  newClass
-                )}
-              >
+              <pre className={cn('tool-diff-cell', cellClass(row.kind, 'new'))}>
                 {row.newText}
               </pre>
             </div>
@@ -220,17 +237,14 @@ export function ToolCallCard({ toolCall }: ToolCallCardProps) {
   const isBash = toolCall.tool_name === 'bash';
   const hasResult =
     toolCall.result_summary && toolCall.result_summary.length > 0;
-  const hasDiff =
-    typeof toolCall.result_data === 'string' &&
-    toolCall.result_data.startsWith('--- ') &&
-    toolCall.result_data.includes('\n+++ ');
+  const unifiedDiff = resolveUnifiedDiff(toolCall);
 
   const pythonOutput = isPython && hasResult ? toolCall.result_summary : undefined;
   const argStr = formatArguments(toolCall.tool_name, toolCall.arguments);
   const needsApproval = toolCall.status === 'pending' && toolCall.approval_required;
 
   return (
-    <div className="font-mono text-xs space-y-1">
+    <div className="desktop-tool-call font-mono text-xs space-y-1">
       {/* Command line */}
       <div className="flex items-start gap-2">
         <span className={cn('select-none shrink-0', status.color)}>{status.marker}</span>
@@ -280,9 +294,9 @@ export function ToolCallCard({ toolCall }: ToolCallCardProps) {
       {isBash && toolCall.bash_output && <BashOutputBlock output={toolCall.bash_output} />}
 
       {/* Full write/edit diff after execution */}
-      {hasDiff && (
+      {unifiedDiff && (
         <div className="ml-4">
-          <DiffBlock diff={toolCall.result_data!} />
+          <UnifiedDiffView diff={unifiedDiff} />
         </div>
       )}
 

@@ -192,7 +192,7 @@ export function IntegratedTerminal({
       fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
       fontSize: 12,
       theme: {
-        background: '#050609',
+        background: '#0c0c0e',
         foreground: '#e4e4e7',
         cursor: '#f5f7fb',
       },
@@ -410,7 +410,7 @@ export function IntegratedTerminal({
   return (
     <div
       className={cn(
-        'flex min-h-0 flex-shrink-0 overflow-hidden bg-[#050609]',
+        'flex min-h-0 flex-shrink-0 overflow-hidden bg-[#0c0c0e]',
         isEmbedded
           ? 'h-full w-full'
           : isRightDock
@@ -504,7 +504,7 @@ export function IntegratedTerminal({
             ) : null}
           </div>
         </div>
-        <div className="min-h-0 min-w-0 flex-1 bg-[#050609]">
+        <div className="min-h-0 min-w-0 flex-1 bg-[#0c0c0e]">
           <div
             ref={containerRef}
             className="h-full min-w-0 w-full px-3 py-2"

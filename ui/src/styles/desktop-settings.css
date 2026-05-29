@@ -3,8 +3,20 @@
 [data-app='desktop'] .ui-dialog-surface {
   border-radius: 16px;
   border: 1px solid var(--desktop-border-subtle);
-  background: var(--desktop-bg-3);
+  background: var(--desktop-bg-1);
   box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
+}
+
+[data-app='desktop'] .ui-dialog-surface .desktop-settings-dialog-header {
+  border-bottom: 1px solid var(--desktop-border-subtle);
+}
+
+[data-app='desktop'] .ui-dialog-surface h2 {
+  color: var(--desktop-text-primary);
+}
+
+[data-app='desktop'] .ui-dialog-surface .desktop-settings-dialog-desc {
+  color: var(--desktop-text-tertiary);
 }
 
 [data-app='desktop'] .ui-dialog-surface .premium-panel {
@@ -17,9 +29,18 @@
 [data-app='desktop'] .desktop-settings-popover {
   border-radius: 14px;
   border: 1px solid var(--desktop-border-subtle);
-  background: var(--desktop-bg-3);
+  background: var(--desktop-bg-1);
   padding: 14px;
   box-shadow: 0 16px 44px rgba(0, 0, 0, 0.42);
+}
+
+[data-app='desktop'] .desktop-settings-list-panel {
+  max-height: 24rem;
+  overflow-y: auto;
+  border-radius: 10px;
+  border: 1px solid var(--desktop-border-subtle);
+  background: var(--desktop-bg-2);
+  padding: 4px;
 }
 
 [data-app='desktop'] .desktop-settings-label {
@@ -27,8 +48,28 @@
   margin-bottom: 8px;
   font-size: 11px;
   font-weight: 500;
-  color: #71717a;
+  color: var(--desktop-text-tertiary);
   letter-spacing: -0.01em;
+}
+
+[data-app='desktop'] .desktop-settings-field-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--desktop-text-secondary);
+}
+
+[data-app='desktop'] .desktop-settings-key-name {
+  font-size: 11px;
+  color: var(--desktop-text-secondary);
+  text-transform: capitalize;
+}
+
+[data-app='desktop'] .desktop-settings-key-env {
+  margin-top: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 11px;
+  color: var(--desktop-text-tertiary);
 }
 
 [data-app='desktop'] .desktop-settings-section {
@@ -85,7 +126,8 @@
 }
 
 [data-app='desktop'] .desktop-settings-list-item[data-active='true'] {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--desktop-accent-muted);
+  box-shadow: 0 0 0 1px rgba(121, 230, 255, 0.1);
 }
 
 [data-app='desktop'] .desktop-settings-list-title {
@@ -98,7 +140,7 @@
 [data-app='desktop'] .desktop-settings-list-meta {
   margin-top: 3px;
   font-size: 11px;
-  color: #52525b;
+  color: var(--desktop-text-tertiary);
 }
 
 [data-app='desktop'] .desktop-settings-list-active {
@@ -112,13 +154,13 @@
   padding: 0 2px 8px;
   font-size: 11px;
   font-weight: 500;
-  color: #71717a;
+  color: var(--desktop-text-tertiary);
 }
 
 [data-app='desktop'] .desktop-settings-provider-count {
   margin-top: 2px;
   font-size: 11px;
-  color: #52525b;
+  color: var(--desktop-text-tertiary);
 }
 
 [data-app='desktop'] .desktop-settings-actions {
@@ -136,7 +178,7 @@
   background: transparent;
   font-size: 12px;
   font-weight: 500;
-  color: #71717a;
+  color: var(--desktop-text-tertiary);
   transition: color 0.12s ease, background 0.12s ease;
 }
 
@@ -176,7 +218,29 @@
   margin-top: 8px;
   font-size: 11px;
   line-height: 1.45;
-  color: #52525b;
+  color: var(--desktop-text-tertiary);
+}
+
+[data-app='desktop'] .desktop-settings-hint-error {
+  margin-top: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  background: rgba(239, 68, 68, 0.06);
+  font-size: 11px;
+  line-height: 1.45;
+  color: #fca5a5;
+}
+
+[data-app='desktop'] .desktop-settings-workspace-locked {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  color: var(--desktop-text-secondary);
+}
+
+[data-app='desktop'] .desktop-settings-workspace-locked[data-empty='true'] {
+  color: var(--desktop-text-tertiary);
 }
 
 [data-app='desktop'] .desktop-settings-model-line {
@@ -189,6 +253,11 @@
 [data-app='desktop'] .desktop-settings-model-provider {
   margin-top: 2px;
   font-size: 11px;
-  color: #52525b;
+  color: var(--desktop-text-tertiary);
   text-transform: capitalize;
+}
+
+[data-app='desktop'] .desktop-settings-key-status {
+  font-size: 11px;
+  color: var(--desktop-text-tertiary);
 }

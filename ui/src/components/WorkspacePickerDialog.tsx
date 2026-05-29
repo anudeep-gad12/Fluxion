@@ -3,6 +3,7 @@ import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 
 import { browseWorkspaceDirectories, type WorkspaceBrowseResponse } from '@/api/client';
 import { cn } from '@/lib/utils';
+import { isLocalDesktopApp } from '@/lib/platform';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 export function WorkspacePickerDialog({
@@ -115,16 +116,20 @@ export function WorkspacePickerDialog({
     }
   }, [onOpenChange, chooseCurrent]);
 
+  const desktop = isLocalDesktopApp();
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange} className="max-w-3xl">
       <DialogHeader>
         <DialogTitle>Choose workspace</DialogTitle>
-        <DialogDescription className="font-mono text-[12px] leading-6 text-zinc-500">
+        <DialogDescription className={cn(
+          desktop ? 'desktop-settings-hint text-[12px] leading-6' : 'font-mono text-[12px] leading-6 text-zinc-500'
+        )}>
           Browse to the repo root. Enter opens a folder. Cmd/Ctrl+Enter selects the current path.
         </DialogDescription>
       </DialogHeader>
       <DialogContent>
-        <div className="space-y-4 font-mono text-xs" onKeyDown={handleDialogKeyDown}>
+        <div className={cn('space-y-4', !desktop && 'font-mono text-xs')} onKeyDown={handleDialogKeyDown}>
           <div className="flex gap-2">
             <input
               ref={inputRef}
@@ -146,25 +151,31 @@ export function WorkspacePickerDialog({
                   focusRow(visibleEntries.length - 1);
                 }
               }}
-              className="premium-field flex-1"
+              className={cn(desktop ? 'desktop-settings-field flex-1' : 'premium-field flex-1')}
               placeholder="/path/to/repo"
             />
             <button
               onClick={() => loadPath(pathInput, 'input')}
-              className="premium-subtle-button px-4"
+              className={cn(desktop ? 'desktop-settings-btn-ghost px-4' : 'premium-subtle-button px-4')}
               type="button"
             >
               open
             </button>
           </div>
 
-          {error && <p className="rounded-xl border border-red-500/20 bg-red-500/[0.08] px-3 py-2 text-red-300">{error}</p>}
+          {error && (
+            <p className={cn(
+              desktop ? 'desktop-settings-hint-error' : 'rounded-xl border border-red-500/20 bg-red-500/[0.08] px-3 py-2 text-red-300'
+            )}>{error}</p>
+          )}
 
-          <div className="premium-panel max-h-[24rem] overflow-y-auto p-1.5">
+          <div className={cn(
+            desktop ? 'desktop-settings-list-panel' : 'premium-panel max-h-[24rem] overflow-y-auto p-1.5'
+          )}>
             {loading ? (
-              <p className="px-3 py-3 text-zinc-400">Loading directories...</p>
+              <p className={cn(desktop ? 'desktop-settings-hint px-3 py-3' : 'px-3 py-3 text-zinc-400')}>Loading directories...</p>
             ) : visibleEntries.length === 0 ? (
-              <p className="px-3 py-3 text-zinc-500">No subdirectories found here.</p>
+              <p className={cn(desktop ? 'desktop-settings-hint px-3 py-3' : 'px-3 py-3 text-zinc-500')}>No subdirectories found here.</p>
             ) : (
               visibleEntries.map((entry, index) => (
                 <button
@@ -208,20 +219,24 @@ export function WorkspacePickerDialog({
                       navigateParent();
                     }
                   }}
+                  data-active={desktop && activeIndex === index ? 'true' : undefined}
                   className={cn(
-                    'ui-transition block w-full rounded-[0.95rem] px-3 py-2.5 text-left outline-none',
-                    activeIndex === index
+                    desktop
+                      ? 'desktop-settings-list-item text-left'
+                      : 'ui-transition block w-full rounded-[0.95rem] px-3 py-2.5 text-left outline-none',
+                    !desktop && activeIndex === index
                       ? 'border border-cyan-300/28 bg-cyan-300/[0.08] text-zinc-50'
-                      : 'border border-transparent text-zinc-300 hover:border-white/10 hover:bg-white/[0.045] hover:text-cyan-100',
-                    entry.hidden ? 'text-zinc-500' : '',
+                      : !desktop && 'border border-transparent text-zinc-300 hover:border-white/10 hover:bg-white/[0.045] hover:text-cyan-100',
+                    !desktop && entry.hidden ? 'text-zinc-500' : '',
+                    desktop && entry.hidden ? 'opacity-60' : '',
                   )}
                 >
                   <div className="flex items-center justify-between gap-3">
-                    <span className="truncate">{entry.label}</span>
+                    <span className={cn(desktop ? 'desktop-settings-list-title truncate' : 'truncate')}>{entry.label}</span>
                     {entry.isParent ? (
-                      <span className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">parent</span>
+                      <span className={cn(desktop ? 'desktop-settings-list-meta uppercase' : 'text-[10px] uppercase tracking-[0.18em] text-zinc-500')}>parent</span>
                     ) : entry.hidden ? (
-                      <span className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">hidden</span>
+                      <span className={cn(desktop ? 'desktop-settings-list-meta uppercase' : 'text-[10px] uppercase tracking-[0.18em] text-zinc-500')}>hidden</span>
                     ) : null}
                   </div>
                 </button>
@@ -229,15 +244,17 @@ export function WorkspacePickerDialog({
             )}
           </div>
 
-          <div className="premium-panel flex items-center justify-between gap-3 px-4 py-3">
+          <div className={cn(
+            desktop ? 'desktop-settings-section flex items-center justify-between gap-3 !mb-0 !border-b-0 !pb-0' : 'premium-panel flex items-center justify-between gap-3 px-4 py-3'
+          )}>
             <div className="min-w-0">
-              <div className="premium-section-label">selected path</div>
-              <div className="mt-1 truncate text-zinc-300">{data?.path || pathInput}</div>
+              <div className={cn(desktop ? 'desktop-settings-label !mb-1' : 'premium-section-label')}>selected path</div>
+              <div className={cn(desktop ? 'desktop-settings-model-line truncate' : 'mt-1 truncate text-zinc-300')}>{data?.path || pathInput}</div>
             </div>
             <button
               onClick={chooseCurrent}
               disabled={!data?.path}
-              className="premium-primary-button shrink-0"
+              className={cn(desktop ? 'desktop-settings-btn-primary shrink-0' : 'premium-primary-button shrink-0')}
               type="button"
             >
               use folder

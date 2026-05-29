@@ -125,23 +125,24 @@ export function ThinkingPanel({
   const hasContent = cleanSummary || steps.length > 0 || cleanStreamingContent;
 
   return (
-    <div className="mb-5 rounded-[1.25rem] border border-zinc-800/85 bg-zinc-950/48 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]">
+    <div className="desktop-thinking-panel mb-5 rounded-[1.25rem] border border-zinc-800/85 bg-zinc-950/48 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]">
       <button
         type="button"
         onClick={() => setExpanded((value) => !value)}
         className={cn(
-          'ui-transition flex w-full items-start gap-3 px-4 py-3.5 text-left',
+          'desktop-thinking-panel-toggle ui-transition flex w-full items-start gap-3 px-4 py-3.5 text-left',
           expanded ? 'border-b border-zinc-800/75' : 'hover:bg-zinc-900/28'
         )}
+        data-expanded={expanded}
       >
         <span className="mt-0.5 text-zinc-500">{expanded ? '▾' : '▸'}</span>
         <div className="min-w-0 flex-1 space-y-2">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-full border border-zinc-800/90 bg-zinc-950/80 px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.18em] text-zinc-300">
+            <span className="desktop-thinking-panel-badge rounded-full border border-zinc-800/90 bg-zinc-950/80 px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.18em] text-zinc-300">
               thinking
             </span>
             {isStreaming && (
-              <span className="rounded-full border border-cyan-500/25 bg-cyan-500/[0.10] px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.18em] text-cyan-200">
+              <span className="desktop-thinking-panel-badge desktop-thinking-panel-badge-live rounded-full border border-cyan-500/25 bg-cyan-500/[0.10] px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.18em] text-cyan-200">
                 live
               </span>
             )}
@@ -163,10 +164,10 @@ export function ThinkingPanel({
                   <span className="h-1.5 w-1.5 rounded-full bg-cyan-400" />
                   Live reasoning
                 </div>
-                <div className="rounded-[1rem] border border-cyan-500/16 bg-cyan-500/[0.06] px-3.5 py-3">
+                <div className="desktop-thinking-panel-live-box rounded-[1rem] border border-cyan-500/16 bg-cyan-500/[0.06] px-3.5 py-3">
                   <ThinkingMarkdown content={cleanStreamingContent} />
                   {isStreaming && (
-                    <span className="agent-caret ml-1 inline-block h-3.5 w-1.5 translate-y-0.5 bg-cyan-400/75" />
+                    <span className="desktop-agent-caret agent-caret ml-1 inline-block h-3.5 w-1.5 translate-y-0.5 bg-cyan-400/75" />
                   )}
                 </div>
               </section>
@@ -175,7 +176,7 @@ export function ThinkingPanel({
             {!cleanStreamingContent && cleanSummary && (
               <section className="space-y-2">
                 <div className="premium-section-label">summary</div>
-                <div className="rounded-[1rem] border border-zinc-800/85 bg-zinc-950/78 px-3.5 py-3">
+                <div className="desktop-thinking-panel-inner rounded-[1rem] border border-zinc-800/85 bg-zinc-950/78 px-3.5 py-3">
                   <ThinkingMarkdown content={cleanSummary} />
                 </div>
               </section>
@@ -190,7 +191,7 @@ export function ThinkingPanel({
                     return (
                       <div
                         key={step.seq}
-                        className="rounded-[1rem] border border-zinc-800/85 bg-zinc-950/62 px-3.5 py-3"
+                        className="desktop-thinking-panel-inner rounded-[1rem] border border-zinc-800/85 bg-zinc-950/62 px-3.5 py-3"
                       >
                         <div className="mb-2 flex flex-wrap items-center gap-2">
                           <span

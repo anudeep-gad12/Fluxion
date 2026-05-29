@@ -271,7 +271,7 @@ fn start_backend_and_ui(handle: &AppHandle, state: &BackendState) -> Result<(), 
         wait_for_health(Duration::from_secs(60))?;
     } else if read_health().is_none() {
         return Err(format!(
-            "Start the API first (./dev.sh api), then run cargo tauri dev. Expected {}",
+            "Start the API first (./dev.sh desktop from the repo root), then run cargo tauri dev. Expected {}",
             service_url()
         ));
     }
