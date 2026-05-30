@@ -12,22 +12,6 @@
   gap: 1rem;
 }
 
-[data-app='desktop'] .desktop-run-role {
-  width: 2.5rem;
-  padding-top: 0.625rem;
-  font-size: 10px;
-  font-weight: 500;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--desktop-text-tertiary);
-  font-family: inherit;
-}
-
-[data-app='desktop'] .desktop-run-role-ai {
-  color: var(--desktop-accent);
-  opacity: 0.85;
-}
-
 /* Message cards */
 [data-app='desktop'] .desktop-message-card {
   border-radius: 16px;

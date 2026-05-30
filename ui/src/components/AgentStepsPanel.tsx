@@ -105,12 +105,11 @@ function toolCallDotTone(status: AgentToolCall['status']): StepDotTone {
 function PendingStepCard() {
   return (
     <div className="desktop-step-block desktop-step-thinking">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <span className="inline-flex h-2 w-2 rounded-full bg-cyan-400 animate-pulse" />
-          <span className="desktop-step-pending-title text-[11px] font-medium text-cyan-200">Thinking</span>
-        </div>
-        <span className="text-[11px] text-zinc-500">Waiting for first trace</span>
+      <div className="flex items-center gap-2">
+        <span className="inline-flex h-2 w-2 rounded-full bg-cyan-400 animate-pulse" />
+        <span className="desktop-step-pending-title text-[11px] font-medium text-cyan-200">
+          Waiting for the first trace
+        </span>
       </div>
       <div className="mt-3 space-y-2">
         <div className="h-2.5 w-[70%] rounded-full bg-zinc-900 shimmer" />
@@ -241,7 +240,6 @@ export function AgentStepsPanel({ agentState }: AgentStepsPanelProps) {
                 className="desktop-step-block text-[12px] leading-6 text-violet-100/85"
                 data-tone="system"
               >
-                <span className="mr-1 text-violet-300/80">system:</span>
                 {event.message}
               </div>
             </TimelineItem>
@@ -261,7 +259,6 @@ export function AgentStepsPanel({ agentState }: AgentStepsPanelProps) {
                       className="desktop-step-block text-[12px] leading-6 text-amber-100/85"
                       data-tone="steer"
                     >
-                      <span className="mr-1 text-amber-300/80">you:</span>
                       {steer.content}
                     </div>
                   </TimelineItem>

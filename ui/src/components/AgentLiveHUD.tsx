@@ -8,7 +8,7 @@ import {
   rejectAgentPlan,
 } from '@/api/client';
 import { cn } from '@/lib/utils';
-import { UnifiedDiffView } from '@/components/ToolCallCard';
+import { formatArguments, UnifiedDiffView } from '@/components/ToolCallCard';
 import { formatAgentCost, formatAgentTokens, useDerivedAgentPhase } from '@/lib/agentLiveState';
 import { useStore } from '@/hooks/useStore';
 import type { AgentToolCall } from '@/types/agent';
@@ -74,14 +74,7 @@ const WEB_DENY_BTN =
   'ui-transition rounded-full border border-red-500/20 bg-red-500/[0.08] px-3 py-1.5 text-[11px] uppercase tracking-[0.16em] text-red-100 hover:border-red-400/30 hover:text-white disabled:cursor-not-allowed disabled:border-zinc-800 disabled:bg-zinc-900 disabled:text-zinc-500';
 
 function formatApprovalArguments(toolCall: AgentToolCall): string {
-  const args = toolCall.arguments || {};
-  if (typeof args.file_path === 'string' && args.file_path.trim()) return args.file_path;
-  if (typeof args.path === 'string' && args.path.trim()) return args.path;
-  if (typeof args.pattern === 'string' && args.pattern.trim()) return args.pattern;
-  if (typeof args.command === 'string' && args.command.trim()) return args.command;
-  if (typeof args.url === 'string' && args.url.trim()) return args.url;
-  if (typeof args.query === 'string' && args.query.trim()) return args.query;
-  return '';
+  return formatArguments(toolCall.tool_name, toolCall.arguments);
 }
 
 interface AgentLiveHUDProps {

@@ -30,19 +30,63 @@ const TOOL_PREFIXES: Record<string, string> = {
   grep: 'grep',
   glob: 'glob',
   bash: 'bash',
+  exec_command: 'exec',
+  write_stdin: 'stdin',
 };
 
-function formatArguments(
+const COMMAND_TOOL_NAMES = new Set(['bash', 'exec_command']);
+
+function normalizeToolArguments(
+  rawArgs: Record<string, unknown> | string | null | undefined,
+): Record<string, unknown> {
+  if (!rawArgs) return {};
+  if (typeof rawArgs === 'string') {
+    try {
+      const parsed = JSON.parse(rawArgs) as unknown;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      return {};
+    }
+    return {};
+  }
+  return rawArgs;
+}
+
+function formatCommandArgument(args: Record<string, unknown>): string {
+  const command = args.cmd ?? args.command;
+  return typeof command === 'string' ? command : '';
+}
+
+export function formatArguments(
   toolName: string,
-  args: Record<string, unknown>
+  rawArgs: Record<string, unknown> | string | null | undefined,
 ): string {
+  const args = normalizeToolArguments(rawArgs);
+
+  if (COMMAND_TOOL_NAMES.has(toolName)) {
+    return formatCommandArgument(args);
+  }
+
+  if (toolName === 'write_stdin') {
+    if (typeof args.text === 'string' && args.text.trim()) {
+      return args.text;
+    }
+    if (typeof args.session_id === 'string' && args.session_id.trim()) {
+      return args.session_id;
+    }
+    return '';
+  }
+
   if (args.query) return `"${args.query}"`;
   if (args.url) return args.url as string;
   if (args.urls) return `${(args.urls as string[]).length} URLs`;
   if (args.file_path) return args.file_path as string;
   if (args.path) return args.path as string;
   if (args.pattern) return args.pattern as string;
-  if (args.command) return args.command as string;
+  if (typeof args.cmd === 'string') return args.cmd;
+  if (typeof args.command === 'string') return args.command;
   if (toolName === 'python_execute') return '';
   return JSON.stringify(args);
 }
@@ -234,7 +278,7 @@ export function ToolCallCard({ toolCall }: ToolCallCardProps) {
   const prefix = TOOL_PREFIXES[toolCall.tool_name] || toolCall.tool_name;
   const isRunning = toolCall.status === 'running';
   const isPython = toolCall.tool_name === 'python_execute';
-  const isBash = toolCall.tool_name === 'bash';
+  const isCommandTool = COMMAND_TOOL_NAMES.has(toolCall.tool_name);
   const hasResult =
     toolCall.result_summary && toolCall.result_summary.length > 0;
   const unifiedDiff = resolveUnifiedDiff(toolCall);
@@ -291,7 +335,7 @@ export function ToolCallCard({ toolCall }: ToolCallCardProps) {
         </div>
       )}
 
-      {isBash && toolCall.bash_output && <BashOutputBlock output={toolCall.bash_output} />}
+      {isCommandTool && toolCall.bash_output && <BashOutputBlock output={toolCall.bash_output} />}
 
       {/* Full write/edit diff after execution */}
       {unifiedDiff && (

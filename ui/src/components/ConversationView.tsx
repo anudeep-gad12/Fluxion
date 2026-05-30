@@ -1014,10 +1014,7 @@ const RunMessage = memo(function RunMessage({
 
   return (
     <div className="animate-in fade-in slide-in-from-bottom-2 space-y-5 duration-200">
-      <div className="desktop-run flex gap-4">
-        <div className="w-11 flex-shrink-0 pt-1.5">
-          <span className="desktop-run-role font-mono text-[10px] uppercase tracking-[0.22em] text-zinc-500">you</span>
-        </div>
+      <div className="desktop-run">
         <div className="min-w-0 flex-1">
           <div className="desktop-message-card fluxion-card rounded-[1.35rem] border px-6 py-5">
             <span className="whitespace-pre-wrap text-[14px] leading-[1.9] text-zinc-50">
@@ -1030,10 +1027,7 @@ const RunMessage = memo(function RunMessage({
         </div>
       </div>
 
-      <div className="desktop-run group/msg flex gap-4">
-        <div className="w-11 flex-shrink-0 pt-1.5">
-          <span className="desktop-run-role font-mono text-[10px] uppercase tracking-[0.22em] text-zinc-500">reply</span>
-        </div>
+      <div className="desktop-run group/msg">
         <div className="min-w-0 flex-1">
           <div className="desktop-run-stream fluxion-card-strong space-y-4 rounded-[1.35rem] border px-6 py-5">
             <ThinkingPanel
