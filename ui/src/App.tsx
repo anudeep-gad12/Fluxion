@@ -11,6 +11,7 @@ import { DesktopTitlebar } from '@/components/desktop/DesktopTitlebar';
 import { DesktopSidebarBrand } from '@/components/desktop/DesktopSidebarBrand';
 import { startWindowDrag } from '@/lib/windowDrag';
 import { useStore, useHasActiveRun } from '@/hooks/useStore';
+import { getApiBase } from '@/api/client';
 import { isLocalDesktopApp } from '@/lib/platform';
 import { cn } from '@/lib/utils';
 import { PanelLeftClose, PanelLeft, GripVertical, FolderPlus } from 'lucide-react';
@@ -109,7 +110,7 @@ function AppLayout() {
 
   useEffect(() => {
     if (!localDesktop) return;
-    void fetch('/api/health')
+    void fetch(`${getApiBase()}/health`)
       .then((response) => (response.ok ? response.json() : null))
       .then((payload: { ui?: { built_at?: string } } | null) => {
         const serverBuiltAt = payload?.ui?.built_at;
@@ -129,7 +130,7 @@ function AppLayout() {
       setIsDemoMode(false);
       return;
     }
-    fetch('/api/config')
+    fetch(`${getApiBase()}/config`)
       .then((res) => res.json())
       .then((data) => {
         if (data.local_app) {

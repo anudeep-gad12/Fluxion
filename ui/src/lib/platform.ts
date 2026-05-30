@@ -31,7 +31,8 @@ export async function syncDesktopPlatformClassFromApi(): Promise<void> {
     return;
   }
   try {
-    const response = await fetch('/api/config');
+    const { getApiBase } = await import('@/api/client');
+    const response = await fetch(`${getApiBase()}/config`);
     if (!response.ok) return;
     const data = (await response.json()) as { local_app?: boolean };
     if (data.local_app) {

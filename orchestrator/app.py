@@ -55,12 +55,21 @@ def get_cors_origins() -> list[str]:
     origins = os.environ.get("CORS_ORIGINS", "")
     if origins:
         return [o.strip() for o in origins.split(",")]
-    return [
+    defaults = [
         "http://127.0.0.1:3000",
         "http://localhost:3000",
         "http://127.0.0.1:9000",
         "http://localhost:9000",
     ]
+    if is_packaged_app():
+        defaults.extend(
+            [
+                "http://tauri.localhost",
+                "https://tauri.localhost",
+                "tauri://localhost",
+            ]
+        )
+    return defaults
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):

@@ -298,7 +298,18 @@ fn service_webview_url() -> Result<url::Url, String> {
 }
 
 fn show_main_window(handle: &AppHandle) -> Result<(), String> {
+    let target = service_webview_url()?;
+    let backend_ready = read_health()
+        .map(|payload| health_matches(&payload))
+        .unwrap_or(false);
+
     if let Some(window) = handle.get_webview_window("main") {
+        // Serve UI from the local API so fetch('/api/*'), cookies, and WebSockets are same-origin.
+        if backend_ready && !cfg!(debug_assertions) {
+            window
+                .navigate(target.clone())
+                .map_err(|error| format!("failed to navigate main window: {error}"))?;
+        }
         window
             .show()
             .map_err(|error| error.to_string())?;
@@ -306,7 +317,6 @@ fn show_main_window(handle: &AppHandle) -> Result<(), String> {
         return Ok(());
     }
 
-    let target = service_webview_url()?;
     WebviewWindowBuilder::new(handle, "main", WebviewUrl::External(target))
     .title(APP_NAME)
     .inner_size(1400.0, 900.0)

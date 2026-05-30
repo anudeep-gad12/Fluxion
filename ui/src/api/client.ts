@@ -22,6 +22,9 @@ const OWNER_TOKEN_KEY = 'reasoner_owner_token';
 function getApiBase(): string {
   if (typeof window === 'undefined') return API_PATH;
   const { protocol, hostname, port } = window.location;
+  if ((hostname === '127.0.0.1' || hostname === 'localhost') && port === '9000') {
+    return API_PATH;
+  }
   if ((hostname === '127.0.0.1' || hostname === 'localhost') && port === '3000') {
     return `${protocol}//${hostname}:9000${API_PATH}`;
   }
@@ -31,7 +34,7 @@ function getApiBase(): string {
   return API_PATH;
 }
 
-const API_BASE = getApiBase();
+export { getApiBase };
 
 function getOwnerToken(): string | null {
   if (typeof window !== 'undefined') {
@@ -103,7 +106,7 @@ async function fetchJson<T>(url: string, options?: FetchJsonOptions): Promise<T>
 
 // Runs
 export async function createRun(request: CreateRunRequest): Promise<CreateRunResponse> {
-  return fetchJson<CreateRunResponse>(`${API_BASE}/runs`, {
+  return fetchJson<CreateRunResponse>(`${getApiBase()}/runs`, {
     method: 'POST',
     body: JSON.stringify(request),
   });
@@ -113,22 +116,22 @@ export async function listRuns(status?: string, limit = 50): Promise<{ runs: Run
   const params = new URLSearchParams();
   if (status) params.set('status', status);
   params.set('limit', String(limit));
-  return fetchJson(`${API_BASE}/runs?${params}`);
+  return fetchJson(`${getApiBase()}/runs?${params}`);
 }
 
 export async function getRun(runId: string): Promise<Run> {
-  return withRetry(() => fetchJson(`${API_BASE}/runs/${runId}`));
+  return withRetry(() => fetchJson(`${getApiBase()}/runs/${runId}`));
 }
 
 export async function getRunEvents(runId: string, sinceSeq?: number): Promise<{ events: Event[] }> {
   const params = new URLSearchParams();
   if (sinceSeq !== undefined) params.set('since_seq', String(sinceSeq));
   const query = params.toString() ? `?${params}` : '';
-  return withRetry(() => fetchJson(`${API_BASE}/runs/${runId}/events${query}`));
+  return withRetry(() => fetchJson(`${getApiBase()}/runs/${runId}/events${query}`));
 }
 
 export async function abortRun(runId: string): Promise<{ status: string; run_id: string }> {
-  return fetchJson(`${API_BASE}/runs/${runId}/abort`, {
+  return fetchJson(`${getApiBase()}/runs/${runId}/abort`, {
     method: 'POST',
   });
 }
@@ -161,18 +164,18 @@ export interface RunTimeline {
 }
 
 export async function getRunTimeline(runId: string): Promise<RunTimeline> {
-  return withRetry(() => fetchJson(`${API_BASE}/runs/${runId}/timeline`));
+  return withRetry(() => fetchJson(`${getApiBase()}/runs/${runId}/timeline`));
 }
 
 export async function getRunReport(runId: string): Promise<{ run_id: string; report: string; timeline: unknown[] }> {
-  return withRetry(() => fetchJson(`${API_BASE}/runs/${runId}/report`));
+  return withRetry(() => fetchJson(`${getApiBase()}/runs/${runId}/report`));
 }
 
 // Conversations
 export async function createConversation(
   request: CreateConversationRequest = {},
 ): Promise<CreateConversationResponse> {
-  return fetchJson<CreateConversationResponse>(`${API_BASE}/conversations`, {
+  return fetchJson<CreateConversationResponse>(`${getApiBase()}/conversations`, {
     method: 'POST',
     body: JSON.stringify(request),
   });
@@ -185,14 +188,14 @@ export async function listConversations(
   const params = new URLSearchParams();
   if (status) params.set('status', status);
   params.set('limit', String(limit));
-  return withRetry(() => fetchJson(`${API_BASE}/conversations?${params}`));
+  return withRetry(() => fetchJson(`${getApiBase()}/conversations?${params}`));
 }
 
 export async function getConversation(conversationId: string): Promise<ConversationDetailResponse> {
   // Do not retry 404s here. Deleted/stale conversation URLs need to clear
   // immediately so workspace drafts and @ file mentions keep using the current
   // workspace instead of staying locked to a missing conversation.
-  return fetchJson(`${API_BASE}/conversations/${conversationId}`);
+  return fetchJson(`${getApiBase()}/conversations/${conversationId}`);
 }
 
 export interface ConversationTraceEvent extends TraceEvent {
@@ -224,27 +227,27 @@ export interface ConversationRewindResponse {
 }
 
 export async function getConversationTraces(conversationId: string): Promise<ConversationTracesResponse> {
-  return withRetry(() => fetchJson(`${API_BASE}/conversations/${conversationId}/traces`));
+  return withRetry(() => fetchJson(`${getApiBase()}/conversations/${conversationId}/traces`));
 }
 
 export async function listConversationRewindCheckpoints(
   conversationId: string,
 ): Promise<ConversationRewindCheckpointsResponse> {
-  return withRetry(() => fetchJson(`${API_BASE}/conversations/${conversationId}/rewind/checkpoints`));
+  return withRetry(() => fetchJson(`${getApiBase()}/conversations/${conversationId}/rewind/checkpoints`));
 }
 
 export async function rewindConversation(
   conversationId: string,
   request: { run_id: string },
 ): Promise<ConversationRewindResponse> {
-  return fetchJson(`${API_BASE}/conversations/${conversationId}/rewind`, {
+  return fetchJson(`${getApiBase()}/conversations/${conversationId}/rewind`, {
     method: 'POST',
     body: JSON.stringify(request),
   });
 }
 
 export async function deleteConversation(conversationId: string): Promise<{ status: string }> {
-  return fetchJson(`${API_BASE}/conversations/${conversationId}`, {
+  return fetchJson(`${getApiBase()}/conversations/${conversationId}`, {
     method: 'DELETE',
   });
 }
@@ -253,7 +256,7 @@ export async function createConversationRun(
   conversationId: string,
   request: CreateConversationRunRequest,
 ): Promise<CreateRunResponse> {
-  return fetchJson<CreateRunResponse>(`${API_BASE}/conversations/${conversationId}/runs`, {
+  return fetchJson<CreateRunResponse>(`${getApiBase()}/conversations/${conversationId}/runs`, {
     method: 'POST',
     body: JSON.stringify(request),
   });
@@ -261,7 +264,7 @@ export async function createConversationRun(
 
 // Health
 export async function healthCheck(): Promise<{ status: string }> {
-  return fetchJson(`${API_BASE}/health`);
+  return fetchJson(`${getApiBase()}/health`);
 }
 
 // SSE Stream
@@ -274,7 +277,7 @@ export function subscribeToRun(
 ): () => void {
   const ownerToken = getOwnerToken();
   const params = ownerToken ? `?owner=${encodeURIComponent(ownerToken)}` : '';
-  const eventSource = new EventSource(`${API_BASE}/runs/${runId}/stream${params}`, {
+  const eventSource = new EventSource(`${getApiBase()}/runs/${runId}/stream${params}`, {
     withCredentials: true,
   });
 
@@ -351,7 +354,7 @@ import type {
 export async function createAgentRun(
   request: CreateAgentRunRequest,
 ): Promise<CreateAgentRunResponse> {
-  return fetchJson<CreateAgentRunResponse>(`${API_BASE}/agent/runs`, {
+  return fetchJson<CreateAgentRunResponse>(`${getApiBase()}/agent/runs`, {
     method: 'POST',
     body: JSON.stringify(request),
   });
@@ -361,14 +364,14 @@ export async function createAgentRun(
  * Get agent run status.
  */
 export async function getAgentRunStatus(runId: string): Promise<AgentRunStatus> {
-  return withRetry(() => fetchJson(`${API_BASE}/agent/runs/${runId}`));
+  return withRetry(() => fetchJson(`${getApiBase()}/agent/runs/${runId}`));
 }
 
 /**
  * Get full agent run trace with steps, tool calls, and citations.
  */
 export async function getAgentRunTrace(runId: string): Promise<AgentRunTrace> {
-  return withRetry(() => fetchJson(`${API_BASE}/agent/runs/${runId}/trace`));
+  return withRetry(() => fetchJson(`${getApiBase()}/agent/runs/${runId}/trace`));
 }
 
 /**
@@ -377,7 +380,7 @@ export async function getAgentRunTrace(runId: string): Promise<AgentRunTrace> {
 export async function cancelAgentRun(
   runId: string,
 ): Promise<{ run_id: string; status: string }> {
-  return fetchJson(`${API_BASE}/agent/runs/${runId}/cancel`, {
+  return fetchJson(`${getApiBase()}/agent/runs/${runId}/cancel`, {
     method: 'POST',
   });
 }
@@ -385,7 +388,7 @@ export async function cancelAgentRun(
 export async function pauseAgentRun(
   runId: string,
 ): Promise<{ run_id: string; status: string }> {
-  return fetchJson(`${API_BASE}/agent/runs/${runId}/pause`, {
+  return fetchJson(`${getApiBase()}/agent/runs/${runId}/pause`, {
     method: 'POST',
   });
 }
@@ -393,7 +396,7 @@ export async function pauseAgentRun(
 export async function resumeAgentRun(
   runId: string,
 ): Promise<{ run_id: string; status: string }> {
-  return fetchJson(`${API_BASE}/agent/runs/${runId}/resume`, {
+  return fetchJson(`${getApiBase()}/agent/runs/${runId}/resume`, {
     method: 'POST',
   });
 }
@@ -402,7 +405,7 @@ export async function steerAgentRun(
   runId: string,
   message: string,
 ): Promise<{ run_id: string; status: string; queue_size: number }> {
-  return fetchJson(`${API_BASE}/agent/runs/${runId}/steer`, {
+  return fetchJson(`${getApiBase()}/agent/runs/${runId}/steer`, {
     method: 'POST',
     body: JSON.stringify({ message }),
   });
@@ -412,7 +415,7 @@ export async function approveAgentToolCall(
   runId: string,
   toolCallId: string,
 ): Promise<{ status: string; run_id: string; tool_call_id: string }> {
-  return fetchJson(`${API_BASE}/agent/runs/${runId}/approve/${encodeURIComponent(toolCallId)}`, {
+  return fetchJson(`${getApiBase()}/agent/runs/${runId}/approve/${encodeURIComponent(toolCallId)}`, {
     method: 'POST',
   });
 }
@@ -421,7 +424,7 @@ export async function denyAgentToolCall(
   runId: string,
   toolCallId: string,
 ): Promise<{ status: string; run_id: string; tool_call_id: string }> {
-  return fetchJson(`${API_BASE}/agent/runs/${runId}/deny/${encodeURIComponent(toolCallId)}`, {
+  return fetchJson(`${getApiBase()}/agent/runs/${runId}/deny/${encodeURIComponent(toolCallId)}`, {
     method: 'POST',
   });
 }
@@ -437,7 +440,7 @@ export async function approveAgentPlan(
   implementation_stream_token?: string;
   implementation_stream_url?: string;
 }> {
-  return fetchJson(`${API_BASE}/agent/runs/${runId}/plan/approve`, {
+  return fetchJson(`${getApiBase()}/agent/runs/${runId}/plan/approve`, {
     method: 'POST',
     body: JSON.stringify({ plan_id: planId }),
   });
@@ -448,7 +451,7 @@ export async function rejectAgentPlan(
   planId: string,
   feedback?: string,
 ): Promise<{ status: string; run_id: string; plan_id: string }> {
-  return fetchJson(`${API_BASE}/agent/runs/${runId}/plan/reject`, {
+  return fetchJson(`${getApiBase()}/agent/runs/${runId}/plan/reject`, {
     method: 'POST',
     body: JSON.stringify({ plan_id: planId, feedback }),
   });
@@ -459,7 +462,7 @@ export async function answerAgentUserInput(
   requestId: string,
   answers: Record<string, unknown>,
 ): Promise<{ status: string; run_id: string; request_id: string }> {
-  return fetchJson(`${API_BASE}/agent/runs/${runId}/input/${encodeURIComponent(requestId)}`, {
+  return fetchJson(`${getApiBase()}/agent/runs/${runId}/input/${encodeURIComponent(requestId)}`, {
     method: 'POST',
     body: JSON.stringify({ answers }),
   });
@@ -509,7 +512,7 @@ export function subscribeToAgentRun(
   const ownerToken = getOwnerToken();
   if (ownerToken) params.set('owner', ownerToken);
   const qs = params.toString();
-  const url = `${API_BASE}/agent/runs/${runId}/stream${qs ? `?${qs}` : ''}`;
+  const url = `${getApiBase()}/agent/runs/${runId}/stream${qs ? `?${qs}` : ''}`;
   const eventSource = new EventSource(url, {
     withCredentials: true,
   });
@@ -660,13 +663,13 @@ export interface ReasoningSettingsResponse {
 }
 
 export async function listLocalModels(): Promise<LocalModel[]> {
-  return fetchJson<LocalModel[]>(`${API_BASE}/models/local`, { timeoutMs: 8_000 });
+  return fetchJson<LocalModel[]>(`${getApiBase()}/models/local`, { timeoutMs: 8_000 });
 }
 
 export async function startLocalModel(
   modelPath: string,
 ): Promise<{ status: string; model_name: string }> {
-  return fetchJson(`${API_BASE}/models/local/start`, {
+  return fetchJson(`${getApiBase()}/models/local/start`, {
     method: 'POST',
     body: JSON.stringify({ model_path: modelPath }),
     timeoutMs: 120_000,
@@ -674,21 +677,21 @@ export async function startLocalModel(
 }
 
 export async function stopLocalModel(): Promise<{ status: string; provider: string }> {
-  return fetchJson(`${API_BASE}/models/local/stop`, { method: 'POST', timeoutMs: 20_000 });
+  return fetchJson(`${getApiBase()}/models/local/stop`, { method: 'POST', timeoutMs: 20_000 });
 }
 
 export async function getModelStatus(): Promise<ModelStatus> {
-  return fetchJson<ModelStatus>(`${API_BASE}/models/status`, { timeoutMs: 5_000 });
+  return fetchJson<ModelStatus>(`${getApiBase()}/models/status`, { timeoutMs: 5_000 });
 }
 
 export async function getReasoningSettings(): Promise<ReasoningSettingsResponse> {
-  return fetchJson<ReasoningSettingsResponse>(`${API_BASE}/models/reasoning-settings`, { timeoutMs: 5_000 });
+  return fetchJson<ReasoningSettingsResponse>(`${getApiBase()}/models/reasoning-settings`, { timeoutMs: 5_000 });
 }
 
 export async function updateReasoningSettings(
   settings: ReasoningSettings,
 ): Promise<ReasoningSettingsResponse> {
-  return fetchJson<ReasoningSettingsResponse>(`${API_BASE}/models/reasoning-settings`, {
+  return fetchJson<ReasoningSettingsResponse>(`${getApiBase()}/models/reasoning-settings`, {
     method: 'PUT',
     body: JSON.stringify({ settings }),
   });
@@ -750,7 +753,7 @@ export async function browseWorkspaceDirectories(
   const params = new URLSearchParams();
   if (path) params.set('path', path);
   const query = params.toString() ? `?${params}` : '';
-  return fetchJson<WorkspaceBrowseResponse>(`${API_BASE}/workspaces/browse${query}`);
+  return fetchJson<WorkspaceBrowseResponse>(`${getApiBase()}/workspaces/browse${query}`);
 }
 
 export async function searchWorkspaceFiles(
@@ -764,12 +767,12 @@ export async function searchWorkspaceFiles(
   params.set('limit', String(limit));
   const queryString = params.toString();
   try {
-    return await fetchJson<WorkspaceFileSearchResponse>(`${API_BASE}/workspaces/search-files?${queryString}`);
+    return await fetchJson<WorkspaceFileSearchResponse>(`${getApiBase()}/workspaces/search-files?${queryString}`);
   } catch (error) {
     // Safari/localhost can occasionally fail absolute localhost:9000 requests
     // while the Vite same-origin proxy still works. @ file mentions should not
     // break on that transport detail.
-    if (API_BASE !== API_PATH && !(error instanceof ApiError && error.status > 0)) {
+    if (getApiBase() !== API_PATH && !(error instanceof ApiError && error.status > 0)) {
       return fetchJson<WorkspaceFileSearchResponse>(`${API_PATH}/workspaces/search-files?${queryString}`);
     }
     throw error;
@@ -779,14 +782,14 @@ export async function searchWorkspaceFiles(
 export async function getTerminalSession(
   conversationId: string,
 ): Promise<TerminalSessionResponse> {
-  return fetchJson<TerminalSessionResponse>(`${API_BASE}/terminal/conversations/${conversationId}/session`);
+  return fetchJson<TerminalSessionResponse>(`${getApiBase()}/terminal/conversations/${conversationId}/session`);
 }
 
 export async function listTerminalSessions(
   conversationId: string,
 ): Promise<TerminalSessionListResponse> {
   return fetchJson<TerminalSessionListResponse>(
-    `${API_BASE}/terminal/conversations/${conversationId}/sessions`,
+    `${getApiBase()}/terminal/conversations/${conversationId}/sessions`,
   );
 }
 
@@ -795,7 +798,7 @@ export async function createTerminalSession(
   request: TerminalSessionRequest,
 ): Promise<TerminalSessionResponse> {
   return fetchJson<TerminalSessionResponse>(
-    `${API_BASE}/terminal/conversations/${conversationId}/sessions`,
+    `${getApiBase()}/terminal/conversations/${conversationId}/sessions`,
     {
       method: 'POST',
       body: JSON.stringify(request),
@@ -808,7 +811,7 @@ export async function createOrGetTerminalSession(
   conversationId: string,
   request: TerminalSessionRequest,
 ): Promise<TerminalSessionResponse> {
-  return fetchJson<TerminalSessionResponse>(`${API_BASE}/terminal/conversations/${conversationId}/session`, {
+  return fetchJson<TerminalSessionResponse>(`${getApiBase()}/terminal/conversations/${conversationId}/session`, {
     method: 'POST',
     body: JSON.stringify(request),
   });
@@ -820,7 +823,7 @@ export async function restartTerminalSession(
   request: TerminalSessionRequest,
 ): Promise<TerminalSessionResponse> {
   return fetchJson<TerminalSessionResponse>(
-    `${API_BASE}/terminal/conversations/${conversationId}/sessions/${sessionId}/restart`,
+    `${getApiBase()}/terminal/conversations/${conversationId}/sessions/${sessionId}/restart`,
     {
       method: 'POST',
       body: JSON.stringify(request),
@@ -834,7 +837,7 @@ export async function restartFirstTerminalSession(
   request: TerminalSessionRequest,
 ): Promise<TerminalSessionResponse> {
   return fetchJson<TerminalSessionResponse>(
-    `${API_BASE}/terminal/conversations/${conversationId}/session/restart`,
+    `${getApiBase()}/terminal/conversations/${conversationId}/session/restart`,
     {
       method: 'POST',
       body: JSON.stringify(request),
@@ -847,7 +850,7 @@ export async function closeTerminalSession(
   sessionId: string,
 ): Promise<{ status: string; session_id: string }> {
   return fetchJson(
-    `${API_BASE}/terminal/conversations/${conversationId}/sessions/${sessionId}/close`,
+    `${getApiBase()}/terminal/conversations/${conversationId}/sessions/${sessionId}/close`,
     { method: 'POST' },
   );
 }
@@ -855,7 +858,7 @@ export async function closeTerminalSession(
 export async function closeAllTerminalSessions(
   conversationId: string,
 ): Promise<{ status: string; conversation_id: string }> {
-  return fetchJson(`${API_BASE}/terminal/conversations/${conversationId}/session/close`, {
+  return fetchJson(`${getApiBase()}/terminal/conversations/${conversationId}/session/close`, {
     method: 'POST',
   });
 }
@@ -864,7 +867,10 @@ export function createTerminalWebSocket(
   conversationId: string,
   sessionId: string,
 ): WebSocket {
-  const apiUrl = new URL(API_BASE, window.location.origin);
+  const apiBase = getApiBase();
+  const apiUrl = apiBase.startsWith('http')
+    ? new URL(apiBase)
+    : new URL(apiBase, window.location.origin);
   const protocol = apiUrl.protocol === 'https:' ? 'wss:' : 'ws:';
   const ownerToken = getOwnerToken();
   const params = new URLSearchParams({ session_id: sessionId });
@@ -883,7 +889,7 @@ export interface UsageInfo {
 }
 
 export async function getUsage(): Promise<UsageInfo> {
-  return fetchJson<UsageInfo>(`${API_BASE}/usage`);
+  return fetchJson<UsageInfo>(`${getApiBase()}/usage`);
 }
 
 export interface RegistryModelPreset {
@@ -911,7 +917,7 @@ export interface RegistryModelsResponse {
 }
 
 export async function listRegistryModels(): Promise<RegistryModelsResponse> {
-  return fetchJson<RegistryModelsResponse>(`${API_BASE}/models`, { timeoutMs: 8_000 });
+  return fetchJson<RegistryModelsResponse>(`${getApiBase()}/models`, { timeoutMs: 8_000 });
 }
 
 export async function selectModel(model: string): Promise<{
@@ -927,7 +933,7 @@ export async function selectModel(model: string): Promise<{
   supports_vision: boolean;
   source: string;
 }> {
-  return fetchJson(`${API_BASE}/models/select`, {
+  return fetchJson(`${getApiBase()}/models/select`, {
     method: 'POST',
     body: JSON.stringify({ model }),
     timeoutMs: 10_000,
@@ -942,14 +948,14 @@ export interface ProviderKeyStatus {
 }
 
 export async function listProviderKeys(): Promise<{ providers: ProviderKeyStatus[] }> {
-  return fetchJson(`${API_BASE}/models/provider-keys`, { timeoutMs: 8_000 });
+  return fetchJson(`${getApiBase()}/models/provider-keys`, { timeoutMs: 8_000 });
 }
 
 export async function saveProviderKey(
   provider: string,
   apiKey: string,
 ): Promise<ProviderKeyStatus> {
-  return fetchJson(`${API_BASE}/models/provider-keys/${provider}`, {
+  return fetchJson(`${getApiBase()}/models/provider-keys/${provider}`, {
     method: 'PUT',
     body: JSON.stringify({ api_key: apiKey }),
     timeoutMs: 10_000,
@@ -957,7 +963,7 @@ export async function saveProviderKey(
 }
 
 export async function clearProviderKey(provider: string): Promise<ProviderKeyStatus> {
-  return fetchJson(`${API_BASE}/models/provider-keys/${provider}`, {
+  return fetchJson(`${getApiBase()}/models/provider-keys/${provider}`, {
     method: 'DELETE',
     timeoutMs: 10_000,
   });
