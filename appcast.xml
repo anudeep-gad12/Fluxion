@@ -1,0 +1,21 @@
+<?xml version="1.0" standalone="yes"?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+  <channel>
+    <title>Fluxion</title>
+    <link>https://github.com/anudeep-gad12/Fluxion</link>
+    <description>Fluxion release feed</description>
+    <language>en</language>
+    <item>
+      <title>v0.2.0</title>
+      <pubDate>Sat, 30 May 2026 06:06:49 +0000</pubDate>
+      <sparkle:version>525</sparkle:version>
+      <sparkle:shortVersionString>0.2.0</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+      <enclosure
+        url="https://github.com/anudeep-gad12/Fluxion/releases/download/v0.2.0/Fluxion-macos-arm64.zip"
+        sparkle:edSignature="feItWzekh/tSftlW6eGIw4sXGCmgq0KG7AhLQ3IddJo2oR6X+6R73D+YlJElsQA1i0+pCm0UcX9T+h2Q9YylCg=="
+        length="37576747"
+        type="application/octet-stream" />
+    </item>
+  </channel>
+</rss>
