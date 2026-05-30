@@ -112,6 +112,23 @@ async def apply_persisted_provider_keys_to_environment() -> None:
         _apply_provider_key_to_env(provider, api_key)
 
 
+def resolve_parallel_api_key(config: Any) -> str | None:
+    """Return the Parallel API key from config or the active environment."""
+    parallel_config = getattr(config, "parallel", None)
+    if parallel_config is None:
+        return None
+
+    config_key = getattr(parallel_config, "api_key", None)
+    if isinstance(config_key, str) and config_key.strip():
+        return config_key.strip()
+
+    env_key = os.environ.get("PARALLEL_API_KEY")
+    if isinstance(env_key, str) and env_key.strip():
+        return env_key.strip()
+
+    return None
+
+
 async def get_provider_key_statuses() -> list[dict[str, Any]]:
     """Return provider key availability metadata without exposing secrets."""
     persisted = await get_persisted_provider_keys()

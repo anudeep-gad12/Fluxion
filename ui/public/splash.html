@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <title>Fluxion</title>
+    <style>
+      * { box-sizing: border-box; margin: 0; }
+      html, body {
+        height: 100%;
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+        background: #09090b;
+        color: #f4f4f5;
+      }
+      body {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 100%;
+        /* macOS overlay titlebar — keep content visually centered in the usable area */
+        padding: 52px 32px 32px;
+      }
+      .splash {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 20px;
+        text-align: center;
+        width: 100%;
+        max-width: 360px;
+      }
+      .splash img {
+        width: 72px;
+        height: 72px;
+        border-radius: 22%;
+        box-shadow: 0 24px 64px rgba(0, 0, 0, 0.45);
+      }
+      h1 {
+        font-size: 22px;
+        font-weight: 600;
+        letter-spacing: -0.03em;
+      }
+      #status {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        width: 100%;
+        text-align: center;
+      }
+      #status-text {
+        font-size: 14px;
+        color: #a1a1aa;
+        line-height: 1.5;
+      }
+      #status.is-error #status-text { color: #fca5a5; }
+      .spinner {
+        width: 22px;
+        height: 22px;
+        flex-shrink: 0;
+        border: 2px solid rgba(121, 230, 255, 0.2);
+        border-top-color: #79e6ff;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+      }
+      #status.is-error .spinner { display: none; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      @media (prefers-reduced-motion: reduce) {
+        .spinner { animation: none; opacity: 0.5; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="splash">
+      <img src="apple-touch-icon.png" width="72" height="72" alt="" />
+      <h1>Fluxion</h1>
+      <div id="status">
+        <div class="spinner" aria-hidden="true"></div>
+        <p id="status-text">Opening Fluxion…</p>
+      </div>
+    </div>
+  </body>
+</html>

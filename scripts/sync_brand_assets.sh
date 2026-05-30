@@ -27,6 +27,7 @@ if [[ -d "$TAURI_ICONS" ]]; then
   cp "$TAURI_ICONS/128x128@2x.png" "$ROOT/site/public/apple-touch-icon.png"
   cp "$TAURI_ICONS/128x128.png" "$ROOT/assets/brand/logo-128.png"
   cp "$TAURI_ICONS/128x128@2x.png" "$ROOT/ui/public/apple-touch-icon.png"
+  cp "$TAURI_ICONS/128x128@2x.png" "$ROOT/ui/src/assets/app-icon.png"
 else
   log "Warning: $TAURI_ICONS missing — run: cd src-tauri && cargo tauri icon ../assets/macos/Fluxion.svg"
 fi

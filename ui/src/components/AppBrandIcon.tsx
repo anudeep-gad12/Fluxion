@@ -1,16 +1,15 @@
 import { cn } from '@/lib/utils';
-
-/** macOS app icon raster (from assets/macos/Fluxion.svg via sync_brand_assets). */
-const APP_ICON_SRC = '/apple-touch-icon.png';
+import appIconUrl from '@/assets/app-icon.png';
 
 interface AppBrandIconProps {
   className?: string;
 }
 
+/** macOS app icon raster — bundled by Vite so packaged static serving cannot break the path. */
 export function AppBrandIcon({ className }: AppBrandIconProps) {
   return (
     <img
-      src={APP_ICON_SRC}
+      src={appIconUrl}
       alt=""
       className={cn('pointer-events-none shrink-0 rounded-[22%]', className)}
       width={28}

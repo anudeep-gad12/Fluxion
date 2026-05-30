@@ -139,14 +139,18 @@ def create_browser_agent_tool_registry(
     from .web_extract import WebExtractTool
     from .web_search import WebSearchTool
 
+    from orchestrator.services.provider_keys import resolve_parallel_api_key
+
     registry = ToolRegistry()
     parallel_config = getattr(config, "parallel", None)
+    parallel_api_key = resolve_parallel_api_key(config)
+    web_requested = capabilities.get("web", True)
 
-    if capabilities.get("web", True) and parallel_config and parallel_config.api_key:
+    if web_requested and parallel_config and parallel_api_key:
         registry.register(
             WebSearchTool(
                 base_url=parallel_config.base_url,
-                api_key=parallel_config.api_key,
+                api_key=parallel_api_key,
                 max_results=parallel_config.search.max_results,
                 timeout_ms=parallel_config.search.timeout_ms,
             )
@@ -154,10 +158,17 @@ def create_browser_agent_tool_registry(
         registry.register(
             WebExtractTool(
                 base_url=parallel_config.base_url,
-                api_key=parallel_config.api_key,
+                api_key=parallel_api_key,
                 max_urls=parallel_config.extract.max_urls_per_request,
                 timeout_ms=parallel_config.extract.timeout_ms,
             )
+        )
+    elif web_requested and not parallel_api_key:
+        logger.warning(
+            "Web tools not registered: Parallel API key missing",
+            extra={
+                "hint": "Add a Parallel API key in Settings → Provider API keys (provider: parallel)",
+            },
         )
 
     if capabilities.get("python", False):

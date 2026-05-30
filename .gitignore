@@ -65,6 +65,7 @@ htmlcov/
 ui/dist/
 src-tauri/target/
 src-tauri/Frameworks/
+src-tauri/Sparkle.framework
 src-tauri/binaries/fluxion-server-*
 
 # Keep placeholder sidecar slot

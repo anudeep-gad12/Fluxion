@@ -6,7 +6,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use serde::Deserialize;
-use tauri::{AppHandle, Emitter, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Emitter, Manager, RunEvent};
 use tauri_plugin_shell::process::CommandChild;
 use tauri_plugin_shell::ShellExt;
 
@@ -297,53 +297,84 @@ fn service_webview_url() -> Result<url::Url, String> {
         .map_err(|error| format!("invalid service URL: {error}"))
 }
 
-fn show_main_window(handle: &AppHandle) -> Result<(), String> {
-    let target = service_webview_url()?;
-    let backend_ready = read_health()
-        .map(|payload| health_matches(&payload))
-        .unwrap_or(false);
-
-    if let Some(window) = handle.get_webview_window("main") {
-        // Serve UI from the local API so fetch('/api/*'), cookies, and WebSockets are same-origin.
-        if backend_ready && !cfg!(debug_assertions) {
-            window
-                .navigate(target.clone())
-                .map_err(|error| format!("failed to navigate main window: {error}"))?;
-        }
-        window
-            .show()
-            .map_err(|error| error.to_string())?;
-        window.set_focus().map_err(|error| error.to_string())?;
-        return Ok(());
-    }
-
-    WebviewWindowBuilder::new(handle, "main", WebviewUrl::External(target))
-    .title(APP_NAME)
-    .inner_size(1400.0, 900.0)
-    .min_inner_size(800.0, 600.0)
-    .center()
-    .build()
-    .map_err(|error| error.to_string())?;
-
+fn show_splash_window(handle: &AppHandle) -> Result<(), String> {
+    let window = handle
+        .get_webview_window("main")
+        .ok_or_else(|| "main window missing".to_string())?;
+    window.show().map_err(|error| error.to_string())?;
+    window.set_focus().map_err(|error| error.to_string())?;
     Ok(())
 }
 
-fn start_backend_and_ui(handle: &AppHandle, state: &BackendState) -> Result<(), String> {
-    bootout_legacy_launch_agent();
+fn navigate_main_to_service(handle: &AppHandle) -> Result<(), String> {
+    let window = handle
+        .get_webview_window("main")
+        .ok_or_else(|| "main window missing".to_string())?;
+    let target = service_webview_url()?;
+    window
+        .navigate(target)
+        .map_err(|error| format!("failed to navigate main window: {error}"))
+}
 
-    if !cfg!(debug_assertions) {
-        if let Err(error) = ensure_packaged_backend(handle, state) {
-            eprintln!("[fluxion] backend startup failed: {error}");
-        }
-    } else if read_health().is_none() {
-        return Err(format!(
-            "Start the API first (./dev.sh desktop from the repo root), then run cargo tauri dev. Expected {}",
-            service_url()
-        ));
-    }
+fn show_splash_error(handle: &AppHandle, message: &str) {
+    let Some(window) = handle.get_webview_window("main") else {
+        return;
+    };
+    let escaped = message
+        .replace('\\', "\\\\")
+        .replace('\'', "\\'")
+        .replace('\n', " ");
+    let script = format!(
+        "(() => {{
+          const root = document.getElementById('status');
+          const text = document.getElementById('status-text');
+          if (root) root.classList.add('is-error');
+          if (text) text.textContent = '{escaped}';
+        }})();"
+    );
+    let _ = window.eval(&script);
+}
 
-    show_main_window(handle)?;
-    Ok(())
+fn start_backend_in_background(handle: AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        let result = tauri::async_runtime::spawn_blocking({
+            let handle = handle.clone();
+            move || -> Result<(), String> {
+                bootout_legacy_launch_agent();
+                let state = handle.state::<BackendState>();
+                if cfg!(debug_assertions) {
+                    if read_health().is_none() {
+                        return Err(format!(
+                            "Start the API first (./dev.sh desktop from the repo root), then run cargo tauri dev. Expected {}",
+                            service_url()
+                        ));
+                    }
+                    return Ok(());
+                }
+                ensure_packaged_backend(&handle, &state)
+            }
+        })
+        .await;
+
+        let handle_for_ui = handle.clone();
+        let _ = handle.run_on_main_thread(move || {
+            match result {
+                Ok(Ok(())) => {
+                    if let Err(error) = navigate_main_to_service(&handle_for_ui) {
+                        show_splash_error(&handle_for_ui, &error);
+                    }
+                }
+                Ok(Err(message)) => {
+                    eprintln!("[fluxion] backend startup failed: {message}");
+                    show_splash_error(&handle_for_ui, &message);
+                }
+                Err(join_error) => {
+                    let message = format!("Startup failed: {join_error}");
+                    show_splash_error(&handle_for_ui, &message);
+                }
+            }
+        });
+    });
 }
 
 #[cfg(target_os = "macos")]
@@ -373,8 +404,8 @@ pub fn run() {
         .manage(BackendState::default())
         .setup(|app| {
             let handle = app.handle().clone();
-            let state = app.state::<BackendState>();
-            start_backend_and_ui(&handle, &state)?;
+            show_splash_window(&handle)?;
+            start_backend_in_background(handle.clone());
             #[cfg(target_os = "macos")]
             check_sparkle_updates(&handle);
             Ok(())

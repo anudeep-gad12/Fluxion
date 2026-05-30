@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# Run before `cargo tauri dev` — rebuild ui/dist only when sources changed.
+# Run before `cargo tauri dev` — Sparkle framework + rebuild ui/dist when needed.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+bash "$ROOT/scripts/ensure_sparkle_framework.sh"
+export SPARKLE_FRAMEWORK_PATH="$ROOT/src-tauri/Frameworks"
 UI_DIR="$ROOT/ui"
 DIST_INDEX="$UI_DIR/dist/index.html"
 

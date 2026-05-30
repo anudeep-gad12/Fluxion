@@ -9,6 +9,9 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| main | v0.2.5 — web tools startup fix, launch splash, bundled sidebar icon, Sparkle framework ensure script | done | 2026-05-30 |
+| main | Web tools startup fix — apply persisted `PARALLEL_API_KEY` before `get_chat_config(reload=True)`; registry resolves key from env fallback; system prompt omits `web_search` hints when tools not registered; startup log `parallel_api_key_configured` | done | 2026-05-30 |
+| main | Desktop launch splash + sidebar logo fix — `splash.html` on cold start while sidecar boots; backend starts off UI thread; sidebar uses Vite-bundled `app-icon.png`; API serves root `apple-touch-icon.png`/`favicon.svg` before SPA fallback | done | 2026-05-30 |
 | main | Brand + marketing refresh — `assets/macos/Fluxion.svg` as logo source via `scripts/sync_brand_assets.sh`; README desktop-first (`./dev.sh desktop`, multi-terminal); Fluxion.cc landing uses `Logo` component, desktop-aligned tokens, SVG product illustrations, terminal section, removed unsigned/Sparkle/service copy; `og.png` for social meta | done | 2026-05-30 |
 | main | Packaged API connectivity fix — start on `about:blank`, navigate to `http://127.0.0.1:9000` after sidecar is healthy so conversations/models/config load same-origin; lazy `getApiBase()` + Tauri CORS fallbacks | done | 2026-05-30 |
 | main | Packaged desktop UI fix — Tauri `main` window now loads `http://127.0.0.1:9000` (config `url` + `navigate` on startup) instead of embedded `tauri://` assets so `isLocalDesktopApp()` enables desktop chrome/terminal; `isTauriWebview()` fallback + packaged API base URL for early load | done | 2026-05-30 |

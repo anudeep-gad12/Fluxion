@@ -259,6 +259,26 @@ class TestBrowserAgentToolRegistry:
             "bash",
         }
 
+    def test_web_tools_use_parallel_key_from_environment(self, monkeypatch):
+        """Web tools register when PARALLEL_API_KEY is set even if config cache is stale."""
+        monkeypatch.setenv("PARALLEL_API_KEY", "parallel-env-key")
+        config = SimpleNamespace(
+            parallel=SimpleNamespace(
+                api_key=None,
+                base_url="https://api.parallel.ai/v1beta",
+                search=SimpleNamespace(max_results=5, timeout_ms=1000),
+                extract=SimpleNamespace(max_urls_per_request=2, timeout_ms=2000),
+            ),
+            python=SimpleNamespace(timeout_seconds=30),
+        )
+
+        registry = create_browser_agent_tool_registry(
+            config,
+            {"web": True, "filesystem": False, "bash": False, "python": False},
+        )
+
+        assert registry.tool_names == ["web_search", "web_extract"]
+
     def test_python_is_disabled_by_default_for_browser_agent(self, tmp_path):
         """Browser coding agent does not register python unless requested."""
         config = SimpleNamespace(parallel=None, python=SimpleNamespace(timeout_seconds=30))

@@ -161,10 +161,18 @@ async def lifespan(app: FastAPI):
 
     logger.info("Starting Fluxion API server")
 
-    # Log config summary (redacted)
+    # Startup: ensure database is initialized before loading persisted provider keys
+    db = await get_db()
+    logger.info("Database initialized")
+    await apply_persisted_provider_keys_to_environment()
+
+    # Log config summary (redacted) after keys are in the environment
     try:
-        config = get_chat_config()
+        config = get_chat_config(reload=True)
         base_url = config.provider.base_url
+        parallel_key_configured = bool(
+            getattr(getattr(config, "parallel", None), "api_key", None)
+        )
         logger.info(
             "Configuration loaded",
             extra={
@@ -173,15 +181,11 @@ async def lifespan(app: FastAPI):
                 "base_url": base_url[:30] + "..." if len(base_url) > 30 else base_url,
                 "max_tokens": config.model.max_tokens,
                 "thinking_modes": list(config.thinking.mode_mapping.keys()),
+                "parallel_api_key_configured": parallel_key_configured,
             },
         )
     except Exception as e:
         logger.warning(f"Could not load config for logging: {e}")
-
-    # Startup: ensure database is initialized
-    db = await get_db()
-    logger.info("Database initialized")
-    await apply_persisted_provider_keys_to_environment()
 
     # Clean up orphaned data (stuck in 'running' state from previous crash/restart)
     # This runs unconditionally to catch any orphaned tool_calls/steps even if runs were already cleaned
@@ -379,6 +383,30 @@ if is_static_serving_enabled():
             media_type="application/json",
             headers={"Cache-Control": "no-store"},
         )
+
+    @app.get("/favicon.svg")
+    async def serve_favicon_svg():
+        """Root favicon — must not fall through to SPA index.html."""
+        path = static_dir() / "favicon.svg"
+        if not path.is_file():
+            raise HTTPException(status_code=404, detail="favicon missing")
+        return FileResponse(path, media_type="image/svg+xml")
+
+    @app.get("/apple-touch-icon.png")
+    async def serve_apple_touch_icon():
+        """Root app icon for link tags and legacy absolute paths."""
+        path = static_dir() / "apple-touch-icon.png"
+        if not path.is_file():
+            raise HTTPException(status_code=404, detail="apple-touch-icon missing")
+        return FileResponse(path, media_type="image/png")
+
+    @app.get("/splash.html")
+    async def serve_splash_html():
+        """Tauri launch screen (also bundled in the app before the API is up)."""
+        path = static_dir() / "splash.html"
+        if not path.is_file():
+            raise HTTPException(status_code=404, detail="splash.html missing")
+        return FileResponse(path, media_type="text/html; charset=utf-8")
 
     @app.get("/{full_path:path}")
     async def serve_spa(full_path: str):

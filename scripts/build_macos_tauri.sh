@@ -95,22 +95,13 @@ if [[ ! -f "$TAURI_DIR/icons/icon.icns" ]]; then
   fi
 fi
 
-SPARKLE_VERSION="${SPARKLE_VERSION:-2.9.2}"
-SPARKLE_FRAMEWORK="$TAURI_DIR/Frameworks/Sparkle.framework"
-if [[ ! -d "$SPARKLE_FRAMEWORK" ]]; then
-  log "Downloading Sparkle $SPARKLE_VERSION"
-  SPARKLE_CACHE="$BUILD_ROOT/sparkle"
-  mkdir -p "$SPARKLE_CACHE" "$TAURI_DIR/Frameworks"
-  curl -sSL "https://github.com/sparkle-project/Sparkle/releases/download/${SPARKLE_VERSION}/Sparkle-${SPARKLE_VERSION}.tar.xz" \
-    -o "$SPARKLE_CACHE/sparkle.tar.xz"
-  tar -xJf "$SPARKLE_CACHE/sparkle.tar.xz" -C "$SPARKLE_CACHE"
-  rm -rf "$SPARKLE_FRAMEWORK"
-  cp -R "$SPARKLE_CACHE/Sparkle.framework" "$SPARKLE_FRAMEWORK"
-fi
+bash "$ROOT_DIR/scripts/ensure_sparkle_framework.sh"
+export SPARKLE_FRAMEWORK_PATH="$ROOT_DIR/src-tauri/Frameworks"
 
 log "Building Tauri app bundle"
 (
   cd "$TAURI_DIR"
+  export SPARKLE_FRAMEWORK_PATH
   if [[ -n "${APPLE_SIGNING_IDENTITY:-}" ]]; then
     cargo tauri build --bundles app,dmg
   else

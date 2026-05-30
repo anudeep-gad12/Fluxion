@@ -101,14 +101,23 @@ async def create_agent_engine(
     if not system_prompt:
         from datetime import date
         today = date.today()
-        date_context = (
-            f"Current date: {today.strftime('%B %d, %Y')}\n"
-            "Your knowledge cutoff: June 2024. For information after this date, use web_search."
-        )
+        has_web_tools = "web_search" in registry.tool_names
+        if has_web_tools:
+            date_context = (
+                f"Current date: {today.strftime('%B %d, %Y')}\n"
+                "Your knowledge cutoff: June 2024. For information after this date, use web_search."
+            )
+        else:
+            date_context = f"Current date: {today.strftime('%B %d, %Y')}"
         system_prompt = profile.system_prompt_template.format(
             date_context=date_context,
             project_context=project_context,
         )
+        if not has_web_tools:
+            system_prompt = system_prompt.replace(
+                "- Use `web_search` or `web_extract` only for external docs or current behavior you cannot reliably infer locally.\n",
+                "",
+            )
     if resolved_collaboration_mode == "plan":
         system_prompt = f"{system_prompt}\n\n{PLAN_MODE_INSTRUCTIONS}"
 
