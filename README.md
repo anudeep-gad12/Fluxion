@@ -11,7 +11,7 @@ Fluxion is new and macOS-only right now. Expect bugs and rough edges.
 Fluxion does not bundle, sell, or download models. Bring your own provider keys or local model files.
 
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/3ae00e01-80ee-405a-a92f-7a309ab586d3" alt="Fluxion demo" width="900">
+  <img src="assets/brand/logo-128.png" alt="Fluxion" width="128">
 </p>
 
 ## Install
@@ -24,8 +24,6 @@ open /Applications/Fluxion.app
 ```
 
 Manual install: download **`Fluxion-macos-arm64.dmg`** from [GitHub Releases](https://github.com/anudeep-gad12/Fluxion/releases/latest), open it, and drag **Fluxion** to Applications.
-
-Signed releases pass Gatekeeper without quarantine workarounds. Sparkle delivers in-app updates after the first install.
 
 Your conversations, settings, logs, and provider keys live outside the app bundle:
 
@@ -61,20 +59,22 @@ Source development still uses the FastAPI backend and Vite UI:
 ./dev.sh start          # API :9000 + UI :3000
 ```
 
-Tauri desktop shell (loads `http://127.0.0.1:9000`):
+Tauri desktop shell (API serves built UI on `:9000`):
 
 ```bash
-./dev.sh api            # terminal 1
+./dev.sh desktop        # terminal 1 — API + ui/dist on :9000
 cd src-tauri && cargo tauri dev   # terminal 2
 ```
 
-Release build (unsigned local):
+After UI edits, run `./dev.sh desktop` again so `ui/dist` rebuilds, then quit and reopen Tauri.
+
+Release build:
 
 ```bash
 ./scripts/build_macos_tauri.sh
 ```
 
-Requires Rust, Xcode CLT, `uv`, and `pnpm`. Set `FLUXION_SPARKLE_PUBLIC_ED_KEY` (or edit `assets/macos/sparkle_public_ed_key.txt`) before a signed Sparkle release.
+Requires Rust, Xcode CLT, `uv`, and `pnpm`.
 
 ## Models
 
@@ -140,7 +140,7 @@ Fluxion ignores Ollama folders, `mmproj` files, and extra GGUF split shards.
 - search the web and extract page content with Parallel
 - switch models from the app
 - keep conversation history in local SQLite
-- attach a terminal to a conversation
+- attach multiple integrated terminal sessions per conversation
 
 ## License
 

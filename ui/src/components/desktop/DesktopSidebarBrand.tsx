@@ -1,3 +1,4 @@
+import { AppBrandIcon } from '@/components/AppBrandIcon';
 import { cn } from '@/lib/utils';
 
 interface DesktopSidebarBrandProps {
@@ -13,12 +14,7 @@ export function DesktopSidebarBrand({ collapsed }: DesktopSidebarBrandProps) {
         collapsed ? 'justify-center' : 'min-w-0 flex-1 gap-2.5'
       )}
     >
-      <img
-        src="/assets/favicon.svg"
-        alt=""
-        className="desktop-sidebar-brand-logo pointer-events-none h-7 w-7 shrink-0 rounded-md"
-        aria-hidden
-      />
+      <AppBrandIcon className="desktop-sidebar-brand-logo h-7 w-7" />
       <span
         className={cn(
           'desktop-sidebar-brand-name pointer-events-none truncate text-[15px] font-semibold tracking-tight text-zinc-50',

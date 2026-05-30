@@ -1,8 +1,21 @@
-# Fluxion landing page screenshots
+# Fluxion landing illustrations
 
-Generated product-style UI images used by `site/src/main.tsx`:
+Product-style SVG illustrations (desktop tokens: `#09090b`, `#79e6ff`) used by `site/src/main.tsx`:
 
-- `hero-app.png` — wide Fluxion workspace run with realistic sidebar, timeline, tool calls, diff, live HUD, and composer.
-- `model-picker.png` — realistic model selector with Fireworks cloud presets and local runtimes.
+| File | Use |
+|------|-----|
+| `hero-app.svg` | Hero + repo-work sections |
+| `model-picker.svg` | Model freedom split section |
+| `terminal-panel.svg` | Integrated terminal section |
+| `og.svg` | Source for social preview |
+| `og.png` | Open Graph / Twitter card (1200×630, generated from `og.svg`) |
 
-These are sanitized mock product shots based on the current app UI. They use common demo workspaces such as Dashboard, React Starter, API Sandbox, and Docs Site, and avoid fake screens like sign-in previews.
+Legacy PNGs (`hero-app.png`, `model-picker.png`) remain for reference; the site prefers SVG.
+
+Regenerate `og.png` after editing `og.svg`:
+
+```bash
+qlmanage -t -s 1200 -o site/public/images site/public/images/og.svg
+mv site/public/images/og.svg.png site/public/images/og.png
+sips -c 630 1200 site/public/images/og.png
+```

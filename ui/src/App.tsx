@@ -8,6 +8,7 @@ import { ConversationView, isConversationMissing } from '@/components/Conversati
 import { WorkspacePickerDialog } from '@/components/WorkspacePickerDialog';
 import { TerminalPanel } from '@/components/desktop/TerminalPanel';
 import { DesktopTitlebar } from '@/components/desktop/DesktopTitlebar';
+import { AppBrandIcon } from '@/components/AppBrandIcon';
 import { DesktopSidebarBrand } from '@/components/desktop/DesktopSidebarBrand';
 import { startWindowDrag } from '@/lib/windowDrag';
 import { useStore, useHasActiveRun } from '@/hooks/useStore';
@@ -242,12 +243,7 @@ function AppLayout() {
       ) : (
       <div className="relative flex flex-shrink-0 items-center justify-between px-4 py-4">
         <div className="flex min-w-0 flex-1 items-center gap-2.5">
-          <img
-            src="/assets/favicon.svg"
-            alt=""
-            className="h-7 w-7 shrink-0 rounded-md"
-            aria-hidden
-          />
+          <AppBrandIcon className="h-7 w-7" />
           <span className="truncate text-[15px] font-semibold tracking-tight text-zinc-50">
             Fluxion
           </span>

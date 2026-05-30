@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" role="img" aria-label="Fluxion">
+  <defs>
+    <linearGradient id="ogBg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0c0c0e"/>
+      <stop offset="1" stop-color="#09090b"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#ogBg)"/>
+  <rect x="80" y="120" width="120" height="120" rx="26" fill="#141417" stroke="rgba(255,255,255,0.12)"/>
+  <text x="140" y="195" font-family="ui-monospace,monospace" font-size="48" font-weight="700" fill="#f4f4f5" text-anchor="middle">~&gt;</text>
+  <text x="240" y="200" font-family="system-ui,sans-serif" font-size="72" font-weight="700" fill="#f4f4f5">Fluxion</text>
+  <text x="240" y="280" font-family="system-ui,sans-serif" font-size="32" fill="#a1a1aa">AI chat with thinking, agents, and terminals</text>
+  <rect x="240" y="320" width="320" height="8" rx="4" fill="#79e6ff" opacity="0.6"/>
+</svg>

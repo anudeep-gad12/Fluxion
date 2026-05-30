@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 400" role="img" aria-label="Model picker illustration">
+  <defs>
+    <linearGradient id="mpBg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#141416"/>
+      <stop offset="1" stop-color="#09090b"/>
+    </linearGradient>
+  </defs>
+  <rect width="640" height="400" rx="16" fill="url(#mpBg)" stroke="rgba(255,255,255,0.08)"/>
+  <text x="32" y="48" font-family="system-ui,sans-serif" font-size="13" font-weight="600" fill="#f4f4f5">Model</text>
+  <rect x="32" y="64" width="576" height="44" rx="10" fill="#0c0c0e" stroke="rgba(121,230,255,0.35)"/>
+  <text x="48" y="92" font-family="system-ui,sans-serif" font-size="14" fill="#f4f4f5">Qwen3-32B · DeepInfra</text>
+  <text x="560" y="92" font-family="system-ui,sans-serif" font-size="12" fill="#71717a" text-anchor="end">¼</text>
+  <rect x="32" y="120" width="576" height="260" rx="12" fill="#0c0c0e" stroke="rgba(255,255,255,0.06)"/>
+  <rect x="44" y="136" width="552" height="40" rx="8" fill="rgba(121,230,255,0.12)"/>
+  <text x="56" y="162" font-family="system-ui,sans-serif" font-size="13" fill="#79e6ff">Qwen3-32B</text>
+  <text x="520" y="162" font-family="system-ui,sans-serif" font-size="11" fill="#71717a" text-anchor="end">cloud</text>
+  <text x="56" y="198" font-family="system-ui,sans-serif" font-size="13" fill="#a1a1aa">Llama 3.3 70B</text>
+  <text x="56" y="234" font-family="system-ui,sans-serif" font-size="13" fill="#a1a1aa">gpt-oss-20b (local)</text>
+  <text x="56" y="270" font-family="system-ui,sans-serif" font-size="13" fill="#71717a">Add provider&</text>
+  <rect x="44" y="300" width="120" height="28" rx="14" fill="rgba(255,255,255,0.06)"/>
+  <text x="104" y="319" font-family="system-ui,sans-serif" font-size="11" fill="#a1a1aa" text-anchor="middle">Thinking</text>
+  <rect x="176" y="300" width="100" height="28" rx="14" fill="rgba(121,230,255,0.2)"/>
+  <text x="226" y="319" font-family="system-ui,sans-serif" font-size="11" fill="#79e6ff" text-anchor="middle">Agent</text>
+</svg>
