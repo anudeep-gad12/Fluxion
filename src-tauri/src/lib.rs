@@ -233,8 +233,19 @@ fn stop_sidecar(state: &BackendState) {
     }
 }
 
+fn service_webview_url() -> Result<url::Url, String> {
+    service_url()
+        .parse()
+        .map_err(|error| format!("invalid service URL: {error}"))
+}
+
 fn show_main_window(handle: &AppHandle) -> Result<(), String> {
+    let target = service_webview_url()?;
+
     if let Some(window) = handle.get_webview_window("main") {
+        window
+            .navigate(target)
+            .map_err(|error| format!("failed to navigate main window: {error}"))?;
         window
             .show()
             .map_err(|error| error.to_string())?;
@@ -242,15 +253,7 @@ fn show_main_window(handle: &AppHandle) -> Result<(), String> {
         return Ok(());
     }
 
-    WebviewWindowBuilder::new(
-        handle,
-        "main",
-        WebviewUrl::External(
-            service_url()
-                .parse()
-                .map_err(|error| format!("invalid service URL: {error}"))?,
-        ),
-    )
+    WebviewWindowBuilder::new(handle, "main", WebviewUrl::External(target))
     .title(APP_NAME)
     .inner_size(1400.0, 900.0)
     .min_inner_size(800.0, 600.0)

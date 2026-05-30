@@ -1,6 +1,15 @@
+/** True when running inside the Tauri shell (embedded asset URL before navigate). */
+export function isTauriWebview(): boolean {
+  if (typeof window === 'undefined') return false;
+  const { protocol, hostname } = window.location;
+  if (protocol === 'tauri:') return true;
+  return hostname === 'tauri.localhost' || hostname.endsWith('.tauri.localhost');
+}
+
 /** True when the UI is served from the local desktop app (Tauri / packaged API on :9000). */
 export function isLocalDesktopApp(): boolean {
   if (typeof window === 'undefined') return false;
+  if (isTauriWebview()) return true;
   const { hostname, port } = window.location;
   return (hostname === '127.0.0.1' || hostname === 'localhost') && port === '9000';
 }

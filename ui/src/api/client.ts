@@ -12,8 +12,10 @@ import type {
   CreateConversationRunRequest,
 } from '@/types';
 import { withRetry } from '@/lib/retry';
+import { isLocalDesktopApp, isTauriWebview } from '@/lib/platform';
 
 const API_PATH = '/api';
+const PACKAGED_API_ORIGIN = 'http://127.0.0.1:9000';
 const DEFAULT_TIMEOUT_MS = 30_000;
 const OWNER_TOKEN_KEY = 'reasoner_owner_token';
 
@@ -23,6 +25,9 @@ function getApiBase(): string {
   if ((hostname === '127.0.0.1' || hostname === 'localhost') && port === '3000') {
     return `${protocol}//${hostname}:9000${API_PATH}`;
   }
+  if (isTauriWebview()) {
+    return `${PACKAGED_API_ORIGIN}${API_PATH}`;
+  }
   return API_PATH;
 }
 
@@ -30,6 +35,9 @@ const API_BASE = getApiBase();
 
 function getOwnerToken(): string | null {
   if (typeof window !== 'undefined') {
+    if (isLocalDesktopApp()) {
+      return null;
+    }
     const { hostname, port } = window.location;
     if ((hostname === '127.0.0.1' || hostname === 'localhost') && port === '3000') {
       return null;
