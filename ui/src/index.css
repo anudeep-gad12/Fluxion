@@ -526,8 +526,17 @@ textarea:focus {
   .agent-loader-stroke,
   .fluxion-trace,
   .shimmer,
-  .animate-indeterminate {
+  .animate-indeterminate,
+  .desktop-steps-track-progress,
+  .desktop-step-row,
+  .desktop-step-dot[data-tone='live'],
+  .desktop-step-dot[data-tone='success'],
+  .desktop-step-dot[data-tone='error'] {
     animation: none !important;
+  }
+
+  .desktop-steps-track-progress {
+    transition: none !important;
   }
 }
 
