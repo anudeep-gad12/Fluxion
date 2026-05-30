@@ -38,7 +38,7 @@ function getOwnerToken(): string | null {
   return localStorage.getItem(OWNER_TOKEN_KEY);
 }
 
-class ApiError extends Error {
+export class ApiError extends Error {
   constructor(public status: number, message: string) {
     super(message);
     this.name = 'ApiError';
@@ -720,6 +720,7 @@ export interface TerminalSessionResponse {
   conversation_id: string;
   workspace_path?: string | null;
   shell: string;
+  title?: string;
   status: string;
   cols: number;
   rows: number;
@@ -728,6 +729,11 @@ export interface TerminalSessionResponse {
   last_activity_at: string;
   reconnect_supported: boolean;
   replay_buffer: string;
+}
+
+export interface TerminalSessionListResponse {
+  sessions: TerminalSessionResponse[];
+  max_sessions_per_conversation: number;
 }
 
 export async function browseWorkspaceDirectories(
@@ -768,7 +774,29 @@ export async function getTerminalSession(
   return fetchJson<TerminalSessionResponse>(`${API_BASE}/terminal/conversations/${conversationId}/session`);
 }
 
+export async function listTerminalSessions(
+  conversationId: string,
+): Promise<TerminalSessionListResponse> {
+  return fetchJson<TerminalSessionListResponse>(
+    `${API_BASE}/terminal/conversations/${conversationId}/sessions`,
+  );
+}
+
 export async function createTerminalSession(
+  conversationId: string,
+  request: TerminalSessionRequest,
+): Promise<TerminalSessionResponse> {
+  return fetchJson<TerminalSessionResponse>(
+    `${API_BASE}/terminal/conversations/${conversationId}/sessions`,
+    {
+      method: 'POST',
+      body: JSON.stringify(request),
+    },
+  );
+}
+
+/** Legacy: first session or create one. */
+export async function createOrGetTerminalSession(
   conversationId: string,
   request: TerminalSessionRequest,
 ): Promise<TerminalSessionResponse> {
@@ -780,15 +808,43 @@ export async function createTerminalSession(
 
 export async function restartTerminalSession(
   conversationId: string,
+  sessionId: string,
   request: TerminalSessionRequest,
 ): Promise<TerminalSessionResponse> {
-  return fetchJson<TerminalSessionResponse>(`${API_BASE}/terminal/conversations/${conversationId}/session/restart`, {
-    method: 'POST',
-    body: JSON.stringify(request),
-  });
+  return fetchJson<TerminalSessionResponse>(
+    `${API_BASE}/terminal/conversations/${conversationId}/sessions/${sessionId}/restart`,
+    {
+      method: 'POST',
+      body: JSON.stringify(request),
+    },
+  );
+}
+
+/** Legacy: restart first running session. */
+export async function restartFirstTerminalSession(
+  conversationId: string,
+  request: TerminalSessionRequest,
+): Promise<TerminalSessionResponse> {
+  return fetchJson<TerminalSessionResponse>(
+    `${API_BASE}/terminal/conversations/${conversationId}/session/restart`,
+    {
+      method: 'POST',
+      body: JSON.stringify(request),
+    },
+  );
 }
 
 export async function closeTerminalSession(
+  conversationId: string,
+  sessionId: string,
+): Promise<{ status: string; session_id: string }> {
+  return fetchJson(
+    `${API_BASE}/terminal/conversations/${conversationId}/sessions/${sessionId}/close`,
+    { method: 'POST' },
+  );
+}
+
+export async function closeAllTerminalSessions(
   conversationId: string,
 ): Promise<{ status: string; conversation_id: string }> {
   return fetchJson(`${API_BASE}/terminal/conversations/${conversationId}/session/close`, {

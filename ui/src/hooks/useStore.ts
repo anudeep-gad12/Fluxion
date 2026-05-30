@@ -24,6 +24,10 @@ export interface TerminalUIState {
   dock: 'bottom' | 'right';
   height: number;
   width: number;
+  sessions: TerminalSessionResponse[];
+  activeSessionId: string | null;
+  maxSessionsPerConversation: number;
+  bufferBySessionId: Record<string, string>;
   session: TerminalSessionResponse | null;
   buffer: string;
   connected: boolean;
@@ -111,8 +115,9 @@ interface AppState {
   // Terminal UI actions
   initTerminalState: (conversationId: string, defaults?: Partial<TerminalUIState>) => void;
   updateTerminalState: (conversationId: string, updates: Partial<TerminalUIState>) => void;
-  appendTerminalBuffer: (conversationId: string, chunk: string) => void;
-  clearTerminalBuffer: (conversationId: string) => void;
+  appendTerminalBuffer: (conversationId: string, sessionId: string, chunk: string) => void;
+  clearTerminalBuffer: (conversationId: string, sessionId?: string) => void;
+  setActiveTerminalSession: (conversationId: string, sessionId: string) => void;
   setConversationMode: (mode: 'chat' | 'agent') => void;
 }
 
@@ -478,6 +483,10 @@ export const useStore = create<AppState>((set, get) => ({
         dock: 'right',
         height: 260,
         width: 420,
+        sessions: [],
+        activeSessionId: null,
+        maxSessionsPerConversation: 5,
+        bufferBySessionId: {},
         session: null,
         buffer: '',
         connected: false,
@@ -502,48 +511,91 @@ export const useStore = create<AppState>((set, get) => ({
         dock: 'right' as const,
         height: 260,
         width: 420,
+        sessions: [],
+        activeSessionId: null,
+        maxSessionsPerConversation: 5,
+        bufferBySessionId: {},
         session: null,
         buffer: '',
         connected: false,
         status: 'idle' as const,
       };
+      const merged = { ...current, ...updates };
+      if (updates.activeSessionId !== undefined || updates.sessions !== undefined) {
+        const activeId = merged.activeSessionId;
+        const activeSession = activeId
+          ? merged.sessions.find((item) => item.session_id === activeId) ?? null
+          : null;
+        merged.session = activeSession;
+        merged.buffer = activeId ? (merged.bufferBySessionId[activeId] ?? '') : '';
+      }
       return {
         terminalByConversation: {
           ...state.terminalByConversation,
-          [conversationId]: { ...current, ...updates },
+          [conversationId]: merged,
         },
       };
     }),
 
-  appendTerminalBuffer: (conversationId, chunk) =>
-    set((state) => {
-      const current = state.terminalByConversation[conversationId] ?? {
-        isOpen: false,
-        dock: 'right' as const,
-        height: 260,
-        width: 420,
-        session: null,
-        buffer: '',
-        connected: false,
-        status: 'idle' as const,
-      };
-      const nextBuffer = (current.buffer + chunk).slice(-120000);
-      return {
-        terminalByConversation: {
-          ...state.terminalByConversation,
-          [conversationId]: { ...current, buffer: nextBuffer },
-        },
-      };
-    }),
-
-  clearTerminalBuffer: (conversationId) =>
+  setActiveTerminalSession: (conversationId, sessionId) =>
     set((state) => {
       const current = state.terminalByConversation[conversationId];
       if (!current) return state;
+      const activeSession = current.sessions.find((item) => item.session_id === sessionId) ?? null;
       return {
         terminalByConversation: {
           ...state.terminalByConversation,
-          [conversationId]: { ...current, buffer: '' },
+          [conversationId]: {
+            ...current,
+            activeSessionId: sessionId,
+            session: activeSession,
+            buffer: current.bufferBySessionId[sessionId] ?? '',
+            connected: false,
+            status: 'idle',
+          },
+        },
+      };
+    }),
+
+  appendTerminalBuffer: (conversationId, sessionId, chunk) =>
+    set((state) => {
+      const current = state.terminalByConversation[conversationId];
+      if (!current) return state;
+      const prev = current.bufferBySessionId[sessionId] ?? '';
+      const nextSessionBuffer = (prev + chunk).slice(-120000);
+      const bufferBySessionId = {
+        ...current.bufferBySessionId,
+        [sessionId]: nextSessionBuffer,
+      };
+      const buffer =
+        current.activeSessionId === sessionId ? nextSessionBuffer : current.buffer;
+      return {
+        terminalByConversation: {
+          ...state.terminalByConversation,
+          [conversationId]: { ...current, bufferBySessionId, buffer },
+        },
+      };
+    }),
+
+  clearTerminalBuffer: (conversationId, sessionId) =>
+    set((state) => {
+      const current = state.terminalByConversation[conversationId];
+      if (!current) return state;
+      const targetId = sessionId ?? current.activeSessionId;
+      if (!targetId) {
+        return {
+          terminalByConversation: {
+            ...state.terminalByConversation,
+            [conversationId]: { ...current, buffer: '', bufferBySessionId: {} },
+          },
+        };
+      }
+      const bufferBySessionId = { ...current.bufferBySessionId, [targetId]: '' };
+      const buffer = current.activeSessionId === targetId ? '' : current.buffer;
+      return {
+        terminalByConversation: {
+          ...state.terminalByConversation,
+          [conversationId]: { ...current, bufferBySessionId, buffer },
         },
       };
     }),

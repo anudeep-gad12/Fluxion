@@ -1581,7 +1581,45 @@ POST /api/models/local/stop
 
 ## Browser Terminal
 
-Desktop agent mode exposes a per-conversation persistent terminal session backed by a PTY shell. The browser terminal is separate from the agent `bash` tool: it is user-driven, interactive, and long-lived until restarted or closed.
+Desktop agent mode exposes multiple persistent terminal sessions per conversation (configurable cap, default 5). Each session is backed by a PTY shell. The browser terminal is separate from the agent `bash` tool: it is user-driven, interactive, and long-lived until restarted or closed.
+
+### List Terminal Sessions
+
+**Request**:
+```
+GET /api/terminal/conversations/{conversation_id}/sessions
+```
+
+**Response** (200 OK):
+```json
+{
+  "sessions": [ { "session_id": "...", "shell": "/bin/zsh", "title": "zsh", "status": "running", ... } ],
+  "max_sessions_per_conversation": 5
+}
+```
+
+Returns running sessions only (closed/stale rows are omitted).
+
+### Create Terminal Session
+
+**Request**:
+```
+POST /api/terminal/conversations/{conversation_id}/sessions
+```
+
+Same body as legacy create. Always spawns a **new** PTY. Returns **409** when `max_sessions_per_conversation` running shells are already active.
+
+### Get / Restart / Close One Session
+
+```
+GET  /api/terminal/conversations/{conversation_id}/sessions/{session_id}
+POST /api/terminal/conversations/{conversation_id}/sessions/{session_id}/restart
+POST /api/terminal/conversations/{conversation_id}/sessions/{session_id}/close
+```
+
+Restart kills that shell and starts a new PTY with a new `session_id`. Close stops one session without affecting siblings.
+
+### Legacy Single-Session Endpoints
 
 ### Create or Reattach Terminal Session
 
@@ -1675,7 +1713,8 @@ Protocol:
   - `{"type":"pong"}`
 
 Notes:
-- The terminal session is scoped per conversation, not per browser tab.
+- Multiple WebSocket clients may attach to the same `session_id`.
+- Legacy `/session` routes operate on the first running session (create-if-none, close-all).
 - Changing the conversation workspace path later does not automatically reset the running shell.
 - WebSocket access follows the same owner/session isolation rules as the rest of the browser app.
 

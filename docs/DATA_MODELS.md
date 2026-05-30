@@ -219,14 +219,15 @@ Granular timeline of all events in a run.
 
 #### terminal_sessions
 
-Persists lightweight browser-terminal metadata per conversation. The live PTY process itself stays in memory.
+Persists lightweight browser-terminal metadata per conversation. Multiple rows per conversation are allowed (desktop panel terminal list). The live PTY process itself stays in memory.
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `session_id` | TEXT PK | Current terminal session identifier |
-| `conversation_id` | TEXT FK UNIQUE | One browser terminal per conversation |
+| `session_id` | TEXT PK | Terminal session identifier |
+| `conversation_id` | TEXT FK | Conversation that owns this shell |
 | `workspace_path` | TEXT | Workspace/cwd used when this shell was started |
 | `shell` | TEXT | Executable launched (`/bin/zsh`, `/bin/sh`, etc.) |
+| `title` | TEXT | Display label (defaults to shell basename, e.g. `zsh`) |
 | `status` | TEXT | `running`, `closed`, or `stale` |
 | `cols` | INTEGER | Last known terminal column count |
 | `rows` | INTEGER | Last known terminal row count |

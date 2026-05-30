@@ -11,10 +11,15 @@ from fastapi import APIRouter, HTTPException, Query, Request, WebSocket, WebSock
 from orchestrator.config import get_chat_config
 from orchestrator.middleware.session import COOKIE_NAME
 from orchestrator.runtime_paths import is_hosted_production, is_packaged_app
-from orchestrator.schemas import TerminalSessionRequest, TerminalSessionResponse
+from orchestrator.schemas import (
+    TerminalSessionListResponse,
+    TerminalSessionRequest,
+    TerminalSessionResponse,
+)
 from orchestrator.services.browser_terminal import (
     DEFAULT_COLS,
     DEFAULT_ROWS,
+    TerminalSessionLimitError,
     get_terminal_manager,
 )
 from orchestrator.storage.db import get_db
@@ -80,6 +85,115 @@ async def _require_conversation_access(
     return conversation
 
 
+def _resolve_workspace(conversation: dict, request: TerminalSessionRequest) -> str | None:
+    return (
+        conversation.get("workspace_path")
+        or (str(_resolve_workspace_path(request.workspace_path)) if request.workspace_path else None)
+    )
+
+
+@router.get("/conversations/{conversation_id}/sessions", response_model=TerminalSessionListResponse)
+async def list_terminal_sessions(conversation_id: str, http_request: Request):
+    session_id, is_owner = _get_http_session_context(http_request)
+    await _require_conversation_access(conversation_id, session_id=session_id, is_owner=is_owner)
+    manager = get_terminal_manager()
+    sessions = await manager.list_sessions(conversation_id)
+    limit = get_chat_config().terminal.max_sessions_per_conversation
+    return TerminalSessionListResponse(
+        sessions=sessions,
+        max_sessions_per_conversation=limit,
+    )
+
+
+@router.post("/conversations/{conversation_id}/sessions", response_model=TerminalSessionResponse)
+async def create_terminal_session_multi(
+    conversation_id: str,
+    request: TerminalSessionRequest,
+    http_request: Request,
+):
+    session_id, is_owner = _get_http_session_context(http_request)
+    conversation = await _require_conversation_access(
+        conversation_id, session_id=session_id, is_owner=is_owner
+    )
+    workspace_path = _resolve_workspace(conversation, request)
+    manager = get_terminal_manager()
+    try:
+        return await manager.create(
+            conversation_id=conversation_id,
+            workspace_path=workspace_path,
+            session_owner=None if is_owner else session_id,
+            cols=max(40, request.cols or DEFAULT_COLS),
+            rows=max(10, request.rows or DEFAULT_ROWS),
+        )
+    except TerminalSessionLimitError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Maximum {exc.limit} running terminals for this conversation",
+        ) from exc
+
+
+@router.get(
+    "/conversations/{conversation_id}/sessions/{terminal_session_id}",
+    response_model=TerminalSessionResponse,
+)
+async def get_terminal_session_by_id(
+    conversation_id: str,
+    terminal_session_id: str,
+    http_request: Request,
+):
+    session_id, is_owner = _get_http_session_context(http_request)
+    await _require_conversation_access(conversation_id, session_id=session_id, is_owner=is_owner)
+    manager = get_terminal_manager()
+    metadata = await manager.get_metadata_by_session_id(terminal_session_id)
+    if not metadata or metadata["conversation_id"] != conversation_id:
+        raise HTTPException(status_code=404, detail="Terminal session not found")
+    return metadata
+
+
+@router.post(
+    "/conversations/{conversation_id}/sessions/{terminal_session_id}/restart",
+    response_model=TerminalSessionResponse,
+)
+async def restart_terminal_session_by_id(
+    conversation_id: str,
+    terminal_session_id: str,
+    request: TerminalSessionRequest,
+    http_request: Request,
+):
+    session_id, is_owner = _get_http_session_context(http_request)
+    conversation = await _require_conversation_access(
+        conversation_id, session_id=session_id, is_owner=is_owner
+    )
+    workspace_path = _resolve_workspace(conversation, request)
+    manager = get_terminal_manager()
+    try:
+        return await manager.restart_session(
+            session_id=terminal_session_id,
+            workspace_path=workspace_path,
+            session_owner=None if is_owner else session_id,
+            cols=max(40, request.cols or DEFAULT_COLS),
+            rows=max(10, request.rows or DEFAULT_ROWS),
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Terminal session not found") from exc
+
+
+@router.post("/conversations/{conversation_id}/sessions/{terminal_session_id}/close")
+async def close_terminal_session_by_id(
+    conversation_id: str,
+    terminal_session_id: str,
+    http_request: Request,
+):
+    session_id, is_owner = _get_http_session_context(http_request)
+    await _require_conversation_access(conversation_id, session_id=session_id, is_owner=is_owner)
+    manager = get_terminal_manager()
+    metadata = await manager.get_metadata_by_session_id(terminal_session_id)
+    if not metadata or metadata["conversation_id"] != conversation_id:
+        raise HTTPException(status_code=404, detail="Terminal session not found")
+    await manager.close_session(terminal_session_id)
+    return {"status": "closed", "session_id": terminal_session_id}
+
+
 @router.get("/conversations/{conversation_id}/session", response_model=TerminalSessionResponse)
 async def get_terminal_session(conversation_id: str, http_request: Request):
     session_id, is_owner = _get_http_session_context(http_request)
@@ -101,10 +215,7 @@ async def create_terminal_session(
     conversation = await _require_conversation_access(
         conversation_id, session_id=session_id, is_owner=is_owner
     )
-    workspace_path = (
-        conversation.get("workspace_path")
-        or (str(_resolve_workspace_path(request.workspace_path)) if request.workspace_path else None)
-    )
+    workspace_path = _resolve_workspace(conversation, request)
     manager = get_terminal_manager()
     return await manager.get_or_create(
         conversation_id=conversation_id,
@@ -125,10 +236,7 @@ async def restart_terminal_session(
     conversation = await _require_conversation_access(
         conversation_id, session_id=session_id, is_owner=is_owner
     )
-    workspace_path = (
-        conversation.get("workspace_path")
-        or (str(_resolve_workspace_path(request.workspace_path)) if request.workspace_path else None)
-    )
+    workspace_path = _resolve_workspace(conversation, request)
     manager = get_terminal_manager()
     return await manager.restart(
         conversation_id=conversation_id,
@@ -166,8 +274,8 @@ async def terminal_websocket(
         return
 
     manager = get_terminal_manager()
-    metadata = await manager.get_metadata(conversation_id)
-    if not metadata or metadata["session_id"] != session_id:
+    metadata = await manager.get_metadata_by_session_id(session_id)
+    if not metadata or metadata["conversation_id"] != conversation_id:
         await _deny_websocket(websocket, code=4404)
         return
 
@@ -210,7 +318,7 @@ async def terminal_websocket(
                 cols = int(payload.get("cols") or live_session.cols)
                 rows = int(payload.get("rows") or live_session.rows)
                 await live_session.resize(cols, rows)
-                await manager.touch_resize(conversation_id, live_session.cols, live_session.rows)
+                await manager.touch_resize(session_id, live_session.cols, live_session.rows)
             elif event_type == "ping":
                 await websocket.send_json({"type": "pong"})
     except WebSocketDisconnect:

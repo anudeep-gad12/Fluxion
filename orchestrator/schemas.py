@@ -286,6 +286,7 @@ class TerminalSessionResponse(BaseModel):
     conversation_id: str
     workspace_path: Optional[str] = None
     shell: str
+    title: str = ""
     status: str
     cols: int
     rows: int
@@ -294,6 +295,13 @@ class TerminalSessionResponse(BaseModel):
     last_activity_at: str
     reconnect_supported: bool = False
     replay_buffer: str = ""
+
+
+class TerminalSessionListResponse(BaseModel):
+    """Running terminal sessions for a conversation."""
+
+    sessions: list[TerminalSessionResponse]
+    max_sessions_per_conversation: int
 
 
 class AgentStepResponse(BaseModel):

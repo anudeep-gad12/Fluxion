@@ -23,6 +23,8 @@ class Database:
 
     async def connect(self) -> None:
         """Initialize database connection and create schema."""
+        if self._connection is not None:
+            return
         # Handle in-memory database (for tests) vs file-based
         if isinstance(self.db_path, str) and self.db_path == ":memory:":
             self._connection = await aiosqlite.connect(":memory:")
@@ -149,13 +151,14 @@ class Database:
             """
             CREATE TABLE IF NOT EXISTS terminal_sessions (
                 session_id TEXT PRIMARY KEY,
-                conversation_id TEXT NOT NULL UNIQUE,
+                conversation_id TEXT NOT NULL,
                 workspace_path TEXT,
                 shell TEXT NOT NULL,
                 status TEXT NOT NULL,
                 cols INTEGER NOT NULL,
                 rows INTEGER NOT NULL,
                 session_owner TEXT,
+                title TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 last_activity_at TEXT NOT NULL,
@@ -256,6 +259,65 @@ class Database:
         await self._add_column_if_not_exists(
             "runs", "collaboration_mode", "TEXT DEFAULT 'default'"
         )
+        # Migration 19: Multiple browser terminals per conversation
+        await self._migrate_terminal_sessions_multi()
+
+    async def _migrate_terminal_sessions_multi(self) -> None:
+        """Allow multiple terminal_sessions rows per conversation."""
+        await self._connection.execute("DROP TABLE IF EXISTS terminal_sessions_new")
+        cursor = await self._connection.execute("PRAGMA table_info(terminal_sessions)")
+        columns = await cursor.fetchall()
+        column_names = [col["name"] for col in columns]
+        if not column_names:
+            return
+        if "title" in column_names:
+            await self._connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_terminal_sessions_conversation "
+                "ON terminal_sessions(conversation_id, created_at)"
+            )
+            return
+
+        await self._connection.execute("PRAGMA foreign_keys = OFF")
+        await self._connection.execute(
+            """
+            CREATE TABLE terminal_sessions_new (
+                session_id TEXT PRIMARY KEY,
+                conversation_id TEXT NOT NULL,
+                workspace_path TEXT,
+                shell TEXT NOT NULL,
+                status TEXT NOT NULL,
+                cols INTEGER NOT NULL,
+                rows INTEGER NOT NULL,
+                session_owner TEXT,
+                title TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                last_activity_at TEXT NOT NULL,
+                FOREIGN KEY(conversation_id) REFERENCES conversations(conversation_id) ON DELETE CASCADE
+            )
+            """
+        )
+        await self._connection.execute(
+            """
+            INSERT INTO terminal_sessions_new (
+                session_id, conversation_id, workspace_path, shell, status,
+                cols, rows, session_owner, title, created_at, updated_at, last_activity_at
+            )
+            SELECT
+                session_id, conversation_id, workspace_path, shell, status,
+                cols, rows, session_owner, '', created_at, updated_at, last_activity_at
+            FROM terminal_sessions
+            """
+        )
+        await self._connection.execute("DROP TABLE terminal_sessions")
+        await self._connection.execute(
+            "ALTER TABLE terminal_sessions_new RENAME TO terminal_sessions"
+        )
+        await self._connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_terminal_sessions_conversation "
+            "ON terminal_sessions(conversation_id, created_at)"
+        )
+        await self._connection.execute("PRAGMA foreign_keys = ON")
 
     async def _create_table_if_not_exists(
         self, table: str, create_sql: str

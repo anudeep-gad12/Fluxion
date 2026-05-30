@@ -9,6 +9,9 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| main | Terminal session rail — per-row close (×), slimmer active chip, hover-reveal close button | done | 2026-05-30 |
+| main | Terminal route test hang fix — legacy `restart()` no longer deadlocks on nested lock; test teardown calls `shutdown_all()`; WebSocket receives use timeouts | done | 2026-05-30 |
+| main | Multi-terminal desktop panel — multiple PTY sessions per conversation with `terminal.max_sessions_per_conversation` cap (409 at limit), session list rail + per-session xterm/WebSocket, migration 19 + REST `/sessions` routes | done | 2026-05-30 |
 | main | Desktop sidebar brand vertical alignment — dedicated traffic-light spacer (`--titlebar-height`) then fixed `h-10` logo band so open/closed logo share the same Y (no collision with macOS controls) | done | 2026-05-30 |
 | main | Desktop sidebar brand animation — single width-animated column (no separate rail); collapsed shows logo above toggle, expanded shows logo + Fluxion on one row with smooth wordmark fade | done | 2026-05-30 |
 | main | Desktop @ mention picker accent — `desktop-mention-picker` uses dialog surface (`desktop-bg-1`) + `desktop-settings-list-panel` / list-item accent selection to match model/reasoning dialogs | done | 2026-05-30 |

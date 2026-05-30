@@ -1673,21 +1673,29 @@ _EVENT_TYPE_MAP = {
 - New browser coding conversations are lazy-created on first send and inherit the selected workspace path
 - Placeholder `New conversation` titles are upgraded from the first user/agent prompt using the shared smart title generator
 
-### `ui/src/components/IntegratedTerminal.tsx`
+### `ui/src/components/desktop/TerminalPanel.tsx` + `TerminalSessionRail.tsx`
 
-**Purpose**: Desktop browser terminal pane for agent mode.
+**Purpose**: Right-dock terminal panel for desktop agent mode with a Cursor-style session list.
 
 **Features**:
-- xterm-based terminal surface
-- Collapsible and vertically resizable bottom pane
-- Per-conversation session attach/reconnect
-- Restart, clear, and collapse controls
-- Workspace-change warning when the conversation workspace path no longer matches the running shell session
+- Left rail lists running terminals (`N Terminals`, shell label, active accent)
+- **+** creates a new PTY until `max_sessions_per_conversation` (toast/409 at cap)
+- Click row switches active xterm; scrollback kept per `session_id` in store
+- Restores last active session from `reasoner_terminal_active_session:{conversationId}`
+
+### `ui/src/components/IntegratedTerminal.tsx`
+
+**Purpose**: xterm surface for one active terminal session.
+
+**Features**:
+- WebSocket attach to `/api/terminal/.../ws?session_id=`
+- Restart/clear/reconnect for the active session only
+- Per-session buffer in `bufferBySessionId` (not global per conversation)
 
 **Integration**:
-- Calls `/api/terminal/...` endpoints to create/restart metadata-backed PTY sessions
-- Uses websocket attach endpoint for live terminal I/O
-- Persists pane open state per conversation and pane height in localStorage
+- `POST /api/terminal/conversations/{id}/sessions/{session_id}/restart` for restart
+- Panel loads/creates sessions via `GET/POST .../sessions`
+- Persists pane open state and width in localStorage
 
 ### `ui/src/components/ConversationList.tsx`
 

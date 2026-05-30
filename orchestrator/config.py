@@ -410,6 +410,12 @@ class RateLimitConfig(BaseModel):
     window_seconds: int = 3600
 
 
+class TerminalConfig(BaseModel):
+    """Browser terminal panel settings."""
+
+    max_sessions_per_conversation: int = 5
+
+
 class DemoConfig(BaseModel):
     """Demo mode configuration for showcase deployments.
 
@@ -464,6 +470,9 @@ class ChatConfig(BaseModel):
 
     # Demo mode (rate limiting, sidebar lock)
     demo: Optional[DemoConfig] = None
+
+    # Browser terminal (desktop panel)
+    terminal: TerminalConfig = TerminalConfig()
 
     # Backward compatibility alias
     @property

@@ -2,6 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { PanelRightClose, GripVertical } from 'lucide-react';
 import { IntegratedTerminal } from '@/components/IntegratedTerminal';
 import { DesktopTitlebar } from '@/components/desktop/DesktopTitlebar';
+import { TerminalSessionRail } from '@/components/desktop/TerminalSessionRail';
+import {
+  createTerminalSession,
+  listTerminalSessions,
+  type TerminalSessionResponse,
+} from '@/api/client';
 import { useStore, useConversationTerminal } from '@/hooks/useStore';
 import { isLocalDesktopApp } from '@/lib/platform';
 import { Button } from '@/components/ui/button';
@@ -36,6 +42,7 @@ export function TerminalPanel({ agentModeActive }: TerminalPanelProps) {
   const conversations = useStore((s) => s.conversations);
   const initTerminalState = useStore((s) => s.initTerminalState);
   const updateTerminalState = useStore((s) => s.updateTerminalState);
+  const setActiveTerminalSession = useStore((s) => s.setActiveTerminalSession);
 
   const terminalState = useConversationTerminal(selectedConversationId);
   const [panelWidth, setPanelWidth] = useState(readTerminalWidth);
@@ -58,6 +65,106 @@ export function TerminalPanel({ agentModeActive }: TerminalPanelProps) {
   }, [selectedConversationId, terminalAvailable, initTerminalState, terminalState]);
 
   const isOpen = terminalAvailable && !!terminalState?.isOpen;
+  const sessions = terminalState?.sessions ?? [];
+  const activeSessionId = terminalState?.activeSessionId ?? null;
+  const maxSessions = terminalState?.maxSessionsPerConversation ?? 5;
+
+  useEffect(() => {
+    if (!isOpen || !selectedConversationId || !terminalAvailable) return;
+    let cancelled = false;
+
+    const loadSessions = async () => {
+      try {
+        const listed = await listTerminalSessions(selectedConversationId);
+        if (cancelled) return;
+
+        let nextSessions = listed.sessions;
+        let activeId = localStorage.getItem(
+          `reasoner_terminal_active_session:${selectedConversationId}`,
+        );
+
+        if (nextSessions.length === 0) {
+          const created = await createTerminalSession(selectedConversationId, {
+            workspace_path: workspacePath.trim() || undefined,
+            cols: 120,
+            rows: 30,
+          });
+          if (cancelled) return;
+          nextSessions = [created];
+          activeId = created.session_id;
+        }
+
+        const activeSession =
+          nextSessions.find((item) => item.session_id === activeId) ?? nextSessions[0];
+        const resolvedId = activeSession?.session_id ?? null;
+
+        updateTerminalState(selectedConversationId, {
+          sessions: nextSessions,
+          activeSessionId: resolvedId,
+          session: activeSession ?? null,
+          maxSessionsPerConversation: listed.max_sessions_per_conversation,
+          buffer: activeSession?.replay_buffer ?? '',
+          status: activeSession?.status === 'running' ? 'running' : 'idle',
+        });
+        if (resolvedId) {
+          localStorage.setItem(
+            `reasoner_terminal_active_session:${selectedConversationId}`,
+            resolvedId,
+          );
+        }
+      } catch {
+        if (!cancelled) {
+          updateTerminalState(selectedConversationId, { status: 'error' });
+        }
+      }
+    };
+
+    void loadSessions();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    isOpen,
+    selectedConversationId,
+    terminalAvailable,
+    updateTerminalState,
+    workspacePath,
+  ]);
+
+  const handleSelectSession = useCallback(
+    (sessionId: string) => {
+      if (!selectedConversationId) return;
+      setActiveTerminalSession(selectedConversationId, sessionId);
+      localStorage.setItem(
+        `reasoner_terminal_active_session:${selectedConversationId}`,
+        sessionId,
+      );
+    },
+    [selectedConversationId, setActiveTerminalSession],
+  );
+
+  const handleSessionsChange = useCallback(
+    (nextSessions: TerminalSessionResponse[], nextActiveId: string | null) => {
+      if (!selectedConversationId) return;
+      const activeSession =
+        nextSessions.find((item) => item.session_id === nextActiveId) ?? null;
+      updateTerminalState(selectedConversationId, {
+        sessions: nextSessions,
+        activeSessionId: nextActiveId,
+        session: activeSession,
+        buffer: activeSession?.replay_buffer ?? '',
+        connected: false,
+        status: nextActiveId ? 'idle' : 'idle',
+      });
+      const storageKey = `reasoner_terminal_active_session:${selectedConversationId}`;
+      if (nextActiveId) {
+        localStorage.setItem(storageKey, nextActiveId);
+      } else {
+        localStorage.removeItem(storageKey);
+      }
+    },
+    [selectedConversationId, updateTerminalState],
+  );
 
   const handleToggleOpen = useCallback(() => {
     if (!selectedConversationId || !terminalAvailable) return;
@@ -129,16 +236,32 @@ export function TerminalPanel({ agentModeActive }: TerminalPanelProps) {
             <PanelRightClose className="h-4 w-4" />
           </Button>
         </DesktopTitlebar>
-        <div className="min-h-0 flex-1">
-          {selectedConversationId && terminalAvailable ? (
-            <IntegratedTerminal
-              key={selectedConversationId}
-              conversationId={selectedConversationId}
-              workspacePath={workspacePath}
-              active={terminalAvailable}
-              dock="right"
-              chrome="embedded"
-            />
+        <div className="flex min-h-0 flex-1">
+          {selectedConversationId && terminalAvailable && sessions.length > 0 ? (
+            <>
+              <TerminalSessionRail
+                conversationId={selectedConversationId}
+                workspacePath={workspacePath}
+                sessions={sessions}
+                activeSessionId={activeSessionId}
+                maxSessions={maxSessions}
+                onSelect={handleSelectSession}
+                onSessionsChange={handleSessionsChange}
+              />
+              <div className="min-h-0 min-w-0 flex-1">
+                {activeSessionId ? (
+                  <IntegratedTerminal
+                    key={activeSessionId}
+                    conversationId={selectedConversationId}
+                    sessionId={activeSessionId}
+                    workspacePath={workspacePath}
+                    active={terminalAvailable}
+                    dock="right"
+                    chrome="embedded"
+                  />
+                ) : null}
+              </div>
+            </>
           ) : null}
         </div>
         <div

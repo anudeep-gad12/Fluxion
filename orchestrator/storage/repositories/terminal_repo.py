@@ -14,14 +14,6 @@ class TerminalSessionRepo:
     def __init__(self, db: Database):
         self.db = db
 
-    async def get_by_conversation(self, conversation_id: str) -> Optional[dict[str, Any]]:
-        cursor = await self.db.conn.execute(
-            "SELECT * FROM terminal_sessions WHERE conversation_id = ?",
-            (conversation_id,),
-        )
-        row = await cursor.fetchone()
-        return dict(row) if row else None
-
     async def get_by_session_id(self, session_id: str) -> Optional[dict[str, Any]]:
         cursor = await self.db.conn.execute(
             "SELECT * FROM terminal_sessions WHERE session_id = ?",
@@ -30,7 +22,49 @@ class TerminalSessionRepo:
         row = await cursor.fetchone()
         return dict(row) if row else None
 
-    async def upsert(
+    async def list_by_conversation(
+        self,
+        conversation_id: str,
+        *,
+        status: str | None = "running",
+    ) -> list[dict[str, Any]]:
+        if status is None:
+            cursor = await self.db.conn.execute(
+                """
+                SELECT * FROM terminal_sessions
+                WHERE conversation_id = ?
+                ORDER BY created_at ASC
+                """,
+                (conversation_id,),
+            )
+        else:
+            cursor = await self.db.conn.execute(
+                """
+                SELECT * FROM terminal_sessions
+                WHERE conversation_id = ? AND status = ?
+                ORDER BY created_at ASC
+                """,
+                (conversation_id, status),
+            )
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
+    async def count_running(self, conversation_id: str) -> int:
+        cursor = await self.db.conn.execute(
+            """
+            SELECT COUNT(*) AS count FROM terminal_sessions
+            WHERE conversation_id = ? AND status = 'running'
+            """,
+            (conversation_id,),
+        )
+        row = await cursor.fetchone()
+        return int(row["count"]) if row else 0
+
+    async def get_first_running(self, conversation_id: str) -> Optional[dict[str, Any]]:
+        rows = await self.list_by_conversation(conversation_id, status="running")
+        return rows[0] if rows else None
+
+    async def insert(
         self,
         *,
         session_id: str,
@@ -41,25 +75,16 @@ class TerminalSessionRepo:
         cols: int,
         rows: int,
         session_owner: str | None,
+        title: str = "",
     ) -> dict[str, Any]:
         now = datetime.now(timezone.utc).isoformat()
         await self.db.conn.execute(
             """
             INSERT INTO terminal_sessions (
                 session_id, conversation_id, workspace_path, shell, status,
-                cols, rows, session_owner, created_at, updated_at, last_activity_at
+                cols, rows, session_owner, title, created_at, updated_at, last_activity_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(conversation_id) DO UPDATE SET
-                session_id = excluded.session_id,
-                workspace_path = excluded.workspace_path,
-                shell = excluded.shell,
-                status = excluded.status,
-                cols = excluded.cols,
-                rows = excluded.rows,
-                session_owner = excluded.session_owner,
-                updated_at = excluded.updated_at,
-                last_activity_at = excluded.last_activity_at
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 session_id,
@@ -70,6 +95,7 @@ class TerminalSessionRepo:
                 cols,
                 rows,
                 session_owner,
+                title,
                 now,
                 now,
                 now,
@@ -85,6 +111,7 @@ class TerminalSessionRepo:
             "cols": cols,
             "rows": rows,
             "session_owner": session_owner,
+            "title": title,
             "created_at": now,
             "updated_at": now,
             "last_activity_at": now,
@@ -92,7 +119,7 @@ class TerminalSessionRepo:
 
     async def mark_status(
         self,
-        conversation_id: str,
+        session_id: str,
         *,
         status: str,
         cols: int | None = None,
@@ -100,7 +127,8 @@ class TerminalSessionRepo:
         workspace_path: str | None = None,
     ) -> None:
         updates = ["status = ?", "updated_at = ?", "last_activity_at = ?"]
-        values: list[Any] = [status, datetime.now(timezone.utc).isoformat(), datetime.now(timezone.utc).isoformat()]
+        now = datetime.now(timezone.utc).isoformat()
+        values: list[Any] = [status, now, now]
         if cols is not None:
             updates.append("cols = ?")
             values.append(cols)
@@ -110,16 +138,16 @@ class TerminalSessionRepo:
         if workspace_path is not None:
             updates.append("workspace_path = ?")
             values.append(workspace_path)
-        values.append(conversation_id)
+        values.append(session_id)
         await self.db.conn.execute(
-            f"UPDATE terminal_sessions SET {', '.join(updates)} WHERE conversation_id = ?",
+            f"UPDATE terminal_sessions SET {', '.join(updates)} WHERE session_id = ?",
             values,
         )
         await self.db.conn.commit()
 
     async def touch(
         self,
-        conversation_id: str,
+        session_id: str,
         *,
         cols: int | None = None,
         rows: int | None = None,
@@ -133,14 +161,21 @@ class TerminalSessionRepo:
         if rows is not None:
             updates.append("rows = ?")
             values.append(rows)
-        values.append(conversation_id)
+        values.append(session_id)
         await self.db.conn.execute(
-            f"UPDATE terminal_sessions SET {', '.join(updates)} WHERE conversation_id = ?",
+            f"UPDATE terminal_sessions SET {', '.join(updates)} WHERE session_id = ?",
             values,
         )
         await self.db.conn.commit()
 
-    async def delete(self, conversation_id: str) -> None:
+    async def delete(self, session_id: str) -> None:
+        await self.db.conn.execute(
+            "DELETE FROM terminal_sessions WHERE session_id = ?",
+            (session_id,),
+        )
+        await self.db.conn.commit()
+
+    async def delete_all_for_conversation(self, conversation_id: str) -> None:
         await self.db.conn.execute(
             "DELETE FROM terminal_sessions WHERE conversation_id = ?",
             (conversation_id,),

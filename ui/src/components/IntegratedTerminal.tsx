@@ -5,7 +5,6 @@ import { FitAddon } from '@xterm/addon-fit';
 import 'xterm/css/xterm.css';
 
 import {
-  createTerminalSession,
   createTerminalWebSocket,
   restartTerminalSession,
 } from '@/api/client';
@@ -23,6 +22,7 @@ type TerminalStatus = 'idle' | 'connecting' | 'running' | 'closed' | 'stale' | '
 
 interface IntegratedTerminalProps {
   conversationId: string;
+  sessionId: string;
   workspacePath: string;
   active: boolean;
   dock: TerminalDock;
@@ -48,6 +48,7 @@ function normalizeStatus(status: string | undefined): TerminalStatus {
 
 export function IntegratedTerminal({
   conversationId,
+  sessionId,
   workspacePath,
   active,
   dock,
@@ -69,36 +70,15 @@ export function IntegratedTerminal({
   const [isRestarting, setIsRestarting] = useState(false);
 
   useEffect(() => {
-    bufferRef.current = terminalState?.buffer || '';
-  }, [terminalState?.buffer]);
+    bufferRef.current =
+      terminalState?.bufferBySessionId[sessionId] ?? terminalState?.buffer ?? '';
+  }, [sessionId, terminalState?.buffer, terminalState?.bufferBySessionId]);
 
   const replaceTerminalBuffer = useCallback((nextBuffer: string) => {
     updateTerminalState(conversationId, { buffer: nextBuffer.slice(-120000) });
   }, [conversationId, updateTerminalState]);
 
-  const ensureTerminal = useCallback(async () => {
-    if (!containerRef.current || !terminalState?.isOpen || !active) {
-      return null;
-    }
-    updateTerminalState(conversationId, { status: 'connecting' });
-    const term = terminalRef.current;
-    const cols = term?.cols || 120;
-    const rows = term?.rows || 30;
-    const session = await createTerminalSession(conversationId, {
-      workspace_path: workspacePath.trim() || undefined,
-      cols,
-      rows,
-    });
-    updateTerminalState(conversationId, {
-      session,
-      status: session.status === 'running' ? 'running' : 'stale',
-      buffer: session.replay_buffer || '',
-    });
-    fitAddonRef.current?.fit();
-    return session;
-  }, [active, conversationId, terminalState?.isOpen, updateTerminalState, workspacePath]);
-
-  const connectSocket = useCallback((sessionId: string) => {
+  const connectSocket = useCallback((targetSessionId: string) => {
     if (!active || !terminalState?.isOpen) {
       return;
     }
@@ -108,7 +88,7 @@ export function IntegratedTerminal({
     socketRef.current?.close();
     lastSocketStatusRef.current = 'connecting';
 
-    const ws = createTerminalWebSocket(conversationId, sessionId);
+    const ws = createTerminalWebSocket(conversationId, targetSessionId);
     socketRef.current = ws;
 
     const isCurrentSocket = () => socketRef.current === ws && socketGenerationRef.current === generation;
@@ -136,7 +116,7 @@ export function IntegratedTerminal({
 
       if (payload.type === 'output' && payload.data) {
         terminalRef.current?.write(payload.data);
-        appendTerminalBuffer(conversationId, payload.data);
+        appendTerminalBuffer(conversationId, targetSessionId, payload.data);
       } else if (payload.type === 'replay') {
         const replay = payload.data || '';
         terminalRef.current?.clear();
@@ -242,18 +222,8 @@ export function IntegratedTerminal({
         socket.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
       }
     }, 80);
-    ensureTerminal()
-      .then((session) => {
-        if (cancelled) return;
-        if (session?.session_id) {
-          connectSocket(session.session_id);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          updateTerminalState(conversationId, { connected: false, status: 'error' });
-        }
-      });
+    updateTerminalState(conversationId, { status: 'connecting' });
+    connectSocket(sessionId);
 
     return () => {
       cancelled = true;
@@ -268,7 +238,7 @@ export function IntegratedTerminal({
       terminalRef.current = null;
       fitAddonRef.current = null;
     };
-  }, [active, connectSocket, conversationId, ensureTerminal, terminalState?.isOpen, updateTerminalState]);
+  }, [active, connectSocket, conversationId, sessionId, terminalState?.isOpen, updateTerminalState]);
 
   useEffect(() => {
     if (!terminalState?.isOpen || !active) {
@@ -295,11 +265,9 @@ export function IntegratedTerminal({
   }, [active, dock, terminalState?.height, terminalState?.isOpen, terminalState?.width]);
 
   const handleReconnect = useCallback(() => {
-    const sessionId = terminalState?.session?.session_id;
-    if (!sessionId) return;
     updateTerminalState(conversationId, { status: 'connecting' });
     connectSocket(sessionId);
-  }, [connectSocket, conversationId, terminalState?.session?.session_id, updateTerminalState]);
+  }, [connectSocket, conversationId, sessionId, updateTerminalState]);
 
   const handleRestart = useCallback(async () => {
     if (!terminalState) return;
@@ -309,28 +277,50 @@ export function IntegratedTerminal({
       socketRef.current?.close();
       socketRef.current = null;
       terminalRef.current?.clear();
-      clearTerminalBuffer(conversationId);
+      clearTerminalBuffer(conversationId, sessionId);
       const term = terminalRef.current;
-      const nextSession = await restartTerminalSession(conversationId, {
+      const nextSession = await restartTerminalSession(conversationId, sessionId, {
         workspace_path: workspacePath.trim() || undefined,
         cols: term?.cols || 120,
         rows: term?.rows || 30,
       });
+      const nextSessions = [
+        ...(terminalState.sessions ?? []).filter((item) => item.session_id !== sessionId),
+        nextSession,
+      ];
+      const bufferBySessionId = { ...terminalState.bufferBySessionId };
+      delete bufferBySessionId[sessionId];
+      bufferBySessionId[nextSession.session_id] = nextSession.replay_buffer || '';
       updateTerminalState(conversationId, {
+        sessions: nextSessions,
+        activeSessionId: nextSession.session_id,
         session: nextSession,
         buffer: nextSession.replay_buffer || '',
+        bufferBySessionId,
         status: nextSession.status === 'running' ? 'running' : 'stale',
       });
+      localStorage.setItem(
+        `reasoner_terminal_active_session:${conversationId}`,
+        nextSession.session_id,
+      );
       connectSocket(nextSession.session_id);
     } finally {
       setIsRestarting(false);
     }
-  }, [clearTerminalBuffer, connectSocket, conversationId, terminalState, updateTerminalState, workspacePath]);
+  }, [
+    clearTerminalBuffer,
+    connectSocket,
+    conversationId,
+    sessionId,
+    terminalState,
+    updateTerminalState,
+    workspacePath,
+  ]);
 
   const handleClear = useCallback(() => {
-    clearTerminalBuffer(conversationId);
+    clearTerminalBuffer(conversationId, sessionId);
     terminalRef.current?.clear();
-  }, [clearTerminalBuffer, conversationId]);
+  }, [clearTerminalBuffer, conversationId, sessionId]);
 
   const handleVerticalResize = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
     if (!terminalState) return;
@@ -401,7 +391,7 @@ export function IntegratedTerminal({
   const isRightDock = dock === 'right';
   const isEmbedded = chrome === 'embedded';
   const pathLabel = terminalState.session?.workspace_path || workspacePath || '~';
-  const canReconnect = !!terminalState.session?.session_id && (status === 'error' || status === 'stale' || status === 'closed');
+  const canReconnect = status === 'error' || status === 'stale' || status === 'closed';
   const handleDockToggle = (nextDock: TerminalDock) => {
     updateTerminalState(conversationId, { dock: nextDock });
     requestAnimationFrame(() => fitAddonRef.current?.fit());

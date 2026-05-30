@@ -229,21 +229,22 @@ CREATE INDEX IF NOT EXISTS idx_agent_steps_state ON agent_steps(state);
 
 CREATE TABLE IF NOT EXISTS terminal_sessions (
     session_id TEXT PRIMARY KEY,
-    conversation_id TEXT NOT NULL UNIQUE,
+    conversation_id TEXT NOT NULL,
     workspace_path TEXT,
     shell TEXT NOT NULL,
     status TEXT NOT NULL,              -- running | closed | stale
     cols INTEGER NOT NULL,
     rows INTEGER NOT NULL,
     session_owner TEXT,                -- demo session_id when applicable
+    title TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     last_activity_at TEXT NOT NULL,
     FOREIGN KEY(conversation_id) REFERENCES conversations(conversation_id) ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS idx_terminal_sessions_conversation_id
-    ON terminal_sessions(conversation_id);
+CREATE INDEX IF NOT EXISTS idx_terminal_sessions_conversation
+    ON terminal_sessions(conversation_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_agent_tool_calls_run ON agent_tool_calls(run_id);
 CREATE INDEX IF NOT EXISTS idx_agent_tool_calls_step ON agent_tool_calls(step_id);
 CREATE INDEX IF NOT EXISTS idx_agent_tool_calls_status ON agent_tool_calls(status);

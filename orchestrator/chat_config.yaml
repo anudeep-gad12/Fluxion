@@ -262,6 +262,10 @@ chatgpt:
 # Settings for demo/showcase deployments.
 # Enable to add rate limiting and sidebar restrictions.
 
+# Browser terminal (desktop agent mode)
+terminal:
+  max_sessions_per_conversation: 5
+
 demo:
   enabled: ${DEMO_MODE:-false}
   owner_secret: ${DEMO_OWNER_SECRET:-}  # Long random string for owner access via ?owner=<secret>
