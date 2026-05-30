@@ -166,6 +166,64 @@ fn health_matches(payload: &HealthPayload) -> bool {
         && payload.build_id.as_deref() == Some(build_id())
 }
 
+fn kill_port_listener(port: u16) {
+    let output = match std::process::Command::new("lsof")
+        .args(["-nP", &format!("-iTCP:{port}"), "-sTCP:LISTEN", "-t"])
+        .output()
+    {
+        Ok(output) => output,
+        Err(_) => return,
+    };
+
+    if !output.status.success() {
+        return;
+    }
+
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+        let Ok(pid) = line.trim().parse::<i32>() else {
+            continue;
+        };
+        let _ = std::process::Command::new("kill")
+            .args(["-TERM", &pid.to_string()])
+            .status();
+    }
+}
+
+fn wait_for_port_release(port: u16, timeout: Duration) {
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        let listening = std::process::Command::new("lsof")
+            .args(["-nP", &format!("-iTCP:{port}"), "-sTCP:LISTEN", "-t"])
+            .output()
+            .map(|output| output.status.success() && !output.stdout.is_empty())
+            .unwrap_or(false);
+        if !listening {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+fn ensure_packaged_backend(handle: &AppHandle, state: &BackendState) -> Result<(), String> {
+    if let Some(payload) = read_health() {
+        if health_matches(&payload) {
+            return Ok(());
+        }
+        if payload.app.as_deref() == Some(APP_NAME) {
+            stop_sidecar(state);
+            kill_port_listener(DEFAULT_PORT);
+            wait_for_port_release(DEFAULT_PORT, Duration::from_secs(3));
+        } else {
+            return Err(format!(
+                "Port {DEFAULT_PORT} is already in use by another service."
+            ));
+        }
+    }
+
+    spawn_sidecar(handle, state)?;
+    wait_for_health(Duration::from_secs(60))
+}
+
 fn wait_for_health(timeout: Duration) -> Result<(), String> {
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
@@ -240,12 +298,7 @@ fn service_webview_url() -> Result<url::Url, String> {
 }
 
 fn show_main_window(handle: &AppHandle) -> Result<(), String> {
-    let target = service_webview_url()?;
-
     if let Some(window) = handle.get_webview_window("main") {
-        window
-            .navigate(target)
-            .map_err(|error| format!("failed to navigate main window: {error}"))?;
         window
             .show()
             .map_err(|error| error.to_string())?;
@@ -253,6 +306,7 @@ fn show_main_window(handle: &AppHandle) -> Result<(), String> {
         return Ok(());
     }
 
+    let target = service_webview_url()?;
     WebviewWindowBuilder::new(handle, "main", WebviewUrl::External(target))
     .title(APP_NAME)
     .inner_size(1400.0, 900.0)
@@ -268,10 +322,9 @@ fn start_backend_and_ui(handle: &AppHandle, state: &BackendState) -> Result<(), 
     bootout_legacy_launch_agent();
 
     if !cfg!(debug_assertions) {
-        if read_health().is_none() {
-            spawn_sidecar(handle, state)?;
+        if let Err(error) = ensure_packaged_backend(handle, state) {
+            eprintln!("[fluxion] backend startup failed: {error}");
         }
-        wait_for_health(Duration::from_secs(60))?;
     } else if read_health().is_none() {
         return Err(format!(
             "Start the API first (./dev.sh desktop from the repo root), then run cargo tauri dev. Expected {}",

@@ -9,6 +9,7 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| main | Packaged launch crash fix — recycle stale `fluxion-server` on :9000 when build_id mismatches instead of aborting Tauri setup; revert window to embedded assets + keep `isTauriWebview()` desktop detection; backend startup errors log but still show the shell | done | 2026-05-30 |
 | main | Packaged desktop UI fix — Tauri `main` window now loads `http://127.0.0.1:9000` (config `url` + `navigate` on startup) instead of embedded `tauri://` assets so `isLocalDesktopApp()` enables desktop chrome/terminal; `isTauriWebview()` fallback + packaged API base URL for early load | done | 2026-05-30 |
 | main | Terminal session rail — per-row close (×), slimmer active chip, hover-reveal close button | done | 2026-05-30 |
 | main | Terminal route test hang fix — legacy `restart()` no longer deadlocks on nested lock; test teardown calls `shutdown_all()`; WebSocket receives use timeouts | done | 2026-05-30 |
