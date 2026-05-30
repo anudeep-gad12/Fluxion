@@ -8,6 +8,7 @@ import { ConversationView, isConversationMissing } from '@/components/Conversati
 import { WorkspacePickerDialog } from '@/components/WorkspacePickerDialog';
 import { TerminalPanel } from '@/components/desktop/TerminalPanel';
 import { DesktopTitlebar } from '@/components/desktop/DesktopTitlebar';
+import { DesktopSidebarBrand } from '@/components/desktop/DesktopSidebarBrand';
 import { startWindowDrag } from '@/lib/windowDrag';
 import { useStore, useHasActiveRun } from '@/hooks/useStore';
 import { isLocalDesktopApp } from '@/lib/platform';
@@ -197,30 +198,45 @@ function AppLayout() {
   const sidebarContent = (
     <>
       {localDesktop ? (
-        <DesktopTitlebar
-          safeLeft
-          className="desktop-sidebar-header flex h-[var(--titlebar-height)] min-h-[var(--titlebar-height)] items-center justify-between pr-3"
-        >
-        <div className="desktop-titlebar-content flex min-w-0 flex-1 items-center gap-2.5">
-          <img
-            src="/assets/favicon.svg"
-            alt=""
-            className="pointer-events-none h-7 w-7 shrink-0 rounded-md"
+        <DesktopTitlebar className="desktop-sidebar-header flex flex-shrink-0 flex-col">
+          <div
+            className="desktop-sidebar-traffic-spacer h-[var(--titlebar-height)] w-full shrink-0"
             aria-hidden
           />
-          <span className="pointer-events-none truncate text-[15px] font-semibold tracking-tight text-zinc-50">
-            Fluxion
-          </span>
-        </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => handleSidebarToggle(true)}
-          className="desktop-no-drag relative z-10 h-8 w-8 shrink-0 text-zinc-500"
-          aria-label="Collapse sidebar"
-        >
-          <PanelLeftClose className="h-4 w-4" />
-        </Button>
+          <div
+            className={cn(
+              'desktop-sidebar-brand-band desktop-no-drag flex h-10 w-full shrink-0 items-center',
+              sidebarCollapsed
+                ? 'justify-center'
+                : 'justify-between gap-2 pr-2 pl-[var(--desktop-traffic-light-inset)]'
+            )}
+          >
+            <DesktopSidebarBrand collapsed={sidebarCollapsed} />
+            {!sidebarCollapsed ? (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => handleSidebarToggle(true)}
+                className="desktop-sidebar-toggle relative z-10 h-8 w-8 shrink-0 text-zinc-500"
+                aria-label="Collapse sidebar"
+              >
+                <PanelLeftClose className="h-4 w-4" />
+              </Button>
+            ) : null}
+          </div>
+          {sidebarCollapsed ? (
+            <div className="desktop-sidebar-toggle-row desktop-no-drag flex justify-center pb-3">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => handleSidebarToggle(false)}
+                className="desktop-sidebar-toggle relative z-10 h-8 w-8 shrink-0 text-zinc-500"
+                aria-label="Open sidebar"
+              >
+                <PanelLeft className="h-4 w-4" />
+              </Button>
+            </div>
+          ) : null}
         </DesktopTitlebar>
       ) : (
       <div className="relative flex flex-shrink-0 items-center justify-between px-4 py-4">
@@ -248,7 +264,12 @@ function AppLayout() {
       )}
 
       {localDesktop && (
-        <div className="px-2 pb-1 pt-2">
+        <div
+          className={cn(
+            'desktop-sidebar-body px-2 pb-1 pt-2',
+            sidebarCollapsed && 'desktop-sidebar-body-collapsed'
+          )}
+        >
           <Button
             variant="ghost"
             onClick={() => setWorkspacePickerOpen(true)}
@@ -269,7 +290,13 @@ function AppLayout() {
         </div>
       )}
 
-      <div className="flex-1 overflow-hidden">
+      <div
+        className={cn(
+          'flex-1 overflow-hidden',
+          localDesktop && 'desktop-sidebar-body',
+          localDesktop && sidebarCollapsed && 'desktop-sidebar-body-collapsed'
+        )}
+      >
         <ConversationList
           workspacePickerOpen={workspacePickerOpen}
           onWorkspacePickerOpenChange={setWorkspacePickerOpen}
@@ -286,9 +313,25 @@ function AppLayout() {
           'desktop-shell-left ui-panel relative flex flex-shrink-0 flex-col',
           isMobile && 'fixed inset-y-0 left-0 z-50 w-[80vw] max-w-[320px]',
           isMobile && (sidebarCollapsed ? '-translate-x-full' : 'translate-x-0'),
-          !isMobile && sidebarCollapsed && 'w-0 overflow-hidden'
+          !isMobile && !localDesktop && sidebarCollapsed && 'w-0 overflow-hidden',
+          localDesktop &&
+            !isMobile &&
+            'transition-[width] duration-200 ease-[cubic-bezier(0.4,0,0.2,1)]',
+          localDesktop && !isMobile && sidebarCollapsed && 'desktop-sidebar-collapsed overflow-hidden'
         )}
-        style={!isMobile && !sidebarCollapsed ? { width: sidebarWidth } : undefined}
+        style={
+          !isMobile
+            ? {
+                width: localDesktop
+                  ? sidebarCollapsed
+                    ? 'var(--desktop-traffic-light-inset)'
+                    : sidebarWidth
+                  : sidebarCollapsed
+                    ? undefined
+                    : sidebarWidth,
+              }
+            : undefined
+        }
       >
         {sidebarContent}
         {!isMobile && !sidebarCollapsed && (
@@ -303,7 +346,7 @@ function AppLayout() {
         )}
       </aside>
 
-      {sidebarCollapsed && !isMobile && (
+      {sidebarCollapsed && !isMobile && !localDesktop && (
         <div
           className="desktop-panel-rail desktop-shell-left ui-panel relative flex flex-shrink-0 flex-col items-center py-3"
           style={{ width: 'var(--desktop-traffic-light-inset)' }}

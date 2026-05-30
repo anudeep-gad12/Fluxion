@@ -36,6 +36,9 @@ var/
 .DS_Store
 Thumbs.db
 
+# Local deploy keys (never commit)
+.local-secrets/
+
 # Environment
 .env
 .env.local

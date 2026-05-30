@@ -113,21 +113,23 @@ export function DesktopComposer({
 
       {attachmentsRow}
 
-      <textarea
-        ref={textareaRef}
-        placeholder={placeholder}
-        value={message}
-        onChange={onChange}
-        onPaste={onPaste}
-        onKeyDown={onKeyDown}
-        onSelect={onSelect}
-        onClick={onClick}
-        rows={2}
-        className="desktop-prompt-input"
-        disabled={disabled}
-      />
+      <div className="desktop-prompt-input-wrap relative">
+        <textarea
+          ref={textareaRef}
+          placeholder={placeholder}
+          value={message}
+          onChange={onChange}
+          onPaste={onPaste}
+          onKeyDown={onKeyDown}
+          onSelect={onSelect}
+          onClick={onClick}
+          rows={2}
+          className="desktop-prompt-input"
+          disabled={disabled}
+        />
 
-      {mentionPicker}
+        {mentionPicker}
+      </div>
 
       <div className="desktop-prompt-footer">
         <div className="min-w-0 flex-1">{controlsRow}</div>

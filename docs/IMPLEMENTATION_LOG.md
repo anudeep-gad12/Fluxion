@@ -9,6 +9,10 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| main | Desktop sidebar brand vertical alignment — dedicated traffic-light spacer (`--titlebar-height`) then fixed `h-10` logo band so open/closed logo share the same Y (no collision with macOS controls) | done | 2026-05-30 |
+| main | Desktop sidebar brand animation — single width-animated column (no separate rail); collapsed shows logo above toggle, expanded shows logo + Fluxion on one row with smooth wordmark fade | done | 2026-05-30 |
+| main | Desktop @ mention picker accent — `desktop-mention-picker` uses dialog surface (`desktop-bg-1`) + `desktop-settings-list-panel` / list-item accent selection to match model/reasoning dialogs | done | 2026-05-30 |
+| main | Desktop @ file mention picker — anchor `MentionPicker` in `desktop-prompt-input-wrap` (`position: relative`) so `bottom-full` sits above the textarea instead of the full conversation column; desktop mention panel tokens + z-index | done | 2026-05-30 |
 | feature/tauri-macos-standalone | Agent step timeline — single animated progress spine (`--steps-progress`), removed per-item segment lines and content `border-l` rails; step enter/dot pulse animations with reduced-motion fallback | done | 2026-05-30 |
 | feature/tauri-macos-standalone | Desktop selector bg + terminal TERM + edit diff UI — model/reasoning/workspace dialogs use `desktop-bg-1` (dialog surface no longer forced to zinc-900 on desktop); PTY shells always get `TERM=xterm-256color` via `build_pty_shell_environment` (fixes Starship/`TERM=dumb` when API inherits dumb TERM); `tool-diff.css` + `UnifiedDiffView` with desktop add/remove colors and pre-style exclusion in `desktop-thread.css`; integrated terminal panel `#0c0c0e` | done | 2026-05-29 |
 | feature/tauri-macos-standalone | Desktop HUD + selector accent alignment — `desktop-hud.css` for plan/permission/input approval panels and idle status strip; model/reasoning/workspace dialogs on `desktop-settings-*` with accent list selection; toolbar ghost/icon aliases | done | 2026-05-29 |
