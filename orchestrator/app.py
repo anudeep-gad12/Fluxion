@@ -30,6 +30,7 @@ from orchestrator.routes import (
     auth,
     benchmarks,
     conversations,
+    grok_auth,
     models,
     runs,
     terminal,
@@ -320,6 +321,7 @@ app.include_router(runs.router)
 app.include_router(agent_runs.router)
 app.include_router(benchmarks.router)
 app.include_router(auth.router)
+app.include_router(grok_auth.router)
 app.include_router(models.router)
 app.include_router(workspaces.router)
 app.include_router(terminal.router)

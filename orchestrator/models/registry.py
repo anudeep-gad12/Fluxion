@@ -92,6 +92,14 @@ PROVIDERS: dict[str, ProviderDef] = {
         endpoint="responses",
         auth_type="oauth",
     ),
+    "grok": ProviderDef(
+        name="grok",
+        display_name="Grok",
+        base_url="https://cli-chat-proxy.grok.com/v1",
+        api_key_env="",
+        endpoint="chat_completions",
+        auth_type="oauth",
+    ),
     "xai": ProviderDef(
         name="xai",
         display_name="xAI",
@@ -323,12 +331,25 @@ MODEL_PRESETS: list[ModelPreset] = [
         aliases=["xai-grok-build", "grok-build"],
         context_window=256000,
         max_output_tokens=32768,
-        supports_reasoning=True,
-        reasoning_request_param="reasoning",
-        reasoning_effort="medium",
+        supports_reasoning=False,
         input_cost_per_million=1.00,
         cached_input_cost_per_million=0.20,
         output_cost_per_million=2.00,
+        recommended=True,
+        category="coding",
+    ),
+    # --- Grok OAuth / subscription ---
+    ModelPreset(
+        model_id="grok-build",
+        display_name="Grok Build",
+        provider="grok",
+        aliases=["grok-oauth-build", "grok-build-oauth"],
+        context_window=256000,
+        max_output_tokens=32768,
+        supports_reasoning=False,
+        input_cost_per_million=0.0,
+        cached_input_cost_per_million=0.0,
+        output_cost_per_million=0.0,
         recommended=True,
         category="coding",
     ),
@@ -1055,12 +1076,27 @@ class ModelRegistry:
                 explicit_provider = parts[0].lower()
                 model_string = parts[1]
 
-        # Try alias lookup (case-insensitive)
-        preset = _ALIAS_INDEX.get(model_string.lower())
+        lookup_key = model_string.lower()
+        if explicit_provider:
+            preset = next(
+                (
+                    candidate
+                    for candidate in MODEL_PRESETS
+                    if candidate.provider == explicit_provider
+                    and (
+                        candidate.model_id.lower() == lookup_key
+                        or lookup_key in {alias.lower() for alias in candidate.aliases}
+                    )
+                ),
+                None,
+            )
+        else:
+            # Try alias lookup (case-insensitive)
+            preset = _ALIAS_INDEX.get(lookup_key)
 
-        # Try full model ID lookup
-        if not preset:
-            preset = _MODEL_ID_INDEX.get(model_string.lower())
+            # Try full model ID lookup
+            if not preset:
+                preset = _MODEL_ID_INDEX.get(lookup_key)
 
         if preset:
             # Use explicit provider if specified, otherwise preset's provider
@@ -1069,12 +1105,18 @@ class ModelRegistry:
 
             # Check API key
             api_key = ModelRegistry._get_api_key(provider_def)
+            if provider_name == "grok":
+                from orchestrator.services.grok_auth import get_grok_access_token_sync
+
+                api_key = get_grok_access_token_sync()
             if not api_key and provider_name not in {"local", "chatgpt"}:
                 if preset.provider_hint:
                     raise ValueError(
                         f"No API key found for {provider_name}. "
                         f"Set {provider_def.api_key_env} environment variable."
                     )
+                if provider_name == "grok":
+                    raise ValueError("Connect Grok OAuth before selecting this model.")
                 # Try to fall back to another provider that has a key
                 api_key, provider_name, provider_def = ModelRegistry._find_available_provider(
                     prefer=provider_name
@@ -1106,7 +1148,13 @@ class ModelRegistry:
             provider_name = explicit_provider
             provider_def = PROVIDERS[provider_name]
             api_key = ModelRegistry._get_api_key(provider_def)
+            if provider_name == "grok":
+                from orchestrator.services.grok_auth import get_grok_access_token_sync
+
+                api_key = get_grok_access_token_sync()
             if not api_key and provider_name not in {"local", "chatgpt"}:
+                if provider_name == "grok":
+                    raise ValueError("Connect Grok OAuth before selecting this model.")
                 raise ValueError(
                     f"No API key found for {provider_name}. "
                     f"Set {provider_def.api_key_env} environment variable."

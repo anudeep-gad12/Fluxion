@@ -99,7 +99,7 @@ def infer_provider_family(
         if not candidate:
             continue
         normalized = str(candidate).lower()
-        if normalized in {"openai", "xai", "openrouter", "deepinfra", "fireworks", "chatgpt", "local"}:
+        if normalized in {"openai", "xai", "grok", "openrouter", "deepinfra", "fireworks", "chatgpt", "local"}:
             return normalized
 
     url = (base_url or getattr(provider_obj, "_base_url", "") or "").lower()
@@ -107,6 +107,8 @@ def infer_provider_family(
         return "openai"
     if "api.x.ai" in url:
         return "xai"
+    if "cli-chat-proxy.grok.com" in url:
+        return "grok"
     if "openrouter.ai" in url:
         return "openrouter"
     if "deepinfra.com" in url:
@@ -163,7 +165,7 @@ def resolve_reasoning_capabilities(
         reasoning_summary = ReasoningControlCapability(
             supported=True, options=["auto", "concise", "detailed"]
         )
-    elif provider_family == "xai":
+    elif provider_family in {"xai", "grok"}:
         if supports_reasoning:
             reasoning_effort = ReasoningControlCapability(
                 supported=True, options=["none", "low", "medium", "high", "xhigh"]

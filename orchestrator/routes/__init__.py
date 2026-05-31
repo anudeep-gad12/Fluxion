@@ -1,5 +1,5 @@
 """Routes package - API endpoint modules."""
 
-from orchestrator.routes import conversations, runs, models
+from orchestrator.routes import conversations, grok_auth, models, runs
 
-__all__ = ["conversations", "runs", "models"]
+__all__ = ["conversations", "grok_auth", "models", "runs"]

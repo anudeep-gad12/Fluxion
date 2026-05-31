@@ -91,11 +91,18 @@ def create_provider_for_model(model_string: str) -> Tuple[LLMProvider, "Resolved
     from orchestrator.models.registry import ModelRegistry
 
     resolved = ModelRegistry.resolve(model_string)
+    extra_headers = None
+    if resolved.provider_name == "grok":
+        extra_headers = {
+            "X-XAI-Token-Auth": "xai-grok-cli",
+            "x-grok-model-override": resolved.model_id,
+        }
     provider = OpenAICompatProvider(
         base_url=resolved.base_url,
         api_key=resolved.api_key,
         endpoint=resolved.endpoint,
         default_model=resolved.model_id,
+        extra_headers=extra_headers,
     )
     provider._reasoning_provider_family = resolved.provider_name
     provider._reasoning_request_param = resolved.reasoning_request_param

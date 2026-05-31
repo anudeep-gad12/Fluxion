@@ -40,6 +40,9 @@ import {
   clearProviderKey,
   logoutChatGPT,
   cancelChatGPTLogin,
+  startGrokLogin,
+  cancelGrokLogin,
+  logoutGrok,
   selectModel,
   updateReasoningSettings,
   getUsage,
@@ -244,6 +247,7 @@ function ModelPicker({
   const [chatGPTLogin, setChatGPTLogin] = useState<ChatGPTLoginState | null>(null);
   const pickerLoadSeqRef = useRef(0);
   const chatGPTLoginTimerRef = useRef<number | null>(null);
+  const grokLoginTimerRef = useRef<number | null>(null);
 
   const clearChatGPTLoginTimer = useCallback(() => {
     if (chatGPTLoginTimerRef.current !== null) {
@@ -252,7 +256,15 @@ function ModelPicker({
     }
   }, []);
 
+  const clearGrokLoginTimer = useCallback(() => {
+    if (grokLoginTimerRef.current !== null) {
+      window.clearInterval(grokLoginTimerRef.current);
+      grokLoginTimerRef.current = null;
+    }
+  }, []);
+
   useEffect(() => clearChatGPTLoginTimer, [clearChatGPTLoginTimer]);
+  useEffect(() => clearGrokLoginTimer, [clearGrokLoginTimer]);
 
   const refreshPickerData = useCallback(async () => {
     const seq = ++pickerLoadSeqRef.current;
@@ -298,12 +310,15 @@ function ModelPicker({
     if (!open) {
       pickerLoadSeqRef.current += 1;
       setLoading(false);
+      const hadGrokLoginTimer = grokLoginTimerRef.current !== null;
+      clearGrokLoginTimer();
+      if (hadGrokLoginTimer) void cancelGrokLogin().catch(() => {});
       return;
     }
     setLoading(true);
     setError(null);
     void refreshPickerData();
-  }, [open, refreshPickerData]);
+  }, [open, refreshPickerData, clearGrokLoginTimer]);
 
   useEffect(() => {
     if (!open || !registryData?.active_provider) return;
@@ -416,6 +431,79 @@ function ModelPicker({
       await refreshPickerData();
     } catch {
       setError('Failed to disconnect ChatGPT');
+    } finally {
+      setSwitching(null);
+    }
+  };
+
+  const handleGrokConnect = async () => {
+    clearGrokLoginTimer();
+    setSwitching('grok-login');
+    setError(null);
+    try {
+      const started = await startGrokLogin();
+      if (started.status === 'missing_cli') {
+        setError(started.message || 'Grok CLI is not installed or not on PATH.');
+        setSwitching(null);
+        return;
+      }
+      const startedAt = Date.now();
+      grokLoginTimerRef.current = window.setInterval(async () => {
+        try {
+          const registry = await listRegistryModels();
+          setRegistryData(registry);
+          const auth = registry.providers.grok?.auth;
+          if (auth?.authenticated) {
+            clearGrokLoginTimer();
+            setSwitching(null);
+          } else if (auth?.last_error) {
+            clearGrokLoginTimer();
+            setSwitching(null);
+            setError(auth.last_error);
+          }
+        } catch {
+          // Keep polling while the local login flow is active.
+        }
+        if (Date.now() - startedAt > 120_000) {
+          clearGrokLoginTimer();
+          setSwitching(null);
+          setError('Grok login timed out. Retry to start a fresh OAuth login, or cancel.');
+          void cancelGrokLogin().catch(() => {});
+          void refreshPickerData();
+        }
+      }, 1200);
+    } catch {
+      setError('Failed to start Grok login');
+      setSwitching(null);
+    }
+  };
+
+  const handleGrokCancelLogin = async () => {
+    clearGrokLoginTimer();
+    setSwitching('grok-cancel');
+    setError(null);
+    try {
+      await cancelGrokLogin();
+    } catch {
+      // UI lifecycle still stops.
+    } finally {
+      setSwitching(null);
+      void refreshPickerData();
+    }
+  };
+
+  const handleGrokLogout = async () => {
+    clearGrokLoginTimer();
+    setSwitching('grok-logout');
+    setError(null);
+    try {
+      const result = await logoutGrok();
+      if (result.status === 'error') {
+        setError(result.message || 'Failed to disconnect Grok');
+      }
+      await refreshPickerData();
+    } catch {
+      setError('Failed to disconnect Grok');
     } finally {
       setSwitching(null);
     }
@@ -647,20 +735,24 @@ function ModelPicker({
                   />
                 </div>
 
-                {!activeProviderInfo.available && (
-                  <section className={cn(desktop ? 'desktop-model-account-card' : 'premium-panel p-3')}>
-                    {activeProviderInfo.auth_type === 'oauth' ? (
+                <section className={cn(desktop ? 'desktop-model-account-card' : 'premium-panel p-3')}>
+                  {activeProviderInfo.auth_type === 'oauth' ? (
+                    activeProvider === 'chatgpt' ? (
                       <>
                         <div className="min-w-0 flex-1">
-                          <div className={cn(desktop ? 'desktop-settings-key-name' : 'text-xs font-semibold text-zinc-200')}>Connect ChatGPT / Codex</div>
-                          <div className={cn(desktop ? 'desktop-settings-key-env' : 'mt-1 text-xs text-zinc-500')}>
-                            {chatGPTLogin?.status === 'timed_out'
-                              ? 'Login timed out. Retry opens a fresh browser login; cancel clears this attempt.'
-                              : chatGPTLogin
-                                ? 'Waiting for browser login. This stops automatically after 2 minutes.'
-                                : 'OAuth login opens in your browser, then returns here automatically.'}
+                          <div className={cn(desktop ? 'desktop-settings-key-name' : 'text-xs font-semibold text-zinc-200')}>
+                            {activeProviderInfo.auth?.authenticated ? 'ChatGPT / Codex connected' : 'Connect ChatGPT / Codex'}
                           </div>
-                          {chatGPTLogin && (
+                          <div className={cn(desktop ? 'desktop-settings-key-env' : 'mt-1 text-xs text-zinc-500')}>
+                            {activeProviderInfo.auth?.authenticated
+                              ? `${activeProviderInfo.auth.account_id || 'ChatGPT account'} · OAuth token saved in Fluxion.`
+                              : chatGPTLogin?.status === 'timed_out'
+                                ? 'Login timed out. Retry opens a fresh browser login; cancel clears this attempt.'
+                                : chatGPTLogin
+                                  ? 'Waiting for browser login. This stops automatically after 2 minutes.'
+                                  : 'OAuth login opens in your browser, then returns here automatically.'}
+                          </div>
+                          {chatGPTLogin && !activeProviderInfo.auth?.authenticated && (
                             <div className="mt-3 min-w-0 space-y-2">
                               <input
                                 value={chatGPTLogin.loginUrl}
@@ -690,45 +782,89 @@ function ModelPicker({
                             </div>
                           )}
                         </div>
-                        {!chatGPTLogin && (
+                        {activeProviderInfo.auth?.authenticated ? (
+                          <button type="button" onClick={handleChatGPTLogout} disabled={!!switching} className={cn(desktop ? 'desktop-settings-btn-ghost' : 'premium-subtle-button')}>
+                            Disconnect
+                          </button>
+                        ) : !chatGPTLogin ? (
                           <button type="button" onClick={handleChatGPTConnect} disabled={switching === 'chatgpt-login'} className={cn(desktop ? 'desktop-settings-btn-primary' : 'premium-primary-button')}>
                             {switching === 'chatgpt-login' ? 'Waiting…' : 'Connect'}
                           </button>
-                        )}
+                        ) : null}
                       </>
-                    ) : providerKeyStatus ? (
+                    ) : (
                       <>
                         <div className="min-w-0 flex-1">
-                          <div className={cn(desktop ? 'desktop-settings-key-name' : 'text-xs font-semibold text-zinc-200')}>{formatProviderName(activeProvider, activeProviderInfo.display_name)} API key</div>
-                          <div className={cn(desktop ? 'desktop-settings-key-env' : 'mt-1 text-xs text-zinc-500')}>{providerKeyStatus.api_key_env}</div>
+                          <div className={cn(desktop ? 'desktop-settings-key-name' : 'text-xs font-semibold text-zinc-200')}>
+                            {activeProviderInfo.auth?.authenticated ? 'Grok connected' : 'Connect Grok'}
+                          </div>
+                          <div className={cn(desktop ? 'desktop-settings-key-env' : 'mt-1 text-xs text-zinc-500')}>
+                            {activeProviderInfo.auth?.authenticated
+                              ? `${activeProviderInfo.auth.account_id || 'Grok account'} · official Grok CLI OAuth.`
+                              : activeProviderInfo.auth?.login_running || switching === 'grok-login'
+                                ? 'Waiting for `grok login --oauth`. Complete the browser login, or cancel.'
+                                : activeProviderInfo.auth?.enabled === false
+                                  ? 'Install the Grok CLI first, then connect with OAuth.'
+                                  : 'Uses official `grok login --oauth` credentials from ~/.grok/auth.json.'}
+                          </div>
+                          {activeProviderInfo.auth?.last_error && (
+                            <div className={cn(desktop ? 'desktop-settings-hint-error mt-2' : 'mt-2 text-xs text-red-300')}>
+                              {activeProviderInfo.auth.last_error}
+                            </div>
+                          )}
                         </div>
-                        <input
-                          value={providerKeyDrafts[activeProvider] || ''}
-                          onChange={(e) => setProviderKeyDrafts((drafts) => ({ ...drafts, [activeProvider]: e.target.value }))}
-                          placeholder="Enter API key"
-                          type="password"
-                          className={cn(desktop ? 'desktop-settings-field flex-1' : 'premium-field flex-1')}
-                        />
-                        <button type="button" onClick={() => handleSaveProviderKey(activeProvider)} disabled={!!switching} className={cn(desktop ? 'desktop-settings-btn-primary' : 'premium-primary-button')}>Save</button>
-                        {providerKeyStatus.has_key && (
-                          <button type="button" onClick={() => handleClearProviderKey(activeProvider)} disabled={!!switching} className={cn(desktop ? 'desktop-settings-btn-ghost' : 'premium-subtle-button')}>Clear</button>
+                        {activeProviderInfo.auth?.authenticated ? (
+                          <button type="button" onClick={handleGrokLogout} disabled={!!switching} className={cn(desktop ? 'desktop-settings-btn-ghost' : 'premium-subtle-button')}>
+                            Disconnect
+                          </button>
+                        ) : activeProviderInfo.auth?.login_running || switching === 'grok-login' ? (
+                          <div className="flex flex-wrap gap-2">
+                            <button type="button" onClick={handleGrokConnect} disabled={switching === 'grok-cancel'} className={cn(desktop ? 'desktop-settings-btn-ghost' : 'premium-subtle-button')}>
+                              Retry
+                            </button>
+                            <button type="button" onClick={handleGrokCancelLogin} disabled={switching === 'grok-cancel'} className={cn(desktop ? 'desktop-settings-btn-ghost' : 'premium-subtle-button')}>
+                              Cancel
+                            </button>
+                          </div>
+                        ) : (
+                          <button type="button" onClick={handleGrokConnect} disabled={!!switching || activeProviderInfo.auth?.enabled === false} className={cn(desktop ? 'desktop-settings-btn-primary' : 'premium-primary-button')}>
+                            Connect
+                          </button>
                         )}
                       </>
-                    ) : null}
-                  </section>
-                )}
-
-                {activeProviderInfo.auth_type === 'oauth' && activeProviderInfo.auth?.authenticated && (
-                  <section className={cn(desktop ? 'desktop-model-account-card' : 'premium-panel p-3')}>
-                    <div>
-                      <div className={cn(desktop ? 'desktop-settings-key-name' : 'text-xs font-semibold text-zinc-200')}>Connected</div>
-                      <div className={cn(desktop ? 'desktop-settings-key-env' : 'mt-1 text-xs text-zinc-500')}>
-                        {activeProviderInfo.auth.account_id || 'ChatGPT account'} · Disconnect removes Fluxion’s saved token.
+                    )
+                  ) : providerKeyStatus ? (
+                    <>
+                      <div className="min-w-0 flex-1">
+                        <div className={cn(desktop ? 'desktop-settings-key-name' : 'text-xs font-semibold text-zinc-200')}>
+                          {formatProviderName(activeProvider, activeProviderInfo.display_name)} API key
+                        </div>
+                        <div className={cn(desktop ? 'desktop-settings-key-env' : 'mt-1 text-xs text-zinc-500')}>
+                          {providerKeyStatus.api_key_env || 'No key required'} · {providerKeyStatus.has_key ? `configured via ${providerKeyStatus.source}` : 'not configured'}
+                        </div>
                       </div>
-                    </div>
-                    <button type="button" onClick={handleChatGPTLogout} disabled={!!switching} className={cn(desktop ? 'desktop-settings-btn-ghost' : 'premium-subtle-button')}>Disconnect ChatGPT</button>
-                  </section>
-                )}
+                      {providerKeyStatus.api_key_env && (
+                        <>
+                          <input
+                            value={providerKeyDrafts[activeProvider] || ''}
+                            onChange={(e) => setProviderKeyDrafts((drafts) => ({ ...drafts, [activeProvider]: e.target.value }))}
+                            placeholder={providerKeyStatus.has_key ? 'Enter replacement API key' : 'Enter API key'}
+                            type="password"
+                            className={cn(desktop ? 'desktop-settings-field flex-1' : 'premium-field flex-1')}
+                          />
+                          <button type="button" onClick={() => handleSaveProviderKey(activeProvider)} disabled={!!switching} className={cn(desktop ? 'desktop-settings-btn-primary' : 'premium-primary-button')}>
+                            {providerKeyStatus.has_key ? 'Update' : 'Save'}
+                          </button>
+                          {providerKeyStatus.source === 'database' && (
+                            <button type="button" onClick={() => handleClearProviderKey(activeProvider)} disabled={!!switching} className={cn(desktop ? 'desktop-settings-btn-ghost' : 'premium-subtle-button')}>
+                              Clear
+                            </button>
+                          )}
+                        </>
+                      )}
+                    </>
+                  ) : null}
+                </section>
 
                 {recommendedModels.length > 0 && normalizedSearch && (
                   <section className={cn(desktop ? 'desktop-model-section' : 'premium-panel p-2')}>

@@ -33,6 +33,10 @@ VISIBLE_MODEL_IDS_BY_PROVIDER: dict[str, set[str]] = {
         "gpt-5.3-codex",
         "gpt-5.2-codex",
     },
+    # Grok OAuth/subscription: separate from xAI API-key models.
+    "grok": {
+        "grok-build",
+    },
     # xAI direct: language/coding models only; no Imagine/voice/image-only APIs.
     "xai": {
         "grok-4.3",
@@ -228,7 +232,11 @@ async def _get_live_models(provider_name: str, api_key: Optional[str]) -> tuple[
     return models, error
 
 
-async def list_model_catalog(*, chatgpt_status: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+async def list_model_catalog(
+    *,
+    chatgpt_status: Optional[dict[str, Any]] = None,
+    grok_status: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
     """Return provider-grouped model catalog with account metadata."""
     grouped = ModelRegistry.list_models()
 
@@ -277,6 +285,22 @@ async def list_model_catalog(*, chatgpt_status: Optional[dict[str, Any]] = None)
         }
         grouped["chatgpt"]["catalog_source"] = "curated"
         grouped["chatgpt"]["catalog_error"] = None
+
+    if "grok" in grouped:
+        status = grok_status or {"enabled": True, "authenticated": False}
+        grouped["grok"]["available"] = bool(status.get("authenticated"))
+        grouped["grok"]["auth"] = {
+            "enabled": bool(status.get("enabled", True)),
+            "authenticated": bool(status.get("authenticated")),
+            "account_id": status.get("account_id"),
+            "expires_at": status.get("expires_at"),
+            "login_url": "/api/auth/grok/login",
+            "logout_url": "/api/auth/grok/logout",
+            "login_running": bool(status.get("login_running")),
+            "last_error": status.get("last_error"),
+        }
+        grouped["grok"]["catalog_source"] = "curated"
+        grouped["grok"]["catalog_error"] = None
 
     for provider_info in grouped.values():
         provider_info.setdefault("catalog_source", "curated")

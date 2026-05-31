@@ -88,7 +88,40 @@ async def test_list_models_catalog_is_trimmed_to_curated_visible_sets():
     assert "o4-mini" not in {model["model_id"] for model in data["openai"]["models"]}
     assert "o4-mini" not in {model["model_id"] for model in data["chatgpt"]["models"]}
     assert {model["model_id"] for model in data["xai"]["models"]} == {"grok-4.3", "grok-build-0.1"}
+    assert {model["model_id"] for model in data["grok"]["models"]} == {"grok-build"}
     assert len(data["openrouter"]["models"]) <= 14
+
+
+@pytest.mark.asyncio
+async def test_grok_is_oauth_provider_separate_from_xai(tmp_path, monkeypatch):
+    """Grok OAuth appears as a separate provider from xAI API keys."""
+    auth_file = tmp_path / "auth.json"
+    auth_file.write_text(
+        """
+        {
+          "https://auth.x.ai::client": {
+            "key": "grok-token",
+            "auth_mode": "oidc",
+            "email": "user@example.com",
+            "expires_at": "2999-01-01T00:00:00Z",
+            "oidc_issuer": "https://auth.x.ai"
+          }
+        }
+        """
+    )
+    monkeypatch.setenv("GROK_AUTH_FILE", str(auth_file))
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.get("/api/models")
+
+    providers = response.json()["providers"]
+    assert providers["xai"]["auth_type"] == "api_key"
+    assert providers["grok"]["auth_type"] == "oauth"
+    assert providers["grok"]["available"] is True
+    assert providers["grok"]["auth"]["authenticated"] is True
+    assert providers["grok"]["auth"]["account_id"] == "user@example.com"
 
 
 @pytest.mark.asyncio

@@ -275,13 +275,23 @@ async def _chatgpt_auth_status(request: Request) -> dict:
     }
 
 
+async def _grok_auth_status() -> dict:
+    """Return Grok OAuth state from the local Grok CLI credentials."""
+    from orchestrator.services.grok_auth import get_grok_auth_status
+
+    return await get_grok_auth_status()
+
+
 @router.get("")
 async def list_models(request: Request):
     """List all available model presets grouped by provider.
 
     Returns presets with availability info based on API key presence.
     """
-    grouped = await list_model_catalog(chatgpt_status=await _chatgpt_auth_status(request))
+    grouped = await list_model_catalog(
+        chatgpt_status=await _chatgpt_auth_status(request),
+        grok_status=await _grok_auth_status(),
+    )
 
     # Add current active model info
     return {
@@ -358,6 +368,10 @@ async def select_model(request: SelectModelRequest, http_request: Request):
         status = await _chatgpt_auth_status(http_request)
         if not status.get("authenticated"):
             raise HTTPException(status_code=400, detail="Connect ChatGPT / Codex before selecting this model")
+    if resolved.provider_name == "grok":
+        status = await _grok_auth_status()
+        if not status.get("authenticated"):
+            raise HTTPException(status_code=400, detail="Connect Grok before selecting this model")
 
     # Store resolved model for status display and web UI fallback.
     # Clear any custom/local runtime override so registry resolution applies

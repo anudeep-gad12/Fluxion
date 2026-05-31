@@ -4,6 +4,7 @@ Unit tests for ModelRegistry.resolve() and list_models().
 No real API calls — API keys mocked via environment variables.
 """
 
+import asyncio
 import os
 from unittest.mock import patch
 
@@ -15,6 +16,7 @@ from orchestrator.models.registry import (
     ModelRegistry,
     ResolvedModel,
 )
+from orchestrator.providers.factory import create_provider_for_model
 
 
 class TestResolveByAlias:
@@ -76,6 +78,71 @@ class TestExplicitProviderPrefix:
         assert resolved.endpoint == "responses"
         assert resolved.api_key == "xai-key"
         assert resolved.reasoning_effort == "medium"
+
+    @patch.dict(os.environ, {"XAI_API_KEY": "xai-key"})
+    def test_xai_grok_build_does_not_send_reasoning_effort(self):
+        """Grok Build on xAI rejects reasoningEffort, so metadata disables it."""
+        resolved = ModelRegistry.resolve("xai:grok-build-0.1")
+        assert resolved.provider_name == "xai"
+        assert resolved.model_id == "grok-build-0.1"
+        assert resolved.reasoning_effort is None
+        assert resolved.reasoning_request_param is None
+
+    def test_resolve_grok_oauth_provider_prefix(self, tmp_path, monkeypatch):
+        """'grok:model' uses local Grok CLI OAuth credentials, not XAI_API_KEY."""
+        auth_file = tmp_path / "auth.json"
+        auth_file.write_text(
+            """
+            {
+              "https://auth.x.ai::client": {
+                "key": "grok-token",
+                "auth_mode": "oidc",
+                "email": "user@example.com",
+                "expires_at": "2999-01-01T00:00:00Z",
+                "oidc_issuer": "https://auth.x.ai"
+              }
+            }
+            """
+        )
+        monkeypatch.setenv("GROK_AUTH_FILE", str(auth_file))
+
+        resolved = ModelRegistry.resolve("grok:grok-build")
+        assert resolved.provider_name == "grok"
+        assert resolved.model_id == "grok-build"
+        assert resolved.base_url == "https://cli-chat-proxy.grok.com/v1"
+        assert resolved.endpoint == "chat_completions"
+        assert resolved.api_key == "grok-token"
+        assert resolved.reasoning_effort is None
+
+    def test_resolve_grok_oauth_without_token_raises(self, tmp_path, monkeypatch):
+        """Grok OAuth provider requires a valid local Grok CLI token."""
+        monkeypatch.setenv("GROK_AUTH_FILE", str(tmp_path / "missing-auth.json"))
+        with pytest.raises(ValueError, match="Connect Grok OAuth"):
+            ModelRegistry.resolve("grok:grok-build")
+
+    def test_grok_provider_uses_cli_proxy_headers(self, tmp_path, monkeypatch):
+        """Grok OAuth provider sends the CLI-token auth headers required by the proxy."""
+        auth_file = tmp_path / "auth.json"
+        auth_file.write_text(
+            """
+            {
+              "https://auth.x.ai::client": {
+                "key": "grok-token",
+                "auth_mode": "oidc",
+                "expires_at": "2999-01-01T00:00:00Z",
+                "oidc_issuer": "https://auth.x.ai"
+              }
+            }
+            """
+        )
+        monkeypatch.setenv("GROK_AUTH_FILE", str(auth_file))
+
+        provider, resolved = create_provider_for_model("grok:grok-build")
+        assert resolved.provider_name == "grok"
+        assert provider._client.headers["authorization"] == "Bearer grok-token"  # noqa: SLF001
+        assert provider._client.headers["x-xai-token-auth"] == "xai-grok-cli"  # noqa: SLF001
+        assert provider._client.headers["x-grok-model-override"] == "grok-build"  # noqa: SLF001
+        asyncio.run(provider.close())
 
     @patch.dict(os.environ, {"DEEPINFRA_API_KEY": "di-key"})
     def test_resolve_explicit_provider_prefix(self):

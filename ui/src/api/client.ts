@@ -927,6 +927,8 @@ export interface RegistryModelsResponse {
       expires_at?: number | null;
       login_url?: string;
       logout_url?: string;
+      login_running?: boolean;
+      last_error?: string | null;
     };
   }>;
   active_model: string | null;
@@ -1002,6 +1004,27 @@ export async function logoutChatGPT(): Promise<{ status: string }> {
 
 export async function cancelChatGPTLogin(): Promise<{ status: string; cancelled: number }> {
   return fetchJson(`${getApiBase()}/auth/chatgpt/cancel`, {
+    method: 'POST',
+    timeoutMs: 10_000,
+  });
+}
+
+export async function startGrokLogin(): Promise<{ status: string; message?: string }> {
+  return fetchJson(`${getApiBase()}/auth/grok/login`, {
+    method: 'POST',
+    timeoutMs: 10_000,
+  });
+}
+
+export async function cancelGrokLogin(): Promise<{ status: string; cancelled: number }> {
+  return fetchJson(`${getApiBase()}/auth/grok/cancel`, {
+    method: 'POST',
+    timeoutMs: 10_000,
+  });
+}
+
+export async function logoutGrok(): Promise<{ status: string; message?: string }> {
+  return fetchJson(`${getApiBase()}/auth/grok/logout`, {
     method: 'POST',
     timeoutMs: 10_000,
   });
