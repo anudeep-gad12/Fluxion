@@ -63,8 +63,14 @@ def estimate_cost(
     cached_input_cost_per_million: Optional[float] = None,
 ) -> Optional[dict[str, Any]]:
     """Estimate USD cost from token usage and per-million prices."""
-    if input_cost_per_million is None or output_cost_per_million is None:
+    if not isinstance(input_cost_per_million, (int, float)) or not isinstance(
+        output_cost_per_million, (int, float)
+    ):
         return None
+    if cached_input_cost_per_million is not None and not isinstance(
+        cached_input_cost_per_million, (int, float)
+    ):
+        cached_input_cost_per_million = None
 
     cached_tokens = max(0, int(usage.get("cached_tokens", 0) or 0))
     input_tokens = max(0, int(usage.get("input_tokens", 0) or 0))

@@ -548,7 +548,9 @@ class ModelStatusResponse(BaseModel):
 class SelectModelRequest(BaseModel):
     """Request to select a model from the registry."""
 
-    model: str  # Model alias, full ID, or "provider:model" string
+    model: Optional[str] = None  # Legacy alias, full ID, or "provider:model" string
+    provider: Optional[str] = None
+    model_id: Optional[str] = None
 
 
 class ProviderApiKeyRequest(BaseModel):

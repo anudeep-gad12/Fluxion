@@ -20,6 +20,7 @@ Response Translation (Codex SSE -> Standard):
 """
 
 import asyncio
+import inspect
 import json
 import random
 import uuid
@@ -29,7 +30,7 @@ import httpx
 
 from orchestrator.logging_config import get_logger
 
-from .base import LLMResponse, RetryExhaustedError
+from .base import LLMResponse, ProviderAuthError, RetryExhaustedError
 
 logger = get_logger(__name__)
 
@@ -53,6 +54,7 @@ class ChatGPTProvider:
         max_retries: int = 3,
         base_delay: float = 1.0,
         max_delay: float = 30.0,
+        on_auth_error: Optional[Callable[[], Any]] = None,
     ):
         """Initialize the ChatGPT provider.
 
@@ -66,6 +68,8 @@ class ChatGPTProvider:
             max_retries: Maximum retry attempts for transient errors.
             base_delay: Initial delay for exponential backoff.
             max_delay: Maximum delay cap for backoff.
+            on_auth_error: Optional callback invoked when ChatGPT rejects the
+                stored OAuth token.
         """
         self._access_token = access_token
         self._account_id = account_id
@@ -76,6 +80,7 @@ class ChatGPTProvider:
         self._max_retries = max_retries
         self._base_delay = base_delay
         self._max_delay = max_delay
+        self._on_auth_error = on_auth_error
         self._retryable_statuses = [429, 500, 502, 503, 504]
 
         headers = {
@@ -99,6 +104,49 @@ class ChatGPTProvider:
         """
         self._access_token = access_token
         self._client.headers["Authorization"] = f"Bearer {access_token}"
+
+    async def _notify_auth_error(self) -> None:
+        """Notify the owner that the OAuth token is no longer valid."""
+        if not self._on_auth_error:
+            return
+        try:
+            result = self._on_auth_error()
+            if inspect.isawaitable(result):
+                await result
+        except Exception as e:
+            logger.warning(
+                "ChatGPT auth-error callback failed",
+                extra={"error": str(e)},
+            )
+
+    async def _raise_for_error_response(
+        self,
+        response: httpx.Response,
+        body: bytes,
+    ) -> None:
+        """Convert ChatGPT HTTP errors into useful provider errors."""
+        body_text = body.decode(errors="replace")
+        logger.error(
+            "ChatGPT API error",
+            extra={
+                "status": response.status_code,
+                "body": body_text[:2000],
+            },
+        )
+
+        if response.status_code == 401:
+            await self._notify_auth_error()
+            detail = "ChatGPT/Codex login expired or was revoked. Reconnect ChatGPT in the model picker."
+            try:
+                payload = json.loads(body_text)
+                error = payload.get("error") if isinstance(payload, dict) else None
+                if isinstance(error, dict) and error.get("code") == "token_revoked":
+                    detail = "ChatGPT/Codex login was revoked. Reconnect ChatGPT in the model picker."
+            except json.JSONDecodeError:
+                pass
+            raise ProviderAuthError(detail)
+
+        response.raise_for_status()
 
     # =========================================================================
     # Request Translation
@@ -267,8 +315,9 @@ class ChatGPTProvider:
             "summary": "auto",
         }
 
-        if max_output_tokens is not None:
-            payload["max_output_tokens"] = max_output_tokens
+        # ChatGPT's Codex backend currently rejects `max_output_tokens`.
+        # Keep the argument accepted by our provider interface, but do not
+        # forward it to chatgpt.com/backend-api/codex/responses.
 
         if extracted_instructions:
             payload["instructions"] = extracted_instructions
@@ -628,14 +677,7 @@ class ChatGPTProvider:
         async with self._client.stream("POST", url, json=payload) as response:
             if response.status_code >= 400:
                 error_body = await response.aread()
-                logger.error(
-                    "ChatGPT API error",
-                    extra={
-                        "status": response.status_code,
-                        "body": error_body.decode()[:2000],
-                    },
-                )
-                response.raise_for_status()
+                await self._raise_for_error_response(response, error_body)
 
             async for line in response.aiter_lines():
                 if not line or not line.startswith("data: "):
@@ -802,6 +844,12 @@ class ChatGPTProvider:
                     )
                 else:
                     response = await self._client.post(url, json=payload)
+
+                if response.status_code >= 400 and response.status_code not in self._retryable_statuses:
+                    error_body = await response.aread()
+                    if stream:
+                        await response.aclose()
+                    await self._raise_for_error_response(response, error_body)
 
                 if response.status_code not in self._retryable_statuses:
                     return response

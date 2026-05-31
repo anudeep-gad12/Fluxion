@@ -134,6 +134,26 @@ def test_openrouter_sends_reasoning_effort_without_max_tokens():
     }
 
 
+def test_xai_sends_responses_reasoning_object():
+    """xAI reasoning-capable models use the same nested reasoning object shape."""
+    settings = ReasoningSettings(
+        max_output_tokens=4096,
+        reasoning_effort="high",
+        reasoning_summary="auto",
+    )
+
+    kwargs = apply_reasoning_settings(
+        settings,
+        provider_family="xai",
+        supports_reasoning=True,
+    )
+
+    assert kwargs == {
+        "max_tokens": 4096,
+        "reasoning": {"effort": "high", "summary": "auto"},
+    }
+
+
 def test_deepinfra_sends_reasoning_effort_without_max_tokens_cap():
     """DeepInfra exposes effort/on-off, not a separate reasoning max token cap."""
     settings = ReasoningSettings(
@@ -158,6 +178,8 @@ def test_deepinfra_sends_reasoning_effort_without_max_tokens_cap():
 def test_capabilities_are_provider_specific():
     """Provider capability metadata should not advertise generic fake options."""
     fireworks = resolve_reasoning_capabilities("fireworks", supports_reasoning=True)
+    openai = resolve_reasoning_capabilities("openai", supports_reasoning=True)
+    xai = resolve_reasoning_capabilities("xai", supports_reasoning=True)
     openrouter = resolve_reasoning_capabilities("openrouter", supports_reasoning=True)
     deepinfra = resolve_reasoning_capabilities("deepinfra", supports_reasoning=True)
 
@@ -175,6 +197,10 @@ def test_capabilities_are_provider_specific():
         "xhigh",
     ]
     assert openrouter.reasoning_max_tokens.supported is True
+
+    assert "xhigh" in openai.reasoning_effort.options
+    assert "xhigh" in xai.reasoning_effort.options
+    assert xai.reasoning_summary.supported is True
 
     assert deepinfra.reasoning_effort.options == ["none", "low", "medium", "high"]
     assert deepinfra.reasoning_max_tokens.supported is False

@@ -23,6 +23,7 @@ from orchestrator.config import ChatConfig, get_chat_config
 from orchestrator.context.budget import ContextBudget
 from orchestrator.context.history_builder import HistoryBuilder
 from orchestrator.logging_config import get_logger, set_component
+from orchestrator.providers.usage import estimate_cost, normalize_usage
 from orchestrator.reasoning_controls import (
     ReasoningSettings,
     apply_reasoning_settings,
@@ -486,6 +487,13 @@ class ChatEngine:
             )
 
             timing_ms = int((time.time() - start_time) * 1000)
+            normalized_usage = normalize_usage(thinking_result.metadata.get("usage"))
+            usage_cost = estimate_cost(
+                normalized_usage,
+                getattr(self._provider, "_input_cost_per_million", None),
+                getattr(self._provider, "_output_cost_per_million", None),
+                getattr(self._provider, "_cached_input_cost_per_million", None),
+            )
 
             # Store thinking steps if tracing is enabled
             if self.config.tracing.log_model_calls and self.config.thinking.tracing.save_internal:
@@ -501,6 +509,8 @@ class ChatEngine:
                 "thinking_tokens": thinking_result.thinking_tokens,
                 "answer_tokens": thinking_result.answer_tokens,
                 "timing_ms": timing_ms,
+                "usage": normalized_usage,
+                "cost": usage_cost,
             }
 
             await trace_repo.update_conversation_trace(
@@ -730,10 +740,13 @@ class ChatEngine:
 
         # Use provider's usage if available, otherwise count locally
         if response.usage:
+            normalized_usage = normalize_usage(response.usage)
             usage = {
-                "prompt_tokens": response.usage.get("prompt_tokens", 0),
-                "completion_tokens": response.usage.get("completion_tokens", 0),
-                "total_tokens": response.usage.get("total_tokens", 0),
+                "prompt_tokens": normalized_usage["input_tokens"],
+                "completion_tokens": normalized_usage["output_tokens"],
+                "thinking_tokens": normalized_usage["reasoning_tokens"],
+                "cached_tokens": normalized_usage["cached_tokens"],
+                "total_tokens": normalized_usage["total_tokens"],
             }
         else:
             # Count tokens locally as fallback
@@ -743,6 +756,8 @@ class ChatEngine:
             usage = {
                 "prompt_tokens": prompt_tokens,
                 "completion_tokens": completion_tokens,
+                "thinking_tokens": 0,
+                "cached_tokens": 0,
                 "total_tokens": prompt_tokens + completion_tokens,
             }
 

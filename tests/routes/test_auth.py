@@ -10,6 +10,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from orchestrator.routes.auth import (
     _generate_pkce_pair,
     _extract_account_id_from_jwt,
+    _cancel_pending_auth_for_session,
+    _pending_auth,
+    chatgpt_callback,
 )
 
 
@@ -86,3 +89,64 @@ class TestJWTExtraction:
         token = f"{header}.{bad_body}.{sig}"
 
         assert _extract_account_id_from_jwt(token) is None
+
+
+@pytest.mark.asyncio
+async def test_callback_releases_oauth_port_on_missing_params():
+    """Callback errors should release the temporary Codex OAuth port."""
+    with patch("orchestrator.routes.auth.stop_callback_server", new_callable=AsyncMock) as mock_stop:
+        response = await chatgpt_callback()
+
+    assert response.status_code == 400
+    mock_stop.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_callback_releases_oauth_port_after_processing():
+    """Successful/processed callbacks release the temporary Codex OAuth port."""
+    with (
+        patch("orchestrator.routes.auth._process_oauth_callback", new_callable=AsyncMock) as mock_process,
+        patch("orchestrator.routes.auth.stop_callback_server", new_callable=AsyncMock) as mock_stop,
+    ):
+        mock_process.return_value = ("ok", 200)
+        response = await chatgpt_callback(code="code", state="state")
+
+    assert response.status_code == 200
+    mock_process.assert_awaited_once_with("code", "state")
+    mock_stop.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_cancel_pending_oauth_for_session_only_removes_matching_states():
+    """Cancelling login should remove only this session's pending OAuth states."""
+    _pending_auth.clear()
+    _pending_auth.update(
+        {
+            "state-a": {"session_id": "session-a", "created_at": time.time()},
+            "state-b": {"session_id": "session-b", "created_at": time.time()},
+        }
+    )
+
+    with patch("orchestrator.routes.auth.stop_callback_server", new_callable=AsyncMock) as mock_stop:
+        cancelled = await _cancel_pending_auth_for_session("session-a")
+
+    assert cancelled == 1
+    assert "state-a" not in _pending_auth
+    assert "state-b" in _pending_auth
+    mock_stop.assert_not_awaited()
+
+    _pending_auth.clear()
+
+
+@pytest.mark.asyncio
+async def test_cancel_pending_oauth_stops_callback_server_when_idle():
+    """Cancelling the last pending login should release the temporary callback port."""
+    _pending_auth.clear()
+    _pending_auth["state-a"] = {"session_id": "session-a", "created_at": time.time()}
+
+    with patch("orchestrator.routes.auth.stop_callback_server", new_callable=AsyncMock) as mock_stop:
+        cancelled = await _cancel_pending_auth_for_session("session-a")
+
+    assert cancelled == 1
+    assert _pending_auth == {}
+    mock_stop.assert_awaited_once()

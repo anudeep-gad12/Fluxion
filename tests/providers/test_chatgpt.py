@@ -1,9 +1,11 @@
 """Tests for ChatGPTProvider request/response translation."""
 
 import json
+import httpx
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from orchestrator.providers.base import ProviderAuthError
 from orchestrator.providers.chatgpt import ChatGPTProvider
 
 
@@ -164,8 +166,8 @@ class TestRequestTranslation:
         assert payload["instructions"] == "Be helpful."
         assert len(payload["input"]) == 1  # Only user message, system extracted
 
-    def test_build_request_payload_with_reasoning_object_and_max_tokens(self):
-        """Explicit reasoning object and max_output_tokens should pass through."""
+    def test_build_request_payload_with_reasoning_object_omits_max_tokens(self):
+        """Codex backend should not receive unsupported max_output_tokens."""
         payload = self.provider._build_request_payload(
             messages=[{"role": "user", "content": "Hello"}],
             model="gpt-5.2-codex",
@@ -177,7 +179,7 @@ class TestRequestTranslation:
         )
 
         assert payload["reasoning"] == {"effort": "low", "summary": "auto"}
-        assert payload["max_output_tokens"] == 512
+        assert "max_output_tokens" not in payload
 
     def test_build_request_payload_with_tools(self):
         """Payload with tools should include flattened tool definitions."""
@@ -320,6 +322,35 @@ class TestHeaders:
 
         assert provider._access_token == "new-token"
         assert provider._client.headers["Authorization"] == "Bearer new-token"
+
+    @pytest.mark.asyncio
+    async def test_401_token_revoked_invokes_auth_callback(self):
+        """Revoked ChatGPT tokens should clear stored auth and raise a useful error."""
+        callback = AsyncMock()
+        provider = ChatGPTProvider(
+            access_token="old-token",
+            account_id="acct-123",
+            on_auth_error=callback,
+        )
+        response = httpx.Response(
+            401,
+            request=httpx.Request("POST", "https://chatgpt.com/backend-api/codex/responses"),
+        )
+        body = json.dumps(
+            {
+                "error": {
+                    "message": "Encountered invalidated oauth token for user, failing request",
+                    "code": "token_revoked",
+                },
+                "status": 401,
+            }
+        ).encode()
+
+        with pytest.raises(ProviderAuthError, match="revoked"):
+            await provider._raise_for_error_response(response, body)
+
+        callback.assert_awaited_once()
+        await provider.close()
 
 
 class TestConversationRoundtrip:

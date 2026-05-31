@@ -278,6 +278,7 @@ async def _run_agent_task(
     conversation_id: Optional[str],
     max_steps: int,
     session_id: Optional[str] = None,
+    is_owner: bool = False,
     provider_preference: Optional[str] = None,
     model_override: Optional[str] = None,
     filesystem_enabled: bool = False,
@@ -342,17 +343,25 @@ async def _run_agent_task(
         from orchestrator.providers.factory import get_provider_override
 
         provider_override = get_provider_override()
+        from orchestrator.routes.auth import get_chatgpt_auth_session_id
+
+        auth_session_id = get_chatgpt_auth_session_id(session_id=session_id, is_owner=is_owner)
+
         if provider_override is not None:
             pass  # Local model is active, use it
-        elif session_id and provider_preference == "chatgpt":
+        elif auth_session_id and provider_preference == "chatgpt":
             # ChatGPT path: use stored OAuth tokens
             try:
                 from orchestrator.providers.factory import create_chatgpt_provider
                 from orchestrator.routes.auth import get_valid_tokens
 
-                tokens = await get_valid_tokens(session_id)
+                tokens = await get_valid_tokens(auth_session_id)
                 if tokens:
-                    provider_override = create_chatgpt_provider(tokens, model=model_override)
+                    provider_override = create_chatgpt_provider(
+                        tokens,
+                        model=model_override,
+                        auth_session_id=auth_session_id,
+                    )
             except Exception as e:
                 logger.warning(
                     "Failed to create ChatGPT provider for agent",
@@ -372,10 +381,29 @@ async def _run_agent_task(
                 )
         elif not model_override and not provider_preference:
             # Web UI fallback: use the last model selected via picker
-            from orchestrator.routes.models import get_active_model_name
+            from orchestrator.routes.models import get_active_model, get_active_model_name
 
+            active_model = get_active_model()
             active_name = get_active_model_name()
-            if active_name:
+            if active_model and active_model.provider_name == "chatgpt" and auth_session_id:
+                try:
+                    from orchestrator.providers.factory import create_chatgpt_provider
+                    from orchestrator.routes.auth import get_valid_tokens
+
+                    tokens = await get_valid_tokens(auth_session_id)
+                    if tokens:
+                        provider_override = create_chatgpt_provider(
+                            tokens,
+                            model=active_model.model_id,
+                            auth_session_id=auth_session_id,
+                        )
+                        model_override = active_model.model_id
+                except Exception as e:
+                    logger.warning(
+                        "Failed to create active ChatGPT provider for agent",
+                        extra={"error": str(e)},
+                    )
+            elif active_name and not (active_model and active_model.provider_name == "chatgpt"):
                 try:
                     from orchestrator.providers.factory import create_provider_for_model
 
@@ -728,6 +756,7 @@ async def create_agent_run(request: CreateAgentRunRequest, http_request: Request
                 conversation_id=conversation_id,
                 max_steps=request.max_steps,
                 session_id=session_id,
+                is_owner=is_owner,
                 provider_preference=provider_preference,
                 model_override=model_override,
                 filesystem_enabled=capabilities.get("filesystem", False),

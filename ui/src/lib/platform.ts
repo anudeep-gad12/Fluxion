@@ -47,3 +47,21 @@ export function isApplePlatform(): boolean {
   if (typeof navigator === 'undefined') return false;
   return /Mac|iPhone|iPad|iPod/.test(navigator.platform);
 }
+
+/** Open a URL in the system browser from Tauri, falling back to window.open on web. */
+export async function openExternalUrl(url: string): Promise<boolean> {
+  if (typeof window === 'undefined') return false;
+
+  if (isLocalDesktopApp()) {
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      await invoke('plugin:opener|open_url', { url });
+      return true;
+    } catch {
+      // Not actually in Tauri, or opener unavailable. Fall through to web open.
+    }
+  }
+
+  const opened = window.open(url, '_blank', 'noopener,noreferrer');
+  return !!opened;
+}

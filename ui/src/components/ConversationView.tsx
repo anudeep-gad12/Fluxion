@@ -34,9 +34,12 @@ import {
   getModelStatus,
   getReasoningSettings,
   listRegistryModels,
+  getChatGPTLoginUrl,
   listProviderKeys,
   saveProviderKey,
   clearProviderKey,
+  logoutChatGPT,
+  cancelChatGPTLogin,
   selectModel,
   updateReasoningSettings,
   getUsage,
@@ -64,18 +67,24 @@ import {
   DialogContent,
 } from '@/components/ui/dialog';
 import { useConversationRuns, useSelectedConversation, useStore, useHasActiveRun, useConversationTerminal } from '@/hooks/useStore';
-import { isLocalDesktopApp } from '@/lib/platform';
+import { isLocalDesktopApp, openExternalUrl } from '@/lib/platform';
 import { DesktopTextOptionGroup } from '@/components/desktop/DesktopTextOptionGroup';
 import { useSSE } from '@/hooks/useSSE';
 import { useAgentSSE } from '@/hooks/useAgentSSE';
 import { useAgentRunDetails } from '@/hooks/useAgentRunDetails';
 import { formatAgentCost, formatAgentTokens } from '@/lib/agentLiveState';
+import { inputCostTotal, normalizeTokenUsage, outputCostTotal } from '@/lib/usageMetrics';
 import { cn, formatRelativeTime } from '@/lib/utils';
 import type { Run, Conversation, ImageAttachment } from '@/types';
 
 /** Maximum characters allowed in the input textarea (~2000 tokens) */
 const MAX_INPUT_CHARS = 8000;
 const MENTION_RESULT_LIMIT = 20;
+
+type ChatGPTLoginState = {
+  loginUrl: string;
+  status: 'waiting' | 'timed_out';
+};
 const MAX_IMAGE_ATTACHMENTS = 8;
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 
@@ -91,21 +100,19 @@ function formatRunStatusLabel(run: Run): string {
 
 function getRunFooterMetrics(run: Run): string[] {
   const metrics: string[] = [];
+  const usage = normalizeTokenUsage(run.usage);
 
-  if (typeof run.usage?.total_tokens === 'number' && run.usage.total_tokens > 0) {
-    metrics.push(`${formatAgentTokens(run.usage.total_tokens)} tok`);
+  if (usage?.total_tokens) {
+    metrics.push(`${formatAgentTokens(usage.total_tokens)} tok`);
   }
-  if (run.usage && (
-    typeof run.usage.input_tokens === 'number'
-    || typeof run.usage.output_tokens === 'number'
-  )) {
+  if (usage) {
     metrics.push(
-      `in ${formatAgentTokens(run.usage.input_tokens ?? 0)} / out ${formatAgentTokens(run.usage.output_tokens ?? 0)}`
+      `in ${formatAgentTokens(usage.input_tokens)} / out ${formatAgentTokens(usage.output_tokens)}`
     );
   }
-  if (run.cost && typeof run.cost.total_cost === 'number' && run.usage?.total_tokens) {
+  if (run.cost && typeof run.cost.total_cost === 'number') {
     metrics.push(`est ${formatAgentCost(run.cost.total_cost)}`);
-  } else if (run.usage) {
+  } else if (usage) {
     metrics.push('cost n/a');
   }
   if (typeof run.context_usage?.utilization_pct_effective === 'number') {
@@ -231,7 +238,21 @@ function ModelPicker({
   const [loading, setLoading] = useState(false);
   const [switching, setSwitching] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [selectedProvider, setSelectedProvider] = useState<string>('openai');
+  const [modelSearch, setModelSearch] = useState('');
+  const [focusedModel, setFocusedModel] = useState<{ provider: string; model: RegistryModelPreset } | null>(null);
+  const [chatGPTLogin, setChatGPTLogin] = useState<ChatGPTLoginState | null>(null);
   const pickerLoadSeqRef = useRef(0);
+  const chatGPTLoginTimerRef = useRef<number | null>(null);
+
+  const clearChatGPTLoginTimer = useCallback(() => {
+    if (chatGPTLoginTimerRef.current !== null) {
+      window.clearInterval(chatGPTLoginTimerRef.current);
+      chatGPTLoginTimerRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => clearChatGPTLoginTimer, [clearChatGPTLoginTimer]);
 
   const refreshPickerData = useCallback(async () => {
     const seq = ++pickerLoadSeqRef.current;
@@ -284,14 +305,19 @@ function ModelPicker({
     void refreshPickerData();
   }, [open, refreshPickerData]);
 
-  const handleSelectRegistry = async (modelId: string) => {
-    setSwitching(modelId);
+  useEffect(() => {
+    if (!open || !registryData?.active_provider) return;
+    setSelectedProvider(registryData.active_provider);
+  }, [open, registryData?.active_provider]);
+
+  const handleSelectRegistry = async (provider: string, modelId: string) => {
+    setSwitching(`${provider}:${modelId}`);
     setError(null);
     try {
       if (modelStatus?.provider === 'local') {
         await stopLocalModel();
       }
-      const selected = await selectModel(modelId);
+      const selected = await selectModel({ provider, model_id: modelId });
       onModelStatusChange({
         provider: selected.provider,
         model_name: selected.display_name,
@@ -313,6 +339,83 @@ function ModelPicker({
       void getModelStatus().then(onModelStatusChange).catch(() => {});
     } catch {
       setError('Failed to switch model');
+    } finally {
+      setSwitching(null);
+    }
+  };
+
+  const handleChatGPTConnect = async () => {
+    const loginUrl = getChatGPTLoginUrl();
+    clearChatGPTLoginTimer();
+    setChatGPTLogin({ loginUrl, status: 'waiting' });
+    setSwitching('chatgpt-login');
+    setError(null);
+
+    const openedExternally = await openExternalUrl(loginUrl);
+    if (!openedExternally) {
+      setError('Could not open the browser automatically. Paste the login URL below into your browser.');
+    }
+
+    const startedAt = Date.now();
+    chatGPTLoginTimerRef.current = window.setInterval(async () => {
+      try {
+        const registry = await listRegistryModels();
+        setRegistryData(registry);
+        if (registry.providers.chatgpt?.auth?.authenticated) {
+          clearChatGPTLoginTimer();
+          setChatGPTLogin(null);
+          setSwitching(null);
+        }
+      } catch {
+        // Keep polling; the local API may still be starting or auth may be mid-flight.
+      }
+      if (Date.now() - startedAt > 120_000) {
+        clearChatGPTLoginTimer();
+        setChatGPTLogin((state) => state ? { ...state, status: 'timed_out' } : state);
+        setSwitching(null);
+        setError('ChatGPT login timed out. Retry to open a fresh login, or cancel.');
+        void cancelChatGPTLogin().catch(() => {});
+        void refreshPickerData();
+      }
+    }, 1200);
+  };
+
+  const handleChatGPTCancelLogin = async () => {
+    clearChatGPTLoginTimer();
+    setSwitching('chatgpt-cancel');
+    setError(null);
+    try {
+      await cancelChatGPTLogin();
+    } catch {
+      // Local UI lifecycle should still stop even if the backend already expired the attempt.
+    } finally {
+      setChatGPTLogin(null);
+      setSwitching(null);
+      void refreshPickerData();
+    }
+  };
+
+  const handleChatGPTRetryLogin = async () => {
+    await handleChatGPTCancelLogin();
+    await handleChatGPTConnect();
+  };
+
+  const handleCopyChatGPTLoginUrl = async () => {
+    if (!chatGPTLogin) return;
+    await navigator.clipboard?.writeText(chatGPTLogin.loginUrl);
+    toast.success('Login URL copied');
+  };
+
+  const handleChatGPTLogout = async () => {
+    clearChatGPTLoginTimer();
+    setChatGPTLogin(null);
+    setSwitching('chatgpt-logout');
+    setError(null);
+    try {
+      await logoutChatGPT();
+      await refreshPickerData();
+    } catch {
+      setError('Failed to disconnect ChatGPT');
     } finally {
       setSwitching(null);
     }
@@ -382,9 +485,7 @@ function ModelPicker({
 
   const registryProviders = registryData
     ? Object.entries(registryData.providers)
-        .filter(([providerName, info]) => (
-          providerName !== 'local' && info.available && info.models.length > 0
-        ))
+        .filter(([providerName, info]) => providerName !== 'local' && info.models.length > 0)
     : [];
 
   const providerSections = [
@@ -401,6 +502,52 @@ function ModelPicker({
   ].filter((section) => section.models.length > 0);
 
   const desktop = isLocalDesktopApp();
+  const activeProvider = selectedProvider && registryData?.providers[selectedProvider]
+    ? selectedProvider
+    : (registryData?.active_provider || registryProviders[0]?.[0] || providerSections[0]?.key || 'openai');
+  const activeProviderInfo = registryData?.providers[activeProvider];
+  const providerKeyStatus = providerKeys.find((key) => key.provider === activeProvider);
+  const allRegistryModels = registryProviders.flatMap(([provider, info]) => (
+    info.models.map((model) => ({ provider, model }))
+  ));
+  const normalizedSearch = modelSearch.trim().toLowerCase();
+  const visibleModels = (activeProviderInfo?.models || []).filter((model) => {
+    if (!normalizedSearch) return true;
+    return [
+      model.model_id,
+      model.display_name,
+      model.category,
+      ...(model.aliases || []),
+    ].some((value) => String(value || '').toLowerCase().includes(normalizedSearch));
+  });
+  const recommendedModels = allRegistryModels
+    .filter(({ provider, model }) => (
+      model.recommended
+      && (!normalizedSearch || [provider, model.model_id, model.display_name, ...(model.aliases || [])]
+        .some((value) => String(value || '').toLowerCase().includes(normalizedSearch)))
+    ))
+    .slice(0, 8);
+  const selectedDetail = focusedModel
+    || (visibleModels[0] ? { provider: activeProvider, model: visibleModels[0] } : null);
+
+  const formatProviderName = (provider: string, displayName?: string) => displayName || provider.replace(/-/g, ' ');
+  const formatModelCost = (model: RegistryModelPreset) => {
+    if (model.input_cost_per_million == null || model.output_cost_per_million == null) {
+      return null;
+    }
+    const cached = model.cached_input_cost_per_million != null
+      ? ` · cached $${model.cached_input_cost_per_million}/M`
+      : '';
+    return `in $${model.input_cost_per_million}/M · out $${model.output_cost_per_million}/M${cached}`;
+  };
+  const formatModelMeta = (model: RegistryModelPreset) => [
+    `${formatContextTokens(model.context_window)} ctx`,
+    `${formatContextTokens(model.max_output_tokens)} out`,
+    model.supports_tools ? 'tools' : null,
+    model.supports_reasoning ? 'reasoning' : null,
+    model.supports_vision ? 'vision' : null,
+    model.category && model.category !== 'general' ? model.category : null,
+  ].filter(Boolean);
 
   return (
     <Dialog
@@ -417,225 +564,275 @@ function ModelPicker({
             desktop ? 'desktop-settings-hint-error' : 'rounded-xl border border-red-500/20 bg-red-500/[0.08] px-3 py-2 text-xs text-red-300'
           )}>{error}</p>
         )}
-        <div className="max-h-[72vh] space-y-4 overflow-y-auto pr-1">
+        <div className={cn(desktop ? 'desktop-model-picker-shell' : 'grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)]')}>
           {loading && (
             <p className={cn(desktop ? 'desktop-settings-hint px-1 py-2' : 'px-1 py-2 text-xs text-zinc-500')}>Loading models…</p>
           )}
-          {registryProviders.map(([providerName, info]) => (
-                <section
+
+          <aside className={cn(desktop ? 'desktop-model-provider-rail' : 'premium-panel p-2')}>
+            {registryProviders.map(([providerName, info]) => {
+              const isSelected = activeProvider === providerName;
+              const authReady = info.auth_type === 'oauth' ? !!info.auth?.authenticated : info.available;
+              return (
+                <button
                   key={providerName}
+                  type="button"
+                  onClick={() => {
+                    setSelectedProvider(providerName);
+                    setFocusedModel(null);
+                  }}
+                  data-active={desktop && isSelected ? 'true' : undefined}
                   className={cn(
-                    desktop ? 'desktop-settings-section' : 'premium-panel overflow-hidden'
+                    desktop
+                      ? 'desktop-model-provider-tab'
+                      : 'mb-1 flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-xs text-zinc-300 hover:bg-white/[0.05]',
+                    !desktop && isSelected && 'bg-cyan-300/[0.08] text-cyan-100'
                   )}
                 >
-                  <div className={cn(desktop ? 'mb-2' : 'flex items-center justify-between border-b border-white/10 px-4 py-3')}>
-                    <div>
-                      <p className={cn(desktop ? 'desktop-settings-provider-header capitalize' : 'premium-section-label')}>
-                        {providerName}
-                      </p>
-                      <p className={cn(desktop ? 'desktop-settings-provider-count' : 'mt-1 text-[12px] text-zinc-500')}>
-                        {info.models.length} cloud preset{info.models.length !== 1 ? 's' : ''}
-                      </p>
+                  <span className="min-w-0">
+                    <span className="block truncate capitalize">{formatProviderName(providerName, info.display_name)}</span>
+                    <span className={cn(desktop ? 'desktop-model-provider-sub' : 'text-[10px] text-zinc-500')}>
+                      {info.models.length} models · {authReady ? 'ready' : 'setup'}
+                    </span>
+                  </span>
+                  {!authReady && <span className={cn(desktop ? 'desktop-model-provider-dot' : 'text-amber-300')}>!</span>}
+                </button>
+              );
+            })}
+            {providerSections.length > 0 && (
+              <div className={cn(desktop ? 'desktop-model-provider-divider' : 'my-2 border-t border-white/10 pt-2')}>
+                {providerSections.map((section) => (
+                  <button
+                    key={section.key}
+                    type="button"
+                    onClick={() => {
+                      setSelectedProvider(section.key);
+                      setFocusedModel(null);
+                    }}
+                    data-active={desktop && activeProvider === section.key ? 'true' : undefined}
+                    className={cn(desktop ? 'desktop-model-provider-tab' : 'mb-1 block w-full rounded-xl px-3 py-2 text-left text-xs text-zinc-300 hover:bg-white/[0.05]')}
+                  >
+                    <span className="block truncate uppercase">{section.label}</span>
+                    <span className={cn(desktop ? 'desktop-model-provider-sub' : 'text-[10px] text-zinc-500')}>
+                      {section.models.length} local
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </aside>
+
+          <main className={cn(desktop ? 'desktop-model-picker-main' : 'min-w-0 space-y-3')}>
+            {activeProviderInfo ? (
+              <>
+                <div className={cn(desktop ? 'desktop-model-picker-toolbar' : 'premium-panel p-3')}>
+                  <div className="min-w-0">
+                    <div className={cn(desktop ? 'desktop-settings-list-title' : 'text-sm font-semibold text-zinc-100')}>
+                      {formatProviderName(activeProvider, activeProviderInfo.display_name)}
+                    </div>
+                    <div className={cn(desktop ? 'desktop-settings-list-meta' : 'mt-1 text-xs text-zinc-500')}>
+                      {activeProviderInfo.catalog_source || 'curated'} catalog · {activeProviderInfo.available ? 'authenticated' : 'needs setup'}
+                      {activeProviderInfo.catalog_error ? ` · live catalog unavailable` : ''}
                     </div>
                   </div>
-                  <div className={cn(!desktop && 'p-2')}>
-                    {info.models.map((model: RegistryModelPreset) => {
-                      const alias = model.aliases[0] || model.model_id;
-                      const isActive = registryData?.active_model_id === model.model_id
-                        || modelStatus?.model_name === model.display_name
-                        || modelStatus?.model_name === model.model_id;
-                      const isBusy = switching === alias || switching === model.model_id;
+                  <input
+                    value={modelSearch}
+                    onChange={(e) => setModelSearch(e.target.value)}
+                    placeholder="Search models, aliases, capabilities…"
+                    className={cn(desktop ? 'desktop-settings-field desktop-model-search' : 'premium-field w-full lg:w-80')}
+                  />
+                </div>
+
+                {!activeProviderInfo.available && (
+                  <section className={cn(desktop ? 'desktop-model-account-card' : 'premium-panel p-3')}>
+                    {activeProviderInfo.auth_type === 'oauth' ? (
+                      <>
+                        <div className="min-w-0 flex-1">
+                          <div className={cn(desktop ? 'desktop-settings-key-name' : 'text-xs font-semibold text-zinc-200')}>Connect ChatGPT / Codex</div>
+                          <div className={cn(desktop ? 'desktop-settings-key-env' : 'mt-1 text-xs text-zinc-500')}>
+                            {chatGPTLogin?.status === 'timed_out'
+                              ? 'Login timed out. Retry opens a fresh browser login; cancel clears this attempt.'
+                              : chatGPTLogin
+                                ? 'Waiting for browser login. This stops automatically after 2 minutes.'
+                                : 'OAuth login opens in your browser, then returns here automatically.'}
+                          </div>
+                          {chatGPTLogin && (
+                            <div className="mt-3 min-w-0 space-y-2">
+                              <input
+                                value={chatGPTLogin.loginUrl}
+                                readOnly
+                                className={cn(desktop ? 'desktop-settings-field w-full' : 'premium-field w-full')}
+                                onFocus={(event) => event.currentTarget.select()}
+                              />
+                              <div className="flex flex-wrap gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => chatGPTLogin.status === 'timed_out' ? handleChatGPTRetryLogin() : openExternalUrl(chatGPTLogin.loginUrl)}
+                                  disabled={switching === 'chatgpt-cancel'}
+                                  className={cn(desktop ? 'desktop-settings-btn-ghost' : 'premium-subtle-button')}
+                                >
+                                  Open URL
+                                </button>
+                                <button type="button" onClick={handleCopyChatGPTLoginUrl} className={cn(desktop ? 'desktop-settings-btn-ghost' : 'premium-subtle-button')}>
+                                  Copy URL
+                                </button>
+                                <button type="button" onClick={handleChatGPTRetryLogin} disabled={switching === 'chatgpt-cancel'} className={cn(desktop ? 'desktop-settings-btn-ghost' : 'premium-subtle-button')}>
+                                  Retry
+                                </button>
+                                <button type="button" onClick={handleChatGPTCancelLogin} disabled={switching === 'chatgpt-cancel'} className={cn(desktop ? 'desktop-settings-btn-ghost' : 'premium-subtle-button')}>
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                        {!chatGPTLogin && (
+                          <button type="button" onClick={handleChatGPTConnect} disabled={switching === 'chatgpt-login'} className={cn(desktop ? 'desktop-settings-btn-primary' : 'premium-primary-button')}>
+                            {switching === 'chatgpt-login' ? 'Waiting…' : 'Connect'}
+                          </button>
+                        )}
+                      </>
+                    ) : providerKeyStatus ? (
+                      <>
+                        <div className="min-w-0 flex-1">
+                          <div className={cn(desktop ? 'desktop-settings-key-name' : 'text-xs font-semibold text-zinc-200')}>{formatProviderName(activeProvider, activeProviderInfo.display_name)} API key</div>
+                          <div className={cn(desktop ? 'desktop-settings-key-env' : 'mt-1 text-xs text-zinc-500')}>{providerKeyStatus.api_key_env}</div>
+                        </div>
+                        <input
+                          value={providerKeyDrafts[activeProvider] || ''}
+                          onChange={(e) => setProviderKeyDrafts((drafts) => ({ ...drafts, [activeProvider]: e.target.value }))}
+                          placeholder="Enter API key"
+                          type="password"
+                          className={cn(desktop ? 'desktop-settings-field flex-1' : 'premium-field flex-1')}
+                        />
+                        <button type="button" onClick={() => handleSaveProviderKey(activeProvider)} disabled={!!switching} className={cn(desktop ? 'desktop-settings-btn-primary' : 'premium-primary-button')}>Save</button>
+                        {providerKeyStatus.has_key && (
+                          <button type="button" onClick={() => handleClearProviderKey(activeProvider)} disabled={!!switching} className={cn(desktop ? 'desktop-settings-btn-ghost' : 'premium-subtle-button')}>Clear</button>
+                        )}
+                      </>
+                    ) : null}
+                  </section>
+                )}
+
+                {activeProviderInfo.auth_type === 'oauth' && activeProviderInfo.auth?.authenticated && (
+                  <section className={cn(desktop ? 'desktop-model-account-card' : 'premium-panel p-3')}>
+                    <div>
+                      <div className={cn(desktop ? 'desktop-settings-key-name' : 'text-xs font-semibold text-zinc-200')}>Connected</div>
+                      <div className={cn(desktop ? 'desktop-settings-key-env' : 'mt-1 text-xs text-zinc-500')}>
+                        {activeProviderInfo.auth.account_id || 'ChatGPT account'} · Disconnect removes Fluxion’s saved token.
+                      </div>
+                    </div>
+                    <button type="button" onClick={handleChatGPTLogout} disabled={!!switching} className={cn(desktop ? 'desktop-settings-btn-ghost' : 'premium-subtle-button')}>Disconnect ChatGPT</button>
+                  </section>
+                )}
+
+                {recommendedModels.length > 0 && normalizedSearch && (
+                  <section className={cn(desktop ? 'desktop-model-section' : 'premium-panel p-2')}>
+                    <div className={cn(desktop ? 'desktop-settings-provider-header' : 'px-2 pb-2 text-xs uppercase tracking-[0.16em] text-zinc-500')}>Recommended matches</div>
+                    <div className={cn(desktop ? 'desktop-model-grid' : 'grid gap-1')}>
+                      {recommendedModels.map(({ provider, model }) => {
+                        const isActive = registryData?.active_provider === provider && registryData?.active_model_id === model.model_id;
+                        return (
+                          <button
+                            key={`${provider}:${model.model_id}:rec`}
+                            type="button"
+                            onClick={() => desktop ? setFocusedModel({ provider, model }) : handleSelectRegistry(provider, model.model_id)}
+                            onDoubleClick={() => handleSelectRegistry(provider, model.model_id)}
+                            data-active={desktop && isActive ? 'true' : undefined}
+                            className={cn(desktop ? 'desktop-settings-list-item' : 'rounded-xl px-3 py-2 text-left text-sm text-zinc-200 hover:bg-white/[0.05]')}
+                          >
+                            <div className={cn(desktop ? 'desktop-settings-list-title truncate' : 'truncate font-medium')}>{model.display_name}</div>
+                            <div className={cn(desktop ? 'desktop-settings-list-meta flex flex-wrap gap-x-3' : 'mt-1 flex flex-wrap gap-x-3 text-xs text-zinc-500')}>
+                              <span>{formatProviderName(provider, registryData?.providers[provider]?.display_name)}</span>
+                              {formatModelMeta(model).slice(0, 4).map((part) => <span key={String(part)}>{part}</span>)}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </section>
+                )}
+
+                <section className={cn(desktop ? 'desktop-model-section' : 'premium-panel p-2')}>
+                  <div className={cn(desktop ? 'desktop-settings-provider-header' : 'px-2 pb-2 text-xs uppercase tracking-[0.16em] text-zinc-500')}>Models</div>
+                  <div className={cn(desktop ? 'desktop-model-list' : 'max-h-[44vh] overflow-y-auto')}>
+                    {visibleModels.map((model) => {
+                      const isActive = registryData?.active_provider === activeProvider && registryData?.active_model_id === model.model_id;
+                      const isFocused = selectedDetail?.provider === activeProvider && selectedDetail?.model.model_id === model.model_id;
+                      const isBusy = switching === `${activeProvider}:${model.model_id}`;
                       return (
                         <button
                           key={model.model_id}
-                          onClick={() => handleSelectRegistry(alias)}
+                          type="button"
+                          onClick={() => desktop ? setFocusedModel({ provider: activeProvider, model }) : handleSelectRegistry(activeProvider, model.model_id)}
+                          onDoubleClick={() => handleSelectRegistry(activeProvider, model.model_id)}
                           disabled={!!switching}
-                          data-active={desktop && isActive ? 'true' : undefined}
+                          data-active={desktop && (isActive || isFocused) ? 'true' : undefined}
                           className={cn(
-                            desktop
-                              ? 'desktop-settings-list-item'
-                              : 'ui-transition mb-1 block w-full rounded-[1rem] border px-4 py-3 text-left last:mb-0',
-                            !desktop && isActive
-                              ? 'border-cyan-300/30 bg-cyan-300/[0.075] text-zinc-50'
-                              : !desktop && 'border-transparent bg-transparent text-zinc-300 hover:border-white/10 hover:bg-white/[0.045] hover:text-cyan-100',
-                            isBusy && 'opacity-60',
+                            desktop ? 'desktop-settings-list-item' : 'mb-1 block w-full rounded-[1rem] border px-4 py-3 text-left last:mb-0',
+                            !desktop && isActive ? 'border-cyan-300/30 bg-cyan-300/[0.075] text-zinc-50' : !desktop && 'border-transparent bg-transparent text-zinc-300 hover:border-white/10 hover:bg-white/[0.045] hover:text-cyan-100',
+                            isBusy && 'opacity-60'
                           )}
                         >
                           <div className="flex items-start justify-between gap-4">
                             <div className="min-w-0">
-                              <div className={cn(
-                                desktop ? 'desktop-settings-list-title truncate' : 'truncate text-[13px] font-semibold tracking-[-0.02em] text-inherit'
-                              )}>
-                                {model.display_name}
-                              </div>
-                              <div className={cn(
-                                desktop ? 'desktop-settings-list-meta flex flex-wrap gap-x-3' : 'mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-zinc-500'
-                              )}>
-                                <span>{Math.round(model.context_window / 1024)}k ctx</span>
-                                {model.supports_vision && <span>vision</span>}
-                                {model.input_cost_per_million != null && model.output_cost_per_million != null && (
-                                  <span>${model.input_cost_per_million}/$${model.output_cost_per_million}M</span>
-                                )}
+                              <div className={cn(desktop ? 'desktop-settings-list-title truncate' : 'truncate text-[13px] font-semibold tracking-[-0.02em] text-inherit')}>{model.display_name}</div>
+                              <div className={cn(desktop ? 'desktop-settings-list-meta flex flex-wrap gap-x-3' : 'mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-zinc-500')}>
+                                {formatModelMeta(model).map((part) => <span key={String(part)}>{part}</span>)}
+                                {formatModelCost(model) && <span>{formatModelCost(model)}</span>}
                               </div>
                             </div>
-                            {isActive && (
-                              <span className={cn(
-                                desktop
-                                  ? 'desktop-settings-list-active'
-                                  : 'rounded-full border border-cyan-300/26 bg-cyan-300/[0.10] px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-cyan-100'
-                              )}>
-                                {desktop ? 'Active' : 'active'}
-                              </span>
-                            )}
+                            {isActive && <span className={cn(desktop ? 'desktop-settings-list-active' : 'rounded-full border border-cyan-300/26 bg-cyan-300/[0.10] px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-cyan-100')}>Active</span>}
                           </div>
                         </button>
                       );
                     })}
                   </div>
                 </section>
-              ))}
+              </>
+            ) : (
+              <section className={cn(desktop ? 'desktop-model-section' : 'premium-panel p-2')}>
+                {providerSections.find((section) => section.key === activeProvider)?.models.map((model) => {
+                  const isBusy = switching === model.path;
+                  return (
+                    <button
+                      key={model.path}
+                      onClick={() => handleSelectLocal(model)}
+                      disabled={!!switching}
+                      className={cn(desktop ? 'desktop-settings-list-item' : 'mb-1 block w-full rounded-[1rem] border border-transparent px-4 py-3 text-left text-zinc-300 hover:border-white/10 hover:bg-white/[0.045]')}
+                    >
+                      <div className={cn(desktop ? 'desktop-settings-list-title truncate' : 'truncate text-[13px] font-semibold')}>{model.name}</div>
+                      <div className={cn(desktop ? 'desktop-settings-list-meta' : 'mt-1 text-[11px] text-zinc-500')}>{isBusy ? 'Starting…' : model.size_display}</div>
+                    </button>
+                  );
+                })}
+              </section>
+            )}
+          </main>
 
-              {providerSections.map((section) => (
-                <section
-                  key={section.key}
-                  className={cn(
-                    desktop ? 'desktop-settings-section' : 'premium-panel overflow-hidden'
-                  )}
-                >
-                  <div className={cn(desktop ? 'mb-2' : 'border-b border-white/10 px-4 py-3')}>
-                    <p className={cn(desktop ? 'desktop-settings-provider-header' : 'premium-section-label')}>
-                      {section.label}
-                    </p>
-                    <p className={cn(desktop ? 'desktop-settings-provider-count' : 'mt-1 text-[12px] text-zinc-500')}>
-                      {section.models.length} local runtime{section.models.length !== 1 ? 's' : ''}
-                    </p>
-                  </div>
-                  <div className={cn(!desktop && 'p-2')}>
-                    {section.models.map((model) => {
-                      const isActive = modelStatus?.provider === 'local' && (
-                        section.key === 'local-gguf'
-                          ? modelStatus.model_name === model.name.replace(/.*\//, '').replace(/\.gguf$/, '')
-                          : modelStatus.model_name === model.name.replace(/.*\//, '')
-                      );
-                      const isBusy = switching === model.path;
-                      return (
-                        <button
-                          key={model.path}
-                          onClick={() => handleSelectLocal(model)}
-                          disabled={!!switching}
-                          data-active={desktop && isActive ? 'true' : undefined}
-                          className={cn(
-                            desktop
-                              ? 'desktop-settings-list-item'
-                              : 'ui-transition mb-1 block w-full rounded-[1rem] border px-4 py-3 text-left last:mb-0',
-                            !desktop && isActive
-                              ? 'border-cyan-300/30 bg-cyan-300/[0.075] text-zinc-50'
-                              : !desktop && 'border-transparent text-zinc-300 hover:border-white/10 hover:bg-white/[0.045] hover:text-cyan-100',
-                            isBusy && 'opacity-60',
-                          )}
-                        >
-                          <div className="flex items-start justify-between gap-4">
-                            <div className="min-w-0">
-                              <div className={cn(
-                                desktop ? 'desktop-settings-list-title truncate' : 'truncate text-[13px] font-semibold tracking-[-0.02em] text-inherit'
-                              )}>
-                                {model.name}
-                              </div>
-                              <div className={cn(
-                                desktop ? 'desktop-settings-list-meta' : 'mt-1 text-[11px] text-zinc-500'
-                              )}>
-                                {model.size_display}
-                              </div>
-                            </div>
-                            {isActive && (
-                              <span className={cn(
-                                desktop
-                                  ? 'desktop-settings-list-active'
-                                  : 'rounded-full border border-cyan-300/26 bg-cyan-300/[0.10] px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-cyan-100'
-                              )}>
-                                {desktop ? 'Active' : 'active'}
-                              </span>
-                            )}
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </section>
-              ))}
-
-          <section className={cn(desktop ? 'desktop-settings-section' : 'premium-panel overflow-hidden')}>
-                <div className={cn(desktop ? 'mb-2' : 'border-b border-white/10 px-4 py-3')}>
-                  <p className={cn(desktop ? 'desktop-settings-provider-header' : 'premium-section-label')}>
-                    Provider API keys
-                  </p>
-                  <p className={cn(desktop ? 'desktop-settings-provider-count' : 'mt-1 text-[12px] text-zinc-500')}>
-                    Persisted for cloud providers and loaded into runtime on startup.
-                  </p>
-                </div>
-                <div className={cn(desktop ? '' : 'space-y-3 p-3')}>
-                  {providerKeys.map((providerKey) => {
-                    const busy = switching === `provider-key:${providerKey.provider}`;
-                    return (
-                      <div
-                        key={providerKey.provider}
-                        className={cn(
-                          desktop
-                            ? 'desktop-settings-key-row'
-                            : 'rounded-[1rem] border border-white/10 bg-white/[0.025] px-3.5 py-3'
-                        )}
-                      >
-                        <div className={cn(
-                          'flex items-start justify-between gap-3 text-[11px]',
-                          !desktop && 'mb-3 font-mono'
-                        )}>
-                          <div className="min-w-0">
-                            <div className={cn(desktop ? 'desktop-settings-key-name' : 'uppercase text-zinc-300')}>
-                              {providerKey.provider}
-                            </div>
-                            <div className={cn(desktop ? 'desktop-settings-key-env' : 'mt-1 truncate text-zinc-600')}>{providerKey.api_key_env}</div>
-                          </div>
-                          <div className={cn(
-                            desktop ? 'desktop-settings-key-status shrink-0' : 'shrink-0 rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[10px] uppercase tracking-[0.16em] text-zinc-400'
-                          )}>
-                            {providerKey.has_key ? `Saved · ${providerKey.source}` : 'Not set'}
-                          </div>
-                        </div>
-                        <div className="flex flex-col gap-2 sm:flex-row">
-                          <input
-                            value={providerKeyDrafts[providerKey.provider] || ''}
-                            onChange={(e) => setProviderKeyDrafts((drafts) => ({
-                              ...drafts,
-                              [providerKey.provider]: e.target.value,
-                            }))}
-                            placeholder={providerKey.has_key ? 'Update API key' : 'Enter API key'}
-                            type="password"
-                            className={cn(desktop ? 'desktop-settings-field flex-1' : 'premium-field flex-1')}
-                          />
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() => handleSaveProviderKey(providerKey.provider)}
-                              disabled={!!switching}
-                              className={cn(desktop ? 'desktop-settings-btn-primary' : 'premium-primary-button')}
-                              type="button"
-                            >
-                              {busy ? 'Saving…' : 'Save'}
-                            </button>
-                            <button
-                              onClick={() => handleClearProviderKey(providerKey.provider)}
-                              disabled={!!switching || !providerKey.has_key}
-                              className={cn(desktop ? 'desktop-settings-btn-ghost' : 'premium-subtle-button')}
-                              type="button"
-                            >
-                              Clear
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-          </section>
+          {desktop && selectedDetail && activeProviderInfo && (
+            <aside className="desktop-model-detail-panel">
+              <div className="desktop-model-detail-provider">{formatProviderName(selectedDetail.provider, registryData?.providers[selectedDetail.provider]?.display_name)}</div>
+              <div className="desktop-model-detail-title">{selectedDetail.model.display_name}</div>
+              <div className="desktop-model-detail-id">{selectedDetail.model.model_id}</div>
+              <div className="desktop-model-detail-tags">
+                {formatModelMeta(selectedDetail.model).map((part) => <span key={String(part)}>{part}</span>)}
+              </div>
+              <div className="desktop-model-detail-cost">
+                {selectedDetail.model.input_cost_per_million != null && selectedDetail.model.output_cost_per_million != null
+                  ? formatModelCost(selectedDetail.model)
+                  : 'Pricing unavailable'}
+              </div>
+              <button
+                type="button"
+                disabled={!!switching || !registryData?.providers[selectedDetail.provider]?.available}
+                onClick={() => handleSelectRegistry(selectedDetail.provider, selectedDetail.model.model_id)}
+                className="desktop-settings-btn-primary desktop-model-select-btn"
+              >
+                {switching === `${selectedDetail.provider}:${selectedDetail.model.model_id}` ? 'Selecting…' : 'Select model'}
+              </button>
+            </aside>
+          )}
         </div>
       </DialogContent>
     </Dialog>
@@ -1506,15 +1703,27 @@ export function ConversationView() {
     ?? latestRunContextUsage
     ?? undefined
   ), [activeAgentState?.context_usage, latestRunContextUsage]);
-  const conversationRawTokens = useMemo(() => {
-    return runs.reduce((total, run) => {
-      if (run.run_id === activeRunId && activeAgentState?.usage?.total_tokens !== undefined) {
-        return total + activeAgentState.usage.total_tokens;
-      }
-      const runUsage = run.usage as { total_tokens?: number } | undefined;
-      return total + (runUsage?.total_tokens ?? 0);
-    }, 0);
-  }, [runs, activeRunId, activeAgentState?.usage?.total_tokens]);
+  const conversationTokenAndCostTotals = useMemo(() => {
+    return runs.reduce(
+      (totals, run) => {
+        const usage = normalizeTokenUsage(
+          run.run_id === activeRunId && activeAgentState?.usage
+            ? activeAgentState.usage
+            : run.usage
+        );
+        const cost = run.run_id === activeRunId && activeAgentState?.cost
+          ? activeAgentState.cost
+          : run.cost;
+
+        totals.inputTokens += usage?.input_tokens ?? 0;
+        totals.outputTokens += usage?.output_tokens ?? 0;
+        totals.inputCost += inputCostTotal(cost);
+        totals.outputCost += outputCostTotal(cost);
+        return totals;
+      },
+      { inputTokens: 0, outputTokens: 0, inputCost: 0, outputCost: 0 },
+    );
+  }, [runs, activeRunId, activeAgentState?.usage, activeAgentState?.cost]);
   const composerContextWindow = (
     activeAgentState?.context_profile?.context_window
     ?? modelStatus?.context_window
@@ -1530,7 +1739,9 @@ export function ConversationView() {
       : null
   );
   const showComposerContextStats = mode === 'agent' && !!composerContextWindow && (
-    !!footerContextUsage || conversationRawTokens > 0
+    !!footerContextUsage
+    || conversationTokenAndCostTotals.inputTokens + conversationTokenAndCostTotals.outputTokens > 0
+    || conversationTokenAndCostTotals.inputCost + conversationTokenAndCostTotals.outputCost > 0
   );
   const injectedSteerCount = activeAgentState?.injectedSteers?.length ?? 0;
 
@@ -2824,8 +3035,12 @@ export function ConversationView() {
       composerContextUtilizationPct={composerContextUtilizationPct ?? null}
       composerPromptTokens={composerPromptTokens ?? null}
       composerContextWindow={composerContextWindow ?? null}
-      conversationRawTokens={conversationRawTokens}
+      conversationInputTokens={conversationTokenAndCostTotals.inputTokens}
+      conversationOutputTokens={conversationTokenAndCostTotals.outputTokens}
+      conversationInputCost={conversationTokenAndCostTotals.inputCost}
+      conversationOutputCost={conversationTokenAndCostTotals.outputCost}
       formatContextTokens={formatContextTokens}
+      formatCost={formatAgentCost}
     />
   );
 

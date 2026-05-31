@@ -3377,7 +3377,12 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 )
 
                 # Accumulate normalized token usage for run stats/cost display.
-                normalized_usage = self._record_usage(llm_response.usage)
+                normalized_usage = self._record_usage(
+                    llm_response.usage,
+                    prompt_messages=pruned_messages,
+                    output_text=llm_response.text,
+                    reasoning_text=llm_response.reasoning,
+                )
                 self._emit(
                     event_callback,
                     "usage_update",
@@ -4792,9 +4797,30 @@ To provide your final answer, respond WITHOUT calling any tools."""
         usage_payload = self._current_context_usage_payload(prompt_tokens)
         return messages, usage_payload, compacted_now
 
-    def _record_usage(self, raw_usage: dict[str, Any] | None) -> dict[str, int]:
-        """Normalize and accumulate LLM token usage."""
+    def _record_usage(
+        self,
+        raw_usage: dict[str, Any] | None,
+        *,
+        prompt_messages: Optional[List[Dict[str, Any]]] = None,
+        output_text: Optional[str] = None,
+        reasoning_text: Optional[str] = None,
+    ) -> dict[str, int]:
+        """Normalize and accumulate LLM token usage, with local fallback for providers that omit usage."""
         usage = normalize_usage(raw_usage)
+        if usage.get("input_tokens", 0) == 0 and usage.get("output_tokens", 0) == 0 and prompt_messages is not None:
+            from orchestrator.utils.tokens import get_token_counter
+
+            token_counter = get_token_counter()
+            input_tokens = self._pruner.estimate_tokens(prompt_messages)
+            output_tokens = token_counter.count_tokens(output_text or "")
+            reasoning_tokens = token_counter.count_tokens(reasoning_text or "")
+            usage = {
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "reasoning_tokens": reasoning_tokens,
+                "cached_tokens": 0,
+                "total_tokens": input_tokens + output_tokens,
+            }
         add_usage(self._usage_totals, usage)
         self._total_tokens = self._usage_totals.get("total_tokens", 0)
         return usage
@@ -7158,7 +7184,12 @@ To provide your final answer, respond WITHOUT calling any tools."""
         )
 
         # Accumulate normalized token usage from forced synthesis.
-        normalized_usage = self._record_usage(response.usage)
+        normalized_usage = self._record_usage(
+            response.usage,
+            prompt_messages=messages,
+            output_text=response.text,
+            reasoning_text=response.reasoning,
+        )
         self._emit(
             event_callback,
             "usage_update",

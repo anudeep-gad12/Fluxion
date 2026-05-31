@@ -253,9 +253,6 @@ async def lifespan(app: FastAPI):
             },
         )
 
-    # Start OAuth callback server on port 1455 (for ChatGPT login)
-    await auth.start_callback_server()
-
     if is_static_serving_enabled():
         ui_root = static_dir()
         index_path = ui_root / "index.html"

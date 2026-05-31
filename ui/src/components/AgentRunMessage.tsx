@@ -9,6 +9,7 @@ import { AnswerWithCitations } from '@/components/AnswerWithCitations';
 import { MessageActions } from '@/components/MessageActions';
 import { useAgentRunDetails } from '@/hooks/useAgentRunDetails';
 import { deriveAgentPhase, formatAgentCost, formatAgentDuration, formatAgentTokens } from '@/lib/agentLiveState';
+import { normalizeTokenUsage } from '@/lib/usageMetrics';
 import type { Run } from '@/types';
 
 interface AgentRunMessageProps {
@@ -30,6 +31,15 @@ export const AgentRunMessage = memo(function AgentRunMessage({
   const citations = agentState?.citations || [];
   const userMessage = run.user_message || run.prompt;
   const phase = agentState ? deriveAgentPhase(agentState) : null;
+  const usage = normalizeTokenUsage(agentState?.usage ?? run.usage);
+  const totalTokens = agentState?.total_tokens ?? usage?.total_tokens;
+  const cost = agentState?.cost ?? run.cost;
+  const contextUsage = agentState?.context_usage ?? run.context_usage;
+  const compactionCount = (
+    agentState?.compaction_count
+    ?? contextUsage?.compaction_count
+    ?? contextUsage?.compactions_so_far
+  );
   const handleRetryClick = useCallback(() => {
     if (!userMessage || !onRetry) return;
     onRetry(userMessage);
@@ -100,23 +110,24 @@ export const AgentRunMessage = memo(function AgentRunMessage({
                 {agentState?.timing_ms && (
                   <span>{formatAgentDuration(agentState.timing_ms)}</span>
                 )}
-                {agentState?.total_tokens && (
-                  <span>{formatAgentTokens(agentState.total_tokens)} tok</span>
-                )}
-                {agentState?.usage && (
+                {totalTokens ? (
+                  <span>{formatAgentTokens(totalTokens)} tok</span>
+                ) : null}
+                {usage ? (
                   <span>
-                    in {formatAgentTokens(agentState.usage.input_tokens)} / out {formatAgentTokens(agentState.usage.output_tokens)}
+                    in {formatAgentTokens(usage.input_tokens)} / out {formatAgentTokens(usage.output_tokens)}
                   </span>
-                )}
-                {agentState?.cost && agentState?.usage?.total_tokens ? (
-                  <span>est {formatAgentCost(agentState.cost.total_cost)}</span>
-                ) : agentState?.usage ? (
+                ) : null}
+                {cost && typeof cost.total_cost === 'number' ? (
+                  <span>est {formatAgentCost(cost.total_cost)}</span>
+                ) : usage ? (
                   <span>cost n/a</span>
                 ) : null}
-                {agentState?.context_usage && (
+                {contextUsage && (
                   <span>
-                    ctx {Math.round(agentState.context_usage.utilization_pct_effective)}%
-                    {typeof agentState.compaction_count === 'number' ? ` · compact ${agentState.compaction_count}` : ''}
+                    ctx {Math.round(contextUsage.utilization_pct_effective)}
+                    %
+                    {typeof compactionCount === 'number' ? ` · compact ${compactionCount}` : ''}
                   </span>
                 )}
               </div>

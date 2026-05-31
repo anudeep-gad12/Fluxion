@@ -143,7 +143,13 @@ class ProviderConfig(BaseModel):
             return self
 
         base_url = self.base_url.lower()
-        if "fireworks.ai" in base_url:
+        if "api.openai.com" in base_url:
+            self.api_key = os.environ.get("OPENAI_API_KEY") or None
+        elif "api.x.ai" in base_url:
+            self.api_key = os.environ.get("XAI_API_KEY") or None
+        elif "openrouter.ai" in base_url:
+            self.api_key = os.environ.get("OPENROUTER_API_KEY") or None
+        elif "fireworks.ai" in base_url:
             self.api_key = os.environ.get("FIREWORKS_API_KEY") or None
         elif "deepinfra.com" in base_url:
             self.api_key = os.environ.get("DEEPINFRA_API_KEY") or None

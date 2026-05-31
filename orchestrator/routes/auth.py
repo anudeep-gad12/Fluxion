@@ -7,7 +7,8 @@ Endpoints:
 2. GET  /api/auth/chatgpt/callback - OAuth callback (code exchange)
 3. GET  /api/auth/chatgpt/status   - Check current auth status
 4. POST /api/auth/chatgpt/logout   - Clear stored tokens
-5. POST /api/auth/chatgpt/refresh  - Force token refresh
+5. POST /api/auth/chatgpt/cancel   - Cancel pending OAuth attempt
+6. POST /api/auth/chatgpt/refresh  - Force token refresh
 
 The callback URL is auto-derived from the request origin, so it works
 on both localhost (development) and deployed environments (Railway).
@@ -29,6 +30,7 @@ from fastapi import APIRouter, HTTPException, Request
 
 from orchestrator.config import get_chat_config
 from orchestrator.logging_config import get_logger
+from orchestrator.runtime_paths import is_packaged_app
 from orchestrator.storage.db import get_db
 
 logger = get_logger(__name__)
@@ -39,11 +41,16 @@ router = APIRouter(prefix="/api/auth/chatgpt", tags=["auth"])
 CALLBACK_PORT = 1455
 CALLBACK_URI = f"http://localhost:{CALLBACK_PORT}/auth/callback"
 
-# In-memory PKCE state storage (state -> {code_verifier, created_at})
+# In-memory PKCE state storage (state -> {code_verifier, session_id, created_at})
 _pending_auth: dict[str, dict] = {}
 
 # Reference to the running callback server (set by start/stop helpers)
 _callback_server: Optional[asyncio.AbstractServer] = None
+
+# Local desktop/source-owner requests often run without demo cookies. Use a
+# stable owner auth bucket so OAuth opened in the system browser links back to
+# the app session instead of disappearing into the browser's cookie jar.
+LOCAL_OWNER_SESSION_ID = "__fluxion_local_owner__"
 
 
 # =========================================================================
@@ -90,6 +97,28 @@ def _extract_account_id_from_jwt(access_token: str) -> Optional[str]:
 def _get_session_id(request: Request) -> Optional[str]:
     """Extract session ID from request state."""
     return getattr(request.state, "session_id", None)
+
+
+def get_chatgpt_auth_session_id(
+    request: Optional[Request] = None,
+    *,
+    cli_session: Optional[str] = None,
+    session_id: Optional[str] = None,
+    is_owner: bool = False,
+) -> Optional[str]:
+    """Resolve the session key used for ChatGPT OAuth tokens."""
+    if cli_session:
+        return cli_session
+    if session_id:
+        return session_id
+    if request is not None:
+        request_session_id = _get_session_id(request)
+        if request_session_id:
+            return request_session_id
+        is_owner = is_owner or bool(getattr(request.state, "is_owner", False))
+    if is_packaged_app() or is_owner:
+        return LOCAL_OWNER_SESSION_ID
+    return None
 
 
 async def _store_tokens(
@@ -140,6 +169,15 @@ async def _delete_tokens(session_id: str) -> None:
         (session_id,),
     )
     await db.conn.commit()
+
+
+async def invalidate_chatgpt_session(session_id: str) -> None:
+    """Clear stored ChatGPT tokens after the backend rejects them."""
+    await _delete_tokens(session_id)
+    logger.info(
+        "ChatGPT token invalidated",
+        extra={"session_id": session_id[:8]},
+    )
 
 
 async def _refresh_access_token(session_id: str, refresh_token: str) -> Optional[dict]:
@@ -288,6 +326,7 @@ async def _handle_callback_connection(
             )
             await writer.drain()
             writer.close()
+            asyncio.create_task(stop_callback_server())
             return
 
         # Parse query string
@@ -307,12 +346,14 @@ async def _handle_callback_connection(
             )
             await writer.drain()
             writer.close()
+            asyncio.create_task(stop_callback_server())
             return
 
         # Process the OAuth callback
         html_body, status = await _process_oauth_callback(code, state)
         writer.write(_wrap_http(html_body, status).encode())
         await writer.drain()
+        asyncio.create_task(stop_callback_server())
     except Exception as e:
         logger.error("Callback handler error", extra={"error": str(e)})
         try:
@@ -454,6 +495,8 @@ async def start_callback_server() -> None:
     import socket
 
     global _callback_server
+    if _callback_server is not None:
+        return
     try:
         # Create socket with SO_REUSEADDR to reclaim from stale processes
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -485,6 +528,19 @@ async def stop_callback_server() -> None:
         await _callback_server.wait_closed()
         _callback_server = None
         logger.info("OAuth callback server stopped")
+
+
+async def _cancel_pending_auth_for_session(session_id: str) -> int:
+    """Cancel pending OAuth attempts for a session and release callback port if idle."""
+    cancelled = 0
+    for state, pending in list(_pending_auth.items()):
+        if pending.get("session_id") == session_id:
+            _pending_auth.pop(state, None)
+            cancelled += 1
+
+    if not _pending_auth:
+        await stop_callback_server()
+    return cancelled
 
 
 # =========================================================================
@@ -538,6 +594,8 @@ async def chatgpt_login(request: Request, cli_session: Optional[str] = None):
 
     # Derive callback URL from request (works on localhost & Railway)
     callback_url = _get_callback_url(request)
+    if callback_url == CALLBACK_URI:
+        await start_callback_server()
 
     # Generate PKCE pair
     code_verifier, code_challenge = _generate_pkce_pair()
@@ -545,8 +603,9 @@ async def chatgpt_login(request: Request, cli_session: Optional[str] = None):
     # Generate state for CSRF protection
     state = secrets.token_urlsafe(32)
 
-    # CLI passes its session ID explicitly; otherwise use cookie-based session
-    session_id = cli_session or _get_session_id(request) or secrets.token_urlsafe(32)
+    # CLI passes its session ID explicitly; desktop/source-owner requests use
+    # a stable local owner bucket so system-browser OAuth links back to the app.
+    session_id = get_chatgpt_auth_session_id(request, cli_session=cli_session) or secrets.token_urlsafe(32)
 
     # Store PKCE state (including redirect_uri for token exchange)
     _pending_auth[state] = {
@@ -608,15 +667,18 @@ async def chatgpt_callback(
         msg = error_description or error
         logger.warning("OAuth callback error", extra={"error": msg})
         html = _ERROR_HTML_BODY_TEMPLATE.format(message=msg)
+        await stop_callback_server()
         return HTMLResponse(content=html, status_code=400)
 
     if not code or not state:
         html = _ERROR_HTML_BODY_TEMPLATE.format(
             message="Missing code or state parameter."
         )
+        await stop_callback_server()
         return HTMLResponse(content=html, status_code=400)
 
     html_body, status = await _process_oauth_callback(code, state)
+    await stop_callback_server()
     return HTMLResponse(content=html_body, status_code=status)
 
 
@@ -628,7 +690,7 @@ async def chatgpt_status(request: Request, cli_session: Optional[str] = None):
     if not chatgpt_config or not chatgpt_config.enabled:
         return {"enabled": False, "authenticated": False}
 
-    session_id = cli_session or _get_session_id(request)
+    session_id = get_chatgpt_auth_session_id(request, cli_session=cli_session)
     if not session_id:
         return {"enabled": True, "authenticated": False}
 
@@ -653,7 +715,7 @@ async def chatgpt_export(request: Request, cli_session: Optional[str] = None):
     The CLI calls this after login to save credentials locally so they
     survive database wipes / reinstalls.
     """
-    session_id = cli_session or _get_session_id(request)
+    session_id = get_chatgpt_auth_session_id(request, cli_session=cli_session)
     if not session_id:
         raise HTTPException(status_code=401, detail="No session")
 
@@ -694,11 +756,27 @@ async def chatgpt_restore(request: Request):
 @router.post("/logout")
 async def chatgpt_logout(request: Request):
     """Clear stored ChatGPT tokens."""
-    session_id = _get_session_id(request)
+    session_id = get_chatgpt_auth_session_id(request)
     if session_id:
+        await _cancel_pending_auth_for_session(session_id)
         await _delete_tokens(session_id)
         logger.info("ChatGPT logout", extra={"session_id": session_id[:8]})
     return {"status": "logged_out"}
+
+
+@router.post("/cancel")
+async def chatgpt_cancel_login(request: Request, cli_session: Optional[str] = None):
+    """Cancel a pending ChatGPT OAuth attempt for this session."""
+    session_id = get_chatgpt_auth_session_id(request, cli_session=cli_session)
+    if not session_id:
+        return {"status": "cancelled", "cancelled": 0}
+
+    cancelled = await _cancel_pending_auth_for_session(session_id)
+    logger.info(
+        "ChatGPT OAuth login cancelled",
+        extra={"session_id": session_id[:8], "cancelled": cancelled},
+    )
+    return {"status": "cancelled", "cancelled": cancelled}
 
 
 @router.post("/refresh")

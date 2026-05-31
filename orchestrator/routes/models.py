@@ -6,7 +6,7 @@ querying current provider status, and model registry selection.
 
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 
 from orchestrator.context.context_profile import resolve_model_context_profile
 from orchestrator.logging_config import get_logger
@@ -23,6 +23,7 @@ from orchestrator.services.reasoning_settings import (
     get_runtime_reasoning_settings,
     update_runtime_reasoning_settings,
 )
+from orchestrator.services.model_catalog import list_model_catalog
 
 # Note: set_provider_override is still imported for local model start/stop only
 from orchestrator.providers.openai_compat import OpenAICompatProvider
@@ -60,6 +61,11 @@ def get_active_model() -> Optional[ResolvedModel]:
 def get_active_model_name() -> Optional[str]:
     """Get the name/alias of the active model (for web UI fallback)."""
     return _active_model_name
+
+
+def get_active_model_provider() -> Optional[str]:
+    """Get the currently active model provider."""
+    return _active_model.provider_name if _active_model else None
 
 
 def _resolve_status_reasoning_capabilities(
@@ -241,19 +247,48 @@ async def get_model_status():
     )
 
 
+async def _chatgpt_auth_status(request: Request) -> dict:
+    """Return ChatGPT auth state for the current browser session."""
+    from orchestrator.config import get_chat_config
+    from orchestrator.routes.auth import get_chatgpt_auth_session_id, get_valid_tokens
+
+    config = get_chat_config()
+    chatgpt_config = config.chatgpt
+    if not chatgpt_config or not chatgpt_config.enabled:
+        return {"enabled": False, "authenticated": False}
+
+    session_id = get_chatgpt_auth_session_id(request)
+    if not session_id:
+        return {"enabled": True, "authenticated": False}
+
+    tokens = await get_valid_tokens(session_id)
+    if not tokens:
+        return {"enabled": True, "authenticated": False}
+
+    return {
+        "enabled": True,
+        "authenticated": True,
+        "account_id": (tokens["account_id"][:8] + "..." if tokens.get("account_id") else None),
+        "expires_at": tokens.get("expires_at"),
+        "model": chatgpt_config.default_model,
+        "available_models": chatgpt_config.available_models,
+    }
+
+
 @router.get("")
-async def list_models():
+async def list_models(request: Request):
     """List all available model presets grouped by provider.
 
     Returns presets with availability info based on API key presence.
     """
-    grouped = ModelRegistry.list_models()
+    grouped = await list_model_catalog(chatgpt_status=await _chatgpt_auth_status(request))
 
     # Add current active model info
     return {
         "providers": grouped,
         "active_model": _active_model_name,
         "active_model_id": _active_model.model_id if _active_model else None,
+        "active_provider": _active_model.provider_name if _active_model else None,
     }
 
 
@@ -297,7 +332,7 @@ async def delete_provider_key(provider: str):
 
 
 @router.post("/select")
-async def select_model(request: SelectModelRequest):
+async def select_model(request: SelectModelRequest, http_request: Request):
     """Select a model from the registry and hot-swap the provider.
 
     Resolves the model string via ModelRegistry, creates a new provider,
@@ -308,17 +343,28 @@ async def select_model(request: SelectModelRequest):
 
     global _active_model, _active_model_name
 
+    selection = request.model
+    if request.provider and request.model_id:
+        selection = f"{request.provider}:{request.model_id}"
+    if not selection:
+        raise HTTPException(status_code=400, detail="Missing model selection")
+
     try:
-        _provider, resolved = create_provider_for_model(request.model)
+        _provider, resolved = create_provider_for_model(selection)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+    if resolved.provider_name == "chatgpt":
+        status = await _chatgpt_auth_status(http_request)
+        if not status.get("authenticated"):
+            raise HTTPException(status_code=400, detail="Connect ChatGPT / Codex before selecting this model")
 
     # Store resolved model for status display and web UI fallback.
     # Clear any custom/local runtime override so registry resolution applies
     # to subsequent runs.
     set_provider_override(None)
     _active_model = resolved
-    _active_model_name = request.model
+    _active_model_name = request.model or f"{resolved.provider_name}:{resolved.model_id}"
 
     logger.info(
         "Model selected via registry",

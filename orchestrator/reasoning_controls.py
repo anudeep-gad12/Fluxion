@@ -99,10 +99,14 @@ def infer_provider_family(
         if not candidate:
             continue
         normalized = str(candidate).lower()
-        if normalized in {"openrouter", "deepinfra", "fireworks", "chatgpt", "local"}:
+        if normalized in {"openai", "xai", "openrouter", "deepinfra", "fireworks", "chatgpt", "local"}:
             return normalized
 
     url = (base_url or getattr(provider_obj, "_base_url", "") or "").lower()
+    if "api.openai.com" in url:
+        return "openai"
+    if "api.x.ai" in url:
+        return "xai"
     if "openrouter.ai" in url:
         return "openrouter"
     if "deepinfra.com" in url:
@@ -154,7 +158,15 @@ def resolve_reasoning_capabilities(
     elif provider_family in {"openai", "chatgpt"}:
         if supports_reasoning:
             reasoning_effort = ReasoningControlCapability(
-                supported=True, options=["minimal", "low", "medium", "high"]
+                supported=True, options=["none", "minimal", "low", "medium", "high", "xhigh"]
+            )
+        reasoning_summary = ReasoningControlCapability(
+            supported=True, options=["auto", "concise", "detailed"]
+        )
+    elif provider_family == "xai":
+        if supports_reasoning:
+            reasoning_effort = ReasoningControlCapability(
+                supported=True, options=["none", "low", "medium", "high", "xhigh"]
             )
         reasoning_summary = ReasoningControlCapability(
             supported=True, options=["auto", "concise", "detailed"]
@@ -204,7 +216,7 @@ def apply_reasoning_settings(
     if not supports_reasoning:
         return kwargs
 
-    if provider_family in {"openai", "chatgpt"}:
+    if provider_family in {"openai", "chatgpt", "xai"}:
         reasoning: dict[str, Any] = {}
         if settings.reasoning_effort:
             reasoning["effort"] = settings.reasoning_effort

@@ -128,6 +128,7 @@ def _mode_to_strategy(thinking_mode: str, mode_mapping: dict) -> str:
 
 async def _get_provider_for_session(
     session_id: Optional[str],
+    is_owner: bool,
     provider_header: Optional[str],
     model: Optional[str] = None,
 ) -> Optional[object]:
@@ -145,15 +146,23 @@ async def _get_provider_for_session(
     Returns:
         LLMProvider instance or None for default.
     """
+    from orchestrator.routes.auth import get_chatgpt_auth_session_id
+
+    auth_session_id = get_chatgpt_auth_session_id(session_id=session_id, is_owner=is_owner)
+
     # ChatGPT path
-    if session_id and provider_header == "chatgpt":
+    if auth_session_id and provider_header == "chatgpt":
         try:
             from orchestrator.routes.auth import get_valid_tokens
             from orchestrator.providers.factory import create_chatgpt_provider
 
-            tokens = await get_valid_tokens(session_id)
+            tokens = await get_valid_tokens(auth_session_id)
             if tokens:
-                return create_chatgpt_provider(tokens, model=model)
+                return create_chatgpt_provider(
+                    tokens,
+                    model=model,
+                    auth_session_id=auth_session_id,
+                )
         except Exception as e:
             logger.warning("Failed to create ChatGPT provider", extra={"error": str(e)})
         return None
@@ -173,10 +182,26 @@ async def _get_provider_for_session(
 
     # Web UI fallback: use the last model selected via picker
     if not model and provider_header != "chatgpt":
-        from orchestrator.routes.models import get_active_model_name
+        from orchestrator.routes.models import get_active_model, get_active_model_name
+
+        active_model = get_active_model()
+        if active_model and active_model.provider_name == "chatgpt" and auth_session_id:
+            try:
+                from orchestrator.routes.auth import get_valid_tokens
+                from orchestrator.providers.factory import create_chatgpt_provider
+
+                tokens = await get_valid_tokens(auth_session_id)
+                if tokens:
+                    return create_chatgpt_provider(
+                        tokens,
+                        model=active_model.model_id,
+                        auth_session_id=auth_session_id,
+                    )
+            except Exception as e:
+                logger.warning("Failed to create active ChatGPT provider", extra={"error": str(e)})
 
         active_name = get_active_model_name()
-        if active_name:
+        if active_name and not (active_model and active_model.provider_name == "chatgpt"):
             try:
                 from orchestrator.providers.factory import create_provider_for_model
 
@@ -242,6 +267,7 @@ async def create_conversation_run(
         model_header = http_request.headers.get("x-model")
         provider_override = await _get_provider_for_session(
             run_session_id,
+            is_owner,
             http_request.headers.get("x-provider"),
             model=model_header,
         )

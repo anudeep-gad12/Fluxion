@@ -30,6 +30,7 @@ def create_chatgpt_provider(
     tokens: Dict[str, Any],
     chatgpt_config: Optional["ChatGPTConfig"] = None,
     model: Optional[str] = None,
+    auth_session_id: Optional[str] = None,
 ) -> "LLMProvider":
     """Create a ChatGPT backend provider from stored tokens.
 
@@ -37,6 +38,8 @@ def create_chatgpt_provider(
         tokens: Dict with access_token, account_id, refresh_token, expires_at.
         chatgpt_config: Optional ChatGPT configuration override.
         model: Optional model name override (e.g., "o4-mini").
+        auth_session_id: Optional session whose saved token should be cleared
+            if ChatGPT rejects it as revoked/unauthorized.
 
     Returns:
         ChatGPTProvider instance.
@@ -51,6 +54,13 @@ def create_chatgpt_provider(
 
     default_model = model or (chatgpt_config.default_model if chatgpt_config else "gpt-5.2-codex")
 
+    async def on_auth_error() -> None:
+        if not auth_session_id:
+            return
+        from orchestrator.routes.auth import invalidate_chatgpt_session
+
+        await invalidate_chatgpt_session(auth_session_id)
+
     provider = ChatGPTProvider(
         access_token=tokens["access_token"],
         account_id=tokens["account_id"],
@@ -59,6 +69,7 @@ def create_chatgpt_provider(
         else "https://chatgpt.com/backend-api",
         default_model=default_model,
         reasoning_effort=chatgpt_config.reasoning_effort if chatgpt_config else "medium",
+        on_auth_error=on_auth_error if auth_session_id else None,
     )
     provider._reasoning_provider_family = "chatgpt"
     provider._supports_reasoning = True
@@ -84,16 +95,21 @@ def create_provider_for_model(model_string: str) -> Tuple[LLMProvider, "Resolved
         base_url=resolved.base_url,
         api_key=resolved.api_key,
         endpoint=resolved.endpoint,
+        default_model=resolved.model_id,
     )
     provider._reasoning_provider_family = resolved.provider_name
     provider._reasoning_request_param = resolved.reasoning_request_param
     provider._supports_reasoning = resolved.reasoning_effort is not None
+    provider._supports_tools = resolved.supports_tools
     provider._supports_vision = resolved.supports_vision
     provider._max_output_tokens = resolved.max_output_tokens
     provider._context_window = resolved.context_window
     provider._context_profile_provider_name = resolved.provider_name
     provider._context_profile_model_id = resolved.model_id
     provider._context_profile_display_name = resolved.display_name
+    provider._input_cost_per_million = resolved.input_cost_per_million
+    provider._cached_input_cost_per_million = resolved.cached_input_cost_per_million
+    provider._output_cost_per_million = resolved.output_cost_per_million
     return provider, resolved
 
 

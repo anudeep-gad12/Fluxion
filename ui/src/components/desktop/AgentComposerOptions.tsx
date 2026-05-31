@@ -21,8 +21,12 @@ interface AgentContextFooterProps {
   composerContextUtilizationPct: number | null;
   composerPromptTokens: number | null;
   composerContextWindow: number | null;
-  conversationRawTokens: number;
+  conversationInputTokens: number;
+  conversationOutputTokens: number;
+  conversationInputCost: number;
+  conversationOutputCost: number;
   formatContextTokens: (value: number) => string;
+  formatCost: (value: number) => string;
 }
 
 function folderName(workspacePath: string): string {
@@ -124,8 +128,12 @@ export function AgentContextFooter({
   composerContextUtilizationPct,
   composerPromptTokens,
   composerContextWindow,
-  conversationRawTokens,
+  conversationInputTokens,
+  conversationOutputTokens,
+  conversationInputCost,
+  conversationOutputCost,
   formatContextTokens,
+  formatCost,
 }: AgentContextFooterProps) {
   if (!show) {
     return null;
@@ -144,12 +152,16 @@ export function AgentContextFooter({
           ? `${formatContextTokens(composerPromptTokens)} / ${formatContextTokens(composerContextWindow)}`
           : '— tok'}
       </span>
-      {conversationRawTokens > 0 ? (
-        <>
-          <span className="text-zinc-700">·</span>
-          <span>{formatContextTokens(conversationRawTokens)} raw</span>
-        </>
-      ) : null}
+      <span className="text-zinc-700">·</span>
+      <span>
+        raw in {formatContextTokens(conversationInputTokens)} / out {formatContextTokens(conversationOutputTokens)}
+      </span>
+      <span className="text-zinc-700">·</span>
+      <span>
+        cost in {conversationInputCost + conversationOutputCost > 0 ? formatCost(conversationInputCost) : 'n/a'}
+        {' / '}
+        out {conversationInputCost + conversationOutputCost > 0 ? formatCost(conversationOutputCost) : 'n/a'}
+      </span>
     </div>
   );
 }

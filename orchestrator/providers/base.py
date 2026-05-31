@@ -21,6 +21,12 @@ class RetryExhaustedError(ProviderError):
     pass
 
 
+class ProviderAuthError(ProviderError):
+    """Raised when provider credentials are missing, expired, or revoked."""
+
+    pass
+
+
 class ToolFallbackError(ProviderError):
     """Raised when tool use requires /v1/responses but server doesn't support it."""
 

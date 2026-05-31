@@ -904,6 +904,10 @@ export interface RegistryModelPreset {
   input_cost_per_million?: number | null;
   cached_input_cost_per_million?: number | null;
   output_cost_per_million?: number | null;
+  recommended?: boolean;
+  category?: string;
+  source?: string;
+  supported_parameters?: string[];
 }
 
 export interface RegistryModelsResponse {
@@ -911,16 +915,36 @@ export interface RegistryModelsResponse {
     models: RegistryModelPreset[];
     available: boolean;
     api_key_env: string;
+    display_name?: string;
+    auth_type?: 'api_key' | 'oauth';
+    base_url?: string;
+    catalog_source?: string;
+    catalog_error?: string | null;
+    auth?: {
+      enabled: boolean;
+      authenticated: boolean;
+      account_id?: string | null;
+      expires_at?: number | null;
+      login_url?: string;
+      logout_url?: string;
+    };
   }>;
   active_model: string | null;
   active_model_id: string | null;
+  active_provider?: string | null;
 }
 
 export async function listRegistryModels(): Promise<RegistryModelsResponse> {
   return fetchJson<RegistryModelsResponse>(`${getApiBase()}/models`, { timeoutMs: 8_000 });
 }
 
-export async function selectModel(model: string): Promise<{
+export function getChatGPTLoginUrl(): string {
+  const path = `${getApiBase()}/auth/chatgpt/login`;
+  if (/^https?:\/\//i.test(path)) return path;
+  return new URL(path, window.location.origin).toString();
+}
+
+export async function selectModel(selection: string | { provider: string; model_id: string }): Promise<{
   status: string;
   model_id: string;
   display_name: string;
@@ -935,7 +959,7 @@ export async function selectModel(model: string): Promise<{
 }> {
   return fetchJson(`${getApiBase()}/models/select`, {
     method: 'POST',
-    body: JSON.stringify({ model }),
+    body: JSON.stringify(typeof selection === 'string' ? { model: selection } : selection),
     timeoutMs: 10_000,
   });
 }
@@ -965,6 +989,20 @@ export async function saveProviderKey(
 export async function clearProviderKey(provider: string): Promise<ProviderKeyStatus> {
   return fetchJson(`${getApiBase()}/models/provider-keys/${provider}`, {
     method: 'DELETE',
+    timeoutMs: 10_000,
+  });
+}
+
+export async function logoutChatGPT(): Promise<{ status: string }> {
+  return fetchJson(`${getApiBase()}/auth/chatgpt/logout`, {
+    method: 'POST',
+    timeoutMs: 10_000,
+  });
+}
+
+export async function cancelChatGPTLogin(): Promise<{ status: string; cancelled: number }> {
+  return fetchJson(`${getApiBase()}/auth/chatgpt/cancel`, {
+    method: 'POST',
     timeoutMs: 10_000,
   });
 }

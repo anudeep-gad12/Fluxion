@@ -12,6 +12,7 @@ from httpx import ASGITransport, AsyncClient
 
 from orchestrator.app import app
 import orchestrator.routes.models as models_module
+from orchestrator.services import model_catalog
 from orchestrator.storage.db import get_db
 
 
@@ -27,13 +28,13 @@ def reset_active_model():
 
 @pytest.fixture(autouse=True)
 async def reset_provider_keys():
-    for env_name in ("OPENROUTER_API_KEY", "DEEPINFRA_API_KEY", "FIREWORKS_API_KEY"):
+    for env_name in ("OPENAI_API_KEY", "XAI_API_KEY", "OPENROUTER_API_KEY", "DEEPINFRA_API_KEY", "FIREWORKS_API_KEY"):
         os.environ.pop(env_name, None)
     db = await get_db()
     await db.conn.execute("DELETE FROM app_settings WHERE setting_key = 'provider_api_keys'")
     await db.conn.commit()
     yield
-    for env_name in ("OPENROUTER_API_KEY", "DEEPINFRA_API_KEY", "FIREWORKS_API_KEY"):
+    for env_name in ("OPENAI_API_KEY", "XAI_API_KEY", "OPENROUTER_API_KEY", "DEEPINFRA_API_KEY", "FIREWORKS_API_KEY"):
         os.environ.pop(env_name, None)
     await db.conn.execute("DELETE FROM app_settings WHERE setting_key = 'provider_api_keys'")
     await db.conn.commit()
@@ -71,6 +72,78 @@ async def test_list_models_provider_structure():
         assert "models" in info
         assert "available" in info
         assert "api_key_env" in info
+
+
+@pytest.mark.asyncio
+async def test_list_models_catalog_is_trimmed_to_curated_visible_sets():
+    """The UI catalog stays compact: OpenAI/ChatGPT GPT-5 only and xAI text models only."""
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.get("/api/models")
+
+    data = response.json()["providers"]
+    assert all(model["model_id"].startswith("gpt-5") for model in data["openai"]["models"])
+    assert all(model["model_id"].startswith("gpt-5") for model in data["chatgpt"]["models"])
+    assert "o4-mini" not in {model["model_id"] for model in data["openai"]["models"]}
+    assert "o4-mini" not in {model["model_id"] for model in data["chatgpt"]["models"]}
+    assert {model["model_id"] for model in data["xai"]["models"]} == {"grok-4.3", "grok-build-0.1"}
+    assert len(data["openrouter"]["models"]) <= 14
+
+
+@pytest.mark.asyncio
+async def test_live_catalog_does_not_add_unapproved_models(monkeypatch):
+    """Live provider fetches enrich allowlisted models but never dump huge raw catalogs into the picker."""
+    model_catalog._catalog_cache.clear()  # noqa: SLF001 - test resets process cache
+
+    async def fake_fetch_openrouter_models():
+        return [
+            {
+                "model_id": "openrouter/owl-alpha",
+                "display_name": "Owl Alpha Live",
+                "aliases": [],
+                "context_window": 1024,
+                "max_output_tokens": 1024,
+                "supports_tools": True,
+                "supports_reasoning": False,
+                "supports_vision": False,
+                "input_cost_per_million": 0.0,
+                "output_cost_per_million": 0.0,
+                "recommended": False,
+                "category": "live",
+                "source": "live",
+            },
+            {
+                "model_id": "text-embedding-giant-unwanted",
+                "display_name": "Embedding junk",
+                "aliases": [],
+                "context_window": 1024,
+                "max_output_tokens": 0,
+                "supports_tools": False,
+                "supports_reasoning": False,
+                "supports_vision": False,
+                "input_cost_per_million": 0.01,
+                "output_cost_per_million": 0.0,
+                "recommended": False,
+                "category": "live",
+                "source": "live",
+            },
+        ], None
+
+    monkeypatch.setattr(model_catalog, "_fetch_openrouter_models", fake_fetch_openrouter_models)
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        await client.put(
+            "/api/models/provider-keys/openrouter",
+            json={"api_key": "or-test-key"},
+        )
+        response = await client.get("/api/models")
+
+    openrouter_ids = {model["model_id"] for model in response.json()["providers"]["openrouter"]["models"]}
+    assert "openrouter/owl-alpha" in openrouter_ids
+    assert "text-embedding-giant-unwanted" not in openrouter_ids
 
 
 @pytest.mark.asyncio
@@ -378,6 +451,19 @@ async def test_provider_keys_round_trip_masks_secret():
     assert listed["openrouter"]["has_key"] is True
     assert listed["openrouter"]["source"] == "database"
     assert "api_key" not in listed["openrouter"]
+
+
+@pytest.mark.asyncio
+async def test_provider_keys_include_openai_and_xai():
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.get("/api/models/provider-keys")
+
+    assert response.status_code == 200
+    listed = {item["provider"]: item for item in response.json()["providers"]}
+    assert listed["openai"]["api_key_env"] == "OPENAI_API_KEY"
+    assert listed["xai"]["api_key_env"] == "XAI_API_KEY"
 
 
 @pytest.mark.asyncio

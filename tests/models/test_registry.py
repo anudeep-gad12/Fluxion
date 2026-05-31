@@ -56,6 +56,27 @@ class TestResolveByAlias:
 class TestExplicitProviderPrefix:
     """Tests for explicit provider:model syntax."""
 
+    @patch.dict(os.environ, {"OPENAI_API_KEY": "openai-key"})
+    def test_resolve_openai_provider_prefix(self):
+        """'openai:model' forces the OpenAI API provider."""
+        resolved = ModelRegistry.resolve("openai:gpt-5.2-codex")
+        assert resolved.provider_name == "openai"
+        assert resolved.model_id == "gpt-5.2-codex"
+        assert resolved.endpoint == "responses"
+        assert resolved.api_key == "openai-key"
+        assert resolved.supports_tools is True
+        assert resolved.reasoning_request_param == "reasoning"
+
+    @patch.dict(os.environ, {"XAI_API_KEY": "xai-key"})
+    def test_resolve_xai_provider_prefix(self):
+        """'xai:model' forces the xAI provider."""
+        resolved = ModelRegistry.resolve("xai:grok-4.3")
+        assert resolved.provider_name == "xai"
+        assert resolved.model_id == "grok-4.3"
+        assert resolved.endpoint == "responses"
+        assert resolved.api_key == "xai-key"
+        assert resolved.reasoning_effort == "medium"
+
     @patch.dict(os.environ, {"DEEPINFRA_API_KEY": "di-key"})
     def test_resolve_explicit_provider_prefix(self):
         """'deepinfra:meta-llama/...' forces DeepInfra provider."""

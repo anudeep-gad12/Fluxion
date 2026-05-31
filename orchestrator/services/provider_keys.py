@@ -12,6 +12,8 @@ from orchestrator.storage.repositories.app_settings_repo import AppSettingsRepo
 
 SETTINGS_KEY = "provider_api_keys"
 KEY_SOURCES = {
+    "openai": PROVIDERS["openai"].api_key_env,
+    "xai": PROVIDERS["xai"].api_key_env,
     "openrouter": PROVIDERS["openrouter"].api_key_env,
     "deepinfra": PROVIDERS["deepinfra"].api_key_env,
     "fireworks": PROVIDERS["fireworks"].api_key_env,

@@ -20,6 +20,8 @@ class ProviderDef:
     base_url: str  # "https://openrouter.ai/api/v1"
     api_key_env: str  # "OPENROUTER_API_KEY" (empty for local)
     endpoint: str = "chat_completions"
+    display_name: str = ""
+    auth_type: str = "api_key"
 
 
 @dataclass
@@ -42,6 +44,8 @@ class ModelPreset:
     input_cost_per_million: Optional[float] = None
     cached_input_cost_per_million: Optional[float] = None
     output_cost_per_million: Optional[float] = None
+    recommended: bool = False
+    category: str = "general"
 
 
 @dataclass
@@ -64,6 +68,8 @@ class ResolvedModel:
     input_cost_per_million: Optional[float] = None
     cached_input_cost_per_million: Optional[float] = None
     output_cost_per_million: Optional[float] = None
+    recommended: bool = False
+    category: str = "general"
 
 
 # =============================================================================
@@ -71,26 +77,52 @@ class ResolvedModel:
 # =============================================================================
 
 PROVIDERS: dict[str, ProviderDef] = {
+    "openai": ProviderDef(
+        name="openai",
+        display_name="OpenAI API",
+        base_url="https://api.openai.com/v1",
+        api_key_env="OPENAI_API_KEY",
+        endpoint="responses",
+    ),
+    "chatgpt": ProviderDef(
+        name="chatgpt",
+        display_name="ChatGPT / Codex",
+        base_url="https://chatgpt.com/backend-api",
+        api_key_env="",
+        endpoint="responses",
+        auth_type="oauth",
+    ),
+    "xai": ProviderDef(
+        name="xai",
+        display_name="xAI",
+        base_url="https://api.x.ai/v1",
+        api_key_env="XAI_API_KEY",
+        endpoint="responses",
+    ),
     "openrouter": ProviderDef(
         name="openrouter",
+        display_name="OpenRouter",
         base_url="https://openrouter.ai/api/v1",
         api_key_env="OPENROUTER_API_KEY",
         endpoint="chat_completions",
     ),
     "deepinfra": ProviderDef(
         name="deepinfra",
+        display_name="DeepInfra",
         base_url="https://api.deepinfra.com/v1/openai",
         api_key_env="DEEPINFRA_API_KEY",
         endpoint="chat_completions",
     ),
     "fireworks": ProviderDef(
         name="fireworks",
+        display_name="Fireworks",
         base_url="https://api.fireworks.ai/inference/v1",
         api_key_env="FIREWORKS_API_KEY",
         endpoint="chat_completions",
     ),
     "local": ProviderDef(
         name="local",
+        display_name="Local",
         base_url="http://localhost:8080/v1",
         api_key_env="",  # No key needed
         endpoint="chat_completions",
@@ -103,6 +135,346 @@ PROVIDERS: dict[str, ProviderDef] = {
 # =============================================================================
 
 MODEL_PRESETS: list[ModelPreset] = [
+    # --- OpenAI API ---
+    ModelPreset(
+        model_id="gpt-5.5",
+        display_name="GPT-5.5",
+        provider="openai",
+        aliases=["openai-gpt-5.5", "gpt-5.5-api"],
+        context_window=400000,
+        max_output_tokens=128000,
+        supports_reasoning=True,
+        supports_vision=True,
+        reasoning_request_param="reasoning",
+        reasoning_effort="medium",
+        input_cost_per_million=5.00,
+        cached_input_cost_per_million=0.50,
+        output_cost_per_million=30.00,
+        recommended=True,
+        category="frontier",
+    ),
+    ModelPreset(
+        model_id="gpt-5.4",
+        display_name="GPT-5.4",
+        provider="openai",
+        aliases=["openai-gpt-5.4", "gpt-5.4-api"],
+        context_window=400000,
+        max_output_tokens=128000,
+        supports_reasoning=True,
+        supports_vision=True,
+        reasoning_request_param="reasoning",
+        reasoning_effort="medium",
+        input_cost_per_million=2.50,
+        cached_input_cost_per_million=0.25,
+        output_cost_per_million=15.00,
+        recommended=True,
+        category="reasoning",
+    ),
+    ModelPreset(
+        model_id="gpt-5.4-mini",
+        display_name="GPT-5.4 mini",
+        provider="openai",
+        aliases=["openai-gpt-5.4-mini", "gpt-5.4-mini-api"],
+        context_window=270000,
+        max_output_tokens=128000,
+        supports_reasoning=True,
+        supports_vision=True,
+        reasoning_request_param="reasoning",
+        reasoning_effort="medium",
+        input_cost_per_million=0.75,
+        cached_input_cost_per_million=0.075,
+        output_cost_per_million=4.50,
+        recommended=True,
+        category="fast",
+    ),
+    ModelPreset(
+        model_id="gpt-5.2-codex",
+        display_name="GPT-5.2 Codex",
+        provider="openai",
+        aliases=["openai-gpt-5.2-codex", "gpt-5.2-codex-api"],
+        context_window=400000,
+        max_output_tokens=128000,
+        supports_reasoning=True,
+        supports_vision=True,
+        reasoning_request_param="reasoning",
+        reasoning_effort="medium",
+        input_cost_per_million=2.50,
+        cached_input_cost_per_million=0.25,
+        output_cost_per_million=15.00,
+        recommended=True,
+        category="coding",
+    ),
+    ModelPreset(
+        model_id="gpt-5.2",
+        display_name="GPT-5.2",
+        provider="openai",
+        aliases=["openai-gpt-5.2", "gpt-5.2-api"],
+        context_window=400000,
+        max_output_tokens=128000,
+        supports_reasoning=True,
+        supports_vision=True,
+        reasoning_request_param="reasoning",
+        reasoning_effort="medium",
+        input_cost_per_million=1.25,
+        cached_input_cost_per_million=0.125,
+        output_cost_per_million=10.00,
+        recommended=True,
+        category="reasoning",
+    ),
+    ModelPreset(
+        model_id="gpt-5.1-codex",
+        display_name="GPT-5.1 Codex",
+        provider="openai",
+        aliases=["openai-gpt-5.1-codex", "gpt-5.1-codex-api"],
+        context_window=400000,
+        max_output_tokens=128000,
+        supports_reasoning=True,
+        supports_vision=True,
+        reasoning_request_param="reasoning",
+        reasoning_effort="medium",
+        input_cost_per_million=1.25,
+        cached_input_cost_per_million=0.125,
+        output_cost_per_million=10.00,
+        category="coding",
+    ),
+    ModelPreset(
+        model_id="o4-mini",
+        display_name="o4-mini",
+        provider="openai",
+        aliases=["openai-o4-mini", "o4-mini-api"],
+        context_window=200000,
+        max_output_tokens=100000,
+        supports_reasoning=True,
+        supports_vision=True,
+        reasoning_request_param="reasoning",
+        reasoning_effort="medium",
+        category="fast",
+    ),
+    # --- ChatGPT / Codex OAuth ---
+    ModelPreset(
+        model_id="gpt-5.3-codex",
+        display_name="GPT-5.3 Codex (ChatGPT)",
+        provider="chatgpt",
+        aliases=["chatgpt-gpt-5.3-codex", "codex-latest", "gpt-5.3-codex-chatgpt"],
+        context_window=400000,
+        max_output_tokens=128000,
+        supports_reasoning=True,
+        supports_vision=True,
+        reasoning_request_param="reasoning",
+        reasoning_effort="medium",
+        input_cost_per_million=0.0,
+        cached_input_cost_per_million=0.0,
+        output_cost_per_million=0.0,
+        recommended=True,
+        category="coding",
+    ),
+    ModelPreset(
+        model_id="gpt-5.2-codex",
+        display_name="GPT-5.2 Codex (ChatGPT)",
+        provider="chatgpt",
+        aliases=["chatgpt-gpt-5.2-codex", "codex", "gpt-5.2-codex-chatgpt"],
+        context_window=400000,
+        max_output_tokens=128000,
+        supports_reasoning=True,
+        supports_vision=True,
+        reasoning_request_param="reasoning",
+        reasoning_effort="medium",
+        input_cost_per_million=0.0,
+        cached_input_cost_per_million=0.0,
+        output_cost_per_million=0.0,
+        recommended=True,
+        category="coding",
+    ),
+    ModelPreset(
+        model_id="o4-mini",
+        display_name="o4-mini (ChatGPT)",
+        provider="chatgpt",
+        aliases=["chatgpt-o4-mini"],
+        context_window=200000,
+        max_output_tokens=100000,
+        supports_reasoning=True,
+        supports_vision=True,
+        reasoning_request_param="reasoning",
+        reasoning_effort="medium",
+        category="fast",
+    ),
+    # --- xAI ---
+    ModelPreset(
+        model_id="grok-4.3",
+        display_name="Grok 4.3",
+        provider="xai",
+        aliases=["xai-grok-4.3", "grok4.3", "grok-4"],
+        context_window=1000000,
+        max_output_tokens=32768,
+        supports_reasoning=True,
+        supports_vision=True,
+        reasoning_request_param="reasoning",
+        reasoning_effort="medium",
+        input_cost_per_million=1.25,
+        cached_input_cost_per_million=0.20,
+        output_cost_per_million=2.50,
+        recommended=True,
+        category="reasoning",
+    ),
+    ModelPreset(
+        model_id="grok-build-0.1",
+        display_name="Grok Build 0.1",
+        provider="xai",
+        aliases=["xai-grok-build", "grok-build"],
+        context_window=256000,
+        max_output_tokens=32768,
+        supports_reasoning=True,
+        reasoning_request_param="reasoning",
+        reasoning_effort="medium",
+        input_cost_per_million=1.00,
+        cached_input_cost_per_million=0.20,
+        output_cost_per_million=2.00,
+        recommended=True,
+        category="coding",
+    ),
+    # --- OpenRouter current popular / cheap ---
+    ModelPreset(
+        model_id="openrouter/owl-alpha",
+        display_name="Owl Alpha (free)",
+        provider="openrouter",
+        aliases=["owl-alpha", "openrouter-free"],
+        context_window=1048756,
+        max_output_tokens=262144,
+        supports_reasoning=False,
+        input_cost_per_million=0.0,
+        output_cost_per_million=0.0,
+        recommended=True,
+        category="free",
+    ),
+    ModelPreset(
+        model_id="qwen/qwen3.7-max",
+        display_name="Qwen3.7 Max",
+        provider="openrouter",
+        aliases=["qwen3.7-max", "qwen-max"],
+        context_window=1000000,
+        max_output_tokens=65536,
+        supports_reasoning=True,
+        input_cost_per_million=1.25,
+        cached_input_cost_per_million=0.25,
+        output_cost_per_million=3.75,
+        recommended=True,
+        category="coding",
+    ),
+    ModelPreset(
+        model_id="google/gemini-3.5-flash",
+        display_name="Gemini 3.5 Flash",
+        provider="openrouter",
+        aliases=["gemini-3.5-flash", "gemini35-flash"],
+        context_window=1048576,
+        max_output_tokens=65536,
+        supports_reasoning=True,
+        supports_vision=True,
+        input_cost_per_million=1.50,
+        cached_input_cost_per_million=0.15,
+        output_cost_per_million=9.00,
+        recommended=True,
+        category="balanced",
+    ),
+    ModelPreset(
+        model_id="google/gemini-3.1-flash-lite",
+        display_name="Gemini 3.1 Flash Lite",
+        provider="openrouter",
+        aliases=["gemini-3.1-flash-lite", "gemini-lite"],
+        context_window=1048576,
+        max_output_tokens=65536,
+        supports_reasoning=True,
+        supports_vision=True,
+        input_cost_per_million=0.25,
+        cached_input_cost_per_million=0.025,
+        output_cost_per_million=1.50,
+        recommended=True,
+        category="cheap",
+    ),
+    ModelPreset(
+        model_id="x-ai/grok-4.3",
+        display_name="Grok 4.3",
+        provider="openrouter",
+        aliases=["openrouter-grok-4.3", "or-grok-4.3"],
+        context_window=1000000,
+        max_output_tokens=32768,
+        supports_reasoning=True,
+        supports_vision=True,
+        input_cost_per_million=1.25,
+        cached_input_cost_per_million=0.20,
+        output_cost_per_million=2.50,
+        recommended=True,
+        category="reasoning",
+    ),
+    ModelPreset(
+        model_id="x-ai/grok-build-0.1",
+        display_name="Grok Build 0.1",
+        provider="openrouter",
+        aliases=["openrouter-grok-build", "or-grok-build"],
+        context_window=256000,
+        max_output_tokens=32768,
+        supports_reasoning=True,
+        supports_vision=True,
+        input_cost_per_million=1.00,
+        cached_input_cost_per_million=0.20,
+        output_cost_per_million=2.00,
+        recommended=True,
+        category="coding",
+    ),
+    ModelPreset(
+        model_id="inclusionai/ring-2.6-1t",
+        display_name="Ring 2.6 1T",
+        provider="openrouter",
+        aliases=["ring-2.6", "ring-1t"],
+        context_window=262144,
+        max_output_tokens=65536,
+        supports_reasoning=True,
+        input_cost_per_million=0.075,
+        cached_input_cost_per_million=0.015,
+        output_cost_per_million=0.625,
+        recommended=True,
+        category="cheap",
+    ),
+    ModelPreset(
+        model_id="stepfun/step-3.7-flash",
+        display_name="Step 3.7 Flash",
+        provider="openrouter",
+        aliases=["step-3.7-flash", "stepfun-flash"],
+        context_window=256000,
+        max_output_tokens=256000,
+        supports_reasoning=True,
+        supports_vision=True,
+        input_cost_per_million=0.20,
+        cached_input_cost_per_million=0.04,
+        output_cost_per_million=1.15,
+        category="cheap",
+    ),
+    ModelPreset(
+        model_id="mistralai/mistral-medium-3-5",
+        display_name="Mistral Medium 3.5",
+        provider="openrouter",
+        aliases=["mistral-medium-3.5", "mistral-medium"],
+        context_window=262144,
+        max_output_tokens=32768,
+        supports_reasoning=True,
+        supports_vision=True,
+        input_cost_per_million=1.50,
+        output_cost_per_million=7.50,
+        category="balanced",
+    ),
+    ModelPreset(
+        model_id="anthropic/claude-opus-4.8",
+        display_name="Claude Opus 4.8",
+        provider="openrouter",
+        aliases=["claude-opus-4.8", "opus-4.8"],
+        context_window=1000000,
+        max_output_tokens=128000,
+        supports_reasoning=True,
+        supports_vision=True,
+        input_cost_per_million=5.00,
+        cached_input_cost_per_million=0.50,
+        output_cost_per_million=25.00,
+        category="frontier",
+    ),
     # --- Qwen ---
     ModelPreset(
         model_id="qwen/qwen3-72b",
@@ -125,6 +497,8 @@ MODEL_PRESETS: list[ModelPreset] = [
         supports_reasoning=True,
         reasoning_request_param=None,
         reasoning_effort="medium",
+        input_cost_per_million=0.18,
+        output_cost_per_million=0.60,
     ),
     ModelPreset(
         model_id="qwen/qwen3-32b",
@@ -166,6 +540,9 @@ MODEL_PRESETS: list[ModelPreset] = [
         max_output_tokens=16384,
         supports_reasoning=True,
         reasoning_effort="high",
+        input_cost_per_million=0.55,
+        cached_input_cost_per_million=0.14,
+        output_cost_per_million=2.19,
     ),
     ModelPreset(
         model_id="deepseek/deepseek-v3-0324",
@@ -174,6 +551,9 @@ MODEL_PRESETS: list[ModelPreset] = [
         aliases=["deepseek-v3", "v3"],
         context_window=131072,
         max_output_tokens=16384,
+        input_cost_per_million=0.27,
+        cached_input_cost_per_million=0.07,
+        output_cost_per_million=1.10,
     ),
     ModelPreset(
         model_id="deepseek/deepseek-r1-0528",
@@ -184,6 +564,9 @@ MODEL_PRESETS: list[ModelPreset] = [
         max_output_tokens=16384,
         supports_reasoning=True,
         reasoning_effort="high",
+        input_cost_per_million=0.55,
+        cached_input_cost_per_million=0.14,
+        output_cost_per_million=2.19,
     ),
     # --- Llama ---
     ModelPreset(
@@ -292,6 +675,65 @@ MODEL_PRESETS: list[ModelPreset] = [
     ),
     # --- DeepInfra-specific ---
     ModelPreset(
+        model_id="zai-org/GLM-5.1",
+        display_name="GLM-5.1",
+        provider="deepinfra",
+        aliases=["glm-5.1", "glm5.1", "deepinfra-glm-5.1"],
+        context_window=202752,
+        max_output_tokens=16384,
+        supports_reasoning=True,
+        reasoning_request_param=None,
+        reasoning_effort="medium",
+        provider_hint="deepinfra",
+        input_cost_per_million=1.05,
+        cached_input_cost_per_million=0.205,
+        output_cost_per_million=3.50,
+        recommended=True,
+        category="coding",
+    ),
+    ModelPreset(
+        model_id="Qwen/Qwen3.6-35B-A3B",
+        display_name="Qwen3.6 35B A3B",
+        provider="deepinfra",
+        aliases=["deepinfra-qwen3.6-35b", "qwen3.6-35b"],
+        context_window=256000,
+        max_output_tokens=16384,
+        supports_reasoning=True,
+        reasoning_effort="medium",
+        provider_hint="deepinfra",
+        input_cost_per_million=0.15,
+        output_cost_per_million=0.95,
+        recommended=True,
+        category="cheap",
+    ),
+    ModelPreset(
+        model_id="stepfun-ai/Step-3.5-Flash",
+        display_name="Step 3.5 Flash",
+        provider="deepinfra",
+        aliases=["deepinfra-step-3.5-flash", "step-3.5-flash"],
+        context_window=256000,
+        max_output_tokens=16384,
+        supports_reasoning=True,
+        reasoning_effort="medium",
+        provider_hint="deepinfra",
+        input_cost_per_million=0.09,
+        cached_input_cost_per_million=0.02,
+        output_cost_per_million=0.30,
+        category="cheap",
+    ),
+    ModelPreset(
+        model_id="deepseek-ai/DeepSeek-V3.1-Terminus",
+        display_name="DeepSeek V3.1 Terminus",
+        provider="deepinfra",
+        aliases=["deepinfra-deepseek-v3.1-terminus", "deepseek-v3.1-terminus"],
+        context_window=163840,
+        max_output_tokens=16384,
+        provider_hint="deepinfra",
+        input_cost_per_million=0.27,
+        output_cost_per_million=0.85,
+        category="cheap",
+    ),
+    ModelPreset(
         model_id="zai-org/GLM-5",
         display_name="GLM-5",
         provider="deepinfra",
@@ -313,6 +755,8 @@ MODEL_PRESETS: list[ModelPreset] = [
         supports_reasoning=True,
         reasoning_effort="medium",
         provider_hint="deepinfra",
+        input_cost_per_million=0.09,
+        output_cost_per_million=0.45,
     ),
     ModelPreset(
         model_id="meta-llama/Meta-Llama-3.1-70B-Instruct",
@@ -351,8 +795,42 @@ MODEL_PRESETS: list[ModelPreset] = [
         supports_reasoning=True,
         reasoning_effort="high",
         provider_hint="deepinfra",
+        input_cost_per_million=0.55,
+        output_cost_per_million=2.19,
     ),
     # --- Fireworks-specific ---
+    ModelPreset(
+        model_id="accounts/fireworks/models/deepseek-v4-pro",
+        display_name="DeepSeek V4 Pro (Fireworks)",
+        provider="fireworks",
+        aliases=["fireworks-deepseek-v4-pro", "fw-deepseek-v4-pro", "deepseek-v4-pro"],
+        context_window=163840,
+        max_output_tokens=32768,
+        supports_reasoning=True,
+        reasoning_effort="medium",
+        provider_hint="fireworks",
+        input_cost_per_million=1.74,
+        cached_input_cost_per_million=0.145,
+        output_cost_per_million=3.48,
+        recommended=True,
+        category="reasoning",
+    ),
+    ModelPreset(
+        model_id="accounts/fireworks/models/deepseek-v4-flash",
+        display_name="DeepSeek V4 Flash (Fireworks)",
+        provider="fireworks",
+        aliases=["fireworks-deepseek-v4-flash", "fw-deepseek-v4-flash", "deepseek-v4-flash"],
+        context_window=163840,
+        max_output_tokens=32768,
+        supports_reasoning=True,
+        reasoning_effort="medium",
+        provider_hint="fireworks",
+        input_cost_per_million=0.14,
+        cached_input_cost_per_million=0.028,
+        output_cost_per_million=0.28,
+        recommended=True,
+        category="cheap",
+    ),
     ModelPreset(
         model_id="accounts/fireworks/models/kimi-k2p6",
         display_name="Kimi K2.6 (Fireworks)",
@@ -535,7 +1013,7 @@ for _preset in MODEL_PRESETS:
         and _preset.reasoning_request_param is None
     ):
         _preset.reasoning_request_param = "reasoning"
-    _MODEL_ID_INDEX[_preset.model_id.lower()] = _preset
+    _MODEL_ID_INDEX.setdefault(_preset.model_id.lower(), _preset)
     for _alias in _preset.aliases:
         _ALIAS_INDEX[_alias.lower()] = _preset
 
@@ -591,7 +1069,7 @@ class ModelRegistry:
 
             # Check API key
             api_key = ModelRegistry._get_api_key(provider_def)
-            if not api_key and provider_name != "local":
+            if not api_key and provider_name not in {"local", "chatgpt"}:
                 if preset.provider_hint:
                     raise ValueError(
                         f"No API key found for {provider_name}. "
@@ -619,6 +1097,8 @@ class ModelRegistry:
                 input_cost_per_million=preset.input_cost_per_million,
                 cached_input_cost_per_million=preset.cached_input_cost_per_million,
                 output_cost_per_million=preset.output_cost_per_million,
+                recommended=preset.recommended,
+                category=preset.category,
             )
 
         # Unknown model — use as raw model ID with conservative defaults
@@ -626,7 +1106,7 @@ class ModelRegistry:
             provider_name = explicit_provider
             provider_def = PROVIDERS[provider_name]
             api_key = ModelRegistry._get_api_key(provider_def)
-            if not api_key and provider_name != "local":
+            if not api_key and provider_name not in {"local", "chatgpt"}:
                 raise ValueError(
                     f"No API key found for {provider_name}. "
                     f"Set {provider_def.api_key_env} environment variable."
@@ -681,6 +1161,9 @@ class ModelRegistry:
                     "input_cost_per_million": p.input_cost_per_million,
                     "cached_input_cost_per_million": p.cached_input_cost_per_million,
                     "output_cost_per_million": p.output_cost_per_million,
+                    "recommended": p.recommended,
+                    "category": p.category,
+                    "source": "curated",
                 }
                 for p in MODEL_PRESETS
                 if p.provider == provider_name
@@ -690,6 +1173,9 @@ class ModelRegistry:
                 "models": presets,
                 "available": has_key,
                 "api_key_env": provider_def.api_key_env,
+                "display_name": provider_def.display_name or provider_def.name,
+                "auth_type": provider_def.auth_type,
+                "base_url": provider_def.base_url,
             }
 
         return result
@@ -723,7 +1209,8 @@ class ModelRegistry:
             if key:
                 return key, prefer, pdef
 
-        # Try OpenRouter first (larger catalog), then DeepInfra, then Fireworks.
+        # Preserve legacy raw-model fallback order; explicit provider:model is
+        # the intended path for OpenAI/xAI because their catalogs are stricter.
         for name in ("openrouter", "deepinfra", "fireworks"):
             pdef = PROVIDERS[name]
             key = ModelRegistry._get_api_key(pdef)
