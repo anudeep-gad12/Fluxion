@@ -8,6 +8,7 @@ import { useStore, useHasActiveRun } from '@/hooks/useStore';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/dialog';
 import { WorkspacePickerDialog } from '@/components/WorkspacePickerDialog';
+import { isLocalDesktopApp, openNativeWorkspacePicker } from '@/lib/platform';
 import { cn, formatRelativeTime, truncate } from '@/lib/utils';
 import {
   CheckSquare,
@@ -214,6 +215,7 @@ export function ConversationList({
   const pickerControlled = setControlledPickerOpen !== undefined;
   const workspacePickerOpen = controlledPickerOpen ?? internalPickerOpen;
   const setWorkspacePickerOpen = setControlledPickerOpen ?? setInternalPickerOpen;
+  const localDesktop = isLocalDesktopApp();
   const [workspaceSectionsOpen, setWorkspaceSectionsOpen] = useState<Record<string, boolean>>({});
   const workspaceHeaderRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
@@ -308,6 +310,18 @@ export function ConversationList({
     setDraftWorkspacePath(workspacePath);
     setWorkspaceSectionsOpen((current) => ({ ...current, [workspacePath]: true }));
     navigate('/conversations');
+  };
+
+  const openWorkspacePicker = async () => {
+    if (hasActiveRun) return;
+    if (localDesktop) {
+      const selectedPath = await openNativeWorkspacePicker();
+      if (selectedPath) {
+        startWorkspaceDraft(selectedPath);
+      }
+      return;
+    }
+    setWorkspacePickerOpen(true);
   };
 
   const handleDeleteClick = (conversationId: string) => {
@@ -482,8 +496,18 @@ export function ConversationList({
         {isLoading && conversations.length === 0 ? (
           <div className="text-sm text-muted-foreground">Loading conversations...</div>
         ) : workspaceGroups.length === 0 ? (
-          <div className="rounded-[1rem] border border-dashed border-white/14 bg-white/[0.025] px-4 py-6 text-sm text-zinc-300">
-            No workspaces yet.
+          <div className="space-y-3 rounded-[1rem] border border-dashed border-white/14 bg-white/[0.025] px-4 py-6 text-sm text-zinc-300">
+            <div>No workspaces yet.</div>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => void openWorkspacePicker()}
+              disabled={hasActiveRun}
+              className="h-8 rounded-lg px-2 text-zinc-400 hover:bg-white/[0.055] hover:text-zinc-100"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Add workspace
+            </Button>
           </div>
         ) : (
           <>

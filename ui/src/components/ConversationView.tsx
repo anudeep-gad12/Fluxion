@@ -67,7 +67,7 @@ import {
   DialogContent,
 } from '@/components/ui/dialog';
 import { useConversationRuns, useSelectedConversation, useStore, useHasActiveRun, useConversationTerminal } from '@/hooks/useStore';
-import { isLocalDesktopApp, openExternalUrl } from '@/lib/platform';
+import { isLocalDesktopApp, openExternalUrl, openNativeWorkspacePicker } from '@/lib/platform';
 import { DesktopTextOptionGroup } from '@/components/desktop/DesktopTextOptionGroup';
 import { useSSE } from '@/hooks/useSSE';
 import { useAgentSSE } from '@/hooks/useAgentSSE';
@@ -499,13 +499,17 @@ function ModelPicker({
       label: 'mlx',
       models: localModels.filter((model) => model.model_type === 'mlx'),
     },
-  ].filter((section) => section.models.length > 0);
+  ];
 
   const desktop = isLocalDesktopApp();
+  const activeProviderSection = providerSections.find((section) => section.key === selectedProvider);
   const activeProvider = selectedProvider && registryData?.providers[selectedProvider]
     ? selectedProvider
-    : (registryData?.active_provider || registryProviders[0]?.[0] || providerSections[0]?.key || 'openai');
+    : activeProviderSection
+      ? selectedProvider
+      : (registryData?.active_provider || registryProviders[0]?.[0] || 'openai');
   const activeProviderInfo = registryData?.providers[activeProvider];
+  const activeLocalSection = providerSections.find((section) => section.key === activeProvider);
   const providerKeyStatus = providerKeys.find((key) => key.provider === activeProvider);
   const allRegistryModels = registryProviders.flatMap(([provider, info]) => (
     info.models.map((model) => ({ provider, model }))
@@ -614,7 +618,7 @@ function ModelPicker({
                   >
                     <span className="block truncate uppercase">{section.label}</span>
                     <span className={cn(desktop ? 'desktop-model-provider-sub' : 'text-[10px] text-zinc-500')}>
-                      {section.models.length} local
+                      {section.models.length} {section.key === 'local-mlx' ? 'mlx' : 'local'}
                     </span>
                   </button>
                 ))}
@@ -792,20 +796,29 @@ function ModelPicker({
               </>
             ) : (
               <section className={cn(desktop ? 'desktop-model-section' : 'premium-panel p-2')}>
-                {providerSections.find((section) => section.key === activeProvider)?.models.map((model) => {
-                  const isBusy = switching === model.path;
-                  return (
-                    <button
-                      key={model.path}
-                      onClick={() => handleSelectLocal(model)}
-                      disabled={!!switching}
-                      className={cn(desktop ? 'desktop-settings-list-item' : 'mb-1 block w-full rounded-[1rem] border border-transparent px-4 py-3 text-left text-zinc-300 hover:border-white/10 hover:bg-white/[0.045]')}
-                    >
-                      <div className={cn(desktop ? 'desktop-settings-list-title truncate' : 'truncate text-[13px] font-semibold')}>{model.name}</div>
-                      <div className={cn(desktop ? 'desktop-settings-list-meta' : 'mt-1 text-[11px] text-zinc-500')}>{isBusy ? 'Starting…' : model.size_display}</div>
-                    </button>
-                  );
-                })}
+                <div className={cn(desktop ? 'desktop-settings-provider-header' : 'px-2 pb-2 text-xs uppercase tracking-[0.16em] text-zinc-500')}>
+                  {activeLocalSection?.label || 'Local models'}
+                </div>
+                {activeLocalSection && activeLocalSection.models.length > 0 ? (
+                  activeLocalSection.models.map((model) => {
+                    const isBusy = switching === model.path;
+                    return (
+                      <button
+                        key={model.path}
+                        onClick={() => handleSelectLocal(model)}
+                        disabled={!!switching}
+                        className={cn(desktop ? 'desktop-settings-list-item' : 'mb-1 block w-full rounded-[1rem] border border-transparent px-4 py-3 text-left text-zinc-300 hover:border-white/10 hover:bg-white/[0.045]')}
+                      >
+                        <div className={cn(desktop ? 'desktop-settings-list-title truncate' : 'truncate text-[13px] font-semibold')}>{model.name}</div>
+                        <div className={cn(desktop ? 'desktop-settings-list-meta' : 'mt-1 text-[11px] text-zinc-500')}>{isBusy ? 'Starting…' : model.size_display}</div>
+                      </button>
+                    );
+                  })
+                ) : (
+                  <div className={cn(desktop ? 'desktop-settings-hint px-3 py-4' : 'px-3 py-4 text-sm text-zinc-500')}>
+                    {activeProvider === 'local-mlx' ? 'No MLX models found.' : 'No GGUF models found.'}
+                  </div>
+                )}
               </section>
             )}
           </main>
@@ -2023,7 +2036,7 @@ export function ConversationView() {
     }
   }, [reasoningDraft]);
 
-  const handleOpenWorkspacePicker = useCallback(() => {
+  const handleOpenWorkspacePicker = useCallback(async () => {
     if (isWorkspaceLocked) {
       toast.error(
         hasConversationWorkspace
@@ -2032,9 +2045,23 @@ export function ConversationView() {
       );
       return;
     }
+    if (localDesktop) {
+      const selectedPath = await openNativeWorkspacePicker();
+      if (selectedPath) {
+        rememberWorkspacePath(selectedPath);
+        setDraftWorkspacePath(selectedPath);
+      }
+      return;
+    }
     setWorkspacePickerMode('draft');
     setWorkspacePickerOpen(true);
-  }, [hasConversationWorkspace, isWorkspaceLocked]);
+  }, [
+    hasConversationWorkspace,
+    isWorkspaceLocked,
+    localDesktop,
+    rememberWorkspacePath,
+    setDraftWorkspacePath,
+  ]);
 
   const handleSubmit = async () => {
     if ((!message.trim() && imageAttachments.length === 0) || isSubmitting) return;
@@ -2652,10 +2679,29 @@ export function ConversationView() {
     handleComposerEditingShortcut(e);
   };
 
-  const openWorkspacePickerForNewConversation = useCallback(() => {
+  const openWorkspacePickerForNewConversation = useCallback(async () => {
+    if (hasActiveRun) return;
+    if (localDesktop) {
+      const selectedPath = await openNativeWorkspacePicker();
+      const normalized = selectedPath?.trim();
+      if (normalized) {
+        selectConversation(null);
+        rememberWorkspacePath(normalized);
+        setDraftWorkspacePath(normalized);
+        navigate('/conversations');
+      }
+      return;
+    }
     setWorkspacePickerMode('new-conversation');
     setWorkspacePickerOpen(true);
-  }, []);
+  }, [
+    hasActiveRun,
+    localDesktop,
+    navigate,
+    rememberWorkspacePath,
+    selectConversation,
+    setDraftWorkspacePath,
+  ]);
 
   const startWorkspaceDraftConversation = useCallback((workspacePath: string) => {
     if (hasActiveRun) return;

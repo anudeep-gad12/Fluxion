@@ -3,7 +3,7 @@ import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 
 import { browseWorkspaceDirectories, type WorkspaceBrowseResponse } from '@/api/client';
 import { cn } from '@/lib/utils';
-import { isLocalDesktopApp } from '@/lib/platform';
+import { isLocalDesktopApp, openNativeWorkspacePicker } from '@/lib/platform';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 export function WorkspacePickerDialog({
@@ -25,6 +25,13 @@ export function WorkspacePickerDialog({
   const [pendingFocusTarget, setPendingFocusTarget] = useState<'input' | 'list'>('input');
   const inputRef = useRef<HTMLInputElement>(null);
   const rowRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const onSelectRef = useRef(onSelect);
+  const onOpenChangeRef = useRef(onOpenChange);
+
+  useEffect(() => {
+    onSelectRef.current = onSelect;
+    onOpenChangeRef.current = onOpenChange;
+  }, [onOpenChange, onSelect]);
 
   const visibleEntries = useMemo(() => {
     const rows: Array<{ key: string; path: string; label: string; hidden?: boolean; isParent?: boolean }> = [];
@@ -58,6 +65,19 @@ export function WorkspacePickerDialog({
 
   useEffect(() => {
     if (!open) return;
+    if (isLocalDesktopApp()) {
+      let cancelled = false;
+      void openNativeWorkspacePicker().then((selectedPath) => {
+        if (cancelled) return;
+        if (selectedPath) {
+          onSelectRef.current(selectedPath);
+        }
+        onOpenChangeRef.current(false);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
     setPathInput(value);
     setActiveIndex(0);
     loadPath(value || undefined, 'input');

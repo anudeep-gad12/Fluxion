@@ -236,7 +236,7 @@ export function TerminalPanel({ agentModeActive }: TerminalPanelProps) {
             <PanelRightClose className="h-4 w-4" />
           </Button>
         </DesktopTitlebar>
-        <div className="flex min-h-0 flex-1">
+        <div className="flex min-h-0 flex-1 flex-col">
           {selectedConversationId && terminalAvailable && sessions.length > 0 ? (
             <>
               <TerminalSessionRail

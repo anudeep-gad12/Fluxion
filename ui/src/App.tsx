@@ -13,7 +13,7 @@ import { DesktopSidebarBrand } from '@/components/desktop/DesktopSidebarBrand';
 import { startWindowDrag } from '@/lib/windowDrag';
 import { useStore, useHasActiveRun } from '@/hooks/useStore';
 import { getApiBase } from '@/api/client';
-import { isLocalDesktopApp } from '@/lib/platform';
+import { isLocalDesktopApp, openNativeWorkspacePicker } from '@/lib/platform';
 import { cn } from '@/lib/utils';
 import { PanelLeftClose, PanelLeft, GripVertical, FolderPlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -61,6 +61,7 @@ function NewConversationView() {
 function AppLayout() {
   const hasActiveRun = useHasActiveRun();
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
 
   const localDesktop = isLocalDesktopApp();
   const conversationMode = useStore((s) => s.conversationMode);
@@ -97,6 +98,27 @@ function AppLayout() {
     if (localDesktop) return false;
     return typeof window !== 'undefined' && window.innerWidth < 768;
   });
+
+  const startWorkspaceDraft = useCallback((workspacePath: string) => {
+    const normalized = workspacePath.trim();
+    if (!normalized || hasActiveRun) return;
+    selectConversation(null);
+    rememberWorkspacePath(normalized);
+    setDraftWorkspacePath(normalized);
+    navigate('/conversations');
+  }, [hasActiveRun, navigate, rememberWorkspacePath, selectConversation, setDraftWorkspacePath]);
+
+  const handleOpenWorkspacePicker = useCallback(async () => {
+    if (hasActiveRun) return;
+    if (localDesktop) {
+      const selectedPath = await openNativeWorkspacePicker();
+      if (selectedPath) {
+        startWorkspaceDraft(selectedPath);
+      }
+      return;
+    }
+    setWorkspacePickerOpen(true);
+  }, [hasActiveRun, localDesktop, startWorkspaceDraft]);
 
   useEffect(() => {
     const ownerParam = searchParams.get('owner');
@@ -269,7 +291,7 @@ function AppLayout() {
         >
           <Button
             variant="ghost"
-            onClick={() => setWorkspacePickerOpen(true)}
+            onClick={() => void handleOpenWorkspacePicker()}
             disabled={hasActiveRun}
             className={cn(
               'h-8 w-full justify-start gap-2 rounded-lg px-2.5 text-[13px] font-normal',
@@ -391,11 +413,7 @@ function AppLayout() {
       open={workspacePickerOpen}
       onOpenChange={setWorkspacePickerOpen}
       value={draftWorkspacePath}
-      onSelect={(workspacePath) => {
-        selectConversation(null);
-        rememberWorkspacePath(workspacePath);
-        setDraftWorkspacePath(workspacePath);
-      }}
+      onSelect={startWorkspaceDraft}
     />
   );
 

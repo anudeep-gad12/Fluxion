@@ -65,3 +65,25 @@ export async function openExternalUrl(url: string): Promise<boolean> {
   const opened = window.open(url, '_blank', 'noopener,noreferrer');
   return !!opened;
 }
+
+/** Open the system folder picker and return a selected directory path. */
+export async function openNativeWorkspacePicker(): Promise<string | null> {
+  if (typeof window === 'undefined' || !isLocalDesktopApp()) return null;
+
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    const selected = await invoke<string | string[] | null>('plugin:dialog|open', {
+      options: {
+        directory: true,
+        multiple: false,
+        title: 'Choose Workspace',
+      },
+    });
+    if (Array.isArray(selected)) {
+      return selected[0] || null;
+    }
+    return selected || null;
+  } catch {
+    return null;
+  }
+}

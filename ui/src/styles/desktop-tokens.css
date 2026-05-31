@@ -197,6 +197,79 @@
   color: #e4e4e7;
 }
 
+[data-app='desktop'] .desktop-terminal-tabs {
+  scrollbar-width: none;
+}
+
+[data-app='desktop'] .desktop-terminal-tabs ::-webkit-scrollbar {
+  display: none;
+}
+
+[data-app='desktop'] .desktop-terminal-tab {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 132px;
+  border-radius: 7px;
+  color: #a1a1aa;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease;
+}
+
+[data-app='desktop'] .desktop-terminal-tab:hover {
+  background: rgba(255, 255, 255, 0.045);
+}
+
+[data-app='desktop'] .desktop-terminal-tab.is-active {
+  background: rgba(121, 230, 255, 0.09);
+  color: var(--desktop-accent);
+}
+
+[data-app='desktop'] .desktop-terminal-tab-select {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 5px;
+  border: none;
+  background: transparent;
+  padding: 5px 3px 5px 8px;
+  text-align: left;
+  font-size: 11px;
+  line-height: 1.2;
+  color: inherit;
+}
+
+[data-app='desktop'] .desktop-terminal-tab-close {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-right: 3px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #71717a;
+  opacity: 0;
+  transition:
+    opacity 0.12s ease,
+    color 0.12s ease,
+    background 0.12s ease;
+}
+
+[data-app='desktop'] .desktop-terminal-tab:hover .desktop-terminal-tab-close,
+[data-app='desktop'] .desktop-terminal-tab.is-active .desktop-terminal-tab-close {
+  opacity: 1;
+}
+
+[data-app='desktop'] .desktop-terminal-tab-close:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #e4e4e7;
+}
+
 /* Unified prompt — inset surface, not a nested “chat box” */
 [data-app='desktop'] .desktop-prompt-input-wrap {
   position: relative;

@@ -9,6 +9,7 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| main | Desktop workspace/terminal/model picker polish — macOS workspace selection now uses native folder picker via Tauri dialog, New workspace opens a blank draft thread without pre-creating a conversation, terminal sessions render as top tabs, and Local/MLX tabs always show with model lists or empty states | done | 2026-05-31 |
 | main | ChatGPT/Codex auth-error hardening — 401 `token_revoked` responses from `chatgpt.com/backend-api/codex/responses` now clear the saved OAuth token and raise a reconnect message instead of surfacing raw `HTTPStatusError`; Codex payloads also omit unsupported `max_output_tokens` | done | 2026-05-31 |
 | main | ChatGPT/Codex OAuth lifecycle polish — browser login now has a 2-minute UI lifecycle with manual URL fallback, copy/open, retry, cancel, backend `/api/auth/chatgpt/cancel` cleanup, callback-port release on timeout/cancel/logout, and an explicit Disconnect ChatGPT action in the model picker | done | 2026-05-31 |
 | main | Codex OAuth external-browser login — ChatGPT/Codex Connect now opens the system browser from Tauri via opener, polls the model catalog until auth completes, and uses a stable local-owner OAuth session so browser callbacks link back to the desktop app even without demo cookies | done | 2026-05-31 |

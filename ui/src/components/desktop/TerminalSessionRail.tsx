@@ -118,11 +118,39 @@ export function TerminalSessionRail({
   };
 
   return (
-    <div className="desktop-terminal-rail flex h-full w-[108px] shrink-0 flex-col border-r border-white/[0.06] bg-[var(--desktop-bg-0)]">
-      <div className="flex items-center justify-between gap-1 px-2 py-2">
-        <span className="text-[11px] font-medium text-zinc-500">
-          {sessions.length} {sessions.length === 1 ? 'Terminal' : 'Terminals'}
-        </span>
+    <div className="desktop-terminal-tabs flex h-10 shrink-0 items-center gap-1 border-b border-white/[0.06] bg-[var(--desktop-bg-0)] px-2">
+      <div className="min-w-0 flex-1 overflow-x-auto">
+        <div className="flex min-w-max items-center gap-1">
+          {sessions.map((session) => {
+            const isActive = session.session_id === activeSessionId;
+            return (
+              <div
+                key={session.session_id}
+                className={cn('desktop-terminal-tab', isActive && 'is-active')}
+              >
+                <button
+                  type="button"
+                  onClick={() => onSelect(session.session_id)}
+                  className="desktop-terminal-tab-select desktop-no-drag"
+                  title={sessionLabel(session)}
+                >
+                  <Terminal className="h-3 w-3 shrink-0 opacity-55" aria-hidden />
+                  <span className="truncate">{sessionLabel(session)}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={(event) => void handleCloseSession(session.session_id, event)}
+                  className="desktop-terminal-tab-close desktop-no-drag"
+                  aria-label={`Close ${sessionLabel(session)}`}
+                >
+                  <X className="h-3 w-3" strokeWidth={2} />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <div className="shrink-0">
         <button
           type="button"
           onClick={() => void handleNewSession()}
@@ -138,34 +166,6 @@ export function TerminalSessionRail({
         >
           <Plus className="h-3.5 w-3.5" />
         </button>
-      </div>
-      <div className="min-h-0 flex-1 overflow-y-auto px-1 pb-2">
-        {sessions.map((session) => {
-          const isActive = session.session_id === activeSessionId;
-          return (
-            <div
-              key={session.session_id}
-              className={cn('desktop-terminal-rail-row', isActive && 'is-active')}
-            >
-              <button
-                type="button"
-                onClick={() => onSelect(session.session_id)}
-                className="desktop-terminal-rail-select desktop-no-drag"
-              >
-                <Terminal className="h-3 w-3 shrink-0 opacity-55" aria-hidden />
-                <span className="truncate">{sessionLabel(session)}</span>
-              </button>
-              <button
-                type="button"
-                onClick={(event) => void handleCloseSession(session.session_id, event)}
-                className="desktop-terminal-rail-close desktop-no-drag"
-                aria-label={`Close ${sessionLabel(session)}`}
-              >
-                <X className="h-3 w-3" strokeWidth={2} />
-              </button>
-            </div>
-          );
-        })}
       </div>
     </div>
   );
