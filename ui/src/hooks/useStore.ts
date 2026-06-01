@@ -24,6 +24,8 @@ export interface TerminalUIState {
   dock: 'bottom' | 'right';
   height: number;
   width: number;
+  activeToolTabId: string | null;
+  browserTabs: BrowserTabState[];
   sessions: TerminalSessionResponse[];
   activeSessionId: string | null;
   maxSessionsPerConversation: number;
@@ -32,6 +34,14 @@ export interface TerminalUIState {
   buffer: string;
   connected: boolean;
   status: 'idle' | 'connecting' | 'running' | 'closed' | 'stale' | 'error';
+}
+
+export interface BrowserTabState {
+  id: string;
+  url: string;
+  title: string;
+  status: 'idle' | 'loading' | 'ready' | 'error';
+  error?: string | null;
 }
 
 interface AppState {
@@ -483,6 +493,8 @@ export const useStore = create<AppState>((set, get) => ({
         dock: 'right',
         height: 260,
         width: 420,
+        activeToolTabId: null,
+        browserTabs: [],
         sessions: [],
         activeSessionId: null,
         maxSessionsPerConversation: 5,
@@ -511,6 +523,8 @@ export const useStore = create<AppState>((set, get) => ({
         dock: 'right' as const,
         height: 260,
         width: 420,
+        activeToolTabId: null,
+        browserTabs: [],
         sessions: [],
         activeSessionId: null,
         maxSessionsPerConversation: 5,

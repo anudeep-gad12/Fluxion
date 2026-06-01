@@ -270,6 +270,35 @@
   color: #e4e4e7;
 }
 
+[data-app='desktop'] .desktop-browser-nav-btn {
+  display: flex;
+  height: 28px;
+  width: 28px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  color: #71717a;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease;
+}
+
+[data-app='desktop'] .desktop-browser-nav-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.06);
+  color: #e4e4e7;
+}
+
+[data-app='desktop'] .desktop-browser-nav-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
+}
+
+[data-app='desktop'] .desktop-browser-address {
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: -0.01em;
+}
+
 /* Unified prompt — inset surface, not a nested “chat box” */
 [data-app='desktop'] .desktop-prompt-input-wrap {
   position: relative;

@@ -66,6 +66,22 @@ export async function openExternalUrl(url: string): Promise<boolean> {
   return !!opened;
 }
 
+/** Open a local path from terminal output in the default desktop app. */
+export async function openExternalPath(path: string, workspacePath?: string): Promise<boolean> {
+  if (typeof window === 'undefined' || !isLocalDesktopApp()) return false;
+
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    await invoke('fluxion_open_terminal_path', {
+      path,
+      workspacePath: workspacePath?.trim() || null,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Open the system folder picker and return a selected directory path. */
 export async function openNativeWorkspacePicker(): Promise<string | null> {
   if (typeof window === 'undefined' || !isLocalDesktopApp()) return null;

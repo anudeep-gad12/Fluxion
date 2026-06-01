@@ -1,33 +1,117 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { PanelRightClose, GripVertical } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { GripVertical, PanelRightClose } from 'lucide-react';
+import { toast } from 'sonner';
+
 import { IntegratedTerminal } from '@/components/IntegratedTerminal';
+import { BrowserPane } from '@/components/desktop/BrowserPane';
 import { DesktopTitlebar } from '@/components/desktop/DesktopTitlebar';
-import { TerminalSessionRail } from '@/components/desktop/TerminalSessionRail';
+import { TerminalSessionRail, type ToolTab } from '@/components/desktop/TerminalSessionRail';
 import {
+  ApiError,
+  closeTerminalSession,
   createTerminalSession,
   listTerminalSessions,
   type TerminalSessionResponse,
 } from '@/api/client';
-import { useStore, useConversationTerminal } from '@/hooks/useStore';
+import { useStore, useConversationTerminal, type BrowserTabState } from '@/hooks/useStore';
 import { isLocalDesktopApp } from '@/lib/platform';
 import { Button } from '@/components/ui/button';
 
-const TERMINAL_WIDTH_KEY = 'reasoner_terminal_panel_width';
-const DEFAULT_WIDTH = 380;
-const MIN_WIDTH = 320;
-const MAX_WIDTH = 560;
+const PANEL_WIDTH_KEY = 'reasoner_tools_panel_width';
+const LEGACY_TERMINAL_WIDTH_KEY = 'reasoner_terminal_panel_width';
+const DEFAULT_WIDTH = 460;
+const MIN_WIDTH = 340;
+const MAX_WIDTH = 860;
 
-function readTerminalWidth(): number {
+function maxPanelWidth(): number {
+  if (typeof window === 'undefined') return MAX_WIDTH;
+  return Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, Math.floor(window.innerWidth * 0.55)));
+}
+
+function clampPanelWidth(width: number): number {
+  return Math.min(maxPanelWidth(), Math.max(MIN_WIDTH, width));
+}
+
+function readPanelWidth(): number {
   if (typeof window === 'undefined') return DEFAULT_WIDTH;
-  const stored = Number(localStorage.getItem(TERMINAL_WIDTH_KEY));
+  const stored = Number(
+    localStorage.getItem(PANEL_WIDTH_KEY) || localStorage.getItem(LEGACY_TERMINAL_WIDTH_KEY),
+  );
   if (!Number.isFinite(stored)) return DEFAULT_WIDTH;
-  return Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, stored));
+  return clampPanelWidth(stored);
 }
 
 function workspaceFolderLabel(workspacePath: string): string {
   const trimmed = workspacePath.trim();
   if (!trimmed) return '';
   return trimmed.split('/').filter(Boolean).pop() || trimmed;
+}
+
+function terminalTabId(sessionId: string): string {
+  return `terminal:${sessionId}`;
+}
+
+function browserTabId(tabId: string): string {
+  return `browser:${tabId}`;
+}
+
+function sessionLabel(session: TerminalSessionResponse): string {
+  if (session.title?.trim()) return session.title.trim();
+  const shell = session.shell || '';
+  const parts = shell.split('/');
+  return parts[parts.length - 1] || 'shell';
+}
+
+function browserLabel(tab: BrowserTabState): string {
+  if (tab.title?.trim()) return tab.title.trim();
+  if (!tab.url) return 'Browser';
+  try {
+    const parsed = new URL(tab.url);
+    return parsed.hostname || 'Browser';
+  } catch {
+    return 'Browser';
+  }
+}
+
+function makeBrowserTab(): BrowserTabState {
+  return {
+    id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+    url: '',
+    title: 'Browser',
+    status: 'idle',
+    error: null,
+  };
+}
+
+function isToolTabValid(
+  tabId: string | null | undefined,
+  sessions: TerminalSessionResponse[],
+  browserTabs: BrowserTabState[],
+): boolean {
+  if (!tabId) return false;
+  if (tabId.startsWith('terminal:')) {
+    const sessionId = tabId.slice('terminal:'.length);
+    return sessions.some((session) => session.session_id === sessionId);
+  }
+  if (tabId.startsWith('browser:')) {
+    const id = tabId.slice('browser:'.length);
+    return browserTabs.some((tab) => tab.id === id);
+  }
+  return false;
+}
+
+function nextActiveToolId(
+  currentActive: string | null | undefined,
+  closingId: string,
+  previousTabs: ToolTab[],
+  nextTabs: ToolTab[],
+): string | null {
+  if (currentActive && currentActive !== closingId && nextTabs.some((tab) => tab.id === currentActive)) {
+    return currentActive;
+  }
+  if (nextTabs.length === 0) return null;
+  const previousIndex = Math.max(0, previousTabs.findIndex((tab) => tab.id === closingId));
+  return nextTabs[Math.min(previousIndex, nextTabs.length - 1)]?.id ?? nextTabs[0]?.id ?? null;
 }
 
 interface TerminalPanelProps {
@@ -45,29 +129,55 @@ export function TerminalPanel({ agentModeActive }: TerminalPanelProps) {
   const setActiveTerminalSession = useStore((s) => s.setActiveTerminalSession);
 
   const terminalState = useConversationTerminal(selectedConversationId);
-  const [panelWidth, setPanelWidth] = useState(readTerminalWidth);
+  const [panelWidth, setPanelWidth] = useState(readPanelWidth);
   const isResizing = useRef(false);
 
   const conversation = conversations.find(
-    (item) => item.conversation_id === selectedConversationId
+    (item) => item.conversation_id === selectedConversationId,
   );
-  const workspacePath =
-    conversation?.workspace_path?.trim() || draftWorkspacePath.trim();
+  const workspacePath = conversation?.workspace_path?.trim() || draftWorkspacePath.trim();
   const terminalAvailable =
-    localDesktop &&
-    agentModeActive &&
-    !!selectedConversationId &&
-    !!workspacePath;
+    localDesktop && agentModeActive && !!selectedConversationId && !!workspacePath;
 
   useEffect(() => {
     if (!selectedConversationId || !terminalAvailable || terminalState) return;
-    initTerminalState(selectedConversationId, { dock: 'right', isOpen: false });
-  }, [selectedConversationId, terminalAvailable, initTerminalState, terminalState]);
+    initTerminalState(selectedConversationId, { dock: 'right', isOpen: false, width: panelWidth });
+  }, [selectedConversationId, terminalAvailable, initTerminalState, terminalState, panelWidth]);
 
   const isOpen = terminalAvailable && !!terminalState?.isOpen;
   const sessions = terminalState?.sessions ?? [];
+  const browserTabs = terminalState?.browserTabs ?? [];
   const activeSessionId = terminalState?.activeSessionId ?? null;
   const maxSessions = terminalState?.maxSessionsPerConversation ?? 5;
+  const terminalAtLimit = sessions.length >= maxSessions;
+
+  const tabs = useMemo<ToolTab[]>(() => {
+    const stateActive = terminalState?.activeToolTabId ?? null;
+    const fallback = activeSessionId ? terminalTabId(activeSessionId) : browserTabs[0] ? browserTabId(browserTabs[0].id) : null;
+    const activeToolTabId = isToolTabValid(stateActive, sessions, browserTabs) ? stateActive : fallback;
+    return [
+      ...sessions.map((session) => ({
+        id: terminalTabId(session.session_id),
+        kind: 'terminal' as const,
+        label: sessionLabel(session),
+        active: activeToolTabId === terminalTabId(session.session_id),
+        canClose: true,
+      })),
+      ...browserTabs.map((tab) => ({
+        id: browserTabId(tab.id),
+        kind: 'browser' as const,
+        label: browserLabel(tab),
+        active: activeToolTabId === browserTabId(tab.id),
+        canClose: true,
+      })),
+    ];
+  }, [activeSessionId, browserTabs, sessions, terminalState?.activeToolTabId]);
+
+  const activeToolTabId = tabs.find((tab) => tab.active)?.id ?? tabs[0]?.id ?? null;
+  const activeTerminalSessionId = activeToolTabId?.startsWith('terminal:')
+    ? activeToolTabId.slice('terminal:'.length)
+    : null;
+  const activeKind = activeToolTabId?.startsWith('browser:') ? 'Browser' : 'Terminal';
 
   useEffect(() => {
     if (!isOpen || !selectedConversationId || !terminalAvailable) return;
@@ -78,12 +188,12 @@ export function TerminalPanel({ agentModeActive }: TerminalPanelProps) {
         const listed = await listTerminalSessions(selectedConversationId);
         if (cancelled) return;
 
+        const currentState = useStore.getState().terminalByConversation[selectedConversationId];
+        const existingBrowserTabs = currentState?.browserTabs ?? [];
         let nextSessions = listed.sessions;
-        let activeId = localStorage.getItem(
-          `reasoner_terminal_active_session:${selectedConversationId}`,
-        );
+        let activeId = localStorage.getItem(`reasoner_terminal_active_session:${selectedConversationId}`);
 
-        if (nextSessions.length === 0) {
+        if (nextSessions.length === 0 && existingBrowserTabs.length === 0) {
           const created = await createTerminalSession(selectedConversationId, {
             workspace_path: workspacePath.trim() || undefined,
             cols: 120,
@@ -95,22 +205,36 @@ export function TerminalPanel({ agentModeActive }: TerminalPanelProps) {
         }
 
         const activeSession =
-          nextSessions.find((item) => item.session_id === activeId) ?? nextSessions[0];
+          nextSessions.find((item) => item.session_id === activeId) ?? nextSessions[0] ?? null;
         const resolvedId = activeSession?.session_id ?? null;
+        const storedTool = localStorage.getItem(`reasoner_tools_active_tab:${selectedConversationId}`);
+        const currentTool = currentState?.activeToolTabId;
+        const fallbackTool = resolvedId
+          ? terminalTabId(resolvedId)
+          : existingBrowserTabs[0]
+            ? browserTabId(existingBrowserTabs[0].id)
+            : null;
+        const resolvedTool = isToolTabValid(storedTool, nextSessions, existingBrowserTabs)
+          ? storedTool
+          : isToolTabValid(currentTool, nextSessions, existingBrowserTabs)
+            ? currentTool
+            : fallbackTool;
 
         updateTerminalState(selectedConversationId, {
           sessions: nextSessions,
           activeSessionId: resolvedId,
-          session: activeSession ?? null,
+          activeToolTabId: resolvedTool,
+          session: activeSession,
           maxSessionsPerConversation: listed.max_sessions_per_conversation,
           buffer: activeSession?.replay_buffer ?? '',
           status: activeSession?.status === 'running' ? 'running' : 'idle',
+          width: panelWidth,
         });
         if (resolvedId) {
-          localStorage.setItem(
-            `reasoner_terminal_active_session:${selectedConversationId}`,
-            resolvedId,
-          );
+          localStorage.setItem(`reasoner_terminal_active_session:${selectedConversationId}`, resolvedId);
+        }
+        if (resolvedTool) {
+          localStorage.setItem(`reasoner_tools_active_tab:${selectedConversationId}`, resolvedTool);
         }
       } catch {
         if (!cancelled) {
@@ -123,64 +247,145 @@ export function TerminalPanel({ agentModeActive }: TerminalPanelProps) {
     return () => {
       cancelled = true;
     };
-  }, [
-    isOpen,
-    selectedConversationId,
-    terminalAvailable,
-    updateTerminalState,
-    workspacePath,
-  ]);
+  }, [isOpen, selectedConversationId, terminalAvailable, updateTerminalState, workspacePath, panelWidth]);
 
-  const handleSelectSession = useCallback(
-    (sessionId: string) => {
-      if (!selectedConversationId) return;
+  const persistActiveTool = useCallback((toolId: string | null) => {
+    if (!selectedConversationId) return;
+    const storageKey = `reasoner_tools_active_tab:${selectedConversationId}`;
+    if (toolId) localStorage.setItem(storageKey, toolId);
+    else localStorage.removeItem(storageKey);
+  }, [selectedConversationId]);
+
+  const handleSelectTool = useCallback((tabId: string) => {
+    if (!selectedConversationId) return;
+    if (tabId.startsWith('terminal:')) {
+      const sessionId = tabId.slice('terminal:'.length);
       setActiveTerminalSession(selectedConversationId, sessionId);
-      localStorage.setItem(
-        `reasoner_terminal_active_session:${selectedConversationId}`,
-        sessionId,
-      );
-    },
-    [selectedConversationId, setActiveTerminalSession],
-  );
+      localStorage.setItem(`reasoner_terminal_active_session:${selectedConversationId}`, sessionId);
+    }
+    updateTerminalState(selectedConversationId, { activeToolTabId: tabId });
+    persistActiveTool(tabId);
+  }, [persistActiveTool, selectedConversationId, setActiveTerminalSession, updateTerminalState]);
 
-  const handleSessionsChange = useCallback(
-    (nextSessions: TerminalSessionResponse[], nextActiveId: string | null) => {
-      if (!selectedConversationId) return;
-      const activeSession =
-        nextSessions.find((item) => item.session_id === nextActiveId) ?? null;
+  const handleNewTerminal = useCallback(async () => {
+    if (!selectedConversationId || terminalAtLimit) {
+      toast.error(`Maximum ${maxSessions} terminals for this conversation`);
+      return;
+    }
+    try {
+      const created = await createTerminalSession(selectedConversationId, {
+        workspace_path: workspacePath.trim() || undefined,
+        cols: 120,
+        rows: 30,
+      });
+      const nextSessions = [...sessions, created];
+      const nextTool = terminalTabId(created.session_id);
       updateTerminalState(selectedConversationId, {
         sessions: nextSessions,
-        activeSessionId: nextActiveId,
-        session: activeSession,
-        buffer: activeSession?.replay_buffer ?? '',
-        connected: false,
-        status: nextActiveId ? 'idle' : 'idle',
+        activeSessionId: created.session_id,
+        activeToolTabId: nextTool,
+        session: created,
+        buffer: created.replay_buffer || '',
+        status: created.status === 'running' ? 'running' : 'stale',
       });
-      const storageKey = `reasoner_terminal_active_session:${selectedConversationId}`;
-      if (nextActiveId) {
-        localStorage.setItem(storageKey, nextActiveId);
-      } else {
-        localStorage.removeItem(storageKey);
+      localStorage.setItem(`reasoner_terminal_active_session:${selectedConversationId}`, created.session_id);
+      persistActiveTool(nextTool);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 409) {
+        toast.error(`Maximum ${maxSessions} terminals for this conversation`);
+        return;
       }
-    },
-    [selectedConversationId, updateTerminalState],
-  );
+      toast.error('Could not create terminal');
+    }
+  }, [maxSessions, persistActiveTool, selectedConversationId, sessions, terminalAtLimit, updateTerminalState, workspacePath]);
+
+  const handleNewBrowser = useCallback(() => {
+    if (!selectedConversationId) return;
+    const tab = makeBrowserTab();
+    const nextTool = browserTabId(tab.id);
+    updateTerminalState(selectedConversationId, {
+      browserTabs: [...browserTabs, tab],
+      activeToolTabId: nextTool,
+    });
+    persistActiveTool(nextTool);
+  }, [browserTabs, persistActiveTool, selectedConversationId, updateTerminalState]);
+
+  const handleBrowserUpdate = useCallback((tabId: string, updates: Partial<BrowserTabState>) => {
+    if (!selectedConversationId) return;
+    const current = useStore.getState().terminalByConversation[selectedConversationId];
+    if (!current) return;
+    updateTerminalState(selectedConversationId, {
+      browserTabs: current.browserTabs.map((tab) => (
+        tab.id === tabId ? { ...tab, ...updates } : tab
+      )),
+    });
+  }, [selectedConversationId, updateTerminalState]);
+
+  const handleCloseTool = useCallback(async (tabId: string, kind: ToolTab['kind']) => {
+    if (!selectedConversationId) return;
+    const previousTabs = tabs;
+
+    if (kind === 'browser') {
+      const rawId = tabId.slice('browser:'.length);
+      const nextBrowserTabs = browserTabs.filter((tab) => tab.id !== rawId);
+      const nextTabs = previousTabs.filter((tab) => tab.id !== tabId);
+      const nextTool = nextActiveToolId(activeToolTabId, tabId, previousTabs, nextTabs);
+      updateTerminalState(selectedConversationId, {
+        browserTabs: nextBrowserTabs,
+        activeToolTabId: nextTool,
+      });
+      persistActiveTool(nextTool);
+      return;
+    }
+
+    const sessionId = tabId.slice('terminal:'.length);
+    try {
+      await closeTerminalSession(selectedConversationId, sessionId);
+      const nextSessions = sessions.filter((item) => item.session_id !== sessionId);
+      const nextTabs = previousTabs.filter((tab) => tab.id !== tabId);
+      const nextTool = nextActiveToolId(activeToolTabId, tabId, previousTabs, nextTabs);
+      const nextActiveTerminalId = nextTool?.startsWith('terminal:')
+        ? nextTool.slice('terminal:'.length)
+        : activeSessionId === sessionId
+          ? (nextSessions[0]?.session_id ?? null)
+          : activeSessionId;
+      const current = useStore.getState().terminalByConversation[selectedConversationId];
+      const bufferBySessionId = { ...(current?.bufferBySessionId ?? {}) };
+      delete bufferBySessionId[sessionId];
+      const activeSession = nextActiveTerminalId
+        ? nextSessions.find((item) => item.session_id === nextActiveTerminalId) ?? null
+        : null;
+      updateTerminalState(selectedConversationId, {
+        sessions: nextSessions,
+        activeSessionId: nextActiveTerminalId,
+        activeToolTabId: nextTool,
+        session: activeSession,
+        buffer: nextActiveTerminalId ? (bufferBySessionId[nextActiveTerminalId] ?? '') : '',
+        bufferBySessionId,
+        connected: false,
+        status: 'idle',
+      });
+      if (nextActiveTerminalId) {
+        localStorage.setItem(`reasoner_terminal_active_session:${selectedConversationId}`, nextActiveTerminalId);
+      } else {
+        localStorage.removeItem(`reasoner_terminal_active_session:${selectedConversationId}`);
+      }
+      persistActiveTool(nextTool);
+    } catch {
+      toast.error('Could not close terminal');
+    }
+  }, [activeSessionId, activeToolTabId, browserTabs, persistActiveTool, selectedConversationId, sessions, tabs, updateTerminalState]);
 
   const handleToggleOpen = useCallback(() => {
     if (!selectedConversationId || !terminalAvailable) return;
-    updateTerminalState(selectedConversationId, {
-      isOpen: !terminalState?.isOpen,
-    });
+    updateTerminalState(selectedConversationId, { isOpen: !terminalState?.isOpen });
   }, [selectedConversationId, terminalAvailable, terminalState?.isOpen, updateTerminalState]);
 
   const handleMouseMove = useCallback((e: MouseEvent) => {
     if (!isResizing.current) return;
-    const next = Math.min(
-      MAX_WIDTH,
-      Math.max(MIN_WIDTH, window.innerWidth - e.clientX)
-    );
+    const next = clampPanelWidth(window.innerWidth - e.clientX);
     setPanelWidth(next);
-    localStorage.setItem(TERMINAL_WIDTH_KEY, String(next));
+    localStorage.setItem(PANEL_WIDTH_KEY, String(next));
     if (selectedConversationId && terminalState?.isOpen) {
       updateTerminalState(selectedConversationId, { width: next });
     }
@@ -198,86 +403,103 @@ export function TerminalPanel({ agentModeActive }: TerminalPanelProps) {
     document.addEventListener('mouseup', handleMouseUp);
   }, [handleMouseMove, handleMouseUp]);
 
-  if (!localDesktop) {
-    return null;
-  }
+  useEffect(() => {
+    const handleResize = () => {
+      setPanelWidth((current) => {
+        const next = clampPanelWidth(current);
+        if (next !== current) localStorage.setItem(PANEL_WIDTH_KEY, String(next));
+        return next;
+      });
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  if (!localDesktop) return null;
 
   const folderLabel = workspaceFolderLabel(workspacePath);
 
-  if (!isOpen) {
-    return null;
-  }
+  if (!isOpen) return null;
 
   return (
-    <>
-      <aside
-        className="desktop-shell-right ui-panel relative flex flex-shrink-0 flex-col"
-        style={{ width: panelWidth }}
-      >
-        <DesktopTitlebar className="desktop-terminal-header flex h-[var(--titlebar-height)] items-center justify-between border-b border-white/[0.05] px-3">
-          <div className="desktop-titlebar-content min-w-0">
-            <div className="pointer-events-none text-[12px] font-medium text-zinc-400">Terminal</div>
-            {folderLabel ? (
-              <div
-                className="pointer-events-none truncate text-[11px] text-zinc-600"
-                title={workspacePath}
-              >
-                {folderLabel}
-              </div>
-            ) : null}
-          </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={handleToggleOpen}
-            className="desktop-no-drag relative z-10 h-8 w-8 text-zinc-500"
-            aria-label="Collapse terminal"
-          >
-            <PanelRightClose className="h-4 w-4" />
-          </Button>
-        </DesktopTitlebar>
-        <div className="flex min-h-0 flex-1 flex-col">
-          {selectedConversationId && terminalAvailable && sessions.length > 0 ? (
-            <>
-              <TerminalSessionRail
-                conversationId={selectedConversationId}
-                workspacePath={workspacePath}
-                sessions={sessions}
-                activeSessionId={activeSessionId}
-                maxSessions={maxSessions}
-                onSelect={handleSelectSession}
-                onSessionsChange={handleSessionsChange}
-              />
-              <div className="min-h-0 min-w-0 flex-1">
-                {activeSessionId ? (
-                  <IntegratedTerminal
-                    key={activeSessionId}
-                    conversationId={selectedConversationId}
-                    sessionId={activeSessionId}
-                    workspacePath={workspacePath}
-                    active={terminalAvailable}
-                    dock="right"
-                    chrome="embedded"
-                  />
-                ) : null}
-              </div>
-            </>
+    <aside
+      className="desktop-shell-right ui-panel relative flex flex-shrink-0 flex-col"
+      style={{ width: panelWidth }}
+    >
+      <DesktopTitlebar className="desktop-terminal-header flex h-[var(--titlebar-height)] items-center justify-between border-b border-white/[0.05] px-3">
+        <div className="desktop-titlebar-content min-w-0">
+          <div className="pointer-events-none text-[12px] font-medium text-zinc-400">{activeKind}</div>
+          {folderLabel ? (
+            <div className="pointer-events-none truncate text-[11px] text-zinc-600" title={workspacePath}>
+              {folderLabel}
+            </div>
           ) : null}
         </div>
-        <div
-          className="group absolute bottom-0 left-0 top-0 w-1 cursor-col-resize hover:bg-white/10"
-          onMouseDown={handleMouseDown}
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={handleToggleOpen}
+          className="desktop-no-drag relative z-10 h-8 w-8 text-zinc-500"
+          aria-label="Collapse tools panel"
         >
-          <div className="absolute left-0 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100">
-            <GripVertical className="h-6 w-6 text-zinc-600" />
-          </div>
+          <PanelRightClose className="h-4 w-4" />
+        </Button>
+      </DesktopTitlebar>
+      <div className="flex min-h-0 flex-1 flex-col">
+        {selectedConversationId && terminalAvailable ? (
+          <>
+            <TerminalSessionRail
+              tabs={tabs}
+              terminalAtLimit={terminalAtLimit}
+              maxTerminals={maxSessions}
+              onSelect={handleSelectTool}
+              onNewTerminal={() => void handleNewTerminal()}
+              onNewBrowser={handleNewBrowser}
+              onClose={(tabId, kind) => void handleCloseTool(tabId, kind)}
+            />
+            <div className="relative min-h-0 min-w-0 flex-1">
+              {activeTerminalSessionId ? (
+                <IntegratedTerminal
+                  key={activeTerminalSessionId}
+                  conversationId={selectedConversationId}
+                  sessionId={activeTerminalSessionId}
+                  workspacePath={workspacePath}
+                  active={terminalAvailable && activeToolTabId === terminalTabId(activeTerminalSessionId)}
+                  dock="right"
+                  chrome="embedded"
+                />
+              ) : null}
+              {browserTabs.map((tab) => (
+                <BrowserPane
+                  key={tab.id}
+                  conversationId={selectedConversationId}
+                  tab={tab}
+                  active={activeToolTabId === browserTabId(tab.id)}
+                  onUpdate={handleBrowserUpdate}
+                />
+              ))}
+              {tabs.length === 0 ? (
+                <div className="flex h-full items-center justify-center px-4 text-center text-[12px] text-zinc-600">
+                  Use + to open a terminal or browser.
+                </div>
+              ) : null}
+            </div>
+          </>
+        ) : null}
+      </div>
+      <div
+        className="group absolute bottom-0 left-0 top-0 w-1 cursor-col-resize hover:bg-white/10"
+        onMouseDown={handleMouseDown}
+      >
+        <div className="absolute left-0 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100">
+          <GripVertical className="h-6 w-6 text-zinc-600" />
         </div>
-      </aside>
-    </>
+      </div>
+    </aside>
   );
 }
 
-/** Opens terminal from toolbar; exported hook pattern via store is enough */
+/** Opens terminal/tools panel from toolbar; exported hook pattern via store is enough */
 export function useTerminalPanelToggle() {
   const selectedConversationId = useStore((s) => s.selectedConversationId);
   const updateTerminalState = useStore((s) => s.updateTerminalState);

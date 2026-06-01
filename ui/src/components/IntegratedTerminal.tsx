@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
 import { Terminal } from 'xterm';
+import type { ILink, ILinkProvider } from 'xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import 'xterm/css/xterm.css';
 
@@ -9,6 +10,7 @@ import {
   restartTerminalSession,
 } from '@/api/client';
 import { useConversationTerminal, useStore } from '@/hooks/useStore';
+import { openExternalPath, openExternalUrl } from '@/lib/platform';
 import { cn } from '@/lib/utils';
 
 const MIN_HEIGHT = 160;
@@ -44,6 +46,70 @@ function normalizeStatus(status: string | undefined): TerminalStatus {
     return status;
   }
   return 'idle';
+}
+
+const TERMINAL_URL_PATTERN = /https?:\/\/[^\s<>"'`]+/gi;
+const TERMINAL_PATH_PATTERN = /(?:~|\.{1,2}|\/)?(?:[A-Za-z0-9_.@ -]+\/)+[A-Za-z0-9_.@ -]+(?::\d+(?::\d+)?)?/g;
+const TRAILING_LINK_PUNCTUATION = /[.,;)\]}>'"]+$/;
+
+function trimTerminalLink(text: string): string {
+  return text.replace(TRAILING_LINK_PUNCTUATION, '');
+}
+
+function isModifiedClick(event: MouseEvent): boolean {
+  return event.metaKey || event.ctrlKey;
+}
+
+function collectTerminalLinks(
+  terminal: Terminal,
+  lineNumber: number,
+  workspacePath: string,
+): ILink[] | undefined {
+  const line = terminal.buffer.active.getLine(lineNumber - 1);
+  if (!line) return undefined;
+  const text = line.translateToString(true);
+  const links: ILink[] = [];
+
+  const usedRanges: Array<[number, number]> = [];
+  const addLink = (start: number, rawMatch: string, kind: 'url' | 'path') => {
+    const match = trimTerminalLink(rawMatch);
+    if (!match) return;
+    const end = start + match.length;
+    if (usedRanges.some(([usedStart, usedEnd]) => start < usedEnd && end > usedStart)) return;
+    usedRanges.push([start, end]);
+    links.push({
+      text: match,
+      range: {
+        start: { x: start + 1, y: lineNumber },
+        end: { x: end, y: lineNumber },
+      },
+      decorations: {
+        pointerCursor: true,
+        underline: true,
+      },
+      activate: (event) => {
+        if (!isModifiedClick(event)) return;
+        event.preventDefault();
+        if (kind === 'url') {
+          void openExternalUrl(match);
+          return;
+        }
+        void openExternalPath(match, workspacePath);
+      },
+    });
+  };
+
+  for (const match of text.matchAll(TERMINAL_URL_PATTERN)) {
+    addLink(match.index ?? 0, match[0], 'url');
+  }
+
+  for (const match of text.matchAll(TERMINAL_PATH_PATTERN)) {
+    const value = match[0];
+    if (/^https?:\/\//i.test(value)) continue;
+    addLink(match.index ?? 0, value, 'path');
+  }
+
+  return links.length > 0 ? links : undefined;
 }
 
 export function IntegratedTerminal({
@@ -194,6 +260,12 @@ export function IntegratedTerminal({
         socket.send(JSON.stringify({ type: 'input', data }));
       }
     });
+    const linkProvider: ILinkProvider = {
+      provideLinks: (lineNumber, callback) => {
+        callback(collectTerminalLinks(term, lineNumber, workspacePath));
+      },
+    };
+    const linkProviderDisposable = term.registerLinkProvider(linkProvider);
     resizeObserverRef.current = new ResizeObserver(() => {
       if (!fitAddonRef.current || !terminalRef.current) return;
       fitAddonRef.current.fit();
@@ -231,6 +303,7 @@ export function IntegratedTerminal({
       resizeObserverRef.current = null;
       window.clearTimeout(delayedFit);
       disposable.dispose();
+      linkProviderDisposable.dispose();
       socketGenerationRef.current += 1;
       socketRef.current?.close();
       socketRef.current = null;
@@ -238,7 +311,7 @@ export function IntegratedTerminal({
       terminalRef.current = null;
       fitAddonRef.current = null;
     };
-  }, [active, connectSocket, conversationId, sessionId, terminalState?.isOpen, updateTerminalState]);
+  }, [active, connectSocket, conversationId, sessionId, terminalState?.isOpen, updateTerminalState, workspacePath]);
 
   useEffect(() => {
     if (!terminalState?.isOpen || !active) {
@@ -294,6 +367,7 @@ export function IntegratedTerminal({
       updateTerminalState(conversationId, {
         sessions: nextSessions,
         activeSessionId: nextSession.session_id,
+        activeToolTabId: `terminal:${nextSession.session_id}`,
         session: nextSession,
         buffer: nextSession.replay_buffer || '',
         bufferBySessionId,

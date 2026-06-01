@@ -7,8 +7,10 @@ use std::time::{Duration, Instant};
 
 use serde::Deserialize;
 use tauri::{AppHandle, Emitter, Manager, RunEvent};
+use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_shell::process::CommandChild;
 use tauri_plugin_shell::ShellExt;
+use url::Url;
 
 const APP_NAME: &str = "Fluxion";
 const APP_LABEL: &str = "io.fluxion.local";
@@ -156,6 +158,101 @@ fn read_health() -> Option<HealthPayload> {
     }
 
     response.into_body().read_json().ok()
+}
+
+#[tauri::command]
+fn fluxion_browser_navigate(app: AppHandle, label: String, url: String) -> Result<(), String> {
+    let webview = app
+        .get_webview(&label)
+        .ok_or_else(|| format!("Browser webview not found: {label}"))?;
+    let parsed = Url::parse(&url).map_err(|error| error.to_string())?;
+    webview.navigate(parsed).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn fluxion_browser_reload(app: AppHandle, label: String) -> Result<(), String> {
+    let webview = app
+        .get_webview(&label)
+        .ok_or_else(|| format!("Browser webview not found: {label}"))?;
+    webview.reload().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn fluxion_browser_go_back(app: AppHandle, label: String) -> Result<(), String> {
+    let webview = app
+        .get_webview(&label)
+        .ok_or_else(|| format!("Browser webview not found: {label}"))?;
+    webview.eval("history.back()").map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn fluxion_browser_go_forward(app: AppHandle, label: String) -> Result<(), String> {
+    let webview = app
+        .get_webview(&label)
+        .ok_or_else(|| format!("Browser webview not found: {label}"))?;
+    webview.eval("history.forward()").map_err(|error| error.to_string())
+}
+
+fn strip_terminal_path_suffix(value: &str) -> String {
+    let mut cleaned = value
+        .trim()
+        .trim_matches(|ch| matches!(ch, '"' | '\'' | '`' | '<' | '>'))
+        .trim_end_matches(|ch| matches!(ch, '.' | ',' | ';' | ')' | ']' | '}'))
+        .to_string();
+
+    for _ in 0..2 {
+        let Some((head, tail)) = cleaned.rsplit_once(':') else {
+            break;
+        };
+        if !tail.is_empty() && tail.chars().all(|ch| ch.is_ascii_digit()) {
+            cleaned = head.to_string();
+        } else {
+            break;
+        }
+    }
+
+    cleaned
+}
+
+#[tauri::command]
+fn fluxion_open_terminal_path(
+    app: AppHandle,
+    path: String,
+    workspace_path: Option<String>,
+) -> Result<(), String> {
+    let cleaned = strip_terminal_path_suffix(&path);
+    if cleaned.is_empty() || cleaned.contains('\0') {
+        return Err("Invalid terminal path".to_string());
+    }
+
+    let path_buf = if let Some(rest) = cleaned.strip_prefix("file://") {
+        Url::parse(&cleaned)
+            .ok()
+            .and_then(|url| url.to_file_path().ok())
+            .unwrap_or_else(|| PathBuf::from(rest))
+    } else if cleaned == "~" {
+        dirs::home_dir().ok_or_else(|| "Home directory not available".to_string())?
+    } else if let Some(rest) = cleaned.strip_prefix("~/") {
+        dirs::home_dir()
+            .ok_or_else(|| "Home directory not available".to_string())?
+            .join(rest)
+    } else {
+        let raw = PathBuf::from(&cleaned);
+        if raw.is_absolute() {
+            raw
+        } else {
+            let workspace = workspace_path
+                .filter(|value| !value.trim().is_empty())
+                .map(PathBuf::from)
+                .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+            workspace.join(raw)
+        }
+    };
+
+    let resolved = path_buf.canonicalize().unwrap_or(path_buf);
+    app.opener()
+        .open_path(resolved.to_string_lossy().into_owned(), None::<&str>)
+        .map_err(|error| error.to_string())
 }
 
 fn health_matches(payload: &HealthPayload) -> bool {
@@ -418,6 +515,13 @@ pub fn run() {
     }
 
     builder
+        .invoke_handler(tauri::generate_handler![
+            fluxion_browser_navigate,
+            fluxion_browser_reload,
+            fluxion_browser_go_back,
+            fluxion_browser_go_forward,
+            fluxion_open_terminal_path,
+        ])
         .build(tauri::generate_context!())
         .expect("error while building Fluxion")
         .run(|app_handle, event| {

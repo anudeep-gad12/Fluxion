@@ -9,6 +9,7 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| main | Desktop right tools panel — widened the terminal panel resize range, converted the terminal-only tab strip into a Terminal/Browser add menu, added desktop browser tabs backed by Tauri child WebViews, fixed localhost URL parsing, avoided Wry `webview.url()` crashes on blank/loading pages, and added Cmd/Ctrl-click terminal links for URLs and file paths | done | 2026-06-01 |
 | main | Grok OAuth fallback code — Grok CLI login now keeps stdin open, exposes `/api/auth/grok/code`, and the model picker shows a fallback-code field so browser “could not reach app” codes can be pasted back into Fluxion | done | 2026-05-31 |
 | main | Provider auth + Grok OAuth pass — model picker provider panels now always show API key enter/update/clear controls, Grok is split from xAI as a separate OAuth-backed provider using official Grok CLI credentials, Grok auth login/cancel/logout/status routes were added, and xAI Grok Build no longer sends unsupported reasoning effort | done | 2026-05-31 |
 | main | Desktop workspace/terminal/model picker polish — macOS workspace selection now uses native folder picker via Tauri dialog, New workspace opens a blank draft thread without pre-creating a conversation, terminal sessions render as top tabs, and Local/MLX tabs always show with model lists or empty states | done | 2026-05-31 |
