@@ -10,6 +10,7 @@ Tests cover all 5 endpoints:
 
 import asyncio
 import json
+from pathlib import Path
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -242,6 +243,41 @@ class TestCreateAgentRun:
 
         loop = asyncio.get_event_loop()
         assert loop.run_until_complete(fetch_mode()) == "plan"
+
+    def test_plan_mode_workspace_run_creates_plan_doc_artifact(
+        self,
+        client,
+        test_db,
+        tmp_path: Path,
+    ):
+        """Plan Mode with a workspace creates the durable markdown plan doc."""
+        response = client.post(
+            "/api/agent/runs",
+            json={
+                "query": "Plan this change",
+                "collaboration_mode": "plan",
+                "workspace_path": str(tmp_path),
+                "filesystem_enabled": True,
+            },
+        )
+
+        assert response.status_code == 200
+        run_id = response.json()["run_id"]
+        plan_path = tmp_path / ".fluxion" / "plans" / f"{run_id}.md"
+        assert plan_path.exists()
+        assert "Plan this change" in plan_path.read_text()
+
+        async def fetch_plan_artifacts():
+            repo = AgentRepo(test_db)
+            return await repo.get_run_artifacts(run_id)
+
+        artifacts = asyncio.get_event_loop().run_until_complete(fetch_plan_artifacts())
+        assert any(
+            artifact["artifact_type"] == "plan_doc"
+            and artifact["file_path"] == f".fluxion/plans/{run_id}.md"
+            and artifact["action"] == "created"
+            for artifact in artifacts
+        )
 
 
 class TestPlanApprovalEndpoints:

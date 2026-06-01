@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { MouseEvent } from 'react';
+import type { MouseEvent, WheelEvent } from 'react';
 import { ChevronDown, Globe2, Plus, Terminal, X } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
@@ -23,24 +23,41 @@ export type ToolTab =
 interface TerminalSessionRailProps {
   tabs: ToolTab[];
   terminalAtLimit: boolean;
+  browserAtLimit: boolean;
   maxTerminals: number;
+  maxBrowsers: number;
   onSelect: (tabId: string) => void;
   onNewTerminal: () => void;
   onNewBrowser: () => void;
   onClose: (tabId: string, kind: ToolTab['kind']) => void;
+  menuOpen?: boolean;
+  onMenuOpenChange?: (open: boolean) => void;
 }
 
 export function TerminalSessionRail({
   tabs,
   terminalAtLimit,
+  browserAtLimit,
   maxTerminals,
+  maxBrowsers,
   onSelect,
   onNewTerminal,
   onNewBrowser,
   onClose,
+  menuOpen: controlledMenuOpen,
+  onMenuOpenChange,
 }: TerminalSessionRailProps) {
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [uncontrolledMenuOpen, setUncontrolledMenuOpen] = useState(false);
+  const menuOpen = controlledMenuOpen ?? uncontrolledMenuOpen;
   const menuRef = useRef<HTMLDivElement>(null);
+  const tabsScrollerRef = useRef<HTMLDivElement>(null);
+  const activeTabId = tabs.find((tab) => tab.active)?.id ?? null;
+  const setMenuOpen = (open: boolean) => {
+    if (controlledMenuOpen === undefined) {
+      setUncontrolledMenuOpen(open);
+    }
+    onMenuOpenChange?.(open);
+  };
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -58,9 +75,31 @@ export function TerminalSessionRail({
     onClose(tab.id, tab.kind);
   };
 
+  const handleTabsWheel = (event: WheelEvent<HTMLDivElement>) => {
+    const scroller = tabsScrollerRef.current;
+    if (!scroller || scroller.scrollWidth <= scroller.clientWidth) return;
+    const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY)
+      ? event.deltaX
+      : event.deltaY;
+    if (!delta) return;
+    event.preventDefault();
+    scroller.scrollLeft += delta;
+  };
+
+  useEffect(() => {
+    const scroller = tabsScrollerRef.current;
+    if (!scroller || !activeTabId) return;
+    const activeTab = scroller.querySelector<HTMLElement>('.desktop-terminal-tab.is-active');
+    activeTab?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }, [activeTabId]);
+
   return (
     <div className="desktop-terminal-tabs flex h-10 shrink-0 items-center gap-1 border-b border-white/[0.06] bg-[var(--desktop-bg-0)] px-2">
-      <div className="min-w-0 flex-1 overflow-x-auto">
+      <div
+        ref={tabsScrollerRef}
+        className="desktop-terminal-tabs-scroller min-w-0 flex-1 overflow-x-hidden overscroll-contain"
+        onWheel={handleTabsWheel}
+      >
         <div className="flex min-w-max items-center gap-1">
           {tabs.map((tab) => {
             const Icon = tab.kind === 'browser' ? Globe2 : Terminal;
@@ -96,7 +135,7 @@ export function TerminalSessionRail({
       <div ref={menuRef} className="relative shrink-0">
         <button
           type="button"
-          onClick={() => setMenuOpen((value) => !value)}
+          onClick={() => setMenuOpen(!menuOpen)}
           className="desktop-no-drag flex h-6 items-center justify-center gap-0.5 rounded-md px-1.5 text-zinc-500 transition-colors hover:bg-white/[0.06] hover:text-zinc-200"
           title="New panel tab"
           aria-label="New panel tab"
@@ -106,7 +145,7 @@ export function TerminalSessionRail({
           <ChevronDown className="h-3 w-3" />
         </button>
         {menuOpen ? (
-          <div className="desktop-tool-add-menu absolute right-0 top-8 z-30 w-36 overflow-hidden rounded-lg border border-white/[0.08] bg-[#14161a] p-1 shadow-xl shadow-black/35">
+          <div className="desktop-tool-add-menu absolute right-0 top-8 z-[1000] w-36 overflow-hidden rounded-lg border border-white/[0.08] bg-[#14161a] p-1 shadow-xl shadow-black/35">
             <button
               type="button"
               onClick={() => {
@@ -131,7 +170,14 @@ export function TerminalSessionRail({
                 setMenuOpen(false);
                 onNewBrowser();
               }}
-              className="desktop-no-drag flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] text-zinc-300 hover:bg-white/[0.06] hover:text-zinc-100"
+              disabled={browserAtLimit}
+              className={cn(
+                'desktop-no-drag flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] text-zinc-300',
+                browserAtLimit
+                  ? 'cursor-not-allowed opacity-40'
+                  : 'hover:bg-white/[0.06] hover:text-zinc-100'
+              )}
+              title={browserAtLimit ? `Maximum ${maxBrowsers} browsers` : 'New browser'}
             >
               <Globe2 className="h-3.5 w-3.5" />
               Browser

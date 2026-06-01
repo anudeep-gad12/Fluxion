@@ -73,12 +73,22 @@ function browserLabel(tab: BrowserTabState): string {
   }
 }
 
-function makeBrowserTab(): BrowserTabState {
+function browserTitle(url: string): string {
+  if (!url) return 'Browser';
+  try {
+    const parsed = new URL(url);
+    return parsed.hostname || 'Browser';
+  } catch {
+    return 'Browser';
+  }
+}
+
+function makeBrowserTab(url = ''): BrowserTabState {
   return {
     id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-    url: '',
-    title: 'Browser',
-    status: 'idle',
+    url,
+    title: browserTitle(url),
+    status: url ? 'loading' : 'idle',
     error: null,
   };
 }
@@ -130,6 +140,7 @@ export function TerminalPanel({ agentModeActive }: TerminalPanelProps) {
 
   const terminalState = useConversationTerminal(selectedConversationId);
   const [panelWidth, setPanelWidth] = useState(readPanelWidth);
+  const [toolMenuOpen, setToolMenuOpen] = useState(false);
   const isResizing = useRef(false);
 
   const conversation = conversations.find(
@@ -148,8 +159,10 @@ export function TerminalPanel({ agentModeActive }: TerminalPanelProps) {
   const sessions = terminalState?.sessions ?? [];
   const browserTabs = terminalState?.browserTabs ?? [];
   const activeSessionId = terminalState?.activeSessionId ?? null;
-  const maxSessions = terminalState?.maxSessionsPerConversation ?? 5;
+  const maxSessions = terminalState?.maxSessionsPerConversation ?? 10;
+  const maxBrowserTabs = terminalState?.maxBrowserTabsPerConversation ?? 10;
   const terminalAtLimit = sessions.length >= maxSessions;
+  const browserAtLimit = browserTabs.length >= maxBrowserTabs;
 
   const tabs = useMemo<ToolTab[]>(() => {
     const stateActive = terminalState?.activeToolTabId ?? null;
@@ -226,6 +239,7 @@ export function TerminalPanel({ agentModeActive }: TerminalPanelProps) {
           activeToolTabId: resolvedTool,
           session: activeSession,
           maxSessionsPerConversation: listed.max_sessions_per_conversation,
+          maxBrowserTabsPerConversation: listed.max_browser_tabs_per_conversation,
           buffer: activeSession?.replay_buffer ?? '',
           status: activeSession?.status === 'running' ? 'running' : 'idle',
           width: panelWidth,
@@ -301,6 +315,10 @@ export function TerminalPanel({ agentModeActive }: TerminalPanelProps) {
 
   const handleNewBrowser = useCallback(() => {
     if (!selectedConversationId) return;
+    if (browserAtLimit) {
+      toast.error(`Maximum ${maxBrowserTabs} browsers for this conversation`);
+      return;
+    }
     const tab = makeBrowserTab();
     const nextTool = browserTabId(tab.id);
     updateTerminalState(selectedConversationId, {
@@ -308,7 +326,58 @@ export function TerminalPanel({ agentModeActive }: TerminalPanelProps) {
       activeToolTabId: nextTool,
     });
     persistActiveTool(nextTool);
-  }, [browserTabs, persistActiveTool, selectedConversationId, updateTerminalState]);
+  }, [browserAtLimit, browserTabs, maxBrowserTabs, persistActiveTool, selectedConversationId, updateTerminalState]);
+
+  const openBrowserUrl = useCallback((url: string, options: { reuseExisting?: boolean } = {}) => {
+    if (!selectedConversationId) return;
+    const reuseExisting = options.reuseExisting ?? true;
+    const current = useStore.getState().terminalByConversation[selectedConversationId];
+    const currentBrowserTabs = current?.browserTabs ?? [];
+    const activeTool = current?.activeToolTabId ?? activeToolTabId;
+    const activeBrowserId = activeTool?.startsWith('browser:')
+      ? activeTool.slice('browser:'.length)
+      : null;
+    const targetTab = reuseExisting
+      ? currentBrowserTabs.find((tab) => tab.id === activeBrowserId)
+        ?? currentBrowserTabs.find((tab) => !tab.url)
+      : null;
+
+    if (targetTab) {
+      const nextTool = browserTabId(targetTab.id);
+      updateTerminalState(selectedConversationId, {
+        browserTabs: currentBrowserTabs.map((tab) => (
+          tab.id === targetTab.id
+            ? { ...tab, url, title: browserTitle(url), status: 'loading', error: null }
+            : tab
+        )),
+        activeToolTabId: nextTool,
+      });
+      persistActiveTool(nextTool);
+      return;
+    }
+
+    const maxTabs = current?.maxBrowserTabsPerConversation ?? maxBrowserTabs;
+    if (currentBrowserTabs.length >= maxTabs) {
+      toast.error(`Maximum ${maxTabs} browsers for this conversation`);
+      return;
+    }
+
+    const tab = makeBrowserTab(url);
+    const nextTool = browserTabId(tab.id);
+    updateTerminalState(selectedConversationId, {
+      browserTabs: [...currentBrowserTabs, tab],
+      activeToolTabId: nextTool,
+    });
+    persistActiveTool(nextTool);
+  }, [activeToolTabId, maxBrowserTabs, persistActiveTool, selectedConversationId, updateTerminalState]);
+
+  const handleOpenTerminalUrl = useCallback((url: string) => {
+    openBrowserUrl(url, { reuseExisting: true });
+  }, [openBrowserUrl]);
+
+  const handleOpenBrowserNewTab = useCallback((url: string) => {
+    openBrowserUrl(url, { reuseExisting: false });
+  }, [openBrowserUrl]);
 
   const handleBrowserUpdate = useCallback((tabId: string, updates: Partial<BrowserTabState>) => {
     if (!selectedConversationId) return;
@@ -451,11 +520,15 @@ export function TerminalPanel({ agentModeActive }: TerminalPanelProps) {
             <TerminalSessionRail
               tabs={tabs}
               terminalAtLimit={terminalAtLimit}
+              browserAtLimit={browserAtLimit}
               maxTerminals={maxSessions}
+              maxBrowsers={maxBrowserTabs}
               onSelect={handleSelectTool}
               onNewTerminal={() => void handleNewTerminal()}
               onNewBrowser={handleNewBrowser}
               onClose={(tabId, kind) => void handleCloseTool(tabId, kind)}
+              menuOpen={toolMenuOpen}
+              onMenuOpenChange={setToolMenuOpen}
             />
             <div className="relative min-h-0 min-w-0 flex-1">
               {activeTerminalSessionId ? (
@@ -466,6 +539,7 @@ export function TerminalPanel({ agentModeActive }: TerminalPanelProps) {
                   workspacePath={workspacePath}
                   active={terminalAvailable && activeToolTabId === terminalTabId(activeTerminalSessionId)}
                   dock="right"
+                  onOpenUrl={handleOpenTerminalUrl}
                   chrome="embedded"
                 />
               ) : null}
@@ -475,7 +549,9 @@ export function TerminalPanel({ agentModeActive }: TerminalPanelProps) {
                   conversationId={selectedConversationId}
                   tab={tab}
                   active={activeToolTabId === browserTabId(tab.id)}
+                  obscured={toolMenuOpen}
                   onUpdate={handleBrowserUpdate}
+                  onOpenNewTab={handleOpenBrowserNewTab}
                 />
               ))}
               {tabs.length === 0 ? (

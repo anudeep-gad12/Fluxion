@@ -2,8 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, Globe2, RotateCw, Search, XCircle } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { LogicalPosition, LogicalSize } from '@tauri-apps/api/dpi';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { Webview } from '@tauri-apps/api/webview';
-import { getCurrentWindow } from '@tauri-apps/api/window';
 
 import type { BrowserTabState } from '@/hooks/useStore';
 import { cn } from '@/lib/utils';
@@ -12,7 +12,9 @@ interface BrowserPaneProps {
   conversationId: string;
   tab: BrowserTabState;
   active: boolean;
+  obscured?: boolean;
   onUpdate: (tabId: string, updates: Partial<BrowserTabState>) => void;
+  onOpenNewTab?: (url: string) => void;
 }
 
 function browserLabel(conversationId: string, tabId: string): string {
@@ -44,7 +46,14 @@ function normalizeBrowserInput(input: string): string {
   return `https://www.google.com/search?q=${encodeURIComponent(value)}`;
 }
 
-export function BrowserPane({ conversationId, tab, active, onUpdate }: BrowserPaneProps) {
+export function BrowserPane({
+  conversationId,
+  tab,
+  active,
+  obscured = false,
+  onUpdate,
+  onOpenNewTab,
+}: BrowserPaneProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const webviewRef = useRef<Webview | null>(null);
@@ -59,51 +68,70 @@ export function BrowserPane({ conversationId, tab, active, onUpdate }: BrowserPa
   const syncBounds = useCallback(async () => {
     const webview = webviewRef.current;
     const node = viewportRef.current;
-    if (!webview || !node || !active) return;
+    if (!webview || !node || !active || obscured) return;
     const rect = node.getBoundingClientRect();
     if (rect.width < 8 || rect.height < 8) return;
     await webview.setPosition(new LogicalPosition(Math.round(rect.left), Math.round(rect.top)));
     await webview.setSize(new LogicalSize(Math.round(rect.width), Math.round(rect.height)));
-  }, [active]);
+  }, [active, obscured]);
 
   const hideWebview = useCallback(() => {
     void webviewRef.current?.hide().catch(() => undefined);
   }, []);
 
   const showWebview = useCallback(async () => {
-    if (!tab.url) return;
+    if (!tab.url || obscured) return;
     if (!webviewRef.current) {
       const rect = viewportRef.current?.getBoundingClientRect();
       if (!rect || rect.width < 8 || rect.height < 8) return;
       onUpdate(tab.id, { status: 'loading', error: null });
-      const webview = new Webview(getCurrentWindow(), labelRef.current, {
-        url: tab.url,
-        x: Math.round(rect.left),
-        y: Math.round(rect.top),
-        width: Math.round(rect.width),
-        height: Math.round(rect.height),
-        acceptFirstMouse: true,
-      });
-      webviewRef.current = webview;
-      lastUrlRef.current = tab.url;
-      void webview.once('tauri://created', () => {
+      try {
+        await invoke('fluxion_browser_create', {
+          label: labelRef.current,
+          url: tab.url,
+          x: Math.round(rect.left),
+          y: Math.round(rect.top),
+          width: Math.round(rect.width),
+          height: Math.round(rect.height),
+        });
+        const webview = await Webview.getByLabel(labelRef.current);
+        if (!webview) {
+          throw new Error('Could not attach browser webview');
+        }
+        webviewRef.current = webview;
+        lastUrlRef.current = tab.url;
         onUpdate(tab.id, { status: 'ready', title: displayTitle(tab.url), error: null });
         void syncBounds();
-      });
-      void webview.once('tauri://error', (event) => {
+      } catch (error) {
         onUpdate(tab.id, {
           status: 'error',
-          error: String(event.payload ?? 'Could not load browser tab'),
+          error: String(error || 'Could not load browser tab'),
         });
-      });
+      }
       return;
     }
     await webviewRef.current.show();
     await syncBounds();
-  }, [onUpdate, syncBounds, tab.id, tab.url]);
+  }, [obscured, onUpdate, syncBounds, tab.id, tab.url]);
 
   useEffect(() => {
-    if (!active) {
+    let unlisten: UnlistenFn | undefined;
+    let cancelled = false;
+    void listen<{ source_label: string; url: string }>('fluxion-browser-new-window', (event) => {
+      if (event.payload?.source_label !== labelRef.current) return;
+      if (event.payload.url) onOpenNewTab?.(event.payload.url);
+    }).then((cleanup) => {
+      if (cancelled) cleanup();
+      else unlisten = cleanup;
+    });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [onOpenNewTab]);
+
+  useEffect(() => {
+    if (!active || obscured) {
       hideWebview();
       return;
     }
@@ -113,10 +141,10 @@ export function BrowserPane({ conversationId, tab, active, onUpdate }: BrowserPa
       return;
     }
     void showWebview();
-  }, [active, hideWebview, showWebview, tab.url]);
+  }, [active, hideWebview, obscured, showWebview, tab.url]);
 
   useEffect(() => {
-    if (!active || !tab.url || !webviewRef.current || lastUrlRef.current === tab.url) return;
+    if (!active || obscured || !tab.url || !webviewRef.current || lastUrlRef.current === tab.url) return;
     lastUrlRef.current = tab.url;
     onUpdate(tab.id, { status: 'loading', title: displayTitle(tab.url), error: null });
     void invoke('fluxion_browser_navigate', {
@@ -125,10 +153,10 @@ export function BrowserPane({ conversationId, tab, active, onUpdate }: BrowserPa
     })
       .then(() => onUpdate(tab.id, { status: 'ready', title: displayTitle(tab.url), error: null }))
       .catch((error) => onUpdate(tab.id, { status: 'error', error: String(error) }));
-  }, [active, onUpdate, tab.id, tab.url]);
+  }, [active, obscured, onUpdate, tab.id, tab.url]);
 
   useEffect(() => {
-    if (!active) return;
+    if (!active || obscured) return;
     const observer = new ResizeObserver(() => void syncBounds());
     if (viewportRef.current) observer.observe(viewportRef.current);
     window.addEventListener('resize', syncBounds);
@@ -138,7 +166,7 @@ export function BrowserPane({ conversationId, tab, active, onUpdate }: BrowserPa
       window.removeEventListener('resize', syncBounds);
       cancelAnimationFrame(raf);
     };
-  }, [active, syncBounds]);
+  }, [active, obscured, syncBounds]);
 
   useEffect(() => {
     return () => {

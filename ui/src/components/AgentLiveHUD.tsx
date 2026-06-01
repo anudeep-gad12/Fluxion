@@ -161,9 +161,14 @@ export const AgentLiveHUD = memo(function AgentLiveHUD({
     try {
       if (decision === 'approve') {
         const response = await approveAgentPlan(pendingPlan.run_id, pendingPlan.plan_id);
-        useStore.getState().updateAgentState(pendingPlan.run_id, {
+        const store = useStore.getState();
+        store.updateAgentState(pendingPlan.run_id, {
+          isActive: false,
+          agentState: 'complete',
           pendingPlanApproval: { ...pendingPlan, status: 'approved' },
         });
+        store.updateRun(pendingPlan.run_id, { status: 'succeeded' });
+        localStorage.removeItem(`stream_token:${pendingPlan.run_id}`);
         if (response.implementation_run_id) {
           onImplementationStarted?.({
             run_id: response.implementation_run_id,
@@ -184,6 +189,17 @@ export const AgentLiveHUD = memo(function AgentLiveHUD({
       toast.error(`plan ${decision} failed: ${errMsg}`);
     } finally {
       setPlanDecision(null);
+    }
+  };
+
+  const copyPlanPath = async () => {
+    const path = agentState.pendingPlanApproval?.plan_doc_path || agentState.planDoc?.file_path;
+    if (!path) return;
+    try {
+      await navigator.clipboard.writeText(path);
+      toast.success('plan path copied');
+    } catch {
+      toast.error('copy failed');
     }
   };
 
@@ -301,6 +317,19 @@ export const AgentLiveHUD = memo(function AgentLiveHUD({
                 {agentState.pendingPlanApproval.markdown}
               </pre>
             )}
+
+            {(agentState.pendingPlanApproval.plan_doc_path || agentState.planDoc?.file_path) ? (
+              <div className={isDesktop ? 'desktop-hud-body flex items-center gap-2' : 'flex items-center gap-2 rounded-[0.75rem] border border-zinc-800/80 bg-zinc-950/60 px-3 py-2 text-[11px] text-zinc-400'}>
+                <span>Plan file: {agentState.pendingPlanApproval.plan_doc_path || agentState.planDoc?.file_path}</span>
+                <button
+                  type="button"
+                  onClick={copyPlanPath}
+                  className={isDesktop ? 'desktop-hud-btn-secondary' : 'rounded-md border border-zinc-700 px-2 py-1 text-zinc-200 hover:border-zinc-500'}
+                >
+                  copy path
+                </button>
+              </div>
+            ) : null}
 
             <textarea
               value={rejectFeedback}

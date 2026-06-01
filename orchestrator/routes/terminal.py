@@ -98,10 +98,11 @@ async def list_terminal_sessions(conversation_id: str, http_request: Request):
     await _require_conversation_access(conversation_id, session_id=session_id, is_owner=is_owner)
     manager = get_terminal_manager()
     sessions = await manager.list_sessions(conversation_id)
-    limit = get_chat_config().terminal.max_sessions_per_conversation
+    terminal_config = get_chat_config().terminal
     return TerminalSessionListResponse(
         sessions=sessions,
-        max_sessions_per_conversation=limit,
+        max_sessions_per_conversation=terminal_config.max_sessions_per_conversation,
+        max_browser_tabs_per_conversation=terminal_config.max_browser_tabs_per_conversation,
     )
 
 

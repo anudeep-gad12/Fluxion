@@ -29,6 +29,7 @@ export interface TerminalUIState {
   sessions: TerminalSessionResponse[];
   activeSessionId: string | null;
   maxSessionsPerConversation: number;
+  maxBrowserTabsPerConversation: number;
   bufferBySessionId: Record<string, string>;
   session: TerminalSessionResponse | null;
   buffer: string;
@@ -497,7 +498,8 @@ export const useStore = create<AppState>((set, get) => ({
         browserTabs: [],
         sessions: [],
         activeSessionId: null,
-        maxSessionsPerConversation: 5,
+        maxSessionsPerConversation: 10,
+        maxBrowserTabsPerConversation: 10,
         bufferBySessionId: {},
         session: null,
         buffer: '',
@@ -527,7 +529,8 @@ export const useStore = create<AppState>((set, get) => ({
         browserTabs: [],
         sessions: [],
         activeSessionId: null,
-        maxSessionsPerConversation: 5,
+        maxSessionsPerConversation: 10,
+        maxBrowserTabsPerConversation: 10,
         bufferBySessionId: {},
         session: null,
         buffer: '',

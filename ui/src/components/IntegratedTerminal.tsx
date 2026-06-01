@@ -28,6 +28,7 @@ interface IntegratedTerminalProps {
   workspacePath: string;
   active: boolean;
   dock: TerminalDock;
+  onOpenUrl?: (url: string) => void;
   /** When embedded, outer panel supplies header/resize/close chrome */
   chrome?: 'full' | 'embedded';
 }
@@ -64,6 +65,7 @@ function collectTerminalLinks(
   terminal: Terminal,
   lineNumber: number,
   workspacePath: string,
+  onOpenUrl?: (url: string) => void,
 ): ILink[] | undefined {
   const line = terminal.buffer.active.getLine(lineNumber - 1);
   if (!line) return undefined;
@@ -88,12 +90,17 @@ function collectTerminalLinks(
         underline: true,
       },
       activate: (event) => {
-        if (!isModifiedClick(event)) return;
-        event.preventDefault();
         if (kind === 'url') {
-          void openExternalUrl(match);
+          event.preventDefault();
+          if (onOpenUrl) {
+            onOpenUrl(match);
+          } else {
+            void openExternalUrl(match);
+          }
           return;
         }
+        if (!isModifiedClick(event)) return;
+        event.preventDefault();
         void openExternalPath(match, workspacePath);
       },
     });
@@ -118,6 +125,7 @@ export function IntegratedTerminal({
   workspacePath,
   active,
   dock,
+  onOpenUrl,
   chrome = 'full',
 }: IntegratedTerminalProps) {
   const terminalState = useConversationTerminal(conversationId);
@@ -262,7 +270,7 @@ export function IntegratedTerminal({
     });
     const linkProvider: ILinkProvider = {
       provideLinks: (lineNumber, callback) => {
-        callback(collectTerminalLinks(term, lineNumber, workspacePath));
+        callback(collectTerminalLinks(term, lineNumber, workspacePath, onOpenUrl));
       },
     };
     const linkProviderDisposable = term.registerLinkProvider(linkProvider);
@@ -311,7 +319,7 @@ export function IntegratedTerminal({
       terminalRef.current = null;
       fitAddonRef.current = null;
     };
-  }, [active, connectSocket, conversationId, sessionId, terminalState?.isOpen, updateTerminalState, workspacePath]);
+  }, [active, connectSocket, conversationId, onOpenUrl, sessionId, terminalState?.isOpen, updateTerminalState, workspacePath]);
 
   useEffect(() => {
     if (!terminalState?.isOpen || !active) {

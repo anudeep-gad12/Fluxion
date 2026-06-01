@@ -302,6 +302,7 @@ class TerminalSessionListResponse(BaseModel):
 
     sessions: list[TerminalSessionResponse]
     max_sessions_per_conversation: int
+    max_browser_tabs_per_conversation: int = 10
 
 
 class AgentStepResponse(BaseModel):
@@ -407,6 +408,8 @@ class CreateAgentRunRequest(BaseModel):
         None  # "local" or "daytona" — overrides PYTHON_PROVIDER env var
     )
     image_attachments: list[dict[str, Any]] = Field(default_factory=list)
+    plan_doc_path: Optional[str] = None
+    source_plan_run_id: Optional[str] = None
 
 
 class CreateAgentRunResponse(BaseModel):

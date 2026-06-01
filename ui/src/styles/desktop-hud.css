@@ -222,6 +222,23 @@
   color: var(--desktop-text-tertiary);
 }
 
+[data-app='desktop'] .desktop-hud-btn-secondary {
+  border: 1px solid var(--desktop-border-subtle);
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--desktop-text-secondary);
+  background: transparent;
+  transition: color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+}
+
+[data-app='desktop'] .desktop-hud-btn-secondary:hover {
+  border-color: var(--desktop-border);
+  color: var(--desktop-text-primary);
+  background: var(--desktop-bg-3);
+}
+
 [data-app='desktop'] .desktop-hud-metrics {
   margin-left: auto;
   font-variant-numeric: tabular-nums;

@@ -130,6 +130,7 @@ def create_browser_agent_tool_registry(
     python_provider: Optional[str] = None,
     collaboration_mode: str = "default",
     user_input_callback: Optional[Any] = None,
+    plan_doc_relative_path: Optional[str] = None,
 ) -> ToolRegistry:
     """Create the browser-first agent tool registry from capability flags.
 
@@ -222,6 +223,15 @@ def create_browser_agent_tool_registry(
         from .request_user_input import RequestUserInputTool
 
         registry.register(RequestUserInputTool(user_input_callback))
+        if working_dir and plan_doc_relative_path:
+            from .update_plan_doc import UpdatePlanDocTool
+
+            registry.register(
+                UpdatePlanDocTool(
+                    workspace_path=working_dir,
+                    relative_path=plan_doc_relative_path,
+                )
+            )
 
     logger.info(
         "Browser agent tool registry created",

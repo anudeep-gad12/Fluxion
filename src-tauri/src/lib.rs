@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, RunEvent};
 use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_shell::process::CommandChild;
@@ -30,6 +30,65 @@ struct HealthPayload {
     version: Option<String>,
     build_id: Option<String>,
 }
+
+#[derive(Debug, Clone, Serialize)]
+struct BrowserNewWindowPayload {
+    source_label: String,
+    url: String,
+}
+
+const BROWSER_NEW_TAB_INIT_SCRIPT: &str = r#"
+(() => {
+  if (window.__fluxionNewTabInterceptorInstalled) return;
+  window.__fluxionNewTabInterceptorInstalled = true;
+
+  const NEW_TAB_SCHEME = 'fluxion-new-tab://open?url=';
+  const sendNewTab = (rawUrl) => {
+    try {
+      if (!rawUrl || /^javascript:/i.test(rawUrl)) return false;
+      const resolved = new URL(rawUrl, window.location.href).href;
+      window.location.href = NEW_TAB_SCHEME + encodeURIComponent(resolved);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const anchorFrom = (target) => {
+    if (!target || typeof target.closest !== 'function') return null;
+    return target.closest('a[href]');
+  };
+
+  document.addEventListener('click', (event) => {
+    if (event.defaultPrevented || event.button !== 0) return;
+    const anchor = anchorFrom(event.target);
+    if (!anchor) return;
+    const target = (anchor.getAttribute('target') || '').toLowerCase();
+    if (target === '_blank' || event.metaKey || event.ctrlKey || event.shiftKey) {
+      if (sendNewTab(anchor.getAttribute('href'))) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    }
+  }, true);
+
+  document.addEventListener('auxclick', (event) => {
+    if (event.defaultPrevented || event.button !== 1) return;
+    const anchor = anchorFrom(event.target);
+    if (!anchor) return;
+    if (sendNewTab(anchor.getAttribute('href'))) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  }, true);
+
+  const originalOpen = window.open;
+  window.open = function(url, target, features) {
+    if (url && sendNewTab(url)) return null;
+    return originalOpen.call(window, url, target, features);
+  };
+})();
+"#;
 
 fn app_version() -> &'static str {
     env!("CARGO_PKG_VERSION")
@@ -115,8 +174,14 @@ fn sidecar_environment(handle: &AppHandle) -> HashMap<String, String> {
     let log_dir = data.join("logs");
     let mut env = HashMap::from([
         ("SERVE_STATIC".to_string(), "true".to_string()),
-        ("DATABASE_PATH".to_string(), var_dir.join("traces.sqlite").to_string_lossy().into_owned()),
-        ("LOG_DIR".to_string(), log_dir.to_string_lossy().into_owned()),
+        (
+            "DATABASE_PATH".to_string(),
+            var_dir.join("traces.sqlite").to_string_lossy().into_owned(),
+        ),
+        (
+            "LOG_DIR".to_string(),
+            log_dir.to_string_lossy().into_owned(),
+        ),
         ("LOG_TO_FILE".to_string(), "true".to_string()),
         ("FLUXION_PACKAGED".to_string(), "true".to_string()),
         ("FLUXION_APP_VERSION".to_string(), app_version().to_string()),
@@ -160,6 +225,68 @@ fn read_health() -> Option<HealthPayload> {
     response.into_body().read_json().ok()
 }
 
+fn emit_browser_new_tab(app: &AppHandle, source_label: &str, url: String) {
+    let _ = app.emit(
+        "fluxion-browser-new-window",
+        BrowserNewWindowPayload {
+            source_label: source_label.to_string(),
+            url,
+        },
+    );
+}
+
+#[tauri::command]
+fn fluxion_browser_create(
+    app: AppHandle,
+    label: String,
+    url: String,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+) -> Result<(), String> {
+    let window = app
+        .get_window("main")
+        .ok_or_else(|| "main window missing".to_string())?;
+    let parsed = Url::parse(&url).map_err(|error| error.to_string())?;
+    let source_label = label.clone();
+    let app_for_new_window = app.clone();
+    let navigation_source_label = label.clone();
+    let app_for_navigation = app.clone();
+    let webview_builder = tauri::WebviewBuilder::new(label, tauri::WebviewUrl::External(parsed))
+        .accept_first_mouse(true)
+        .initialization_script(BROWSER_NEW_TAB_INIT_SCRIPT)
+        .on_navigation(move |navigation_url| {
+            if navigation_url.scheme() != "fluxion-new-tab" {
+                return true;
+            }
+            if let Some((_, value)) = navigation_url
+                .query_pairs()
+                .find(|(key, _)| key.as_ref() == "url")
+            {
+                emit_browser_new_tab(
+                    &app_for_navigation,
+                    &navigation_source_label,
+                    value.into_owned(),
+                );
+            }
+            false
+        })
+        .on_new_window(move |new_url, _features| {
+            emit_browser_new_tab(&app_for_new_window, &source_label, new_url.to_string());
+            tauri::webview::NewWindowResponse::Deny
+        });
+
+    window
+        .add_child(
+            webview_builder,
+            tauri::LogicalPosition::new(x, y),
+            tauri::LogicalSize::new(width, height),
+        )
+        .map(|_| ())
+        .map_err(|error| error.to_string())
+}
+
 #[tauri::command]
 fn fluxion_browser_navigate(app: AppHandle, label: String, url: String) -> Result<(), String> {
     let webview = app
@@ -182,7 +309,9 @@ fn fluxion_browser_go_back(app: AppHandle, label: String) -> Result<(), String> 
     let webview = app
         .get_webview(&label)
         .ok_or_else(|| format!("Browser webview not found: {label}"))?;
-    webview.eval("history.back()").map_err(|error| error.to_string())
+    webview
+        .eval("history.back()")
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -190,7 +319,9 @@ fn fluxion_browser_go_forward(app: AppHandle, label: String) -> Result<(), Strin
     let webview = app
         .get_webview(&label)
         .ok_or_else(|| format!("Browser webview not found: {label}"))?;
-    webview.eval("history.forward()").map_err(|error| error.to_string())
+    webview
+        .eval("history.forward()")
+        .map_err(|error| error.to_string())
 }
 
 fn strip_terminal_path_suffix(value: &str) -> String {
@@ -454,21 +585,19 @@ fn start_backend_in_background(handle: AppHandle) {
         .await;
 
         let handle_for_ui = handle.clone();
-        let _ = handle.run_on_main_thread(move || {
-            match result {
-                Ok(Ok(())) => {
-                    if let Err(error) = navigate_main_to_service(&handle_for_ui) {
-                        show_splash_error(&handle_for_ui, &error);
-                    }
+        let _ = handle.run_on_main_thread(move || match result {
+            Ok(Ok(())) => {
+                if let Err(error) = navigate_main_to_service(&handle_for_ui) {
+                    show_splash_error(&handle_for_ui, &error);
                 }
-                Ok(Err(message)) => {
-                    eprintln!("[fluxion] backend startup failed: {message}");
-                    show_splash_error(&handle_for_ui, &message);
-                }
-                Err(join_error) => {
-                    let message = format!("Startup failed: {join_error}");
-                    show_splash_error(&handle_for_ui, &message);
-                }
+            }
+            Ok(Err(message)) => {
+                eprintln!("[fluxion] backend startup failed: {message}");
+                show_splash_error(&handle_for_ui, &message);
+            }
+            Err(join_error) => {
+                let message = format!("Startup failed: {join_error}");
+                show_splash_error(&handle_for_ui, &message);
             }
         });
     });
@@ -516,6 +645,7 @@ pub fn run() {
 
     builder
         .invoke_handler(tauri::generate_handler![
+            fluxion_browser_create,
             fluxion_browser_navigate,
             fluxion_browser_reload,
             fluxion_browser_go_back,

@@ -18,6 +18,7 @@ import type {
   ToolApprovalRequiredEvent,
   PlanApprovalRequiredEvent,
   PlanApprovedEvent,
+  PlanDocUpdatedEvent,
   UserInputRequiredEvent,
   ToolResultEvent,
   AnswerEvent,
@@ -254,6 +255,7 @@ export function useAgentSSE(runId: string | null) {
                 run_id: id,
                 markdown: planEvent.markdown,
                 visible_answer: planEvent.visible_answer,
+                plan_doc_path: planEvent.plan_doc_path,
                 created_at: planEvent.timestamp,
                 status: 'pending',
               },
@@ -268,14 +270,39 @@ export function useAgentSSE(runId: string | null) {
               pendingPlanApproval: currentState?.pendingPlanApproval
                 ? { ...currentState.pendingPlanApproval, status: 'approved' }
                 : undefined,
+              isActive: false,
               agentState: 'complete',
             });
+            updateRun(id, { status: 'succeeded' });
+            localStorage.removeItem(`stream_token:${id}`);
             if (planEvent.implementation_stream_token && planEvent.implementation_run_id) {
               localStorage.setItem(
                 `stream_token:${planEvent.implementation_run_id}`,
                 planEvent.implementation_stream_token,
               );
             }
+            break;
+          }
+
+          case 'plan_doc_updated': {
+            const planDocEvent = event as PlanDocUpdatedEvent;
+            const currentState = useStore.getState().agentRunState[id];
+            updateAgentState(id, {
+              planDoc: {
+                file_path: planDocEvent.file_path,
+                action: planDocEvent.action,
+                bytes: planDocEvent.bytes,
+                summary: planDocEvent.summary,
+                updated_at: planDocEvent.timestamp,
+              },
+              pendingPlanApproval: currentState?.pendingPlanApproval
+                ? {
+                    ...currentState.pendingPlanApproval,
+                    plan_doc_path:
+                      currentState.pendingPlanApproval.plan_doc_path || planDocEvent.file_path,
+                  }
+                : currentState?.pendingPlanApproval,
+            });
             break;
           }
 

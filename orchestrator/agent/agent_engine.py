@@ -5815,7 +5815,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
         """
         # Capture full result_detail for write tools
         result_detail = None
-        if tool_call.name in ("write_file", "edit_file", "apply_patch", "bash", "exec_command", "write_stdin") and result.result_data:
+        if tool_call.name in ("write_file", "edit_file", "apply_patch", "bash", "exec_command", "write_stdin", "update_plan_doc") and result.result_data:
             result_detail = json.dumps(result.result_data, ensure_ascii=False)[:10000]
 
         # Record completion
@@ -5829,7 +5829,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
         )
 
         # Record file change artifact for write tools
-        if result.success and tool_call.name in ("write_file", "edit_file", "apply_patch", "bash", "exec_command", "write_stdin"):
+        if result.success and tool_call.name in ("write_file", "edit_file", "apply_patch", "bash", "exec_command", "write_stdin", "update_plan_doc"):
             artifact_type = {
                 "write_file": "file_write",
                 "edit_file": "file_edit",
@@ -5837,16 +5837,33 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 "bash": "command_run",
                 "exec_command": "command_run",
                 "write_stdin": "command_run",
+                "update_plan_doc": "plan_doc",
             }.get(tool_call.name, tool_call.name)
+            result_data_path = (
+                result.result_data.get("file_path", "")
+                if isinstance(result.result_data, dict)
+                else ""
+            )
             file_path = tool_call.arguments.get(
-                "file_path", tool_call.arguments.get("command", tool_call.arguments.get("cmd", ""))
+                "file_path",
+                tool_call.arguments.get(
+                    "command",
+                    tool_call.arguments.get(
+                        "cmd",
+                        result_data_path,
+                    ),
+                ),
             )
             try:
                 await self._repo.create_run_artifact(
                     run_id=run_id,
                     artifact_type=artifact_type,
                     file_path=file_path,
-                    action=tool_call.name,
+                    action=(
+                        "updated"
+                        if tool_call.name == "update_plan_doc"
+                        else tool_call.name
+                    ),
                     detail=result.result_summary,
                     tool_call_id=tc_record["id"],
                 )
@@ -5896,6 +5913,19 @@ To provide your final answer, respond WITHOUT calling any tools."""
         if tool_call.name in {"bash", "exec_command", "write_stdin"} and bash_output:
             emit_kwargs["bash_output"] = bash_output
         self._emit(event_callback, "tool_result", **emit_kwargs)
+        if tool_call.name == "update_plan_doc" and result.success:
+            result_data = result.result_data if isinstance(result.result_data, dict) else {}
+            self._emit(
+                event_callback,
+                "plan_doc_updated",
+                run_id=run_id,
+                file_path=result_data.get("file_path", ""),
+                action="updated",
+                bytes=result_data.get("bytes"),
+                summary=result_data.get("summary", result.result_summary),
+                diff=result_data.get("diff"),
+                step_number=step_number,
+            )
 
         # Trace: tool_result
         await self._add_trace_event(

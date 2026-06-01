@@ -419,7 +419,8 @@ class RateLimitConfig(BaseModel):
 class TerminalConfig(BaseModel):
     """Browser terminal panel settings."""
 
-    max_sessions_per_conversation: int = 5
+    max_sessions_per_conversation: int = 10
+    max_browser_tabs_per_conversation: int = 10
 
 
 class DemoConfig(BaseModel):

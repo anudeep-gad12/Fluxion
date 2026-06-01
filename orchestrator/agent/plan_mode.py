@@ -20,6 +20,9 @@ Plan Mode rules:
 - Explore before asking. Prefer read-only tools to discover repo facts.
 - Do not modify files, run tests, run shell commands, execute Python, apply
   patches, or perform any action that carries out the implementation.
+- When `update_plan_doc` is available, keep the assigned durable markdown plan
+  document current with research notes, assumptions, open questions, draft
+  plan, and checklist updates. This is the only file write allowed in Plan Mode.
 - Use `request_user_input` for important product/implementation choices that
   cannot be discovered from the repo.
 - Keep iterating when the user rejects a plan. Treat rejection feedback as
@@ -103,12 +106,23 @@ def build_plan_rejection_message(feedback: Optional[str]) -> str:
     )
 
 
-def build_plan_implementation_prompt(plan_markdown: str) -> str:
+def build_plan_implementation_prompt(
+    plan_markdown: str,
+    plan_doc_path: Optional[str] = None,
+) -> str:
     """Build the Default Mode handoff prompt for implementing an approved plan."""
+    plan_doc_note = ""
+    if plan_doc_path:
+        plan_doc_note = (
+            f"\n\nApproved plan file: `{plan_doc_path}`. Re-read repository files before "
+            "editing; do not rely on stale Plan Mode tool outputs. Fluxion will append "
+            "implementation progress to that plan file from run events."
+        )
     return (
         "A previous agent produced the plan below to accomplish the user's task. "
         "Implement the plan in a fresh context. Treat the plan as the source of "
         "user intent, re-read files as needed, and carry the work through "
         "implementation and verification.\n\n"
         f"{plan_markdown.strip()}"
+        f"{plan_doc_note}"
     )

@@ -73,6 +73,7 @@ src-tauri/binaries/fluxion-server-*
 
 # Agent outputs
 .pids/
+.fluxion/
 .claude/
 # GAIA benchmark results (generated, except best_runs)
 gaia_results/

@@ -35,6 +35,11 @@ from orchestrator.agent.plan_mode import (
     build_plan_implementation_prompt,
     normalize_collaboration_mode,
 )
+from orchestrator.agent.plan_doc import (
+    append_plan_doc_section,
+    create_initial_plan_doc,
+    plan_doc_relative_path,
+)
 from orchestrator.reasoning_controls import ReasoningSettings
 from orchestrator.schemas import (
     AgentCitationResponse,
@@ -119,6 +124,7 @@ _EVENT_TYPE_MAP = {
     "tool_approval_required": "tool_approval_required",
     "plan_approval_required": "plan_approval_required",
     "plan_approved": "plan_approved",
+    "plan_doc_updated": "plan_doc_updated",
     "user_input_required": "user_input_required",
     "tool_result": "tool_result",
     "synthesizing": "agent_state",
@@ -188,6 +194,187 @@ async def _persist_run_event(run_id: str, seq: int, event: Dict[str, Any]) -> No
             "Failed to persist run event",
             extra={"run_id": run_id, "seq": seq, "error": str(e)},
         )
+
+
+async def _emit_external_run_event(run_id: str, event: Dict[str, Any]) -> None:
+    """Append an event from a route/helper outside the engine callback."""
+    history = _event_history.setdefault(run_id, [])
+    seq = len(history) + 1
+    event["seq"] = seq
+    history.append(event.copy())
+    await _persist_run_event(run_id, seq, event)
+    notify = _event_notify.get(run_id)
+    if notify:
+        notify.set()
+
+
+def _plan_doc_update_event(
+    *,
+    run_id: str,
+    file_path: str,
+    action: str,
+    summary: str,
+    byte_count: Optional[int] = None,
+    step_number: Optional[int] = None,
+) -> Dict[str, Any]:
+    """Build a plan_doc_updated engine event."""
+    event: Dict[str, Any] = {
+        "type": "plan_doc_updated",
+        "run_id": run_id,
+        "file_path": file_path,
+        "action": action,
+        "summary": summary,
+    }
+    if byte_count is not None:
+        event["bytes"] = byte_count
+    if step_number is not None:
+        event["step_number"] = step_number
+    return event
+
+
+async def _record_plan_doc_artifact(
+    *,
+    run_id: str,
+    file_path: str,
+    action: str,
+    detail: str,
+) -> None:
+    try:
+        db = await get_db()
+        repo = AgentRepo(db)
+        await repo.create_run_artifact(
+            run_id=run_id,
+            artifact_type="plan_doc",
+            file_path=file_path,
+            action=action,
+            detail=detail,
+        )
+    except Exception as e:
+        logger.warning(
+            "Failed to record plan doc artifact",
+            extra={
+                "run_id": run_id,
+                "file_path": file_path,
+                "action": action,
+                "error": str(e),
+            },
+        )
+
+
+async def _append_plan_doc_update(
+    *,
+    run_id: str,
+    workspace_path: Optional[str],
+    file_path: Optional[str],
+    action: str,
+    heading: str,
+    body: str,
+    event_callback: Optional[Any] = None,
+) -> None:
+    if not workspace_path or not file_path:
+        return
+    try:
+        byte_count = await append_plan_doc_section(
+            workspace_path=workspace_path,
+            relative_path=file_path,
+            heading=heading,
+            body=body,
+        )
+        summary = f"{heading} appended"
+        await _record_plan_doc_artifact(
+            run_id=run_id,
+            file_path=file_path,
+            action=action,
+            detail=summary,
+        )
+        if event_callback:
+            event_callback(
+                _plan_doc_update_event(
+                    run_id=run_id,
+                    file_path=file_path,
+                    action=action,
+                    summary=summary,
+                    byte_count=byte_count,
+                )
+            )
+        elif run_id in _event_history:
+            await _emit_external_run_event(
+                run_id,
+                _plan_doc_update_event(
+                    run_id=run_id,
+                    file_path=file_path,
+                    action=action,
+                    summary=summary,
+                    byte_count=byte_count,
+                ),
+            )
+    except Exception as e:
+        logger.warning(
+            "Failed to append plan doc update",
+            extra={
+                "run_id": run_id,
+                "file_path": file_path,
+                "action": action,
+                "error": str(e),
+            },
+        )
+
+
+async def _record_implementation_plan_progress(
+    *,
+    run_id: str,
+    workspace_path: Optional[str],
+    file_path: Optional[str],
+    event: Dict[str, Any],
+) -> None:
+    """Append concise implementation progress derived from existing events."""
+    if not workspace_path or not file_path:
+        return
+    event_type = event.get("type")
+    heading: Optional[str] = None
+    body: Optional[str] = None
+    if event_type == "agent_started":
+        heading = "Implementation Progress"
+        body = (
+            f"- Implementation run id: `{run_id}`\n"
+            "- Current phase: started\n"
+            "- Status: implementation running"
+        )
+    elif event_type == "step_started":
+        step_number = event.get("step_number")
+        heading = "Implementation Progress"
+        body = f"- Current phase: step {step_number} started"
+    elif event_type == "tool_result":
+        tool_name = event.get("tool_name")
+        if tool_name not in {"write_file", "edit_file", "apply_patch", "bash", "exec_command"}:
+            return
+        summary = str(event.get("result_summary") or "").strip()
+        success = "passed" if event.get("success") else "failed"
+        heading = "Implementation Progress"
+        body = (
+            f"- Tool: `{tool_name}` {success}\n"
+            f"- Outcome: {summary[:500]}"
+        )
+    elif event_type == "agent_complete":
+        result = event.get("result") or {}
+        success = bool(result.get("success", True))
+        heading = "Final Implementation Status"
+        body = (
+            f"- Final status: {'succeeded' if success else 'failed'}\n"
+            f"- Total steps: {result.get('total_steps', event.get('total_steps', 'unknown'))}\n"
+            "- Progress checklist: implementation finished"
+        )
+    else:
+        return
+
+    await _append_plan_doc_update(
+        run_id=run_id,
+        workspace_path=workspace_path,
+        file_path=file_path,
+        action="implemented",
+        heading=heading,
+        body=body,
+    )
 
 
 async def _restore_event_history_from_db(run_id: str) -> int:
@@ -289,6 +476,8 @@ async def _run_agent_task(
     reasoning_settings: Optional[ReasoningSettings] = None,
     image_attachments: Optional[list[dict]] = None,
     collaboration_mode: str = "default",
+    plan_doc_path: Optional[str] = None,
+    source_plan_run_id: Optional[str] = None,
 ) -> None:
     """Background task that runs the agent.
 
@@ -328,9 +517,20 @@ async def _run_agent_task(
         nonlocal seq
         if abort_signal and abort_signal.is_set():
             return
-        seq += 1
+        if event.get("type") == "plan_approval_required" and plan_doc_path:
+            event.setdefault("plan_doc_path", plan_doc_path)
+        seq = max(seq, len(_event_history.get(run_id, []))) + 1
         event["seq"] = seq
         _event_history.setdefault(run_id, []).append(event.copy())
+        if plan_doc_path and collaboration_mode != "plan":
+            asyncio.create_task(
+                _record_implementation_plan_progress(
+                    run_id=run_id,
+                    workspace_path=working_dir,
+                    file_path=plan_doc_path,
+                    event=event.copy(),
+                )
+            )
         # Persist event to DB (fire-and-forget)
         asyncio.create_task(_persist_run_event(run_id, seq, event))
         # Wake up all SSE generators waiting for new events
@@ -341,6 +541,26 @@ async def _run_agent_task(
     try:
         # Resolve provider override — check local model first
         from orchestrator.providers.factory import get_provider_override
+
+        if collaboration_mode == "plan" and working_dir and plan_doc_path:
+            event_callback(
+                _plan_doc_update_event(
+                    run_id=run_id,
+                    file_path=plan_doc_path,
+                    action="created",
+                    summary="Created durable Plan Mode document",
+                )
+            )
+        elif collaboration_mode != "plan" and working_dir and plan_doc_path:
+            await _record_plan_doc_artifact(
+                run_id=run_id,
+                file_path=plan_doc_path,
+                action="implemented",
+                detail=(
+                    "Implementation run linked to approved plan"
+                    + (f" from {source_plan_run_id}" if source_plan_run_id else "")
+                ),
+            )
 
         provider_override = get_provider_override()
         from orchestrator.routes.auth import get_chatgpt_auth_session_id
@@ -446,6 +666,8 @@ async def _run_agent_task(
                 "plan_id": plan_id,
                 "markdown": markdown,
                 "created_at": datetime.now(timezone.utc).isoformat(),
+                "plan_doc_path": plan_doc_path,
+                "workspace_path": working_dir,
             }
             try:
                 result = await asyncio.wait_for(future, timeout=1800)
@@ -503,6 +725,7 @@ async def _run_agent_task(
             user_input_callback=(
                 user_input_callback if collaboration_mode == "plan" else None
             ),
+            plan_doc_relative_path=plan_doc_path if collaboration_mode == "plan" else None,
         )
         db = await get_db()
         trace_repo = TraceRepo(db)
@@ -635,6 +858,7 @@ async def create_agent_run(request: CreateAgentRunRequest, http_request: Request
 
     run_id = str(uuid.uuid4())
     collaboration_mode = normalize_collaboration_mode(request.collaboration_mode)
+    plan_doc_path: Optional[str] = None
 
     try:
         # Initialize state
@@ -724,7 +948,12 @@ async def create_agent_run(request: CreateAgentRunRequest, http_request: Request
             "collaboration_mode": collaboration_mode,
             "reasoning_settings": reasoning_settings.model_dump(),
             "image_attachments_count": len(request.image_attachments),
+            "plan_doc_path": request.plan_doc_path,
+            "source_plan_run_id": request.source_plan_run_id,
         }
+        if collaboration_mode == "plan" and workspace_path:
+            plan_doc_path = plan_doc_relative_path(run_id)
+            model_config["plan_doc_path"] = plan_doc_path
 
         await trace_repo.create_run(
             run_id=run_id,
@@ -745,6 +974,20 @@ async def create_agent_run(request: CreateAgentRunRequest, http_request: Request
             current_step=0,
             max_steps=request.max_steps,
         )
+        if collaboration_mode == "plan" and workspace_path and plan_doc_path:
+            created_path, byte_count = await create_initial_plan_doc(
+                workspace_path=workspace_path,
+                plan_run_id=run_id,
+                original_request=request.query,
+            )
+            plan_doc_path = created_path
+            await agent_repo.create_run_artifact(
+                run_id=run_id,
+                artifact_type="plan_doc",
+                file_path=plan_doc_path,
+                action="created",
+                detail=f"Created durable Plan Mode document ({byte_count} bytes)",
+            )
 
         # Start background task (pass provider/model preference from headers)
         provider_preference = http_request.headers.get("x-provider")
@@ -767,6 +1010,8 @@ async def create_agent_run(request: CreateAgentRunRequest, http_request: Request
                 reasoning_settings=reasoning_settings,
                 image_attachments=request.image_attachments,
                 collaboration_mode=collaboration_mode,
+                plan_doc_path=plan_doc_path or request.plan_doc_path,
+                source_plan_run_id=request.source_plan_run_id,
             )
         )
 
@@ -1210,8 +1455,24 @@ async def reject_agent_plan(
             raise HTTPException(status_code=404, detail="Run not found")
 
     future = _plan_approval_queues.get(run_id, {}).get(request.plan_id)
+    pending = _pending_plan_approvals.get(run_id, {}).get(request.plan_id)
     if future is None or future.done():
         raise HTTPException(status_code=404, detail="Pending plan approval not found")
+
+    if pending:
+        feedback = (request.feedback or "").strip() or "No specific feedback provided."
+        await _append_plan_doc_update(
+            run_id=run_id,
+            workspace_path=pending.get("workspace_path"),
+            file_path=pending.get("plan_doc_path"),
+            action="rejected",
+            heading="Plan Rejected",
+            body=(
+                f"- Plan id: `{request.plan_id}`\n"
+                f"- Feedback: {feedback}\n"
+                "- Status: continue planning and revise the plan."
+            ),
+        )
 
     future.set_result(
         PlanDecision(decision="rejected", feedback=(request.feedback or "").strip())
@@ -1247,9 +1508,23 @@ async def approve_agent_plan(
         raise HTTPException(status_code=404, detail="Pending plan approval not found")
 
     plan_markdown = pending.get("markdown", "")
+    plan_doc_path = pending.get("plan_doc_path")
+    workspace_path = pending.get("workspace_path")
+    await _append_plan_doc_update(
+        run_id=run_id,
+        workspace_path=workspace_path,
+        file_path=plan_doc_path,
+        action="approved",
+        heading="Approved Plan",
+        body=(
+            f"- Plan id: `{request.plan_id}`\n"
+            "- Status: approved for implementation\n\n"
+            f"{plan_markdown}"
+        ),
+    )
     model_config = original_run.get("model_config") or {}
     implementation_request = CreateAgentRunRequest(
-        query=build_plan_implementation_prompt(plan_markdown),
+        query=build_plan_implementation_prompt(plan_markdown, plan_doc_path),
         conversation_id=original_run.get("conversation_id"),
         max_steps=int(model_config.get("max_steps") or 1000),
         workspace_path=model_config.get("workspace_path"),
@@ -1257,6 +1532,8 @@ async def approve_agent_plan(
         capabilities=model_config.get("capabilities") or {},
         permission_policy=model_config.get("permission_policy") or "strict",
         collaboration_mode="default",
+        plan_doc_path=plan_doc_path,
+        source_plan_run_id=run_id,
     )
     implementation = await create_agent_run(implementation_request, http_request)
     decision = PlanDecision(

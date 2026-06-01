@@ -264,7 +264,8 @@ chatgpt:
 
 # Browser terminal (desktop agent mode)
 terminal:
-  max_sessions_per_conversation: 5
+  max_sessions_per_conversation: 10
+  max_browser_tabs_per_conversation: 10
 
 demo:
   enabled: ${DEMO_MODE:-false}

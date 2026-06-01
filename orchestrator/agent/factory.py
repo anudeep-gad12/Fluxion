@@ -41,6 +41,7 @@ async def create_agent_engine(
     collaboration_mode: str = "default",
     plan_approval_callback: Optional[object] = None,
     user_input_callback: Optional[object] = None,
+    plan_doc_relative_path: Optional[str] = None,
 ) -> AgentEngine:
     """Create a fully configured coding agent engine."""
     del query  # Agent runs are coding-only now.
@@ -89,6 +90,7 @@ async def create_agent_engine(
         python_provider=python_provider,
         collaboration_mode=resolved_collaboration_mode,
         user_input_callback=user_input_callback,
+        plan_doc_relative_path=plan_doc_relative_path,
     )
 
     db = await get_db()

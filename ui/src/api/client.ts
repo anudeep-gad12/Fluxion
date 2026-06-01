@@ -526,6 +526,7 @@ export function subscribeToAgentRun(
     'tool_approval_required',
     'plan_approval_required',
     'plan_approved',
+    'plan_doc_updated',
     'user_input_required',
     'tool_result',
     'answer',
@@ -745,6 +746,7 @@ export interface TerminalSessionResponse {
 export interface TerminalSessionListResponse {
   sessions: TerminalSessionResponse[];
   max_sessions_per_conversation: number;
+  max_browser_tabs_per_conversation: number;
 }
 
 export async function browseWorkspaceDirectories(

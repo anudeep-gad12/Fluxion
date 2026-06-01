@@ -201,6 +201,7 @@ export type AgentSSEEventType =
   | 'tool_approval_required' // tool waiting for browser approval
   | 'plan_approval_required' // proposed plan waiting for HUD approval
   | 'plan_approved' // plan was approved and implementation started
+  | 'plan_doc_updated' // durable plan markdown file changed
   | 'user_input_required' // Plan Mode question waiting for browser input
   | 'tool_result' // tool finished
   | 'answer' // streaming answer tokens
@@ -272,6 +273,7 @@ export interface PlanApprovalRequiredEvent extends AgentSSEEventBase {
   plan_id: string;
   markdown: string;
   visible_answer?: string;
+  plan_doc_path?: string;
   step_number?: number;
 }
 
@@ -280,6 +282,16 @@ export interface PlanApprovedEvent extends AgentSSEEventBase {
   plan_id: string;
   implementation_run_id?: string;
   implementation_stream_token?: string;
+}
+
+export interface PlanDocUpdatedEvent extends AgentSSEEventBase {
+  type: 'plan_doc_updated';
+  file_path: string;
+  action: 'created' | 'updated' | 'rejected' | 'approved' | 'implemented' | string;
+  bytes?: number;
+  summary?: string;
+  diff?: string | null;
+  step_number?: number;
 }
 
 export interface UserInputRequiredEvent extends AgentSSEEventBase {
@@ -432,6 +444,7 @@ export type AgentSSEEvent =
   | ToolApprovalRequiredEvent
   | PlanApprovalRequiredEvent
   | PlanApprovedEvent
+  | PlanDocUpdatedEvent
   | UserInputRequiredEvent
   | ToolResultEvent
   | AnswerEvent
@@ -476,8 +489,16 @@ export interface AgentUIState {
     run_id: string;
     markdown: string;
     visible_answer?: string;
+    plan_doc_path?: string;
     created_at: string;
     status: 'pending' | 'approved' | 'rejected';
+  };
+  planDoc?: {
+    file_path: string;
+    action?: string;
+    bytes?: number;
+    summary?: string;
+    updated_at?: string;
   };
   pendingUserInput?: {
     request_id: string;
