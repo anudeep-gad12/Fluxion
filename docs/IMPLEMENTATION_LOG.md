@@ -9,6 +9,7 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| main | fluxion.cc landing page redesign — hero from `screenshot_fluxion.png`, provider grid, capability section, install CTAs; removed dead mocks/assets | done | 2026-06-01 |
 | main | Desktop tool tab hover scrollbar removal — the tool tab scroller now uses hidden horizontal overflow with manual wheel/trackpad scroll handling, preventing the native hover scrollbar from expanding over tab click targets | done | 2026-06-01 |
 | main | Desktop tool tab click/scroll polish — the overflowing tool tab row now hides the native horizontal scrollbar on the actual scroll container and each tab’s select target fills the full tab height so the scrollbar no longer steals click area | done | 2026-06-01 |
 | main | Desktop tool tab rail scrolling — overflowing Terminal/Browser tabs now scroll horizontally with trackpad/mouse-wheel input and keep the selected tab in view when switching tabs | done | 2026-06-01 |
