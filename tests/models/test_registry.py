@@ -142,6 +142,8 @@ class TestExplicitProviderPrefix:
         assert provider._client.headers["authorization"] == "Bearer grok-token"  # noqa: SLF001
         assert provider._client.headers["x-xai-token-auth"] == "xai-grok-cli"  # noqa: SLF001
         assert provider._client.headers["x-grok-model-override"] == "grok-build"  # noqa: SLF001
+        assert provider._client.headers["x-grok-client-version"]  # noqa: SLF001
+        assert provider._client.headers["x-grok-client-identifier"] == "fluxion"  # noqa: SLF001
         asyncio.run(provider.close())
 
     @patch.dict(os.environ, {"DEEPINFRA_API_KEY": "di-key"})

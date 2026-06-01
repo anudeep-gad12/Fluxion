@@ -1,15 +1,23 @@
 """Grok OAuth routes backed by the official Grok CLI."""
 
 from fastapi import APIRouter
+from pydantic import BaseModel
 
 from orchestrator.services.grok_auth import (
     cancel_grok_login,
     get_grok_auth_status,
     logout_grok,
     start_grok_login,
+    submit_grok_login_code,
 )
 
 router = APIRouter(prefix="/api/auth/grok", tags=["auth"])
+
+
+class GrokLoginCodeRequest(BaseModel):
+    """Manual browser fallback code for Grok OAuth login."""
+
+    code: str
 
 
 @router.get("/status")
@@ -22,6 +30,12 @@ async def grok_status():
 async def grok_login():
     """Start the official Grok CLI browser OAuth flow."""
     return await start_grok_login()
+
+
+@router.post("/code")
+async def grok_login_code(request: GrokLoginCodeRequest):
+    """Submit the browser fallback code to the running Grok CLI login."""
+    return await submit_grok_login_code(request.code)
 
 
 @router.post("/cancel")

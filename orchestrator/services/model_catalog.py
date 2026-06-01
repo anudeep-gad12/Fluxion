@@ -298,6 +298,7 @@ async def list_model_catalog(
             "logout_url": "/api/auth/grok/logout",
             "login_running": bool(status.get("login_running")),
             "last_error": status.get("last_error"),
+            "last_message": status.get("last_message"),
         }
         grouped["grok"]["catalog_source"] = "curated"
         grouped["grok"]["catalog_error"] = None

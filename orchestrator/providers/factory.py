@@ -93,9 +93,13 @@ def create_provider_for_model(model_string: str) -> Tuple[LLMProvider, "Resolved
     resolved = ModelRegistry.resolve(model_string)
     extra_headers = None
     if resolved.provider_name == "grok":
+        from orchestrator.services.grok_auth import get_grok_cli_version_sync
+
         extra_headers = {
             "X-XAI-Token-Auth": "xai-grok-cli",
             "x-grok-model-override": resolved.model_id,
+            "x-grok-client-version": get_grok_cli_version_sync(),
+            "x-grok-client-identifier": "fluxion",
         }
     provider = OpenAICompatProvider(
         base_url=resolved.base_url,

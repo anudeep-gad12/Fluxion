@@ -929,6 +929,7 @@ export interface RegistryModelsResponse {
       logout_url?: string;
       login_running?: boolean;
       last_error?: string | null;
+      last_message?: string | null;
     };
   }>;
   active_model: string | null;
@@ -1020,6 +1021,14 @@ export async function cancelGrokLogin(): Promise<{ status: string; cancelled: nu
   return fetchJson(`${getApiBase()}/auth/grok/cancel`, {
     method: 'POST',
     timeoutMs: 10_000,
+  });
+}
+
+export async function submitGrokLoginCode(code: string): Promise<{ status: string; message?: string }> {
+  return fetchJson(`${getApiBase()}/auth/grok/code`, {
+    method: 'POST',
+    body: JSON.stringify({ code }),
+    timeoutMs: 35_000,
   });
 }
 

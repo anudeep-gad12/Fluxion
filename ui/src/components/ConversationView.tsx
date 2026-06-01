@@ -42,6 +42,7 @@ import {
   cancelChatGPTLogin,
   startGrokLogin,
   cancelGrokLogin,
+  submitGrokLoginCode,
   logoutGrok,
   selectModel,
   updateReasoningSettings,
@@ -245,6 +246,7 @@ function ModelPicker({
   const [modelSearch, setModelSearch] = useState('');
   const [focusedModel, setFocusedModel] = useState<{ provider: string; model: RegistryModelPreset } | null>(null);
   const [chatGPTLogin, setChatGPTLogin] = useState<ChatGPTLoginState | null>(null);
+  const [grokLoginCode, setGrokLoginCode] = useState('');
   const pickerLoadSeqRef = useRef(0);
   const chatGPTLoginTimerRef = useRef<number | null>(null);
   const grokLoginTimerRef = useRef<number | null>(null);
@@ -489,6 +491,58 @@ function ModelPicker({
     } finally {
       setSwitching(null);
       void refreshPickerData();
+    }
+  };
+
+  const handleGrokSubmitCode = async () => {
+    const code = grokLoginCode.trim();
+    if (!code) {
+      setError('Paste the Grok browser fallback code first');
+      return;
+    }
+    setSwitching('grok-code');
+    setError(null);
+    try {
+      const result = await submitGrokLoginCode(code);
+      if (result.status === 'authenticated') {
+        clearGrokLoginTimer();
+        setGrokLoginCode('');
+        await refreshPickerData();
+      } else if (result.status === 'submitted') {
+        setGrokLoginCode('');
+        await refreshPickerData();
+        const startedAt = Date.now();
+        clearGrokLoginTimer();
+        grokLoginTimerRef.current = window.setInterval(async () => {
+          try {
+            const registry = await listRegistryModels();
+            setRegistryData(registry);
+            const auth = registry.providers.grok?.auth;
+            if (auth?.authenticated) {
+              clearGrokLoginTimer();
+              setSwitching(null);
+            } else if (auth?.last_error) {
+              clearGrokLoginTimer();
+              setSwitching(null);
+              setError(auth.last_error);
+            }
+          } catch {
+            // Keep polling while the local login flow finishes.
+          }
+          if (Date.now() - startedAt > 30_000) {
+            clearGrokLoginTimer();
+            setError('Grok code was submitted, but login has not completed yet. Retry or cancel.');
+            void refreshPickerData();
+          }
+        }, 1200);
+      } else {
+        setError(result.message || 'No active Grok login is waiting for a code');
+        await refreshPickerData();
+      }
+    } catch {
+      setError('Failed to submit Grok fallback code');
+    } finally {
+      setSwitching(null);
     }
   };
 
@@ -802,14 +856,38 @@ function ModelPicker({
                             {activeProviderInfo.auth?.authenticated
                               ? `${activeProviderInfo.auth.account_id || 'Grok account'} · official Grok CLI OAuth.`
                               : activeProviderInfo.auth?.login_running || switching === 'grok-login'
-                                ? 'Waiting for `grok login --oauth`. Complete the browser login, or cancel.'
+                                ? 'Complete browser login. If it says it cannot reach the app, paste that fallback code below.'
                                 : activeProviderInfo.auth?.enabled === false
                                   ? 'Install the Grok CLI first, then connect with OAuth.'
                                   : 'Uses official `grok login --oauth` credentials from ~/.grok/auth.json.'}
                           </div>
+                          {activeProviderInfo.auth?.last_message && (
+                            <div className={cn(desktop ? 'desktop-settings-hint mt-2' : 'mt-2 text-xs text-zinc-500')}>
+                              {activeProviderInfo.auth.last_message}
+                            </div>
+                          )}
                           {activeProviderInfo.auth?.last_error && (
                             <div className={cn(desktop ? 'desktop-settings-hint-error mt-2' : 'mt-2 text-xs text-red-300')}>
                               {activeProviderInfo.auth.last_error}
+                            </div>
+                          )}
+                          {(activeProviderInfo.auth?.login_running || switching === 'grok-login') && (
+                            <div className="mt-3 flex min-w-0 flex-wrap gap-2">
+                              <input
+                                value={grokLoginCode}
+                                onChange={(e) => setGrokLoginCode(e.target.value)}
+                                placeholder="Paste browser fallback code"
+                                type="password"
+                                className={cn(desktop ? 'desktop-settings-field flex-1' : 'premium-field flex-1')}
+                              />
+                              <button
+                                type="button"
+                                onClick={handleGrokSubmitCode}
+                                disabled={switching === 'grok-code'}
+                                className={cn(desktop ? 'desktop-settings-btn-primary' : 'premium-primary-button')}
+                              >
+                                Submit code
+                              </button>
                             </div>
                           )}
                         </div>

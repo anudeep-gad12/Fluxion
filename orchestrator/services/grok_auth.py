@@ -12,6 +12,7 @@ import asyncio
 import json
 import os
 import shutil
+import subprocess
 import time
 from datetime import datetime
 from pathlib import Path
@@ -23,6 +24,8 @@ logger = get_logger(__name__)
 
 _login_process: Optional[asyncio.subprocess.Process] = None
 _last_login_error: Optional[str] = None
+_last_login_message: Optional[str] = None
+_cli_version_cache: Optional[str] = None
 
 
 def _auth_file_path() -> Path:
@@ -101,6 +104,35 @@ def get_grok_access_token_sync() -> Optional[str]:
     return None
 
 
+def get_grok_cli_version_sync() -> str:
+    """Return installed Grok CLI version for proxy compatibility headers."""
+    global _cli_version_cache
+    if _cli_version_cache:
+        return _cli_version_cache
+
+    grok_bin = shutil.which("grok")
+    if not grok_bin:
+        return "0.2.11"
+
+    try:
+        result = subprocess.run(
+            [grok_bin, "--version"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+        output = (result.stdout or result.stderr or "").strip()
+        parts = output.split()
+        if len(parts) >= 2 and parts[0].lower() == "grok":
+            _cli_version_cache = parts[1]
+            return _cli_version_cache
+    except Exception as exc:
+        logger.warning("Failed to read Grok CLI version", extra={"error": str(exc)})
+
+    return "0.2.11"
+
+
 async def get_grok_auth_status() -> dict[str, Any]:
     """Return Grok OAuth status without exposing token values."""
     global _login_process, _last_login_error
@@ -145,12 +177,13 @@ async def get_grok_auth_status() -> dict[str, Any]:
         "auth_file": str(_auth_file_path()),
         "login_running": login_running,
         "last_error": _last_login_error,
+        "last_message": _last_login_message,
     }
 
 
 async def start_grok_login() -> dict[str, Any]:
     """Start ``grok login --oauth`` if it is not already running."""
-    global _login_process, _last_login_error
+    global _login_process, _last_login_error, _last_login_message
 
     grok_bin = shutil.which("grok")
     if not grok_bin:
@@ -163,15 +196,61 @@ async def start_grok_login() -> dict[str, Any]:
         return {"status": "already_running"}
 
     _last_login_error = None
+    _last_login_message = None
     _login_process = await asyncio.create_subprocess_exec(
         grok_bin,
         "login",
         "--oauth",
+        stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
     logger.info("Grok OAuth login started")
     return {"status": "started"}
+
+
+async def submit_grok_login_code(code: str) -> dict[str, Any]:
+    """Submit the browser fallback code to the running Grok CLI login."""
+    global _last_login_message
+
+    trimmed = code.strip()
+    if not trimmed:
+        return {"status": "error", "message": "Code cannot be empty"}
+
+    if get_grok_access_token_sync():
+        return {"status": "authenticated"}
+
+    if _login_process is None or _login_process.returncode is not None:
+        return {"status": "no_login", "message": "No active Grok login is waiting for a code."}
+
+    if _login_process.stdin is None:
+        return {"status": "error", "message": "Active Grok login cannot accept manual code input."}
+
+    _login_process.stdin.write(f"{trimmed}\n".encode("utf-8"))
+    await _login_process.stdin.drain()
+    _last_login_message = "Manual fallback code submitted."
+    logger.info("Grok OAuth fallback code submitted")
+
+    deadline = time.monotonic() + 20
+    while time.monotonic() < deadline:
+        if get_grok_access_token_sync():
+            _last_login_message = "Grok OAuth connected."
+            return {"status": "authenticated"}
+        if _login_process.returncode is not None:
+            break
+        try:
+            await asyncio.wait_for(_login_process.wait(), timeout=0.5)
+        except asyncio.TimeoutError:
+            continue
+
+    if get_grok_access_token_sync():
+        _last_login_message = "Grok OAuth connected."
+        return {"status": "authenticated"}
+
+    return {
+        "status": "submitted",
+        "message": "Code submitted. Waiting for Grok CLI to finish login.",
+    }
 
 
 async def cancel_grok_login() -> dict[str, Any]:
