@@ -110,9 +110,18 @@ class TestExplicitProviderPrefix:
         assert resolved.provider_name == "grok"
         assert resolved.model_id == "grok-build"
         assert resolved.base_url == "https://cli-chat-proxy.grok.com/v1"
-        assert resolved.endpoint == "chat_completions"
+        assert resolved.endpoint == "responses"
         assert resolved.api_key == "grok-token"
         assert resolved.reasoning_effort is None
+
+        composer = ModelRegistry.resolve("grok:grok-composer-2.5-fast")
+        assert composer.provider_name == "grok"
+        assert composer.model_id == "grok-composer-2.5-fast"
+        assert composer.display_name == "Composer 2.5"
+        assert composer.api_key == "grok-token"
+
+        composer_alias = ModelRegistry.resolve("grok:composer-2.5-fast")
+        assert composer_alias.model_id == "grok-composer-2.5-fast"
 
     def test_resolve_grok_oauth_without_token_raises(self, tmp_path, monkeypatch):
         """Grok OAuth provider requires a valid local Grok CLI token."""

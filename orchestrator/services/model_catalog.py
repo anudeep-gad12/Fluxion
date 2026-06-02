@@ -35,6 +35,7 @@ VISIBLE_MODEL_IDS_BY_PROVIDER: dict[str, set[str]] = {
     },
     # Grok OAuth/subscription: separate from xAI API-key models.
     "grok": {
+        "grok-composer-2.5-fast",
         "grok-build",
     },
     # xAI direct: language/coding models only; no Imagine/voice/image-only APIs.

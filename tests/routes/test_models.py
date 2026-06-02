@@ -88,7 +88,10 @@ async def test_list_models_catalog_is_trimmed_to_curated_visible_sets():
     assert "o4-mini" not in {model["model_id"] for model in data["openai"]["models"]}
     assert "o4-mini" not in {model["model_id"] for model in data["chatgpt"]["models"]}
     assert {model["model_id"] for model in data["xai"]["models"]} == {"grok-4.3", "grok-build-0.1"}
-    assert {model["model_id"] for model in data["grok"]["models"]} == {"grok-build"}
+    assert {model["model_id"] for model in data["grok"]["models"]} == {
+        "grok-composer-2.5-fast",
+        "grok-build",
+    }
     assert len(data["openrouter"]["models"]) <= 14
 
 
