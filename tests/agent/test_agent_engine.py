@@ -1,5 +1,6 @@
 """Tests for AgentEngine."""
 
+import asyncio
 import hashlib
 import json
 from pathlib import Path
@@ -21,7 +22,7 @@ from orchestrator.agent.coding_session import (
 )
 from orchestrator.agent.plan_mode import PlanDecision
 from orchestrator.agent.state_machine import RecoveryContext
-from orchestrator.agent.tools.base import ToolResult
+from orchestrator.agent.tools.base import ToolResult, ToolSchema
 from orchestrator.agent.tools.bash_tool import BashTool
 from orchestrator.agent.tools.command_session import (
     CommandSessionManager,
@@ -3907,6 +3908,84 @@ class TestParallelToolExecution:
         assert "edit_file" not in AgentEngine.PARALLEL_TOOLS
         assert "bash_tool" not in AgentEngine.PARALLEL_TOOLS
         assert "python_execute" not in AgentEngine.PARALLEL_TOOLS
+
+    @pytest.mark.asyncio
+    async def test_fast_parallel_tool_finalizes_before_slow_serial_tool(self):
+        """Fast read-only calls should not look running behind a slow command."""
+
+        class FakeTool:
+            def __init__(self, name: str, delay: float, markers: list[str]) -> None:
+                self.name = name
+                self._delay = delay
+                self._markers = markers
+                self.schema = ToolSchema(
+                    name=name,
+                    description=f"Fake {name}",
+                    parameters={"type": "object", "properties": {}},
+                    permission_level="auto",
+                )
+
+            async def execute(self, **kwargs):
+                del kwargs
+                self._markers.append(f"{self.name}:execute_start")
+                await asyncio.sleep(self._delay)
+                self._markers.append(f"{self.name}:execute_done")
+                return ToolResult(
+                    success=True,
+                    result_summary=f"{self.name} done",
+                    result_data={"ok": True},
+                )
+
+        markers: list[str] = []
+        tools = {
+            "read_file": FakeTool("read_file", 0.01, markers),
+            "exec_command": FakeTool("exec_command", 0.05, markers),
+        }
+        registry = create_mock_registry()
+        registry.get.side_effect = lambda name: tools.get(name)
+        state_machine = create_mock_state_machine()
+
+        async def record_tool_call(**kwargs):
+            return {"id": kwargs["tool_call_id"]}
+
+        state_machine.record_tool_call = AsyncMock(side_effect=record_tool_call)
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=create_mock_repo(),
+            registry=registry,
+        )
+        engine._add_trace_event = AsyncMock(return_value="trace-event")
+
+        def on_event(event):
+            if event.get("type") == "tool_result":
+                markers.append(f"event:{event.get('tool_name')}")
+
+        await engine._execute_tool_calls(
+            tool_calls=[
+                {
+                    "id": "read-1",
+                    "function": {
+                        "name": "read_file",
+                        "arguments": '{"file_path":"src/app.py"}',
+                    },
+                },
+                {
+                    "id": "exec-1",
+                    "function": {
+                        "name": "exec_command",
+                        "arguments": '{"cmd":"pytest"}',
+                    },
+                },
+            ],
+            state_machine=state_machine,
+            step_number=1,
+            event_callback=on_event,
+            run_id="run-1",
+            step_metadata={},
+        )
+
+        assert markers.index("event:read_file") < markers.index("exec_command:execute_start")
+        assert markers.index("event:exec_command") > markers.index("exec_command:execute_done")
 
 
 class TestPermissionPolicies:

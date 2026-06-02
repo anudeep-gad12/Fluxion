@@ -9,6 +9,7 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| main | Tool-call live finalization — mixed tool batches now finalize each completed tool immediately, so fast read/search calls no longer stay visually running behind a long command in the same step | done | 2026-06-02 |
 | main | Run output artifacts — agent runs now persist command stdout/stderr/output and raw web extracts under `.fluxion/runs/<run_id>/`, expose read-only `list_run_artifacts`/`read_artifact` tools plus trace/API/UI artifact refs, and keep source reads/edits/diffs out of scratch artifacts | done | 2026-06-02 |
 | main | Grok OAuth Composer 2.5 listing — added `grok-composer-2.5-fast` as a Grok subscription/OAuth coding model in the curated model registry and visible Grok picker allowlist, with aliases for Composer 2.5 selection, and routes Grok OAuth through the required `/responses` API backend instead of `/chat/completions` | done | 2026-06-02 |
 | main | Interrupted run recovery hardening — startup orphan cleanup now terminalizes stale running runs as `interrupted`, persists replayable `_STREAM_END` events, agent/chat SSE return terminal DB fallback for inactive interrupted runs, and the UI clears HUD/spinner state with a distinct interrupted status | done | 2026-06-02 |

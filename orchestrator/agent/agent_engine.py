@@ -5315,12 +5315,12 @@ To provide your final answer, respond WITHOUT calling any tools."""
         run_id: str,
         step_metadata: Dict[str, int],
     ) -> List[tuple["ParsedToolCall", "ToolResult"]]:
-        """Execute tool calls, parallelizing read-only tool execution.
+        """Execute tool calls, finalizing each result as soon as it completes.
 
-        Read-only tools (read_file, grep, glob, list_directory, web_search,
-        web_extract) have their tool.execute() calls run concurrently via
-        asyncio.gather. All DB bookkeeping (state machine, tracing) runs
-        serially to avoid SQLite transaction contention.
+        Read-only tools run concurrently. Completion bookkeeping is still
+        performed serially, but no longer waits for unrelated long-running
+        command tools in the same model step. Returned results preserve the
+        model's original tool-call order for prompt replay.
 
         Args:
             tool_calls: List of tool call dicts in OpenAI format.
@@ -5335,108 +5335,31 @@ To provide your final answer, respond WITHOUT calling any tools."""
         """
         from orchestrator.agent.tools.base import ToolResult
 
-        results: List[tuple[ParsedToolCall, ToolResult]] = []
-
         parsed_calls = self._parse_tool_calls(tool_calls)
+        results_by_index: dict[int, tuple[ParsedToolCall, ToolResult]] = {}
 
-        # Phase 1: Pre-execution bookkeeping (serial — DB writes)
-        # Collect (tool_call, tc_record, tool_call_event_id, tool_obj, execute_coro_or_result)
-        prepared: List[Dict[str, Any]] = []
-
-        for tool_call in parsed_calls:
-            prep = await self._prepare_tool_call(
-                tool_call, state_machine, step_number,
-                event_callback, run_id,
-            )
-            prepared.append(prep)
-
-            # Early return for cached/denied results
-            if prep.get("early_result"):
-                continue
-
-        # Phase 2: Execute tools — parallel for read-only, serial for mutating
-        parallel_indices: List[int] = []
-        serial_indices: List[int] = []
-        for i, prep in enumerate(prepared):
-            if prep.get("early_result"):
-                continue  # Already resolved
-            if parsed_calls[i].name in self.PARALLEL_TOOLS:
-                parallel_indices.append(i)
-            else:
-                serial_indices.append(i)
-
-        # Run read-only tool.execute() calls in parallel
-        if parallel_indices:
-            async def _safe_execute(prep: Dict[str, Any]) -> ToolResult:
-                tool = prep["tool"]
-                tc = prep["tool_call"]
-                try:
-                    return await tool.execute(**tc.arguments)
-                except Exception as e:
-                    logger.error(
-                        "Tool execution failed",
-                        extra={"tool": tc.name, "error": str(e)},
-                    )
-                    return ToolResult(
-                        success=False,
-                        result_summary=f"Tool error: {str(e)[:100]}",
-                        error_message=str(e),
-                        duration_ms=0,
-                    )
-
-            parallel_results = await asyncio.gather(
-                *[_safe_execute(prepared[i]) for i in parallel_indices]
-            )
-            for idx, result in zip(parallel_indices, parallel_results):
-                prepared[idx]["result"] = result
-
-        # Run mutating tools serially
-        for idx in serial_indices:
-            prep = prepared[idx]
-            tool = prep["tool"]
-            tc = prep["tool_call"]
-            try:
-                prep["result"] = await tool.execute(**tc.arguments)
-            except Exception as e:
-                logger.error(
-                    "Tool execution failed",
-                    extra={"tool": tc.name, "error": str(e)},
-                )
-                prep["result"] = ToolResult(
-                    success=False,
-                    result_summary=f"Tool error: {str(e)[:100]}",
-                    error_message=str(e),
-                    duration_ms=0,
-                )
-
-        # Phase 3: Post-execution bookkeeping (serial — DB writes)
-        for prep in prepared:
+        async def _finalize_prepared(
+            idx: int,
+            prep: Dict[str, Any],
+            result: ToolResult,
+        ) -> None:
             tool_call = prep["tool_call"]
 
-            if prep.get("early_result"):
-                result = prep["early_result"]
-
-                # Finalize early results that went through bookkeeping
-                # (skip cached results which don't have tool_call_event_id key)
-                if "tool_call_event_id" in prep:
-                    await self._finalize_tool_call(
-                        tool_call, result, prep["tc_record"],
-                        prep.get("tool_call_event_id"),
-                        state_machine, step_number,
-                        event_callback, run_id,
-                    )
-            else:
-                result = prep["result"]
-
-                # Post-execution recording
+            # Finalize results that went through bookkeeping. Cached idempotent
+            # hits may return before a tool_call trace event is created.
+            if "tool_call_event_id" in prep:
                 await self._finalize_tool_call(
-                    tool_call, result, prep["tc_record"],
+                    tool_call,
+                    result,
+                    prep["tc_record"],
                     prep.get("tool_call_event_id"),
-                    state_machine, step_number,
-                    event_callback, run_id,
+                    state_machine,
+                    step_number,
+                    event_callback,
+                    run_id,
                 )
 
-            results.append((tool_call, result))
+            results_by_index[idx] = (tool_call, result)
 
             freshness_metadata = self._track_file_freshness(tool_call, result)
             state_changed = self._did_tool_call_change_state(tool_call.name, result)
@@ -5451,11 +5374,75 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 "result_summary": result.result_summary,
                 "step_number": step_number,
                 "state_version_after": self._tool_state_version,
-                "result_metadata": dict(result.metadata) if isinstance(result.metadata, dict) else {},
+                "result_metadata": (
+                    dict(result.metadata)
+                    if isinstance(result.metadata, dict)
+                    else {}
+                ),
                 **freshness_metadata,
             })
 
-        return results
+        async def _safe_execute(idx: int, prep: Dict[str, Any]) -> tuple[int, ToolResult]:
+            tool = prep["tool"]
+            tc = prep["tool_call"]
+            try:
+                return idx, await tool.execute(**tc.arguments)
+            except Exception as e:
+                logger.error(
+                    "Tool execution failed",
+                    extra={"tool": tc.name, "error": str(e)},
+                )
+                return idx, ToolResult(
+                    success=False,
+                    result_summary=f"Tool error: {str(e)[:100]}",
+                    error_message=str(e),
+                    duration_ms=0,
+                )
+
+        # Phase 1: Pre-execution bookkeeping (serial — DB writes)
+        prepared: List[Dict[str, Any]] = []
+        for idx, tool_call in enumerate(parsed_calls):
+            prep = await self._prepare_tool_call(
+                tool_call, state_machine, step_number, event_callback, run_id
+            )
+            prepared.append(prep)
+
+            if prep.get("early_result"):
+                await _finalize_prepared(idx, prep, prep["early_result"])
+
+        # Phase 2: execute tools. Read-only calls run concurrently and are
+        # finalized as each completes; mutating calls run serially and finalize
+        # immediately after execution.
+        parallel_indices: List[int] = []
+        serial_indices: List[int] = []
+        for i, prep in enumerate(prepared):
+            if prep.get("early_result"):
+                continue
+            if parsed_calls[i].name in self.PARALLEL_TOOLS:
+                parallel_indices.append(i)
+            else:
+                serial_indices.append(i)
+
+        if parallel_indices:
+            tasks = [
+                asyncio.create_task(_safe_execute(i, prepared[i]))
+                for i in parallel_indices
+            ]
+            for task in asyncio.as_completed(tasks):
+                idx, result = await task
+                prepared[idx]["result"] = result
+                await _finalize_prepared(idx, prepared[idx], result)
+
+        for idx in serial_indices:
+            _, result = await _safe_execute(idx, prepared[idx])
+            prepared[idx]["result"] = result
+            await _finalize_prepared(idx, prepared[idx], result)
+
+        return [
+            results_by_index[i]
+            for i in range(len(prepared))
+            if i in results_by_index
+        ]
 
     async def _prepare_tool_call(
         self,
