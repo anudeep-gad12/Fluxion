@@ -98,6 +98,26 @@ class ChatEngine:
         # Initialize thinking orchestrator (default to "direct", actual strategy chosen per-request via mode_mapping)
         self.thinking_orchestrator = ThinkingOrchestrator(default_strategy="direct")
 
+    def _default_max_output_tokens(self) -> int:
+        """Resolve the selected model's max output tokens for uncapped requests."""
+        provider_max = getattr(self._provider, "_max_output_tokens", None)
+        if provider_max:
+            try:
+                return max(1, int(provider_max))
+            except (TypeError, ValueError):
+                pass
+
+        model_name = self._model_name_override or self.config.model.name
+        if model_name:
+            try:
+                from orchestrator.models.registry import ModelRegistry
+
+                return ModelRegistry.resolve(model_name).max_output_tokens
+            except Exception:
+                pass
+
+        return max(1, int(self.config.model.max_tokens or 32768))
+
     async def chat(
         self,
         conversation_id: str,
@@ -264,7 +284,7 @@ class ChatEngine:
                     temperature if temperature is not None else self.config.model.temperature
                 )
                 max_tokens_override = (
-                    max_tokens if max_tokens is not None else self.config.model.max_tokens
+                    max_tokens if max_tokens is not None else self._default_max_output_tokens()
                 )
 
                 # Save original values and restore after
@@ -702,7 +722,7 @@ class ChatEngine:
             Tuple of (response_text, usage_stats, reasoning_text, response_id).
         """
         settings = reasoning_settings or ReasoningSettings(
-            max_output_tokens=self.config.model.max_tokens,
+            max_output_tokens=None,
             reasoning_effort=reasoning_effort or self.config.model.reasoning_effort,
         )
         if reasoning_effort is not None:
@@ -721,7 +741,7 @@ class ChatEngine:
                 else True
             ),
         )
-        effective_max_tokens = provider_kwargs.pop("max_tokens", self.config.model.max_tokens)
+        effective_max_tokens = provider_kwargs.pop("max_tokens", self._default_max_output_tokens())
         effort = provider_kwargs.pop("reasoning_effort", None)
 
         response = await self._provider.complete_streaming(

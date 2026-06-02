@@ -9,6 +9,7 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| main | Model-max output token defaults — max output tokens now default to auto/model max instead of a static 2048-style cap, legacy untouched defaults migrate to auto, and chat calls use provider/registry max output when no manual cap is set | done | 2026-06-02 |
 | main | Workspace `.fluxion` gitignore — selecting/opening/using a Git workspace now best-effort ensures `.fluxion/` is present in the workspace-local `.gitignore`, and workspace file search hides `.fluxion` scratch artifacts | done | 2026-06-02 |
 | main | Empty reasoning continuation fix — provider responses with empty final content plus progress/planning reasoning now get a corrective continuation prompt instead of being accepted as final answers or immediately force-synthesized | done | 2026-06-02 |
 | main | Tool-call live finalization — mixed tool batches now finalize each completed tool immediately, so fast read/search calls no longer stay visually running behind a long command in the same step | done | 2026-06-02 |

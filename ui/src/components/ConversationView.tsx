@@ -1223,12 +1223,13 @@ function ReasoningSettingsDialog({
                   <div>
                     <div className={cn(desktop ? 'desktop-settings-field-label' : 'text-zinc-300')}>Max output</div>
                     <div className={cn(desktop ? 'desktop-settings-hint !mt-1' : 'mt-1 text-[11px] leading-5 text-zinc-500')}>
-                      Upper bound for answer tokens.
+                      Leave blank to use the active model max.
                     </div>
                   </div>
                   <input
                     type="number"
                     min={1}
+                    placeholder="Auto"
                     value={draft.max_output_tokens ?? ''}
                     onChange={(e) => update('max_output_tokens', e.target.value === '' ? null : Number(e.target.value))}
                     className={inputClassName}

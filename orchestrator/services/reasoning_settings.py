@@ -15,17 +15,32 @@ from orchestrator.storage.db import get_db
 from orchestrator.storage.repositories.app_settings_repo import AppSettingsRepo
 
 SETTINGS_KEY = "reasoning_settings"
+LEGACY_STATIC_MAX_OUTPUT_TOKEN_DEFAULTS = {2048}
 
 
 def default_reasoning_settings(config: Optional[ChatConfig] = None) -> ReasoningSettings:
     """Build default runtime settings from YAML config."""
     cfg = config or get_chat_config()
     defaults = cfg.reasoning_controls.model_dump()
-    if defaults.get("max_output_tokens") is None:
-        defaults["max_output_tokens"] = cfg.model.max_tokens
     if defaults.get("reasoning_effort") is None:
         defaults["reasoning_effort"] = cfg.model.reasoning_effort
     return ReasoningSettings(**defaults)
+
+
+def _should_migrate_legacy_max_output_default(
+    settings: ReasoningSettings,
+    cfg: ChatConfig,
+) -> bool:
+    """Detect the old static 2048-token default and migrate it to auto/model-max.
+
+    This avoids carrying an old global default across models while preserving
+    user-customized caps.
+    """
+    if settings.max_output_tokens not in LEGACY_STATIC_MAX_OUTPUT_TOKEN_DEFAULTS:
+        return False
+
+    default_settings = default_reasoning_settings(cfg)
+    return settings.model_copy(update={"max_output_tokens": None}) == default_settings
 
 
 async def get_runtime_reasoning_settings(
@@ -38,7 +53,12 @@ async def get_runtime_reasoning_settings(
     repo = AppSettingsRepo(db)
     row = await repo.get(SETTINGS_KEY)
     if row:
-        return ReasoningSettings(**row["value"]), row["updated_at"], "database"
+        settings = ReasoningSettings(**row["value"])
+        if _should_migrate_legacy_max_output_default(settings, cfg):
+            settings = settings.model_copy(update={"max_output_tokens": None})
+            stored = await repo.put(SETTINGS_KEY, settings.model_dump())
+            return settings, stored["updated_at"], "database_migrated"
+        return settings, row["updated_at"], "database"
 
     settings = default_reasoning_settings(cfg)
     stored = await repo.put(SETTINGS_KEY, settings.model_dump())

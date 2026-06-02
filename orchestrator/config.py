@@ -337,7 +337,7 @@ class ChatContextConfig(BaseModel):
 
     max_messages: int = 50
     max_tokens: int = 6000
-    reserve_for_response: int = 2048
+    reserve_for_response: int = 16384
     truncation_strategy: Literal["sliding_window", "oldest_first"] = "sliding_window"
 
 

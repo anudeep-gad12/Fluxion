@@ -120,7 +120,7 @@ model:
 # =============================================================================
 
 reasoning_controls:
-  max_output_tokens: 32768
+  max_output_tokens: null  # null = use the selected model's max_output_tokens
   reasoning_effort: "medium"
   reasoning_summary: null
   reasoning_enabled: null

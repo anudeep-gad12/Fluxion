@@ -5,6 +5,22 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from orchestrator.engine.chat_engine import ChatEngine
 
 
+class TestOutputTokenDefaults:
+    """Tests for model-aware output token defaults."""
+
+    def test_default_max_output_tokens_prefers_provider_model_cap(self):
+        config = MagicMock()
+        config.model.name = "fallback-model"
+        config.model.max_tokens = 2048
+        provider = MagicMock()
+        provider._default_model = "provider-model"
+        provider._max_output_tokens = 65536
+
+        engine = ChatEngine(config=config, provider=provider)
+
+        assert engine._default_max_output_tokens() == 65536
+
+
 class TestBuildMessages:
     """Tests for _build_messages method."""
 
