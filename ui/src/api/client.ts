@@ -750,6 +750,12 @@ export interface WorkspaceFileSearchResponse {
   entries: WorkspaceFileEntry[];
 }
 
+export interface EnsureFluxionGitignoreResponse {
+  workspace_path: string;
+  changed: boolean;
+  ignored: boolean;
+}
+
 export interface TerminalSessionRequest {
   workspace_path?: string;
   cols?: number;
@@ -785,6 +791,18 @@ export async function browseWorkspaceDirectories(
   if (path) params.set('path', path);
   const query = params.toString() ? `?${params}` : '';
   return fetchJson<WorkspaceBrowseResponse>(`${getApiBase()}/workspaces/browse${query}`);
+}
+
+export async function ensureWorkspaceFluxionGitignore(
+  workspacePath: string,
+): Promise<EnsureFluxionGitignoreResponse> {
+  return fetchJson<EnsureFluxionGitignoreResponse>(
+    `${getApiBase()}/workspaces/ensure-fluxion-gitignore`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ workspace_path: workspacePath }),
+    },
+  );
 }
 
 export async function searchWorkspaceFiles(

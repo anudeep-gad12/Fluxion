@@ -8,11 +8,16 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel
+
+from orchestrator.logging_config import get_logger
 
 router = APIRouter(prefix="/api/workspaces", tags=["workspaces"])
+logger = get_logger(__name__)
 
 _IGNORED_DIRS = {
     ".git",
+    ".fluxion",
     "node_modules",
     "dist",
     "build",
@@ -31,6 +36,10 @@ _MAX_SEARCH_SCANNED_FILES = 10_000
 _EMPTY_QUERY_BUFFER_MULTIPLIER = 25
 
 
+class EnsureFluxionGitignoreRequest(BaseModel):
+    workspace_path: str
+
+
 def _resolve_workspace_path(path: Optional[str]) -> Path:
     """Resolve and validate a workspace path."""
     target = Path(path).expanduser() if path else Path.home()
@@ -44,6 +53,85 @@ def _resolve_workspace_path(path: Optional[str]) -> Path:
     if not target.is_dir():
         raise HTTPException(status_code=400, detail="Path is not a directory")
     return target
+
+
+def _is_git_controlled_workspace(workspace: Path) -> bool:
+    """Return True when workspace is inside a Git working tree."""
+    current = workspace.resolve()
+    for candidate in (current, *current.parents):
+        if (candidate / ".git").exists():
+            return True
+    return False
+
+
+def _gitignore_has_fluxion_entry(content: str) -> bool:
+    """Detect common `.fluxion` ignore entries without duplicating them."""
+    entries = {
+        ".fluxion",
+        ".fluxion/",
+        ".fluxion/**",
+        "/.fluxion",
+        "/.fluxion/",
+        "/.fluxion/**",
+    }
+    for raw_line in content.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line in entries:
+            return True
+    return False
+
+
+def ensure_fluxion_gitignore(workspace: Path) -> bool:
+    """Ensure workspace-local `.fluxion/` is ignored by Git.
+
+    Returns True if `.gitignore` was changed, False otherwise. Best effort:
+    workspace creation/opening should not fail just because `.gitignore` is
+    unwritable.
+    """
+    workspace = workspace.resolve()
+    if not _is_git_controlled_workspace(workspace):
+        return False
+
+    gitignore = workspace / ".gitignore"
+    try:
+        content = gitignore.read_text(encoding="utf-8") if gitignore.exists() else ""
+        if _gitignore_has_fluxion_entry(content):
+            return False
+
+        prefix = "" if not content or content.endswith("\n") else "\n"
+        gitignore.write_text(f"{content}{prefix}.fluxion/\n", encoding="utf-8")
+        logger.info(
+            "Ensured .fluxion is gitignored",
+            extra={"workspace_path": str(workspace), "gitignore": str(gitignore)},
+        )
+        return True
+    except OSError as exc:
+        logger.warning(
+            "Could not update workspace .gitignore for .fluxion",
+            extra={"workspace_path": str(workspace), "error": str(exc)},
+        )
+    return False
+
+
+@router.post("/ensure-fluxion-gitignore")
+async def ensure_workspace_fluxion_gitignore(request: EnsureFluxionGitignoreRequest):
+    """Best-effort ensure the selected workspace ignores Fluxion scratch files."""
+    workspace = _resolve_workspace_path(request.workspace_path)
+    changed = ensure_fluxion_gitignore(workspace)
+    gitignore_path = workspace / ".gitignore"
+    ignored = False
+    try:
+        if gitignore_path.exists():
+            ignored = _gitignore_has_fluxion_entry(gitignore_path.read_text(encoding="utf-8"))
+    except OSError:
+        ignored = False
+    return {
+        "workspace_path": str(workspace),
+        "changed": changed,
+        "ignored": ignored,
+    }
 
 
 @router.get("/browse")

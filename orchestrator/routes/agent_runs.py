@@ -14,34 +14,37 @@ import secrets
 import time
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from sse_starlette.sse import EventSourceResponse
 
-from orchestrator.logging_config import (
-    get_logger,
-    get_request_id,
-    set_component,
-    set_request_id,
+from orchestrator.agent.artifacts import AgentArtifactManager
+from orchestrator.agent.plan_doc import (
+    append_plan_doc_section,
+    create_initial_plan_doc,
+    plan_doc_relative_path,
+)
+from orchestrator.agent.plan_mode import (
+    PlanDecision,
+    build_plan_implementation_prompt,
+    normalize_collaboration_mode,
 )
 from orchestrator.agent.tool_result_payloads import (
     bash_output_from_result_data,
     display_result_data,
     parse_stored_result_detail,
 )
-from orchestrator.agent.artifacts import AgentArtifactManager
-from orchestrator.agent.plan_mode import (
-    PlanDecision,
-    build_plan_implementation_prompt,
-    normalize_collaboration_mode,
-)
-from orchestrator.agent.plan_doc import (
-    append_plan_doc_section,
-    create_initial_plan_doc,
-    plan_doc_relative_path,
+from orchestrator.conversation_titles import conversation_title_from_message
+from orchestrator.logging_config import (
+    get_logger,
+    get_request_id,
+    set_component,
+    set_request_id,
 )
 from orchestrator.reasoning_controls import ReasoningSettings
+from orchestrator.routes.workspaces import _resolve_workspace_path, ensure_fluxion_gitignore
 from orchestrator.schemas import (
     AgentCitationResponse,
     AgentRunStatusResponse,
@@ -56,11 +59,9 @@ from orchestrator.schemas import (
     RunArtifactResponse,
     UserInputResponseRequest,
 )
-from orchestrator.storage.db import get_db
-from orchestrator.routes.workspaces import _resolve_workspace_path
-from orchestrator.services.reasoning_settings import get_runtime_reasoning_settings
 from orchestrator.services.conversation_rewind import capture_rewind_checkpoint
-from orchestrator.conversation_titles import conversation_title_from_message
+from orchestrator.services.reasoning_settings import get_runtime_reasoning_settings
+from orchestrator.storage.db import get_db
 from orchestrator.storage.repositories.agent_repo import AgentRepo
 from orchestrator.storage.repositories.conversation_repo import ConversationRepo
 from orchestrator.storage.repositories.trace_repo import TraceRepo
@@ -997,11 +998,12 @@ async def create_agent_run(request: CreateAgentRunRequest, http_request: Request
             # Create ephemeral conversation for standalone agent runs
             title = conversation_title_from_message(request.query)
             requested_workspace = request.workspace_path or request.working_dir
-            workspace_path = (
-                str(_resolve_workspace_path(requested_workspace))
-                if requested_workspace
-                else None
+            workspace = (
+                _resolve_workspace_path(requested_workspace) if requested_workspace else None
             )
+            if workspace is not None:
+                ensure_fluxion_gitignore(workspace)
+            workspace_path = str(workspace) if workspace is not None else None
             await conv_repo.create(
                 conversation_id=conversation_id,
                 title=title,
@@ -1018,6 +1020,8 @@ async def create_agent_run(request: CreateAgentRunRequest, http_request: Request
             if not conversation:
                 raise HTTPException(status_code=404, detail="Conversation not found")
             workspace_path = conversation.get("workspace_path")
+            if workspace_path:
+                ensure_fluxion_gitignore(Path(workspace_path))
             if not conversation.get("title") or conversation.get("title") == "New conversation":
                 await conv_repo.update(
                     conversation_id=conversation_id,

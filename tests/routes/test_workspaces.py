@@ -9,6 +9,55 @@ from orchestrator.app import app
 from orchestrator.routes import workspaces as workspace_routes
 
 
+def test_ensure_fluxion_gitignore_creates_entry_for_git_workspace(tmp_path: Path):
+    (tmp_path / ".git").mkdir()
+
+    changed = workspace_routes.ensure_fluxion_gitignore(tmp_path)
+
+    assert changed is True
+    assert (tmp_path / ".gitignore").read_text(encoding="utf-8") == ".fluxion/\n"
+
+
+def test_ensure_fluxion_gitignore_appends_entry_idempotently(tmp_path: Path):
+    (tmp_path / ".git").mkdir()
+    gitignore = tmp_path / ".gitignore"
+    gitignore.write_text("dist\n", encoding="utf-8")
+
+    first_changed = workspace_routes.ensure_fluxion_gitignore(tmp_path)
+    second_changed = workspace_routes.ensure_fluxion_gitignore(tmp_path)
+
+    content = gitignore.read_text(encoding="utf-8")
+    assert first_changed is True
+    assert second_changed is False
+    assert content == "dist\n.fluxion/\n"
+    assert content.count(".fluxion") == 1
+
+
+def test_ensure_fluxion_gitignore_skips_non_git_workspace(tmp_path: Path):
+    changed = workspace_routes.ensure_fluxion_gitignore(tmp_path)
+
+    assert changed is False
+    assert not (tmp_path / ".gitignore").exists()
+
+
+@pytest.mark.asyncio
+async def test_ensure_fluxion_gitignore_endpoint_updates_git_workspace(tmp_path: Path):
+    (tmp_path / ".git").mkdir()
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.post(
+            "/api/workspaces/ensure-fluxion-gitignore",
+            json={"workspace_path": str(tmp_path)},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["changed"] is True
+    assert response.json()["ignored"] is True
+    assert ".fluxion/" in (tmp_path / ".gitignore").read_text(encoding="utf-8")
+
+
 @pytest.mark.asyncio
 async def test_browse_workspace_directories_lists_only_directories(tmp_path: Path):
     (tmp_path / "src").mkdir()
@@ -72,6 +121,26 @@ async def test_search_workspace_files_excludes_hidden_and_ignored_dirs(tmp_path:
     assert ".env" not in paths
     assert ".git/config" not in paths
     assert "node_modules/pkg.js" not in paths
+
+
+@pytest.mark.asyncio
+async def test_search_workspace_files_excludes_fluxion_dir(tmp_path: Path):
+    (tmp_path / ".fluxion" / "runs" / "run-1").mkdir(parents=True)
+    (tmp_path / ".fluxion" / "runs" / "run-1" / "stdout.txt").write_text("output")
+    (tmp_path / "visible.py").write_text("print('ok')")
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.get(
+            "/api/workspaces/search-files",
+            params={"workspace_path": str(tmp_path), "q": ""},
+        )
+
+    assert response.status_code == 200
+    paths = [entry["path"] for entry in response.json()["entries"]]
+    assert "visible.py" in paths
+    assert ".fluxion/runs/run-1/stdout.txt" not in paths
 
 
 @pytest.mark.asyncio

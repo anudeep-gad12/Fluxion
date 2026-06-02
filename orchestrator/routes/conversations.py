@@ -6,17 +6,15 @@ from typing import Optional, Tuple
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from orchestrator.logging_config import get_logger
-
-logger = get_logger(__name__)
-
+from orchestrator.routes.workspaces import _resolve_workspace_path, ensure_fluxion_gitignore
 from orchestrator.schemas import (
-    ConversationResponse,
+    ConversationDetailResponse,
     ConversationListResponse,
+    ConversationResponse,
+    ConversationRewindCheckpointResponse,
+    ConversationRewindCheckpointsResponse,
     CreateConversationRequest,
     CreateConversationResponse,
-    ConversationDetailResponse,
-    ConversationRewindCheckpointsResponse,
-    ConversationRewindCheckpointResponse,
     ConversationRewindRequest,
     ConversationRewindResponse,
     UpdateConversationRequest,
@@ -27,8 +25,8 @@ from orchestrator.storage.db import get_db
 from orchestrator.storage.repositories.agent_repo import AgentRepo
 from orchestrator.storage.repositories.conversation_repo import ConversationRepo
 from orchestrator.storage.repositories.trace_repo import TraceRepo
-from orchestrator.routes.workspaces import _resolve_workspace_path
 
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/conversations", tags=["conversations"])
 
@@ -56,11 +54,10 @@ async def create_conversation(
     conv_repo = ConversationRepo(db)
 
     conversation_id = str(uuid.uuid4())
-    workspace_path = (
-        str(_resolve_workspace_path(request.workspace_path))
-        if request.workspace_path
-        else None
-    )
+    workspace = _resolve_workspace_path(request.workspace_path) if request.workspace_path else None
+    if workspace is not None:
+        ensure_fluxion_gitignore(workspace)
+    workspace_path = str(workspace) if workspace is not None else None
     await conv_repo.create(
         conversation_id=conversation_id,
         title=request.title,

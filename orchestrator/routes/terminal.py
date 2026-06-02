@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import secrets
+from pathlib import Path
 from typing import Optional, Tuple
 
 from fastapi import APIRouter, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 
 from orchestrator.config import get_chat_config
 from orchestrator.middleware.session import COOKIE_NAME
+from orchestrator.routes.workspaces import _resolve_workspace_path, ensure_fluxion_gitignore
 from orchestrator.runtime_paths import is_hosted_production, is_packaged_app
 from orchestrator.schemas import (
     TerminalSessionListResponse,
@@ -24,7 +26,6 @@ from orchestrator.services.browser_terminal import (
 )
 from orchestrator.storage.db import get_db
 from orchestrator.storage.repositories.conversation_repo import ConversationRepo
-from orchestrator.routes.workspaces import _resolve_workspace_path
 
 router = APIRouter(prefix="/api/terminal", tags=["terminal"])
 
@@ -86,10 +87,17 @@ async def _require_conversation_access(
 
 
 def _resolve_workspace(conversation: dict, request: TerminalSessionRequest) -> str | None:
-    return (
+    workspace_path = (
         conversation.get("workspace_path")
-        or (str(_resolve_workspace_path(request.workspace_path)) if request.workspace_path else None)
+        or (
+            str(_resolve_workspace_path(request.workspace_path))
+            if request.workspace_path
+            else None
+        )
     )
+    if workspace_path:
+        ensure_fluxion_gitignore(Path(workspace_path))
+    return workspace_path
 
 
 @router.get("/conversations/{conversation_id}/sessions", response_model=TerminalSessionListResponse)

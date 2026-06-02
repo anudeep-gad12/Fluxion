@@ -3,7 +3,10 @@
 import { create } from 'zustand';
 import type { Run, Event, Conversation } from '@/types';
 import type { AgentUIState, AgentStep, AgentToolCall, AgentCitation } from '@/types/agent';
-import type { TerminalSessionResponse } from '@/api/client';
+import {
+  ensureWorkspaceFluxionGitignore,
+  type TerminalSessionResponse,
+} from '@/api/client';
 
 const WORKSPACE_STORAGE_KEY = 'reasoner_workspace_path';
 const WORKSPACE_LIST_STORAGE_KEY = 'reasoner_workspace_paths';
@@ -189,6 +192,7 @@ export const useStore = create<AppState>((set, get) => ({
   rememberWorkspacePath: (workspacePath) => {
     const normalized = workspacePath.trim();
     if (!normalized) return;
+    void ensureWorkspaceFluxionGitignore(normalized).catch(() => undefined);
     set((state) => {
       const next = [normalized, ...state.workspacePaths.filter((path) => path !== normalized)];
       if (typeof window !== 'undefined') {
