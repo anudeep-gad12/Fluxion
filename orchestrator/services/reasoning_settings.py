@@ -31,16 +31,16 @@ def _should_migrate_legacy_max_output_default(
     settings: ReasoningSettings,
     cfg: ChatConfig,
 ) -> bool:
-    """Detect the old static 2048-token default and migrate it to auto/model-max.
+    """Detect the old static 2048-token cap and migrate it to auto/model-max.
 
-    This avoids carrying an old global default across models while preserving
-    user-customized caps.
+    The old UI/config commonly persisted 2048 as a global cap. Since the new
+    default is model-max, clear that cap regardless of the other reasoning
+    fields stored alongside it.
     """
+    del cfg
     if settings.max_output_tokens not in LEGACY_STATIC_MAX_OUTPUT_TOKEN_DEFAULTS:
         return False
-
-    default_settings = default_reasoning_settings(cfg)
-    return settings.model_copy(update={"max_output_tokens": None}) == default_settings
+    return True
 
 
 async def get_runtime_reasoning_settings(

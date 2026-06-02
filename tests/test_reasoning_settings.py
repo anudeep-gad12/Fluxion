@@ -21,8 +21,8 @@ def test_legacy_static_max_output_default_migrates_to_auto():
     assert _should_migrate_legacy_max_output_default(settings, cfg) is True
 
 
-def test_custom_max_output_token_cap_is_preserved():
+def test_non_legacy_custom_max_output_token_cap_is_preserved():
     cfg = ChatConfig()
-    settings = ReasoningSettings(max_output_tokens=2048, reasoning_effort="low")
+    settings = ReasoningSettings(max_output_tokens=4096, reasoning_effort="low")
 
     assert _should_migrate_legacy_max_output_default(settings, cfg) is False

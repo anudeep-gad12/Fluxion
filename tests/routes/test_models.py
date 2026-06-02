@@ -440,7 +440,7 @@ async def test_get_reasoning_settings_returns_capabilities():
 async def test_put_reasoning_settings_persists_round_trip():
     payload = {
         "settings": {
-            "max_output_tokens": 2048,
+            "max_output_tokens": 4096,
             "reasoning_effort": "low",
             "reasoning_summary": None,
             "reasoning_enabled": True,
@@ -461,7 +461,7 @@ async def test_put_reasoning_settings_persists_round_trip():
         second = await client.get("/api/models/reasoning-settings")
 
     data = second.json()
-    assert data["settings"]["max_output_tokens"] == 2048
+    assert data["settings"]["max_output_tokens"] == 4096
     assert data["settings"]["reasoning_effort"] == "low"
 
 
