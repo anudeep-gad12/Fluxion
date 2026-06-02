@@ -71,7 +71,7 @@ import {
   DialogContent,
 } from '@/components/ui/dialog';
 import { useConversationRuns, useSelectedConversation, useStore, useHasActiveRun, useConversationTerminal } from '@/hooks/useStore';
-import { isLocalDesktopApp, openExternalUrl, openNativeWorkspacePicker } from '@/lib/platform';
+import { isLocalDesktopApp, isTauriRuntime, openExternalUrl, openNativeWorkspacePicker } from '@/lib/platform';
 import { DesktopTextOptionGroup } from '@/components/desktop/DesktopTextOptionGroup';
 import { useSSE } from '@/hooks/useSSE';
 import { useAgentSSE } from '@/hooks/useAgentSSE';
@@ -2259,7 +2259,7 @@ export function ConversationView() {
       );
       return;
     }
-    if (localDesktop) {
+    if (isTauriRuntime()) {
       const selectedPath = await openNativeWorkspacePicker();
       if (selectedPath) {
         rememberWorkspacePath(selectedPath);
@@ -2272,7 +2272,6 @@ export function ConversationView() {
   }, [
     hasConversationWorkspace,
     isWorkspaceLocked,
-    localDesktop,
     rememberWorkspacePath,
     setDraftWorkspacePath,
   ]);
@@ -2895,7 +2894,7 @@ export function ConversationView() {
 
   const openWorkspacePickerForNewConversation = useCallback(async () => {
     if (hasActiveRun) return;
-    if (localDesktop) {
+    if (isTauriRuntime()) {
       const selectedPath = await openNativeWorkspacePicker();
       const normalized = selectedPath?.trim();
       if (normalized) {
@@ -2910,7 +2909,6 @@ export function ConversationView() {
     setWorkspacePickerOpen(true);
   }, [
     hasActiveRun,
-    localDesktop,
     navigate,
     rememberWorkspacePath,
     selectConversation,

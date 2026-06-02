@@ -3,7 +3,7 @@ import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 
 import { browseWorkspaceDirectories, type WorkspaceBrowseResponse } from '@/api/client';
 import { cn } from '@/lib/utils';
-import { isLocalDesktopApp, openNativeWorkspacePicker } from '@/lib/platform';
+import { isLocalDesktopApp, isTauriRuntime, openNativeWorkspacePicker } from '@/lib/platform';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 export function WorkspacePickerDialog({
@@ -65,7 +65,7 @@ export function WorkspacePickerDialog({
 
   useEffect(() => {
     if (!open) return;
-    if (isLocalDesktopApp()) {
+    if (isTauriRuntime()) {
       let cancelled = false;
       void openNativeWorkspacePicker().then((selectedPath) => {
         if (cancelled) return;

@@ -13,7 +13,7 @@ import { DesktopSidebarBrand } from '@/components/desktop/DesktopSidebarBrand';
 import { startWindowDrag } from '@/lib/windowDrag';
 import { useStore, useHasActiveRun } from '@/hooks/useStore';
 import { getApiBase } from '@/api/client';
-import { isLocalDesktopApp, openNativeWorkspacePicker } from '@/lib/platform';
+import { isLocalDesktopApp, isTauriRuntime, openNativeWorkspacePicker } from '@/lib/platform';
 import { cn } from '@/lib/utils';
 import { PanelLeftClose, PanelLeft, GripVertical, FolderPlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -110,7 +110,7 @@ function AppLayout() {
 
   const handleOpenWorkspacePicker = useCallback(async () => {
     if (hasActiveRun) return;
-    if (localDesktop) {
+    if (isTauriRuntime()) {
       const selectedPath = await openNativeWorkspacePicker();
       if (selectedPath) {
         startWorkspaceDraft(selectedPath);
@@ -118,7 +118,7 @@ function AppLayout() {
       return;
     }
     setWorkspacePickerOpen(true);
-  }, [hasActiveRun, localDesktop, startWorkspaceDraft]);
+  }, [hasActiveRun, startWorkspaceDraft]);
 
   useEffect(() => {
     const ownerParam = searchParams.get('owner');
@@ -229,7 +229,7 @@ function AppLayout() {
           />
           <div
             className={cn(
-              'desktop-sidebar-brand-band desktop-no-drag flex h-10 w-full shrink-0 items-center',
+              'desktop-sidebar-brand-band flex h-10 w-full shrink-0 items-center',
               sidebarCollapsed
                 ? 'justify-center'
                 : 'justify-between gap-2 pr-2 pl-[var(--desktop-traffic-light-inset)]'
@@ -241,7 +241,7 @@ function AppLayout() {
                 variant="ghost"
                 size="icon"
                 onClick={() => handleSidebarToggle(true)}
-                className="desktop-sidebar-toggle relative z-10 h-8 w-8 shrink-0 text-zinc-500"
+                className="desktop-no-drag desktop-sidebar-toggle relative z-10 h-8 w-8 shrink-0 text-zinc-500"
                 aria-label="Collapse sidebar"
               >
                 <PanelLeftClose className="h-4 w-4" />
@@ -249,12 +249,12 @@ function AppLayout() {
             ) : null}
           </div>
           {sidebarCollapsed ? (
-            <div className="desktop-sidebar-toggle-row desktop-no-drag flex justify-center pb-3">
+            <div className="desktop-sidebar-toggle-row flex justify-center pb-3">
               <Button
                 variant="ghost"
                 size="icon"
                 onClick={() => handleSidebarToggle(false)}
-                className="desktop-sidebar-toggle relative z-10 h-8 w-8 shrink-0 text-zinc-500"
+                className="desktop-no-drag desktop-sidebar-toggle relative z-10 h-8 w-8 shrink-0 text-zinc-500"
                 aria-label="Open sidebar"
               >
                 <PanelLeft className="h-4 w-4" />

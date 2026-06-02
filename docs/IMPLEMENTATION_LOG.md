@@ -9,6 +9,7 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| main | Desktop workspace picker + drag fixes — native folder picker is now gated on actual Tauri IPC instead of localhost URL detection so New workspace falls back correctly outside the app, selected workspace drafts keep their chosen folder, and the sidebar titlebar brand/toggle rows no longer block window dragging except on real controls | done | 2026-06-02 |
 | main | fluxion.cc landing page redesign — hero from `screenshot_fluxion.png`, provider grid, capability section, install CTAs; removed dead mocks/assets | done | 2026-06-01 |
 | main | Desktop tool tab hover scrollbar removal — the tool tab scroller now uses hidden horizontal overflow with manual wheel/trackpad scroll handling, preventing the native hover scrollbar from expanding over tab click targets | done | 2026-06-01 |
 | main | Desktop tool tab click/scroll polish — the overflowing tool tab row now hides the native horizontal scrollbar on the actual scroll container and each tab’s select target fills the full tab height so the scrollbar no longer steals click area | done | 2026-06-01 |

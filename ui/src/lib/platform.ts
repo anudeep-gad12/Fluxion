@@ -14,6 +14,12 @@ export function isLocalDesktopApp(): boolean {
   return (hostname === '127.0.0.1' || hostname === 'localhost') && port === '9000';
 }
 
+/** True only when the page is actually running inside the Tauri IPC runtime. */
+export function isTauriRuntime(): boolean {
+  if (typeof window === 'undefined') return false;
+  return '__TAURI_INTERNALS__' in window;
+}
+
 /** Apply desktop dataset on <html> for scoped CSS. */
 export function applyDesktopPlatformClass(forceDesktop = false): void {
   if (typeof document === 'undefined') return;
@@ -84,7 +90,7 @@ export async function openExternalPath(path: string, workspacePath?: string): Pr
 
 /** Open the system folder picker and return a selected directory path. */
 export async function openNativeWorkspacePicker(): Promise<string | null> {
-  if (typeof window === 'undefined' || !isLocalDesktopApp()) return null;
+  if (typeof window === 'undefined' || !isTauriRuntime()) return null;
 
   try {
     const { invoke } = await import('@tauri-apps/api/core');
