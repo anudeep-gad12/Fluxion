@@ -9,6 +9,7 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| main | Web tool breadth tuning — `web_search` now advertises/uses up to 10 results per call and `web_extract` advertises/configures up to 3 URLs per request so model guidance, runtime caps, and config align | done | 2026-06-02 |
 | main | Agent stop/approval durability — active agent tasks are tracked and force-cancelled after cooperative stop, cancellation is idempotent and broadcasts `run_cancelled`, approval/denial clicks emit immediate `tool_approval_decided` events, stale decisions resolve without HUD-blocking conflicts, and the UI clears stop/deny loading states with optimistic updates plus a status watchdog | done | 2026-06-02 |
 | main | Read-file pagination guard — `read_file` now reports `next_offset`, stores accurate read spans, includes the summary in model-visible tool output, and auto-continues from the next unread line when a model repeats a limited read without an offset so Grok Build no longer loops over the first page of long files | done | 2026-06-02 |
 | main | Desktop workspace picker + drag fixes — native folder picker is now gated on actual Tauri IPC instead of localhost URL detection so New workspace falls back correctly outside the app, selected workspace drafts keep their chosen folder, and the sidebar titlebar brand/toggle rows no longer block window dragging except on real controls | done | 2026-06-02 |

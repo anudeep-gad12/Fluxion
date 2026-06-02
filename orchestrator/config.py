@@ -235,7 +235,7 @@ class ParallelExtractConfig(BaseModel):
     """Parallel.ai extract settings."""
 
     timeout_ms: int = 30000
-    max_urls_per_request: int = 5
+    max_urls_per_request: int = 3
 
 
 class ParallelConfig(BaseModel):

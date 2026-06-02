@@ -46,7 +46,7 @@ class TestWebExtractToolProperties:
         tool = WebExtractTool(api_key="test")
         params = tool.schema.parameters
 
-        assert params["properties"]["urls"]["maxItems"] == 2
+        assert params["properties"]["urls"]["maxItems"] == 3
 
 
 class TestWebExtractToolExecution:
@@ -165,9 +165,9 @@ class TestWebExtractToolExecution:
         with patch.object(tool._client, "post", return_value=mock_response) as mock_post:
             await tool.execute(urls=urls)
 
-            # Check only 5 URLs were sent (max_urls default)
+            # Check only 3 URLs were sent (max_urls default)
             call_args = mock_post.call_args
-            assert len(call_args[1]["json"]["urls"]) == 2
+            assert len(call_args[1]["json"]["urls"]) == 3
 
         await tool.close()
 

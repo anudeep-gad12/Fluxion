@@ -194,7 +194,7 @@ parallel:
 
   extract:
     timeout_ms: 30000
-    max_urls_per_request: 5
+    max_urls_per_request: 3
 
 # =============================================================================
 # Python Execution
