@@ -28,6 +28,7 @@ import {
   abortRun,
   createAgentRun,
   cancelAgentRun,
+  getAgentRunStatus,
   listLocalModels,
   startLocalModel,
   stopLocalModel,
@@ -2519,6 +2520,36 @@ export function ConversationView() {
     }
   }, [clearMentionState, selectedConversationId, activeRunId, pendingRunId]);
 
+  useEffect(() => {
+    if (!stoppingRunId) return;
+    const timeout = window.setTimeout(() => {
+      void getAgentRunStatus(stoppingRunId)
+        .then((status) => {
+          if (!['cancelled', 'succeeded', 'failed'].includes(status.status)) return;
+          const terminalStatus = status.status as 'cancelled' | 'succeeded' | 'failed';
+          updateRun(stoppingRunId, {
+            status: terminalStatus,
+            error_detail: terminalStatus === 'cancelled' ? 'Stopped by user' : undefined,
+          });
+          useStore.getState().updateAgentState(stoppingRunId, {
+            isActive: false,
+            agentState:
+              terminalStatus === 'cancelled'
+                ? 'cancelled'
+                : terminalStatus === 'succeeded'
+                  ? 'complete'
+                  : 'error',
+          });
+          localStorage.removeItem(`stream_token:${stoppingRunId}`);
+          setStoppingRunId(null);
+        })
+        .catch(() => {
+          setStoppingRunId(null);
+        });
+    }, 5000);
+    return () => window.clearTimeout(timeout);
+  }, [stoppingRunId, updateRun]);
+
   const handleStop = async () => {
     const runIdToStop = pendingRunId ?? activeRunId;
     if (!runIdToStop || stoppingRunId === runIdToStop) return;
@@ -2534,6 +2565,11 @@ export function ConversationView() {
           status: 'cancelled',
           error_detail: 'Stopped by user',
         });
+        useStore.getState().updateAgentState(runIdToStop, {
+          isActive: false,
+          agentState: 'cancelled',
+        });
+        localStorage.removeItem(`stream_token:${runIdToStop}`);
       } else {
         await abortRun(runIdToStop);
         unsubscribe();

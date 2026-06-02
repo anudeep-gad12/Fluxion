@@ -108,6 +108,7 @@ def client(test_db, mock_agent_engine):
     agent_runs_module._event_history.clear()
     agent_runs_module._run_tokens.clear()
     agent_runs_module._run_sessions.clear()
+    agent_runs_module._run_tasks.clear()
     agent_runs_module._approval_queues.clear()
     agent_runs_module._plan_approval_queues.clear()
     agent_runs_module._pending_plan_approvals.clear()
@@ -127,6 +128,7 @@ def client(test_db, mock_agent_engine):
     agent_runs_module._event_history.clear()
     agent_runs_module._run_tokens.clear()
     agent_runs_module._run_sessions.clear()
+    agent_runs_module._run_tasks.clear()
     agent_runs_module._approval_queues.clear()
     agent_runs_module._plan_approval_queues.clear()
     agent_runs_module._pending_plan_approvals.clear()
@@ -142,6 +144,7 @@ async def async_client(test_db, mock_agent_engine):
     agent_runs_module._event_history.clear()
     agent_runs_module._run_tokens.clear()
     agent_runs_module._run_sessions.clear()
+    agent_runs_module._run_tasks.clear()
     agent_runs_module._approval_queues.clear()
     agent_runs_module._plan_approval_queues.clear()
     agent_runs_module._pending_plan_approvals.clear()
@@ -161,6 +164,7 @@ async def async_client(test_db, mock_agent_engine):
     agent_runs_module._event_history.clear()
     agent_runs_module._run_tokens.clear()
     agent_runs_module._run_sessions.clear()
+    agent_runs_module._run_tasks.clear()
     agent_runs_module._approval_queues.clear()
     agent_runs_module._plan_approval_queues.clear()
     agent_runs_module._pending_plan_approvals.clear()
@@ -531,6 +535,38 @@ class TestCancelAgentRun:
             data = response.json()
             assert data["run_id"] == run_id
             assert data["status"] == "cancelled"
+            assert any(
+                event.get("type") == "run_cancelled"
+                for event in agent_runs_module._event_history[run_id]
+            )
+
+    def test_cancel_completed_run_is_idempotent(self, client, test_db):
+        """A second stop click on an already-cancelled run resolves cleanly."""
+        loop = asyncio.get_event_loop()
+
+        async def seed() -> None:
+            run_id = "already-cancelled-run"
+            await ConversationRepo(test_db).create("already-cancelled-conv", title="cancel")
+            await TraceRepo(test_db).create_run(
+                run_id=run_id,
+                conversation_id="already-cancelled-conv",
+                profile_name="agent",
+                mode="agent",
+                model_config={},
+                user_message="cancel",
+                session_id="cancel-session",
+            )
+            await TraceRepo(test_db).update_run(run_id, status="cancelled")
+
+        loop.run_until_complete(seed())
+
+        response = client.post(
+            "/api/agent/runs/already-cancelled-run/cancel",
+            headers={"x-cli-session": "cancel-session"},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "cancelled"
 
 
 class TestRunAgentTaskFailureHandling:
@@ -723,8 +759,8 @@ class TestToolApprovals:
         assert response.status_code == 200
         assert response.json()["status"] == "denied"
 
-    def test_stale_approval_on_failed_run_returns_conflict(self, client, test_db):
-        """A stale approval after run failure returns explicit conflict."""
+    def test_stale_approval_on_failed_run_returns_status(self, client, test_db):
+        """A stale approval after run failure resolves so the HUD can clear."""
         loop = asyncio.get_event_loop()
         run_id = "approval-run"
         tool_call_id = loop.run_until_complete(
@@ -736,8 +772,8 @@ class TestToolApprovals:
             headers=self.SESSION_HEADERS,
         )
 
-        assert response.status_code == 409, response.json()
-        assert "already failed" in response.json()["detail"]
+        assert response.status_code == 200, response.json()
+        assert response.json()["status"] == "failed"
 
     async def _seed_tool_call(
         self,

@@ -132,11 +132,17 @@ export const AgentLiveHUD = memo(function AgentLiveHUD({
     decidingRef.current = true;
     setDeciding(decision);
     try {
-      if (decision === 'approve') {
-        await approveAgentToolCall(pendingApproval.run_id, pendingApproval.id);
-      } else {
-        await denyAgentToolCall(pendingApproval.run_id, pendingApproval.id);
-      }
+      const response = await (decision === 'approve'
+        ? approveAgentToolCall(pendingApproval.run_id, pendingApproval.id)
+        : denyAgentToolCall(pendingApproval.run_id, pendingApproval.id));
+      const resolvedDecision =
+        response.status === 'approved' || response.status === 'denied' ? response.status : undefined;
+      useStore.getState().updateAgentToolCall(pendingApproval.run_id, pendingApproval.id, {
+        approval_required: false,
+        approval_decision: resolvedDecision,
+        status: response.status === 'approved' ? 'running' : 'error',
+        ...(response.status !== 'approved' ? { completed_at: new Date().toISOString() } : {}),
+      });
     } catch (error: unknown) {
       const errMsg = error instanceof Error ? error.message : String(error);
       const apiError = error as { status?: number };

@@ -524,6 +524,7 @@ export function subscribeToAgentRun(
     'thinking',
     'tool_start',
     'tool_approval_required',
+    'tool_approval_decided',
     'plan_approval_required',
     'plan_approved',
     'plan_doc_updated',
@@ -535,6 +536,7 @@ export function subscribeToAgentRun(
     'steer',
     'usage_update',
     'conversation_compacted',
+    'run_cancelled',
   ];
 
   eventTypes.forEach((eventType) => {

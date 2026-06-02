@@ -199,6 +199,7 @@ export type AgentSSEEventType =
   | 'thinking' // thinking text tokens
   | 'tool_start' // tool beginning execution
   | 'tool_approval_required' // tool waiting for browser approval
+  | 'tool_approval_decided' // user approved/denied a waiting tool
   | 'plan_approval_required' // proposed plan waiting for HUD approval
   | 'plan_approved' // plan was approved and implementation started
   | 'plan_doc_updated' // durable plan markdown file changed
@@ -208,6 +209,7 @@ export type AgentSSEEventType =
   | 'complete' // run finished
   | 'error' // run failed
   | 'cancelled' // run cancelled
+  | 'run_cancelled' // normal cancellation event before stream closes
   | 'paused' // run paused between steps
   | 'resumed' // run resumed after pause
   | 'steer' // steering message injected
@@ -268,6 +270,13 @@ export interface ToolApprovalRequiredEvent extends AgentSSEEventBase {
   diff_preview?: string | null;
 }
 
+export interface ToolApprovalDecidedEvent extends AgentSSEEventBase {
+  type: 'tool_approval_decided';
+  tool_call_id: string;
+  decision: 'approved' | 'denied' | string;
+  status?: string;
+}
+
 export interface PlanApprovalRequiredEvent extends AgentSSEEventBase {
   type: 'plan_approval_required';
   plan_id: string;
@@ -320,6 +329,12 @@ export interface ToolResultEvent extends AgentSSEEventBase {
     truncated?: boolean;
   };
   duration_ms?: number;
+}
+
+export interface RunCancelledEvent extends AgentSSEEventBase {
+  type: 'run_cancelled';
+  status: 'cancelled' | string;
+  reason?: string;
 }
 
 /** Answer token event */
@@ -442,6 +457,7 @@ export type AgentSSEEvent =
   | ThinkingEvent
   | ToolStartEvent
   | ToolApprovalRequiredEvent
+  | ToolApprovalDecidedEvent
   | PlanApprovalRequiredEvent
   | PlanApprovedEvent
   | PlanDocUpdatedEvent
@@ -450,6 +466,7 @@ export type AgentSSEEvent =
   | AnswerEvent
   | CompleteEvent
   | ErrorEvent
+  | RunCancelledEvent
   | PausedEvent
   | ResumedEvent
   | UsageUpdateEvent

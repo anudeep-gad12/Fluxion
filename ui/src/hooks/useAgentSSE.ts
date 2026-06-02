@@ -16,11 +16,13 @@ import type {
   ThinkingEvent,
   ToolStartEvent,
   ToolApprovalRequiredEvent,
+  ToolApprovalDecidedEvent,
   PlanApprovalRequiredEvent,
   PlanApprovedEvent,
   PlanDocUpdatedEvent,
   UserInputRequiredEvent,
   ToolResultEvent,
+  RunCancelledEvent,
   AnswerEvent,
   TokenUsage,
   CostUsage,
@@ -246,6 +248,22 @@ export function useAgentSSE(runId: string | null) {
             break;
           }
 
+          case 'tool_approval_decided': {
+            const decidedEvent = event as ToolApprovalDecidedEvent;
+            const denied = decidedEvent.decision === 'denied';
+            const approvalDecision =
+              decidedEvent.decision === 'approved' || decidedEvent.decision === 'denied'
+                ? decidedEvent.decision
+                : undefined;
+            updateAgentToolCall(id, decidedEvent.tool_call_id, {
+              approval_required: false,
+              approval_decision: approvalDecision,
+              status: denied ? 'error' : 'running',
+              ...(denied ? { completed_at: decidedEvent.timestamp } : {}),
+            });
+            break;
+          }
+
           case 'plan_approval_required': {
             const planEvent = event as PlanApprovalRequiredEvent;
             updateAgentState(id, {
@@ -390,6 +408,21 @@ export function useAgentSSE(runId: string | null) {
               context_profile: compactedEvent.context_profile,
               compaction_count: compactedEvent.compaction_count,
             });
+            break;
+          }
+
+          case 'run_cancelled': {
+            const cancelledEvent = event as RunCancelledEvent;
+            flushBufferedTokens();
+            updateAgentState(id, {
+              isActive: false,
+              agentState: 'cancelled',
+            });
+            updateRun(id, {
+              status: 'cancelled',
+              error_detail: cancelledEvent.reason || 'Stopped by user',
+            });
+            localStorage.removeItem(`stream_token:${id}`);
             break;
           }
 

@@ -82,6 +82,7 @@ _event_history: Dict[str, List[Dict[str, Any]]] = {}  # Append-only event log pe
 _event_notify: Dict[str, asyncio.Event] = {}  # Notifies SSE generators of new events
 _run_tokens: Dict[str, str] = {}  # Per-run stream auth tokens
 _run_sessions: Dict[str, str] = {}  # Per-run session IDs for access control
+_run_tasks: Dict[str, asyncio.Task] = {}  # Background task per active run
 # run_id -> {tool_call_id -> Future[bool]}
 _approval_queues: Dict[str, Dict[str, asyncio.Future]] = {}
 _plan_approval_queues: Dict[str, Dict[str, asyncio.Future]] = {}
@@ -122,6 +123,7 @@ _EVENT_TYPE_MAP = {
     "thinking": "thinking",
     "tool_start": "tool_start",
     "tool_approval_required": "tool_approval_required",
+    "tool_approval_decided": "tool_approval_decided",
     "plan_approval_required": "plan_approval_required",
     "plan_approved": "plan_approved",
     "plan_doc_updated": "plan_doc_updated",
@@ -138,6 +140,7 @@ _EVENT_TYPE_MAP = {
     "usage_update": "usage_update",
     "context_pruned": "context_pruned",
     "conversation_compacted": "conversation_compacted",
+    "run_cancelled": "run_cancelled",
 }
 
 
@@ -206,6 +209,92 @@ async def _emit_external_run_event(run_id: str, event: Dict[str, Any]) -> None:
     notify = _event_notify.get(run_id)
     if notify:
         notify.set()
+
+
+def _resolve_pending_run_waiters(run_id: str) -> None:
+    """Unblock route-owned waiters when a run is cancelled or finalized."""
+    pending_approvals = _approval_queues.pop(run_id, {})
+    for future in pending_approvals.values():
+        if not future.done():
+            future.set_result(False)
+
+    pending_plans = _plan_approval_queues.pop(run_id, {})
+    for future in pending_plans.values():
+        if not future.done():
+            future.set_result(PlanDecision(decision="rejected", feedback="Run cancelled."))
+
+    pending_inputs = _user_input_queues.pop(run_id, {})
+    for future in pending_inputs.values():
+        if not future.done():
+            future.set_result({})
+
+
+async def _mark_run_cancelled(run_id: str, reason: str = "Stopped by user") -> None:
+    """Persist cancellation in both run status and agent-state fields."""
+    db = await get_db()
+    trace_repo = TraceRepo(db)
+    agent_repo = AgentRepo(db)
+    await trace_repo.update_run(
+        run_id,
+        status="cancelled",
+        error_message=reason,
+        agent_state="cancelled",
+    )
+    await agent_repo.update_run_agent_state(
+        run_id,
+        status="cancelled",
+        agent_state="cancelled",
+        error_message=reason,
+    )
+
+
+async def _cancel_run_task_later(run_id: str, delay_seconds: float = 2.0) -> None:
+    """Force-cancel a background task if cooperative abort does not finish."""
+    await asyncio.sleep(delay_seconds)
+    task = _run_tasks.get(run_id)
+    if task and not task.done():
+        logger.warning("Force-cancelling agent run task", extra={"run_id": run_id})
+        task.cancel()
+
+
+async def _emit_tool_approval_decided(
+    *,
+    run_id: str,
+    tool_call_id: str,
+    decision: str,
+    status_label: str,
+) -> None:
+    """Persist and broadcast an immediate approval/denial state change."""
+    try:
+        db = await get_db()
+        agent_repo = AgentRepo(db)
+        await agent_repo.update_tool_call(
+            tool_call_id,
+            approval_decision=decision,
+            approval_policy="user",
+            approval_decided_at=datetime.now(timezone.utc).isoformat(),
+        )
+    except Exception as e:
+        logger.debug(
+            "Tool approval decision could not update DB row",
+            extra={
+                "run_id": run_id,
+                "tool_call_id": tool_call_id,
+                "decision": decision,
+                "error": str(e),
+            },
+        )
+
+    await _emit_external_run_event(
+        run_id,
+        {
+            "type": "tool_approval_decided",
+            "run_id": run_id,
+            "tool_call_id": tool_call_id,
+            "decision": decision,
+            "status": status_label,
+        },
+    )
 
 
 def _plan_doc_update_event(
@@ -431,6 +520,7 @@ async def _cleanup_run(run_id: str, delay_seconds: float = 5.0) -> None:
     _steer_queues.pop(run_id, None)
     _event_notify.pop(run_id, None)
     _run_sessions.pop(run_id, None)
+    _run_tasks.pop(run_id, None)
     _approval_queues.pop(run_id, None)
     _plan_approval_queues.pop(run_id, None)
     _pending_plan_approvals.pop(run_id, None)
@@ -781,11 +871,20 @@ async def _run_agent_task(
     except BaseException as e:
         error_text = _format_background_error(e)
         failure_message = error_text
-        logger.error(
-            "Agent run failed",
-            extra={"run_id": run_id, "error": error_text},
-            exc_info=True,
+        cancelled_after_abort = isinstance(e, asyncio.CancelledError) and bool(
+            abort_signal and abort_signal.is_set()
         )
+        if cancelled_after_abort:
+            logger.info(
+                "Agent run task cancelled after user stop",
+                extra={"run_id": run_id},
+            )
+        else:
+            logger.error(
+                "Agent run failed",
+                extra={"run_id": run_id, "error": error_text},
+                exc_info=True,
+            )
         if abort_signal is None or not abort_signal.is_set():
             err_event = {"type": "_STREAM_ERROR", "error": error_text}
             _event_history.setdefault(run_id, []).append(err_event)
@@ -992,7 +1091,7 @@ async def create_agent_run(request: CreateAgentRunRequest, http_request: Request
         # Start background task (pass provider/model preference from headers)
         provider_preference = http_request.headers.get("x-provider")
         model_override = http_request.headers.get("x-model")
-        asyncio.create_task(
+        task = asyncio.create_task(
             _run_agent_task(
                 run_id=run_id,
                 query=request.query,
@@ -1014,6 +1113,7 @@ async def create_agent_run(request: CreateAgentRunRequest, http_request: Request
                 source_plan_run_id=request.source_plan_run_id,
             )
         )
+        _run_tasks[run_id] = task
 
         logger.info(
             "Agent run started",
@@ -1041,6 +1141,7 @@ async def create_agent_run(request: CreateAgentRunRequest, http_request: Request
         _event_notify.pop(run_id, None)
         _run_tokens.pop(run_id, None)
         _run_sessions.pop(run_id, None)
+        _run_tasks.pop(run_id, None)
         _plan_approval_queues.pop(run_id, None)
         _pending_plan_approvals.pop(run_id, None)
         _user_input_queues.pop(run_id, None)
@@ -1053,6 +1154,7 @@ async def create_agent_run(request: CreateAgentRunRequest, http_request: Request
         _event_notify.pop(run_id, None)
         _run_tokens.pop(run_id, None)
         _run_sessions.pop(run_id, None)
+        _run_tasks.pop(run_id, None)
         _plan_approval_queues.pop(run_id, None)
         _pending_plan_approvals.pop(run_id, None)
         _user_input_queues.pop(run_id, None)
@@ -1314,46 +1416,48 @@ async def cancel_agent_run(run_id: str, http_request: Request):
             raise HTTPException(status_code=404, detail="Run not found")
 
     if run_id not in _active_runs:
-        raise HTTPException(status_code=404, detail="Run not found or already completed")
+        db = await get_db()
+        trace_repo = TraceRepo(db)
+        run = await trace_repo.get_run_with_session_check(
+            run_id,
+            session_id=session_id,
+            is_owner=is_owner,
+        )
+        if not run:
+            raise HTTPException(status_code=404, detail="Run not found")
+        status = run.get("status") or "unknown"
+        if status in {"cancelled", "succeeded", "failed"}:
+            return {"run_id": run_id, "status": status}
+        await _mark_run_cancelled(run_id)
+        return {"run_id": run_id, "status": "cancelled"}
 
     # Signal abort
     if run_id in _abort_signals:
         _abort_signals[run_id].set()
 
-    # Resolve any pending approval futures so the engine unblocks immediately
-    pending_approvals = _approval_queues.pop(run_id, {})
-    for future in pending_approvals.values():
-        if not future.done():
-            future.set_result(False)
-    pending_plans = _plan_approval_queues.pop(run_id, {})
-    for future in pending_plans.values():
-        if not future.done():
-            future.set_result(PlanDecision(decision="rejected", feedback="Run cancelled."))
-    pending_inputs = _user_input_queues.pop(run_id, {})
-    for future in pending_inputs.values():
-        if not future.done():
-            future.set_result({})
+    _resolve_pending_run_waiters(run_id)
 
-    # Signal cancellation to SSE clients via history + notify
-    _active_runs.pop(run_id, None)
-    _event_history.setdefault(run_id, []).append({"type": "_STREAM_ABORTED"})
-    notify = _event_notify.get(run_id)
-    if notify:
-        notify.set()
-
-    # Clean up session tracking
-    _run_sessions.pop(run_id, None)
-
-    # Update database status
     try:
-        db = await get_db()
-        trace_repo = TraceRepo(db)
-        await trace_repo.update_run(run_id, status="cancelled")
+        await _mark_run_cancelled(run_id)
     except Exception as e:
         logger.error(
             "Failed to update run status on cancel",
             extra={"run_id": run_id, "error": str(e)},
         )
+
+    # Signal cancellation to SSE clients via a normal event, then a terminal event.
+    await _emit_external_run_event(
+        run_id,
+        {
+            "type": "run_cancelled",
+            "run_id": run_id,
+            "status": "cancelled",
+            "reason": "Stopped by user",
+        },
+    )
+    await _emit_external_run_event(run_id, {"type": "_STREAM_ABORTED"})
+    _active_runs.pop(run_id, None)
+    asyncio.create_task(_cancel_run_task_later(run_id))
 
     logger.info("Agent run cancelled", extra={"run_id": run_id})
 
@@ -1765,24 +1869,29 @@ async def _resolve_stale_tool_decision(
         if existing_decision == decision:
             return {"status": status_label, "run_id": run_id, "tool_call_id": tool_call_id}
         if existing_decision in {"approved", "denied"}:
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    "Tool call already has approval decision "
-                    f"{existing_decision}"
-                ),
-            )
+            return {
+                "status": existing_decision,
+                "run_id": run_id,
+                "tool_call_id": tool_call_id,
+            }
 
     if run.get("status") in {"failed", "succeeded", "cancelled"}:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Run is already {run.get('status')}; no pending approval remains",
-        )
+        return {
+            "status": str(run.get("status")),
+            "run_id": run_id,
+            "tool_call_id": tool_call_id,
+        }
 
     if run.get("status") == "running":
         logger.info(
             "Approval accepted for active run (future already consumed)",
             extra={"run_id": run_id, "tool_call_id": tool_call_id, "decision": decision},
+        )
+        await _emit_tool_approval_decided(
+            run_id=run_id,
+            tool_call_id=tool_call_id,
+            decision=decision,
+            status_label=status_label,
         )
         return {"status": status_label, "run_id": run_id, "tool_call_id": tool_call_id}
 
@@ -1816,6 +1925,12 @@ async def approve_tool_call(run_id: str, tool_call_id: str, http_request: Reques
 
     if not future.done():
         future.set_result(True)
+    await _emit_tool_approval_decided(
+        run_id=run_id,
+        tool_call_id=tool_call_id,
+        decision="approved",
+        status_label="approved",
+    )
 
     logger.info(
         "Tool call approved",
@@ -1851,6 +1966,12 @@ async def deny_tool_call(run_id: str, tool_call_id: str, http_request: Request):
 
     if not future.done():
         future.set_result(False)
+    await _emit_tool_approval_decided(
+        run_id=run_id,
+        tool_call_id=tool_call_id,
+        decision="denied",
+        status_label="denied",
+    )
 
     logger.info(
         "Tool call denied",
