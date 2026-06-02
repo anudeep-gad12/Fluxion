@@ -263,6 +263,51 @@ class TestAgentEngineHelpers:
         engine._emit(None, "test_event", foo="bar")
 
     @pytest.mark.asyncio
+    async def test_empty_content_without_tool_calls_continues(self):
+        """Empty content/no tools should prompt continuation, not force synthesis."""
+        provider = MagicMock()
+        provider.complete_streaming = AsyncMock(
+            side_effect=[
+                LLMResponse(
+                    text="",
+                    reasoning="I have enough context. Let me search next.",
+                    tool_calls=[],
+                    finish_reason="stop",
+                ),
+                LLMResponse(
+                    text="Complete answer.",
+                    reasoning=None,
+                    tool_calls=[],
+                    finish_reason="stop",
+                ),
+            ]
+        )
+        mock_sm = create_mock_state_machine(
+            can_continue_sequence=[True, True, False],
+            step_sequence=[
+                {"step_number": 1, "id": "step-1"},
+                {"step_number": 2, "id": "step-2"},
+            ],
+        )
+
+        with patch(
+            "orchestrator.agent.agent_engine.AgentStateMachine",
+            return_value=mock_sm,
+        ):
+            engine = AgentEngine(
+                provider=provider,
+                repo=create_mock_repo(),
+                registry=create_mock_registry(),
+            )
+            result = await engine.run(run_id="run-empty-retry", query="Research VO2 max")
+
+        assert result.final_answer == "Complete answer."
+        assert provider.complete_streaming.await_count == 2
+        decisions = [call.kwargs.get("decision") for call in mock_sm.complete_step.await_args_list]
+        assert "empty_response_retry" in decisions
+        assert "synthesize" in decisions
+
+    @pytest.mark.asyncio
     async def test_finalize_edit_file_emits_raw_diff_result_data(self):
         """edit_file tool_result events expose raw unified diff text to the UI."""
         engine = AgentEngine(
@@ -4313,7 +4358,7 @@ class TestCodingContinuationBehavior:
 
     @pytest.mark.asyncio
     async def test_coding_run_first_step_does_not_force_tool_choice(self):
-        provider = create_mock_provider(response_text="I'll inspect first.")
+        provider = create_mock_provider(response_text="Inspection complete.")
         mock_sm = create_mock_state_machine()
 
         with patch(

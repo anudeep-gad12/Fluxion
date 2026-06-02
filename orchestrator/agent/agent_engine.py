@@ -3812,7 +3812,40 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         )
 
                 else:
-                    # Synthesis step - no tool calls means final answer
+                    # No tool calls normally means final answer. If the provider
+                    # gives us no final content, do not synthesize or guess from
+                    # reasoning. Ask the model to continue and either call a tool
+                    # or produce a real final answer.
+                    final_answer = self._clean_answer(llm_response.text)
+
+                    if not final_answer:
+                        logger.warning(
+                            "Provider sent empty final content with no tool calls; continuing",
+                            extra={
+                                "run_id": run_id,
+                                "has_reasoning": bool(llm_response.reasoning),
+                                "finish_reason": llm_response.finish_reason,
+                            },
+                        )
+                        await state_machine.complete_step(
+                            decision="empty_response_retry",
+                            thinking_text=thinking_text,
+                        )
+                        retry_message = {
+                            "role": "user",
+                            "content": (
+                                "You returned no final answer and no tool calls. "
+                                "Continue from here: either call the next needed "
+                                "tool or provide the final answer. Do not narrate "
+                                "planned tool use without calling a tool."
+                            ),
+                        }
+                        messages.append(retry_message)
+                        if self._is_coding_profile():
+                            ephemeral_messages.append(retry_message)
+                        continue
+
+                    # Synthesis step - final answer is available.
                     await state_machine.transition_to(AgentStepState.SYNTHESIZING)
 
                     self._emit(
@@ -3829,18 +3862,6 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         content={"step_number": step_number},
                         step_number=step_number,
                     )
-
-                    final_answer = self._clean_answer(llm_response.text)
-
-                    # Provider put everything in reasoning, content is empty.
-                    # This happens when OpenRouter auto-separates thinking models
-                    # (Qwen, etc.) and routes all output to reasoning_content.
-                    if not final_answer and llm_response.reasoning:
-                        final_answer = self._clean_answer(llm_response.reasoning)
-                        logger.info(
-                            "Used reasoning as answer (provider sent empty content)",
-                            extra={"answer_length": len(final_answer)},
-                        )
 
                     if self._collaboration_mode == "plan":
                         proposed_plan = extract_proposed_plan(final_answer)
@@ -7485,17 +7506,19 @@ To provide your final answer, respond WITHOUT calling any tools."""
         # If text is empty but we got reasoning, use reasoning as the answer
         # This can happen with reasoning models where the "thinking" IS the answer
         if not response.text and response.reasoning:
-            logger.warning(
-                "Forced synthesis produced reasoning but no content, using reasoning as answer",
-                extra={
-                    "run_id": run_id,
-                    "reasoning_length": len(response.reasoning),
-                    "finish_reason": response.finish_reason,
-                },
-            )
             # Clean reasoning content - remove JSON tool call attempts
             cleaned_reasoning = self._clean_reasoning_for_answer(response.reasoning)
-            return self._clean_answer(cleaned_reasoning)
+            cleaned_answer = self._clean_answer(cleaned_reasoning)
+            if cleaned_answer:
+                logger.warning(
+                    "Forced synthesis produced reasoning but no content, using reasoning as answer",
+                    extra={
+                        "run_id": run_id,
+                        "reasoning_length": len(response.reasoning),
+                        "finish_reason": response.finish_reason,
+                    },
+                )
+                return cleaned_answer
 
         # If both are empty, return a fallback message
         if not response.text:

@@ -9,6 +9,7 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| main | Empty reasoning continuation fix — provider responses with empty final content plus progress/planning reasoning now get a corrective continuation prompt instead of being accepted as final answers or immediately force-synthesized | done | 2026-06-02 |
 | main | Tool-call live finalization — mixed tool batches now finalize each completed tool immediately, so fast read/search calls no longer stay visually running behind a long command in the same step | done | 2026-06-02 |
 | main | Run output artifacts — agent runs now persist command stdout/stderr/output and raw web extracts under `.fluxion/runs/<run_id>/`, expose read-only `list_run_artifacts`/`read_artifact` tools plus trace/API/UI artifact refs, and keep source reads/edits/diffs out of scratch artifacts | done | 2026-06-02 |
 | main | Grok OAuth Composer 2.5 listing — added `grok-composer-2.5-fast` as a Grok subscription/OAuth coding model in the curated model registry and visible Grok picker allowlist, with aliases for Composer 2.5 selection, and routes Grok OAuth through the required `/responses` API backend instead of `/chat/completions` | done | 2026-06-02 |
