@@ -4097,6 +4097,7 @@ class TestForcePruneFilesystemTools:
         formatted = engine._format_tool_result(result, "read_file")
 
         assert len(formatted.splitlines()) <= 400
+        assert formatted.splitlines()[0] == "[read ok]"
         assert all(len(line) <= 303 for line in formatted.splitlines() if line)
 
     def test_format_web_search_result_caps_results(self):

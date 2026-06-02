@@ -5,7 +5,7 @@ Reads file contents with line numbers. Auto-approves (read-only, idempotent).
 
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from orchestrator.logging_config import get_logger
 
@@ -29,6 +29,7 @@ class ReadFileTool:
             working_dir: Base directory for resolving relative paths.
         """
         self._working_dir = Path(working_dir).resolve()
+        self._next_offsets: dict[str, int] = {}
 
     @property
     def name(self) -> str:
@@ -43,7 +44,10 @@ class ReadFileTool:
             description=(
                 "Read the contents of a file with line numbers. "
                 "Reads up to 250 lines by default and 400 lines max. "
-                "Only use offset/limit to page through longer files."
+                "For long files, continue with offset equal to the next_offset "
+                "reported in the previous result. If offset is omitted after a "
+                "partial read and limit is provided, this tool auto-continues "
+                "from the next unread line instead of rereading from line 1."
             ),
             parameters={
                 "type": "object",
@@ -57,8 +61,13 @@ class ReadFileTool:
                     },
                     "offset": {
                         "type": "integer",
-                        "description": "Line number to start reading from (1-based, default: 1)",
-                        "default": 1,
+                        "description": (
+                            "1-based line number to start reading from. "
+                            "Omit for the first page; use the previous "
+                            "result's next_offset to continue. Set offset=1 "
+                            "explicitly to reread from the beginning."
+                        ),
+                        "minimum": 1,
                     },
                     "limit": {
                         "type": "integer",
@@ -115,8 +124,8 @@ class ReadFileTool:
     async def execute(
         self,
         file_path: str,
-        offset: int = 1,
-        limit: int = 250,
+        offset: Optional[int] = None,
+        limit: Optional[int] = None,
         **kwargs: Any,
     ) -> ToolResult:
         """Read file contents.
@@ -164,6 +173,16 @@ class ReadFileTool:
                 all_lines = f.readlines()
 
             total_lines = len(all_lines)
+            cursor_key = str(path)
+            explicit_limit = limit is not None
+            if offset is None:
+                offset = (
+                    self._next_offsets.get(cursor_key, 1)
+                    if explicit_limit
+                    else 1
+                )
+            offset = max(1, int(offset))
+            limit = 250 if limit is None else int(limit)
             start_idx = max(0, offset - 1)
             limit = min(max(1, limit), 400)
             end_idx = min(total_lines, start_idx + limit)
@@ -185,13 +204,28 @@ class ReadFileTool:
             summary = f"Read {len(selected_lines)} lines from {display_path} ({total_lines} total)"
             if start_idx > 0 or end_idx < total_lines:
                 summary += f" [lines {start_idx + 1}-{end_idx}]"
+            metadata: dict[str, Any] = {
+                "total_lines": total_lines,
+                "lines_read": len(selected_lines),
+                "line_start": start_idx + 1,
+                "line_end": end_idx if selected_lines else None,
+            }
+            if end_idx < total_lines:
+                next_offset = end_idx + 1
+                self._next_offsets[cursor_key] = next_offset
+                metadata["next_offset"] = next_offset
+                summary += f" — next_offset={next_offset}"
+            else:
+                self._next_offsets[cursor_key] = total_lines + 1
+                if not selected_lines and start_idx >= total_lines:
+                    summary += " — already at end; set offset=1 to reread from the beginning"
 
             return ToolResult(
                 success=True,
                 result_summary=summary,
                 result_data=content,
                 duration_ms=duration_ms,
-                metadata={"total_lines": total_lines, "lines_read": len(selected_lines)},
+                metadata=metadata,
             )
 
         except ValueError as e:

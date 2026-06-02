@@ -1477,6 +1477,12 @@ To provide your final answer, respond WITHOUT calling any tools."""
         result: "ToolResult",
     ) -> tuple[Optional[int], Optional[int]]:
         """Derive the stored line span for a read_file result."""
+        if isinstance(result.metadata, dict):
+            metadata_start = result.metadata.get("line_start")
+            metadata_end = result.metadata.get("line_end")
+            if isinstance(metadata_start, int):
+                return metadata_start, metadata_end if isinstance(metadata_end, int) else None
+
         offset = tool_call.arguments.get("offset", 1)
         try:
             line_start = max(1, int(offset))
@@ -6077,7 +6083,9 @@ To provide your final answer, respond WITHOUT calling any tools."""
         if tool_name == "read_file":
             content = str(data)
             lines = []
-            for raw_line in content.splitlines()[:400]:
+            if result.result_summary:
+                lines.append(f"[{result.result_summary}]")
+            for raw_line in content.splitlines()[: 400 - len(lines)]:
                 if len(raw_line) > 300:
                     lines.append(raw_line[:300] + "...")
                 else:

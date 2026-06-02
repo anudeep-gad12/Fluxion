@@ -50,6 +50,44 @@ async def test_read_with_offset_and_limit(tool, working_dir):
 
 
 @pytest.mark.asyncio
+async def test_read_without_offset_auto_continues_after_partial_read(tool):
+    first = await tool.execute(file_path="hello.txt", limit=2)
+    second = await tool.execute(file_path="hello.txt", limit=2)
+
+    assert first.success is True
+    assert "next_offset=3" in first.result_summary
+    assert first.metadata["next_offset"] == 3
+    assert second.success is True
+    assert "line 3" in second.result_data
+    assert "line 4" in second.result_data
+    assert "line 1" not in second.result_data
+    assert second.metadata["line_start"] == 3
+    assert second.metadata["line_end"] == 4
+
+
+@pytest.mark.asyncio
+async def test_read_explicit_offset_one_rereads_beginning(tool):
+    await tool.execute(file_path="hello.txt", limit=2)
+    result = await tool.execute(file_path="hello.txt", offset=1, limit=2)
+
+    assert result.success is True
+    assert "line 1" in result.result_data
+    assert "line 3" not in result.result_data
+    assert result.metadata["line_start"] == 1
+
+
+@pytest.mark.asyncio
+async def test_read_auto_continue_reports_eof(tool):
+    await tool.execute(file_path="hello.txt", limit=4)
+    await tool.execute(file_path="hello.txt", limit=4)
+    result = await tool.execute(file_path="hello.txt", limit=4)
+
+    assert result.success is True
+    assert result.result_data == ""
+    assert "already at end" in result.result_summary
+
+
+@pytest.mark.asyncio
 async def test_read_file_not_found(tool):
     result = await tool.execute(file_path="nonexistent.txt")
     assert result.success is False
