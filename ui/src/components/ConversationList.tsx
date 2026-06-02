@@ -8,7 +8,7 @@ import { useStore, useHasActiveRun } from '@/hooks/useStore';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/dialog';
 import { WorkspacePickerDialog } from '@/components/WorkspacePickerDialog';
-import { isTauriRuntime, openNativeWorkspacePicker } from '@/lib/platform';
+import { isLocalDesktopApp, openNativeWorkspacePicker } from '@/lib/platform';
 import { cn, formatRelativeTime, truncate } from '@/lib/utils';
 import {
   CheckSquare,
@@ -313,7 +313,7 @@ export function ConversationList({
 
   const openWorkspacePicker = async () => {
     if (hasActiveRun) return;
-    if (isTauriRuntime()) {
+    if (isLocalDesktopApp()) {
       const selectedPath = await openNativeWorkspacePicker();
       if (selectedPath) {
         startWorkspaceDraft(selectedPath);

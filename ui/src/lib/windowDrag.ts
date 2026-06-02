@@ -1,7 +1,5 @@
 import type { MouseEvent as ReactMouseEvent } from 'react';
 
-import { isLocalDesktopApp } from '@/lib/platform';
-
 /** Elements that must not initiate a window drag. */
 const DRAG_BLOCK_SELECTOR =
   '.desktop-no-drag, button, a, input, textarea, select, [role="button"], [contenteditable="true"]';
@@ -12,9 +10,6 @@ const DRAG_BLOCK_SELECTOR =
  */
 export async function startWindowDrag(event: ReactMouseEvent): Promise<void> {
   if (event.button !== 0) {
-    return;
-  }
-  if (!isLocalDesktopApp()) {
     return;
   }
   const target = event.target as HTMLElement | null;

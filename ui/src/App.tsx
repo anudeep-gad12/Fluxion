@@ -13,7 +13,7 @@ import { DesktopSidebarBrand } from '@/components/desktop/DesktopSidebarBrand';
 import { startWindowDrag } from '@/lib/windowDrag';
 import { useStore, useHasActiveRun } from '@/hooks/useStore';
 import { getApiBase } from '@/api/client';
-import { isLocalDesktopApp, isTauriRuntime, openNativeWorkspacePicker } from '@/lib/platform';
+import { isLocalDesktopApp, openNativeWorkspacePicker } from '@/lib/platform';
 import { cn } from '@/lib/utils';
 import { PanelLeftClose, PanelLeft, GripVertical, FolderPlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -110,7 +110,7 @@ function AppLayout() {
 
   const handleOpenWorkspacePicker = useCallback(async () => {
     if (hasActiveRun) return;
-    if (isTauriRuntime()) {
+    if (isLocalDesktopApp()) {
       const selectedPath = await openNativeWorkspacePicker();
       if (selectedPath) {
         startWorkspaceDraft(selectedPath);

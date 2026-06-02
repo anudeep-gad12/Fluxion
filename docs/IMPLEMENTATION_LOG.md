@@ -9,6 +9,7 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| main | Packaged desktop IPC fix — release builds now return from splash to bundled Tauri assets instead of remote localhost UI, preserving dialog/window IPC for workspace pickers and window dragging; cancelling native workspace selection no longer opens the old in-app browser picker, and unsigned macOS app-only builds no longer exit nonzero just because no DMG was produced | done | 2026-06-02 |
 | main | Model-max output token defaults — max output tokens now default to auto/model max instead of a static 2048-style cap, legacy untouched defaults migrate to auto, and chat calls use provider/registry max output when no manual cap is set | done | 2026-06-02 |
 | main | Workspace `.fluxion` gitignore — selecting/opening/using a Git workspace now best-effort ensures `.fluxion/` is present in the workspace-local `.gitignore`, and workspace file search hides `.fluxion` scratch artifacts | done | 2026-06-02 |
 | main | Empty reasoning continuation fix — provider responses with empty final content plus progress/planning reasoning now get a corrective continuation prompt instead of being accepted as final answers or immediately force-synthesized | done | 2026-06-02 |

@@ -137,5 +137,9 @@ ditto -c -k --sequesterRsrc --keepParent "$DIST_ROOT/${APP_NAME}.app" "$ZIP_PATH
 )
 
 log "Built $DIST_ROOT/${APP_NAME}.app"
-[[ -f "$ZIP_PATH" ]] && log "Built $ZIP_PATH"
-[[ -f "$DMG_PATH" ]] && log "Built $DMG_PATH"
+if [[ -f "$ZIP_PATH" ]]; then
+  log "Built $ZIP_PATH"
+fi
+if [[ -f "$DMG_PATH" ]]; then
+  log "Built $DMG_PATH"
+fi

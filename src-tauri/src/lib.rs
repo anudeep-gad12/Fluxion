@@ -544,6 +544,15 @@ fn navigate_main_to_service(handle: &AppHandle) -> Result<(), String> {
         .map_err(|error| format!("failed to navigate main window: {error}"))
 }
 
+fn navigate_main_to_app_index(handle: &AppHandle) -> Result<(), String> {
+    let window = handle
+        .get_webview_window("main")
+        .ok_or_else(|| "main window missing".to_string())?;
+    window
+        .eval("window.location.replace('index.html')")
+        .map_err(|error| format!("failed to navigate main window to app assets: {error}"))
+}
+
 fn show_splash_error(handle: &AppHandle, message: &str) {
     let Some(window) = handle.get_webview_window("main") else {
         return;
@@ -587,7 +596,12 @@ fn start_backend_in_background(handle: AppHandle) {
         let handle_for_ui = handle.clone();
         let _ = handle.run_on_main_thread(move || match result {
             Ok(Ok(())) => {
-                if let Err(error) = navigate_main_to_service(&handle_for_ui) {
+                let navigation_result = if cfg!(debug_assertions) {
+                    navigate_main_to_service(&handle_for_ui)
+                } else {
+                    navigate_main_to_app_index(&handle_for_ui)
+                };
+                if let Err(error) = navigation_result {
                     show_splash_error(&handle_for_ui, &error);
                 }
             }
