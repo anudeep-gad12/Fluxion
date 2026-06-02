@@ -6,15 +6,15 @@
     <description>Fluxion release feed</description>
     <language>en</language>
     <item>
-      <title>v0.3.0</title>
-      <pubDate>Mon, 01 Jun 2026 17:02:56 +0000</pubDate>
-      <sparkle:version>537</sparkle:version>
-      <sparkle:shortVersionString>0.3.0</sparkle:shortVersionString>
+      <title>v0.4.0</title>
+      <pubDate>Tue, 02 Jun 2026 17:17:52 +0000</pubDate>
+      <sparkle:version>551</sparkle:version>
+      <sparkle:shortVersionString>0.4.0</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
       <enclosure
-        url="https://github.com/anudeep-gad12/Fluxion/releases/download/v0.3.0/Fluxion-macos-arm64.zip"
-        sparkle:edSignature="vGR3Pug6oeNtCBMy6D1hs7/3Qsy+bf71agn7XrYdCaHR+GKkdVABxWcfPDuu9y8vDE1DE4BczGV11I/MZfNLCA=="
-        length="37784713"
+        url="https://github.com/anudeep-gad12/Fluxion/releases/download/v0.4.0/Fluxion-macos-arm64.zip"
+        sparkle:edSignature="VTP8PTv9bPNVe+nJ6SWvu5PHJPQALZnH1M4q9Td6mDP9H6v3owm7AOqZJ+FJ71AUuCGkvewtU/a+RJ5uZaV5Bw=="
+        length="37815421"
         type="application/octet-stream" />
     </item>
   </channel>
