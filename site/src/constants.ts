@@ -4,8 +4,8 @@ export const DOWNLOAD_URL =
 export const BREW_COMMAND = "brew install --cask anudeep-gad12/tap/fluxion"
 export const DOCS_URL = `${GITHUB_URL}#readme`
 
-/** ~/Desktop/screenshot_fluxion.png */
+/** ~/Desktop/FLUX.heic */
 export const APP_SCREENSHOT_PNG = "/images/fluxion-hero.png"
 export const APP_SCREENSHOT_WEBP = "/images/fluxion-hero.webp"
-export const APP_SCREENSHOT_WIDTH = 2800
-export const APP_SCREENSHOT_HEIGHT = 1756
+export const APP_SCREENSHOT_WIDTH = 2792
+export const APP_SCREENSHOT_HEIGHT = 1768
