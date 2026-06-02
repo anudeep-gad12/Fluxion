@@ -259,6 +259,26 @@ class TestBrowserAgentToolRegistry:
             "bash",
         }
 
+    def test_run_artifact_tools_require_workspace_and_run_id(self, tmp_path):
+        """Current-run artifact tools register only for workspace-bound runs."""
+        config = SimpleNamespace(parallel=None, python=SimpleNamespace(timeout_seconds=30))
+
+        without_run = create_browser_agent_tool_registry(
+            config,
+            {"web": False, "filesystem": False, "bash": False, "python": False},
+            working_dir=str(tmp_path),
+        )
+        assert "list_run_artifacts" not in without_run.tool_names
+        assert "read_artifact" not in without_run.tool_names
+
+        with_run = create_browser_agent_tool_registry(
+            config,
+            {"web": False, "filesystem": False, "bash": False, "python": False},
+            working_dir=str(tmp_path),
+            run_id="run-1",
+        )
+        assert {"list_run_artifacts", "read_artifact"} <= set(with_run.tool_names)
+
     def test_web_tools_use_parallel_key_from_environment(self, monkeypatch):
         """Web tools register when PARALLEL_API_KEY is set even if config cache is stale."""
         monkeypatch.setenv("PARALLEL_API_KEY", "parallel-env-key")

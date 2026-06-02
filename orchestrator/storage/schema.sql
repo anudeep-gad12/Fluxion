@@ -276,6 +276,11 @@ CREATE TABLE IF NOT EXISTS run_artifacts (
     action TEXT NOT NULL,              -- write_file | edit_file | bash_tool
     detail TEXT,                       -- Result summary or command output
     tool_call_id TEXT,
+    artifact_path TEXT,                -- Workspace-relative path for local artifact file
+    byte_count INTEGER,
+    sha256 TEXT,
+    content_type TEXT,
+    metadata TEXT,                     -- JSON metadata for artifact display/replay
     created_at TEXT NOT NULL,
     FOREIGN KEY(run_id) REFERENCES runs(run_id) ON DELETE CASCADE,
     FOREIGN KEY(tool_call_id) REFERENCES agent_tool_calls(id) ON DELETE CASCADE

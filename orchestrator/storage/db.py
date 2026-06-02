@@ -128,12 +128,22 @@ class Database:
                 action TEXT NOT NULL,
                 detail TEXT,
                 tool_call_id TEXT,
+                artifact_path TEXT,
+                byte_count INTEGER,
+                sha256 TEXT,
+                content_type TEXT,
+                metadata TEXT,
                 created_at TEXT NOT NULL,
                 FOREIGN KEY(run_id) REFERENCES runs(run_id) ON DELETE CASCADE,
                 FOREIGN KEY(tool_call_id) REFERENCES agent_tool_calls(id) ON DELETE CASCADE
             )
             """,
         )
+        await self._add_column_if_not_exists("run_artifacts", "artifact_path", "TEXT")
+        await self._add_column_if_not_exists("run_artifacts", "byte_count", "INTEGER")
+        await self._add_column_if_not_exists("run_artifacts", "sha256", "TEXT")
+        await self._add_column_if_not_exists("run_artifacts", "content_type", "TEXT")
+        await self._add_column_if_not_exists("run_artifacts", "metadata", "TEXT")
         # Migration 11: Global app settings storage
         await self._create_table_if_not_exists(
             "app_settings",

@@ -19,6 +19,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
+from orchestrator.agent.artifacts import AgentArtifactManager, ArtifactWrite
 from orchestrator.agent.coding_context_builder import CodingSessionContextBuilder
 from orchestrator.agent.coding_session import (
     CodingFileState,
@@ -5302,7 +5303,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
     # Tools safe to execute in parallel (read-only, no side effects)
     PARALLEL_TOOLS = frozenset({
         "read_file", "view_image", "grep", "glob", "list_directory",
-        "web_search", "web_extract",
+        "web_search", "web_extract", "list_run_artifacts", "read_artifact",
     })
 
     async def _execute_tool_calls(
@@ -5794,6 +5795,175 @@ To provide your final answer, respond WITHOUT calling any tools."""
             "line_end": line_end,
         }
 
+    def _artifact_manager_for_run(self, run_id: str) -> Optional[AgentArtifactManager]:
+        """Create artifact manager for workspace-bound runs only."""
+        workspace_path = self._get_workspace_path()
+        if not workspace_path:
+            return None
+        try:
+            return AgentArtifactManager(workspace_path, run_id)
+        except Exception as e:
+            logger.warning(
+                "Artifact manager unavailable",
+                extra={"run_id": run_id, "error": str(e)},
+            )
+            return None
+
+    def _artifact_payload(
+        self,
+        artifact: ArtifactWrite,
+        *,
+        artifact_type: str,
+        detail: str,
+    ) -> dict[str, Any]:
+        """Build model/UI-visible artifact metadata."""
+        return {
+            "artifact_type": artifact_type,
+            "artifact_path": artifact.artifact_path,
+            "byte_count": artifact.byte_count,
+            "sha256": artifact.sha256,
+            "content_type": artifact.content_type,
+            "detail": detail,
+            "metadata": artifact.metadata,
+        }
+
+    async def _persist_ephemeral_tool_artifacts(
+        self,
+        *,
+        run_id: str,
+        tool_call: ParsedToolCall,
+        result: "ToolResult",
+        tool_call_id: str,
+    ) -> list[dict[str, Any]]:
+        """Persist command/web ephemeral outputs and return artifact refs.
+
+        Source reads/edits are intentionally excluded: source files and diffs are
+        already the durable evidence.
+        """
+        if not result.success or tool_call.name not in {"bash", "exec_command", "write_stdin", "web_extract"}:
+            return []
+        if not isinstance(result.result_data, dict):
+            return []
+        manager = self._artifact_manager_for_run(run_id)
+        if manager is None:
+            return []
+
+        artifacts: list[dict[str, Any]] = []
+
+        async def record(
+            artifact: ArtifactWrite,
+            *,
+            artifact_type: str,
+            file_path: str,
+            detail: str,
+        ) -> None:
+            payload = self._artifact_payload(
+                artifact,
+                artifact_type=artifact_type,
+                detail=detail,
+            )
+            artifacts.append(payload)
+            try:
+                await self._repo.create_run_artifact(
+                    run_id=run_id,
+                    artifact_type=artifact_type,
+                    file_path=file_path,
+                    action=tool_call.name,
+                    detail=detail,
+                    tool_call_id=tool_call_id,
+                    artifact_path=artifact.artifact_path,
+                    byte_count=artifact.byte_count,
+                    sha256=artifact.sha256,
+                    content_type=artifact.content_type,
+                    metadata=artifact.metadata,
+                )
+            except Exception as e:
+                logger.warning(
+                    "Failed to record local artifact",
+                    extra={"run_id": run_id, "tool": tool_call.name, "error": str(e)},
+                )
+
+        if tool_call.name in {"bash", "exec_command", "write_stdin"}:
+            base = f"tool-calls/{tool_call_id}"
+            command = str(
+                result.result_data.get("cmd")
+                or result.result_data.get("command")
+                or tool_call.arguments.get("cmd")
+                or tool_call.arguments.get("command")
+                or ""
+            )
+            metadata = {
+                "tool_name": tool_call.name,
+                "command": command,
+                "exit_code": result.result_data.get("exit_code"),
+                "truncated": bool(result.result_data.get("truncated")),
+                "timed_out": bool(result.result_data.get("timed_out")),
+            }
+            for key, filename in (
+                ("stdout", "stdout.txt"),
+                ("stderr", "stderr.txt"),
+                ("output", "output.txt"),
+            ):
+                text = str(result.result_data.get(key) or "")
+                if not text:
+                    continue
+                artifact = manager.write_text(
+                    f"{base}/{filename}",
+                    text,
+                    metadata={**metadata, "stream": key},
+                )
+                await record(
+                    artifact,
+                    artifact_type=f"command_{key}",
+                    file_path=command,
+                    detail=f"{key} for {tool_call.name}",
+                )
+            artifact = manager.write_json(
+                f"{base}/result.json",
+                result.result_data,
+                metadata=metadata,
+            )
+            await record(
+                artifact,
+                artifact_type="command_result",
+                file_path=command,
+                detail=f"structured result for {tool_call.name}",
+            )
+
+        if tool_call.name == "web_extract":
+            extractions = result.result_data.get("extractions") or []
+            if isinstance(extractions, list):
+                for index, extraction in enumerate(extractions, start=1):
+                    if not isinstance(extraction, dict):
+                        continue
+                    content = str(extraction.get("content") or "")
+                    if not content:
+                        continue
+                    url = str(extraction.get("url") or "")
+                    title = str(extraction.get("title") or "")
+                    artifact = manager.write_text(
+                        f"tool-calls/{tool_call_id}/extract-{index}.txt",
+                        content,
+                        metadata={
+                            "tool_name": tool_call.name,
+                            "url": url,
+                            "title": title,
+                            "index": index,
+                        },
+                    )
+                    await record(
+                        artifact,
+                        artifact_type="web_extract_content",
+                        file_path=url,
+                        detail=title or url or f"web extract {index}",
+                    )
+
+        if artifacts:
+            result.metadata["artifacts"] = artifacts
+            if isinstance(result.result_data, dict):
+                result.result_data["artifacts"] = artifacts
+        return artifacts
+
     async def _finalize_tool_call(
         self,
         tool_call: "ParsedToolCall",
@@ -5819,9 +5989,26 @@ To provide your final answer, respond WITHOUT calling any tools."""
             event_callback: SSE callback.
             run_id: Run ID.
         """
+        artifacts = await self._persist_ephemeral_tool_artifacts(
+            run_id=run_id,
+            tool_call=tool_call,
+            result=result,
+            tool_call_id=tc_record["id"],
+        )
+
         # Capture full result_detail for write tools
         result_detail = None
-        if tool_call.name in ("write_file", "edit_file", "apply_patch", "bash", "exec_command", "write_stdin", "update_plan_doc") and result.result_data:
+        detail_tools = {
+            "write_file",
+            "edit_file",
+            "apply_patch",
+            "bash",
+            "exec_command",
+            "write_stdin",
+            "update_plan_doc",
+            "web_extract",
+        }
+        if tool_call.name in detail_tools and result.result_data:
             result_detail = json.dumps(result.result_data, ensure_ascii=False)[:10000]
 
         # Record completion
@@ -5834,8 +6021,9 @@ To provide your final answer, respond WITHOUT calling any tools."""
             result_detail=result_detail,
         )
 
-        # Record file change artifact for write tools
-        if result.success and tool_call.name in ("write_file", "edit_file", "apply_patch", "bash", "exec_command", "write_stdin", "update_plan_doc"):
+        # Record source/change metadata only. Ephemeral command/web output files
+        # are persisted separately under .fluxion/runs/<run_id>.
+        if result.success and tool_call.name in ("write_file", "edit_file", "apply_patch", "update_plan_doc"):
             artifact_type = {
                 "write_file": "file_write",
                 "edit_file": "file_edit",
@@ -5918,6 +6106,8 @@ To provide your final answer, respond WITHOUT calling any tools."""
         bash_output = bash_output_from_result_data(result.result_data)
         if tool_call.name in {"bash", "exec_command", "write_stdin"} and bash_output:
             emit_kwargs["bash_output"] = bash_output
+        if artifacts:
+            emit_kwargs["artifacts"] = artifacts
         self._emit(event_callback, "tool_result", **emit_kwargs)
         if tool_call.name == "update_plan_doc" and result.success:
             result_data = result.result_data if isinstance(result.result_data, dict) else {}
@@ -6063,6 +6253,27 @@ To provide your final answer, respond WITHOUT calling any tools."""
             return text
         return self._truncate_text_to_tokens(text, max_tokens, preserve_tail=True)
 
+    def _artifact_refs_for_prompt(self, data: Any) -> list[dict[str, Any]]:
+        """Return compact artifact refs that should survive prompt pruning."""
+        if not isinstance(data, dict):
+            return []
+        artifacts = data.get("artifacts")
+        if not isinstance(artifacts, list):
+            return []
+        refs: list[dict[str, Any]] = []
+        for artifact in artifacts[:12]:
+            if not isinstance(artifact, dict):
+                continue
+            refs.append(
+                {
+                    "artifact_type": artifact.get("artifact_type"),
+                    "artifact_path": artifact.get("artifact_path"),
+                    "byte_count": artifact.get("byte_count"),
+                    "detail": artifact.get("detail"),
+                }
+            )
+        return refs
+
     def _format_tool_result(self, result: "ToolResult", tool_name: Optional[str] = None) -> str:
         """Format tool result for prompt history with per-tool token budgets."""
         if not result.success:
@@ -6079,6 +6290,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
 
         tool_name = tool_name or "unknown"
         data = result.result_data
+        artifact_refs = self._artifact_refs_for_prompt(data)
 
         if tool_name == "read_file":
             content = str(data)
@@ -6138,7 +6350,10 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     "excerpt": self._truncate_text_to_tokens(str(entry.get("content", "")), 1500),
                     "success": entry.get("success", True),
                 })
-            return self._bounded_json({"extractions": extractions}, 4000)
+            return self._bounded_json(
+                {"extractions": extractions, "artifacts": artifact_refs},
+                4000,
+            )
 
         if tool_name in {"bash", "exec_command", "write_stdin"} and isinstance(data, dict):
             return self._bounded_json(
@@ -6151,8 +6366,26 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     "stdout": self._truncate_text_to_tokens(str(data.get("stdout", "")), 1500, preserve_tail=True),
                     "stderr": self._truncate_text_to_tokens(str(data.get("stderr", "")), 1500, preserve_tail=True),
                     "truncated": data.get("truncated", False),
+                    "artifacts": artifact_refs,
                 },
                 4000,
+            )
+
+        if tool_name == "list_run_artifacts" and isinstance(data, dict):
+            refs = self._artifact_refs_for_prompt({"artifacts": data.get("artifacts")})
+            return self._bounded_json({"artifacts": refs}, 2000)
+
+        if tool_name == "read_artifact" and isinstance(data, dict):
+            return self._bounded_json(
+                {
+                    "artifact_path": data.get("artifact_path"),
+                    "line_start": data.get("line_start"),
+                    "line_end": data.get("line_end"),
+                    "total_lines": data.get("total_lines"),
+                    "next_offset": data.get("next_offset"),
+                    "content": self._truncate_text_to_tokens(str(data.get("content", "")), 5000),
+                },
+                6000,
             )
 
         if tool_name == "python_execute" and isinstance(data, dict):
@@ -6173,7 +6406,11 @@ To provide your final answer, respond WITHOUT calling any tools."""
             bounded = {
                 "file_path": payload.get("file_path"),
                 "summary": result.result_summary,
-                "diff": self._truncate_text_to_tokens(str(payload.get("diff") or payload.get("preview") or payload), 2000, preserve_tail=True),
+                "diff": self._truncate_text_to_tokens(
+                    str(payload.get("diff") or payload.get("preview") or payload),
+                    2000,
+                    preserve_tail=True,
+                ),
             }
             return self._bounded_json(bounded, 2500)
 
@@ -6239,6 +6476,15 @@ To provide your final answer, respond WITHOUT calling any tools."""
         tool_name = target_msg.get("name", "unknown")
         content = target_msg.get("content", "")
 
+        def artifact_refs_from_content(raw_content: str) -> list[dict[str, Any]]:
+            try:
+                parsed = json.loads(raw_content)
+            except (json.JSONDecodeError, TypeError):
+                return []
+            return self._artifact_refs_for_prompt(parsed)
+
+        artifact_refs = artifact_refs_from_content(str(content))
+
         if tool_name == "web_search":
             # For web search, keep query and result count
             try:
@@ -6272,10 +6518,15 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     "url": url,
                     "title": title,
                     "excerpt": excerpt,
+                    "artifacts": artifact_refs,
                     "_summarized": True,
                 })
             except (json.JSONDecodeError, TypeError):
-                summary = f"[Web extract results - {content_len} chars, summarized for context limit]"
+                summary = json.dumps({
+                    "summary": f"Web extract results - {content_len} chars, summarized for context limit",
+                    "artifacts": artifact_refs,
+                    "_summarized": True,
+                })
 
         elif tool_name == "python_execute":
             # For python, keep code and truncated output
@@ -6311,8 +6562,15 @@ To provide your final answer, respond WITHOUT calling any tools."""
             summary = f"[{tool_name} results: {content[:400]}...]" if content_len > 400 else content
 
         else:
-            # Generic summarization
-            summary = f"[Tool '{tool_name}' results - {content_len} chars, summarized for context limit]"
+            if artifact_refs:
+                summary = json.dumps({
+                    "summary": f"Tool '{tool_name}' results - {content_len} chars, summarized for context limit",
+                    "artifacts": artifact_refs,
+                    "_summarized": True,
+                })
+            else:
+                # Generic summarization
+                summary = f"[Tool '{tool_name}' results - {content_len} chars, summarized for context limit]"
 
         # Create new messages list with summarized content
         new_messages = messages.copy()

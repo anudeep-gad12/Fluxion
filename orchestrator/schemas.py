@@ -344,6 +344,7 @@ class AgentToolCallResponse(BaseModel):
     result_detail: Optional[str] = None
     result_data: Optional[str] = None
     bash_output: Optional[dict[str, Any]] = None
+    artifacts: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class AgentCitationResponse(BaseModel):
@@ -457,6 +458,11 @@ class RunArtifactResponse(BaseModel):
     action: str
     detail: Optional[str] = None
     tool_call_id: Optional[str] = None
+    artifact_path: Optional[str] = None
+    byte_count: Optional[int] = None
+    sha256: Optional[str] = None
+    content_type: Optional[str] = None
+    metadata: Optional[dict[str, Any]] = None
     created_at: str
 
 

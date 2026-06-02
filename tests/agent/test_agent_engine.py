@@ -3898,6 +3898,8 @@ class TestParallelToolExecution:
         assert "list_directory" in AgentEngine.PARALLEL_TOOLS
         assert "web_search" in AgentEngine.PARALLEL_TOOLS
         assert "web_extract" in AgentEngine.PARALLEL_TOOLS
+        assert "list_run_artifacts" in AgentEngine.PARALLEL_TOOLS
+        assert "read_artifact" in AgentEngine.PARALLEL_TOOLS
 
     def test_mutating_tools_not_parallel(self):
         """Mutating tools are not in PARALLEL_TOOLS."""
@@ -4123,6 +4125,34 @@ class TestForcePruneFilesystemTools:
 
         assert len(formatted["results"]) == 8
         assert all(len(item["snippet"]) <= 300 for item in formatted["results"])
+
+    def test_format_command_result_includes_artifact_refs(self):
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=create_mock_repo(),
+            registry=create_mock_registry(),
+        )
+
+        result = ToolResult(
+            success=True,
+            result_summary="command ok",
+            result_data={
+                "cmd": "pytest",
+                "stdout": "passed",
+                "artifacts": [
+                    {
+                        "artifact_type": "command_stdout",
+                        "artifact_path": ".fluxion/runs/run-1/tool-calls/tc/stdout.txt",
+                        "byte_count": 6,
+                        "detail": "stdout for exec_command",
+                    }
+                ],
+            },
+        )
+
+        formatted = json.loads(engine._format_tool_result(result, "exec_command"))
+
+        assert formatted["artifacts"][0]["artifact_path"].endswith("stdout.txt")
 
     def test_compaction_replaces_old_history_with_summary_and_tail_user(self):
         engine = AgentEngine(

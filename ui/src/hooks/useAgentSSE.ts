@@ -345,6 +345,7 @@ export function useAgentSSE(runId: string | null) {
               result_summary: toolResultEvent.result_summary,
               result_data: toolResultEvent.result_data,
               bash_output: toolResultEvent.bash_output,
+              artifacts: toolResultEvent.artifacts,
               duration_ms: toolResultEvent.duration_ms,
               completed_at: toolResultEvent.timestamp,
               approval_required: false,

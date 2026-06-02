@@ -77,6 +77,8 @@ Use tools purposefully and economically.
 - Use `write_stdin` to poll or interact with a running `exec_command` session.
 - Keep legacy `bash` only as a fallback when `exec_command` is unsuitable.
 - Use `web_search` or `web_extract` only for external docs or current behavior you cannot reliably infer locally.
+- Long terminal outputs and raw web extracts are saved as current-run artifacts under `.fluxion/runs/<run_id>/`; use `list_run_artifacts` and `read_artifact` when the visible summary is not enough.
+- Source files, grep results, directory listings, edits, and diffs are not artifacts. Use `read_file`, `grep`, `glob`, `list_directory`, and existing diffs/source files for those.
 
 Do not repeat tool calls unless something materially changed or you need exact context again.
 Re-reading a file is allowed when needed, but do not re-read or re-search mindlessly. If stored file evidence is already available and still fresh, act from it first.
@@ -164,6 +166,8 @@ CODING_AGENT_PROFILE = AgentProfile(
         "read_file",
         "grep",
         "glob",
+        "list_run_artifacts",
+        "read_artifact",
         "exec_command",
         "write_stdin",
         "bash",

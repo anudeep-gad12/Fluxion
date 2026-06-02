@@ -131,6 +131,7 @@ def create_browser_agent_tool_registry(
     collaboration_mode: str = "default",
     user_input_callback: Optional[Any] = None,
     plan_doc_relative_path: Optional[str] = None,
+    run_id: Optional[str] = None,
 ) -> ToolRegistry:
     """Create the browser-first agent tool registry from capability flags.
 
@@ -143,6 +144,20 @@ def create_browser_agent_tool_registry(
     from orchestrator.services.provider_keys import resolve_parallel_api_key
 
     registry = ToolRegistry()
+    artifact_manager = None
+    if working_dir and run_id:
+        try:
+            from orchestrator.agent.artifacts import AgentArtifactManager
+            from .run_artifacts import ListRunArtifactsTool, ReadArtifactTool
+
+            artifact_manager = AgentArtifactManager(working_dir, run_id)
+            registry.register(ListRunArtifactsTool(artifact_manager))
+            registry.register(ReadArtifactTool(artifact_manager))
+        except Exception as e:
+            logger.warning(
+                "Run artifact tools not registered",
+                extra={"run_id": run_id, "error": str(e)},
+            )
     parallel_config = getattr(config, "parallel", None)
     parallel_api_key = resolve_parallel_api_key(config)
     web_requested = capabilities.get("web", True)

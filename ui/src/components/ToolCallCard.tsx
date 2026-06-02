@@ -32,9 +32,11 @@ const TOOL_PREFIXES: Record<string, string> = {
   bash: 'bash',
   exec_command: 'exec',
   write_stdin: 'stdin',
+  list_run_artifacts: 'artifacts',
+  read_artifact: 'artifact',
 };
 
-const COMMAND_TOOL_NAMES = new Set(['bash', 'exec_command']);
+const COMMAND_TOOL_NAMES = new Set(['bash', 'exec_command', 'write_stdin']);
 
 function normalizeToolArguments(
   rawArgs: Record<string, unknown> | string | null | undefined,
@@ -59,15 +61,18 @@ function formatCommandArgument(args: Record<string, unknown>): string {
   return typeof command === 'string' ? command : '';
 }
 
+function formatBytes(bytes: number | undefined): string {
+  if (typeof bytes !== 'number' || !Number.isFinite(bytes)) return '';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 export function formatArguments(
   toolName: string,
   rawArgs: Record<string, unknown> | string | null | undefined,
 ): string {
   const args = normalizeToolArguments(rawArgs);
-
-  if (COMMAND_TOOL_NAMES.has(toolName)) {
-    return formatCommandArgument(args);
-  }
 
   if (toolName === 'write_stdin') {
     if (typeof args.text === 'string' && args.text.trim()) {
@@ -77,6 +82,10 @@ export function formatArguments(
       return args.session_id;
     }
     return '';
+  }
+
+  if (COMMAND_TOOL_NAMES.has(toolName)) {
+    return formatCommandArgument(args);
   }
 
   if (args.query) return `"${args.query}"`;
@@ -273,6 +282,52 @@ function BashOutputBlock({
   );
 }
 
+function ArtifactRefs({
+  artifacts,
+  runId,
+}: {
+  artifacts: NonNullable<AgentToolCall['artifacts']>;
+  runId: string;
+}) {
+  if (artifacts.length === 0) return null;
+  return (
+    <div className="ml-4 space-y-1 border-l border-sky-500/20 pl-3">
+      <div className="text-[10px] uppercase tracking-wide text-sky-400/60">artifacts</div>
+      {artifacts.map((artifact, index) => {
+        const path = artifact.artifact_path || artifact.file_path || 'artifact';
+        const size = formatBytes(artifact.byte_count);
+        const href = artifact.artifact_path
+          ? [
+              `/api/agent/runs/${encodeURIComponent(runId)}/artifacts/read`,
+              `artifact_path=${encodeURIComponent(artifact.artifact_path)}`,
+            ].join('?')
+          : null;
+        return (
+          <div
+            key={`${path}-${index}`}
+            className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-zinc-500"
+          >
+            {href ? (
+              <a
+                href={href}
+                target="_blank"
+                rel="noreferrer"
+                className="text-zinc-300 break-all underline decoration-zinc-700 underline-offset-2 hover:text-sky-300"
+              >
+                {path}
+              </a>
+            ) : (
+              <span className="text-zinc-300 break-all">{path}</span>
+            )}
+            {artifact.artifact_type && <span>{artifact.artifact_type}</span>}
+            {size && <span>{size}</span>}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function ToolCallCard({ toolCall }: ToolCallCardProps) {
   const status = STATUS_MARKERS[toolCall.status];
   const prefix = TOOL_PREFIXES[toolCall.tool_name] || toolCall.tool_name;
@@ -336,6 +391,10 @@ export function ToolCallCard({ toolCall }: ToolCallCardProps) {
       )}
 
       {isCommandTool && toolCall.bash_output && <BashOutputBlock output={toolCall.bash_output} />}
+
+      {toolCall.artifacts && toolCall.artifacts.length > 0 && (
+        <ArtifactRefs artifacts={toolCall.artifacts} runId={toolCall.run_id} />
+      )}
 
       {/* Full write/edit diff after execution */}
       {unifiedDiff && (

@@ -653,6 +653,11 @@ class AgentRepo:
         action: str,
         detail: Optional[str] = None,
         tool_call_id: Optional[str] = None,
+        artifact_path: Optional[str] = None,
+        byte_count: Optional[int] = None,
+        sha256: Optional[str] = None,
+        content_type: Optional[str] = None,
+        metadata: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
         """Record a file change or command execution artifact.
 
@@ -674,12 +679,26 @@ class AgentRepo:
             """
             INSERT INTO run_artifacts (
                 id, run_id, artifact_type, file_path, action,
-                detail, tool_call_id, created_at
+                detail, tool_call_id, artifact_path, byte_count,
+                sha256, content_type, metadata, created_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (artifact_id, run_id, artifact_type, file_path, action,
-             detail, tool_call_id, now),
+            (
+                artifact_id,
+                run_id,
+                artifact_type,
+                file_path,
+                action,
+                detail,
+                tool_call_id,
+                artifact_path,
+                byte_count,
+                sha256,
+                content_type,
+                json.dumps(metadata or {}, ensure_ascii=False) if metadata is not None else None,
+                now,
+            ),
         )
         await self.db.conn.commit()
 
@@ -691,6 +710,11 @@ class AgentRepo:
             "action": action,
             "detail": detail,
             "tool_call_id": tool_call_id,
+            "artifact_path": artifact_path,
+            "byte_count": byte_count,
+            "sha256": sha256,
+            "content_type": content_type,
+            "metadata": metadata,
             "created_at": now,
         }
 
@@ -708,7 +732,16 @@ class AgentRepo:
             (run_id,),
         ) as cursor:
             rows = await cursor.fetchall()
-            return [dict(row) for row in rows]
+            artifacts: list[dict[str, Any]] = []
+            for row in rows:
+                artifact = dict(row)
+                if artifact.get("metadata"):
+                    try:
+                        artifact["metadata"] = json.loads(artifact["metadata"])
+                    except (TypeError, json.JSONDecodeError):
+                        artifact["metadata"] = {}
+                artifacts.append(artifact)
+            return artifacts
 
     # --- Persistent Coding Session State ---
 

@@ -30,6 +30,7 @@ from orchestrator.agent.tool_result_payloads import (
     display_result_data,
     parse_stored_result_detail,
 )
+from orchestrator.agent.artifacts import AgentArtifactManager
 from orchestrator.agent.plan_mode import (
     PlanDecision,
     build_plan_implementation_prompt,
@@ -61,6 +62,7 @@ from orchestrator.services.reasoning_settings import get_runtime_reasoning_setti
 from orchestrator.services.conversation_rewind import capture_rewind_checkpoint
 from orchestrator.conversation_titles import conversation_title_from_message
 from orchestrator.storage.repositories.agent_repo import AgentRepo
+from orchestrator.storage.repositories.conversation_repo import ConversationRepo
 from orchestrator.storage.repositories.trace_repo import TraceRepo
 
 logger = get_logger(__name__)
@@ -816,6 +818,7 @@ async def _run_agent_task(
                 user_input_callback if collaboration_mode == "plan" else None
             ),
             plan_doc_relative_path=plan_doc_path if collaboration_mode == "plan" else None,
+            run_id=run_id,
         )
         db = await get_db()
         trace_repo = TraceRepo(db)
@@ -1682,6 +1685,44 @@ async def answer_user_input(
     return {"run_id": run_id, "request_id": request_id, "status": "answered"}
 
 
+@router.get("/runs/{run_id}/artifacts/read")
+async def read_run_artifact(
+    run_id: str,
+    http_request: Request,
+    artifact_path: str = Query(..., description="Workspace-relative artifact path"),
+    offset: int = Query(1, ge=1),
+    limit: int = Query(200, ge=1, le=1000),
+):
+    """Read a current-run text artifact from `.fluxion/runs/<run_id>`."""
+    session_id, is_owner = get_session_context(http_request)
+
+    db = await get_db()
+    trace_repo = TraceRepo(db)
+    conversation_repo = ConversationRepo(db)
+
+    run = await trace_repo.get_run_with_session_check(
+        run_id,
+        session_id=session_id,
+        is_owner=is_owner,
+    )
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    conversation_id = run.get("conversation_id")
+    if not conversation_id:
+        raise HTTPException(status_code=404, detail="Run workspace not found")
+    conversation = await conversation_repo.get(conversation_id)
+    workspace_path = conversation.get("workspace_path") if conversation else None
+    if not workspace_path:
+        raise HTTPException(status_code=404, detail="Run workspace not found")
+
+    try:
+        manager = AgentArtifactManager(workspace_path, run_id)
+        return manager.read_text_artifact(artifact_path, offset=offset, limit=limit)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.get("/runs/{run_id}/trace", response_model=AgentRunTraceResponse)
 async def get_agent_run_trace(run_id: str, http_request: Request):
     """Get full execution trace for an agent run.
@@ -1720,12 +1761,37 @@ async def get_agent_run_trace(run_id: str, http_request: Request):
         for s in steps_raw
     ]
 
+    # Get all artifacts before tool-call hydration so command/web artifact refs
+    # survive even if the stored tool result JSON was truncated.
+    artifacts_raw = await agent_repo.get_run_artifacts(run_id)
+    artifacts_by_tool_call: dict[str, list[dict[str, Any]]] = {}
+    for artifact in artifacts_raw:
+        tool_call_id = artifact.get("tool_call_id")
+        if tool_call_id and artifact.get("artifact_path"):
+            artifacts_by_tool_call.setdefault(tool_call_id, []).append(
+                {
+                    "artifact_type": artifact.get("artifact_type"),
+                    "artifact_path": artifact.get("artifact_path"),
+                    "file_path": artifact.get("file_path"),
+                    "content_type": artifact.get("content_type"),
+                    "byte_count": artifact.get("byte_count"),
+                    "sha256": artifact.get("sha256"),
+                    "detail": artifact.get("detail"),
+                    "metadata": artifact.get("metadata"),
+                }
+            )
+
     # Get all tool calls
     tool_calls_raw = await agent_repo.get_tool_calls_for_run(run_id)
     tool_calls = []
     for tc in tool_calls_raw:
         tool_name = tc["tool_name"]
         stored_result_data = parse_stored_result_detail(tc.get("result_detail"))
+        stored_artifacts = (
+            stored_result_data.get("artifacts", [])
+            if isinstance(stored_result_data, dict)
+            else []
+        )
         tool_calls.append(
             AgentToolCallResponse(
                 id=tc["id"],  # DB column is 'id', not 'tool_call_id'
@@ -1753,8 +1819,12 @@ async def get_agent_run_trace(run_id: str, http_request: Request):
                 result_data=display_result_data(tool_name, stored_result_data),
                 bash_output=(
                     bash_output_from_result_data(stored_result_data)
-                    if tool_name == "bash"
+                    if tool_name in {"bash", "exec_command", "write_stdin"}
                     else None
+                ),
+                artifacts=artifacts_by_tool_call.get(
+                    tc["id"],
+                    stored_artifacts if isinstance(stored_artifacts, list) else [],
                 ),
             )
         )
@@ -1776,7 +1846,6 @@ async def get_agent_run_trace(run_id: str, http_request: Request):
     ]
 
     # Get all artifacts
-    artifacts_raw = await agent_repo.get_run_artifacts(run_id)
     artifacts = [
         RunArtifactResponse(
             id=a["id"],
@@ -1786,6 +1855,11 @@ async def get_agent_run_trace(run_id: str, http_request: Request):
             action=a["action"],
             detail=a.get("detail"),
             tool_call_id=a.get("tool_call_id"),
+            artifact_path=a.get("artifact_path"),
+            byte_count=a.get("byte_count"),
+            sha256=a.get("sha256"),
+            content_type=a.get("content_type"),
+            metadata=a.get("metadata"),
             created_at=a["created_at"],
         )
         for a in artifacts_raw

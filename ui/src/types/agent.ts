@@ -71,6 +71,31 @@ export interface AgentToolCall {
   approval_decision?: 'approved' | 'denied' | 'auto' | 'timeout';
   permission_level?: string;
   diff_preview?: string | null;
+  artifacts?: Array<{
+    artifact_type?: string;
+    artifact_path?: string;
+    file_path?: string;
+    content_type?: string;
+    byte_count?: number;
+    detail?: string;
+    metadata?: Record<string, unknown>;
+  }>;
+}
+
+export interface RunArtifact {
+  id: string;
+  run_id: string;
+  artifact_type: string;
+  file_path?: string | null;
+  action: string;
+  detail?: string | null;
+  tool_call_id?: string | null;
+  artifact_path?: string | null;
+  byte_count?: number | null;
+  sha256?: string | null;
+  content_type?: string | null;
+  metadata?: Record<string, unknown> | null;
+  created_at: string;
 }
 
 /** Agent citation response - from AgentCitationResponse schema */
@@ -176,6 +201,7 @@ export interface AgentRunTrace {
   steps: AgentStep[];
   tool_calls: AgentToolCall[];
   citations: AgentCitation[];
+  artifacts?: RunArtifact[];
   system_events?: AgentSystemEvent[];
   final_answer?: string;
   collaboration_mode?: CollaborationMode;
@@ -328,6 +354,7 @@ export interface ToolResultEvent extends AgentSSEEventBase {
     exit_code?: number;
     truncated?: boolean;
   };
+  artifacts?: AgentToolCall['artifacts'];
   duration_ms?: number;
 }
 
