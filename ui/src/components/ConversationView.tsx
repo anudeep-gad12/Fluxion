@@ -23,6 +23,7 @@ import { AgentComposerOptions, AgentContextFooter } from '@/components/desktop/A
 import { isApplePlatform } from '@/lib/platform';
 import {
   createConversation,
+  patchConversation,
   createConversationRun,
   getConversation,
   abortRun,
@@ -65,6 +66,7 @@ import type {
   ReasoningSettingsResponse,
   ReasoningSettings,
 } from '@/api/client';
+import type { ConversationModelSelection } from '@/types';
 import {
   Dialog,
   DialogHeader,
@@ -224,17 +226,70 @@ function formatContextTokens(tokens: number): string {
   return tokens.toLocaleString();
 }
 
+const CONVERSATION_MODEL_METADATA_KEY = 'model_selection';
+
+function getConversationModelSelection(conversation?: Conversation | null): ConversationModelSelection | null {
+  const value = conversation?.metadata?.[CONVERSATION_MODEL_METADATA_KEY];
+  if (!value || typeof value !== 'object') return null;
+  const selection = value as Partial<ConversationModelSelection>;
+  if (!selection.provider || !selection.model_id || !selection.display_name) return null;
+  return selection as ConversationModelSelection;
+}
+
+function modelStatusFromSelection(
+  selection: ConversationModelSelection,
+  previous: ModelStatus | null,
+): ModelStatus {
+  return {
+    provider: selection.provider,
+    model_name: selection.display_name,
+    base_url: previous?.provider === selection.provider ? previous.base_url : null,
+    local_running: selection.provider === 'local' ? (previous?.local_running ?? false) : false,
+    context_window: Number(selection.context_window || previous?.context_window || 0),
+    max_output_tokens: Number(selection.max_output_tokens || previous?.max_output_tokens || 0),
+    effective_input_budget: Number(selection.effective_input_budget || previous?.effective_input_budget || 0),
+    supports_tools: selection.supports_tools ?? previous?.supports_tools ?? true,
+    supports_reasoning: selection.supports_reasoning ?? previous?.supports_reasoning ?? false,
+    supports_vision: selection.supports_vision ?? previous?.supports_vision ?? false,
+    provider_family: selection.provider,
+    reasoning_capabilities: previous?.provider === selection.provider ? previous.reasoning_capabilities : null,
+    source: selection.source || 'registry',
+  };
+}
+
+function selectionFromRegistryModel(
+  provider: string,
+  model: RegistryModelPreset,
+  status: ModelStatus,
+): ConversationModelSelection {
+  return {
+    provider,
+    model_id: model.model_id,
+    display_name: status.model_name || model.display_name,
+    context_window: status.context_window,
+    max_output_tokens: status.max_output_tokens,
+    effective_input_budget: status.effective_input_budget,
+    supports_tools: status.supports_tools,
+    supports_reasoning: status.supports_reasoning,
+    supports_vision: status.supports_vision,
+    source: status.source,
+    selected_at: new Date().toISOString(),
+  };
+}
+
 /** Model picker component shown in the status bar */
 function ModelPicker({
   open,
   onOpenChange,
   modelStatus,
   onModelStatusChange,
+  activeSelection,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   modelStatus: ModelStatus | null;
-  onModelStatusChange: (status: ModelStatus) => void;
+  onModelStatusChange: (status: ModelStatus, selection?: ConversationModelSelection | null) => void;
+  activeSelection: ConversationModelSelection | null;
 }) {
   const [registryData, setRegistryData] = useState<RegistryModelsResponse | null>(null);
   const [localModels, setLocalModels] = useState<LocalModel[]>([]);
@@ -324,9 +379,9 @@ function ModelPicker({
   }, [open, refreshPickerData, clearGrokLoginTimer]);
 
   useEffect(() => {
-    if (!open || !registryData?.active_provider) return;
-    setSelectedProvider(registryData.active_provider);
-  }, [open, registryData?.active_provider]);
+    if (!open) return;
+    setSelectedProvider(activeSelection?.provider || registryData?.active_provider || 'openai');
+  }, [open, activeSelection?.provider, registryData?.active_provider]);
 
   const handleSelectRegistry = async (provider: string, modelId: string) => {
     setSwitching(`${provider}:${modelId}`);
@@ -336,7 +391,7 @@ function ModelPicker({
         await stopLocalModel();
       }
       const selected = await selectModel({ provider, model_id: modelId });
-      onModelStatusChange({
+      const nextStatus: ModelStatus = {
         provider: selected.provider,
         model_name: selected.display_name,
         base_url: modelStatus?.provider === selected.provider ? modelStatus.base_url : null,
@@ -352,9 +407,25 @@ function ModelPicker({
           ? modelStatus.reasoning_capabilities
           : null,
         source: selected.source,
-      });
+      };
+      const model = registryData?.providers[provider]?.models.find((entry) => entry.model_id === modelId);
+      onModelStatusChange(
+        nextStatus,
+        model ? selectionFromRegistryModel(provider, model, nextStatus) : {
+          provider: selected.provider,
+          model_id: selected.model_id,
+          display_name: selected.display_name,
+          context_window: selected.context_window,
+          max_output_tokens: selected.max_output_tokens,
+          effective_input_budget: selected.effective_input_budget,
+          supports_tools: selected.supports_tools,
+          supports_reasoning: selected.supports_reasoning,
+          supports_vision: selected.supports_vision,
+          source: selected.source,
+          selected_at: new Date().toISOString(),
+        },
+      );
       onOpenChange(false);
-      void getModelStatus().then(onModelStatusChange).catch(() => {});
     } catch {
       setError('Failed to switch model');
     } finally {
@@ -583,9 +654,20 @@ function ModelPicker({
         provider_family: 'local',
         reasoning_capabilities: null,
         source: 'local',
+      }, {
+        provider: 'local',
+        model_id: started.model_name,
+        display_name: started.model_name,
+        context_window: modelStatus?.context_window ?? 0,
+        max_output_tokens: modelStatus?.max_output_tokens ?? 0,
+        effective_input_budget: modelStatus?.effective_input_budget ?? 0,
+        supports_tools: modelStatus?.supports_tools ?? true,
+        supports_reasoning: modelStatus?.supports_reasoning ?? false,
+        supports_vision: modelStatus?.supports_vision ?? false,
+        source: 'local',
+        selected_at: new Date().toISOString(),
       });
       onOpenChange(false);
-      void getModelStatus().then(onModelStatusChange).catch(() => {});
     } catch {
       setError(`Failed to start model. Check logs/${model.model_type === 'mlx' ? 'mlx' : 'llama'}.log`);
     } finally {
@@ -650,7 +732,7 @@ function ModelPicker({
     ? selectedProvider
     : activeProviderSection
       ? selectedProvider
-      : (registryData?.active_provider || registryProviders[0]?.[0] || 'openai');
+      : (activeSelection?.provider || registryData?.active_provider || registryProviders[0]?.[0] || 'openai');
   const activeProviderInfo = registryData?.providers[activeProvider];
   const activeLocalSection = providerSections.find((section) => section.key === activeProvider);
   const providerKeyStatus = providerKeys.find((key) => key.provider === activeProvider);
@@ -950,7 +1032,7 @@ function ModelPicker({
                     <div className={cn(desktop ? 'desktop-settings-provider-header' : 'px-2 pb-2 text-xs uppercase tracking-[0.16em] text-zinc-500')}>Recommended matches</div>
                     <div className={cn(desktop ? 'desktop-model-grid' : 'grid gap-1')}>
                       {recommendedModels.map(({ provider, model }) => {
-                        const isActive = registryData?.active_provider === provider && registryData?.active_model_id === model.model_id;
+                        const isActive = activeSelection?.provider === provider && activeSelection.model_id === model.model_id;
                         return (
                           <button
                             key={`${provider}:${model.model_id}:rec`}
@@ -976,7 +1058,7 @@ function ModelPicker({
                   <div className={cn(desktop ? 'desktop-settings-provider-header' : 'px-2 pb-2 text-xs uppercase tracking-[0.16em] text-zinc-500')}>Models</div>
                   <div className={cn(desktop ? 'desktop-model-list' : 'max-h-[44vh] overflow-y-auto')}>
                     {visibleModels.map((model) => {
-                      const isActive = registryData?.active_provider === activeProvider && registryData?.active_model_id === model.model_id;
+                      const isActive = activeSelection?.provider === activeProvider && activeSelection.model_id === model.model_id;
                       const isFocused = selectedDetail?.provider === activeProvider && selectedDetail?.model.model_id === model.model_id;
                       const isBusy = switching === `${activeProvider}:${model.model_id}`;
                       return (
@@ -1762,6 +1844,8 @@ export function ConversationView() {
   // Model picker state
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [modelStatus, setModelStatus] = useState<ModelStatus | null>(null);
+  const [draftModelSelection, setDraftModelSelection] = useState<ConversationModelSelection | null>(null);
+  const defaultModelStatusRef = useRef<ModelStatus | null>(null);
   const [reasoningSettingsOpen, setReasoningSettingsOpen] = useState(false);
   const [reasoningSettings, setReasoningSettings] = useState<ReasoningSettingsResponse | null>(null);
   const [reasoningDraft, setReasoningDraft] = useState<ReasoningSettings | null>(null);
@@ -1856,10 +1940,33 @@ export function ConversationView() {
 
   // Fetch model status and usage on mount
   useEffect(() => {
-    getModelStatus().then(setModelStatus).catch(() => {});
+    getModelStatus().then((status) => {
+      if (!defaultModelStatusRef.current) defaultModelStatusRef.current = status;
+      setModelStatus(status);
+    }).catch(() => {});
     refreshUsage();
     refreshReasoningSettings();
   }, [refreshUsage, refreshReasoningSettings]);
+
+  useEffect(() => {
+    const selection = getConversationModelSelection(conversation);
+    if (selection) {
+      setModelStatus((current) => modelStatusFromSelection(selection, current));
+      return;
+    }
+    if (!selectedConversationId && draftModelSelection) {
+      setModelStatus((current) => modelStatusFromSelection(draftModelSelection, current));
+      return;
+    }
+    if (defaultModelStatusRef.current) {
+      setModelStatus(defaultModelStatusRef.current);
+      return;
+    }
+    void getModelStatus().then((status) => {
+      if (!defaultModelStatusRef.current) defaultModelStatusRef.current = status;
+      setModelStatus(status);
+    }).catch(() => {});
+  }, [conversation?.conversation_id, conversation?.metadata, draftModelSelection, selectedConversationId]);
 
   useEffect(() => {
     if (!modelStatus) return;
@@ -1902,6 +2009,7 @@ export function ConversationView() {
     return null;
   }, [runs]);
   const activeAgentHudState = useAgentRunDetails(activeAgentRun?.run_id ?? null, !!activeAgentRun);
+  const activeModelSelection = getConversationModelSelection(conversation) || draftModelSelection;
 
   // Clear queued steers when agent confirms injection via SSE.
   // Delay the clear so the chip is visible briefly before disappearing.
@@ -2251,6 +2359,26 @@ export function ConversationView() {
     }
   }, [reasoningDraft]);
 
+  const handleModelStatusChange = useCallback((status: ModelStatus, selection?: ConversationModelSelection | null) => {
+    setModelStatus(status);
+    if (!selection) return;
+    if (!selectedConversationId) {
+      setDraftModelSelection(selection);
+      return;
+    }
+    const nextMetadata = {
+      ...(conversation?.metadata || {}),
+      [CONVERSATION_MODEL_METADATA_KEY]: selection,
+    };
+    setDraftModelSelection(null);
+    updateConversation(selectedConversationId, { metadata: nextMetadata });
+    void patchConversation(selectedConversationId, {
+      metadata: { [CONVERSATION_MODEL_METADATA_KEY]: selection },
+    }).catch(() => {
+      toast.error('Failed to save conversation model');
+    });
+  }, [conversation?.metadata, selectedConversationId, updateConversation]);
+
   const handleOpenWorkspacePicker = useCallback(async () => {
     if (isWorkspaceLocked) {
       toast.error(
@@ -2339,7 +2467,12 @@ export function ConversationView() {
     try {
       // Create conversation if needed
       if (!conversationId) {
-        const response = await createConversation({ workspace_path: effectiveWorkspacePath });
+        const response = await createConversation({
+          workspace_path: effectiveWorkspacePath,
+          metadata: activeModelSelection
+            ? { [CONVERSATION_MODEL_METADATA_KEY]: activeModelSelection }
+            : undefined,
+        });
         conversationId = response.conversation_id;
         rememberWorkspacePath(effectiveWorkspacePath);
         const newConversation: Conversation = {
@@ -2349,7 +2482,9 @@ export function ConversationView() {
           summary: '',
           workspace_path: effectiveWorkspacePath,
           status: 'active',
-          metadata: {},
+          metadata: activeModelSelection
+            ? { [CONVERSATION_MODEL_METADATA_KEY]: activeModelSelection }
+            : {},
         };
         addConversation(newConversation);
         setRuns(conversationId, []);
@@ -2362,22 +2497,25 @@ export function ConversationView() {
 
       if (mode === 'agent') {
         // Agent mode: use agent API
-        const response = await createAgentRun({
-          query: messageToSend,
-          image_attachments: attachmentsToSend,
-          conversation_id: conversationId!,
-          max_steps: 1000,
-          workspace_path: effectiveWorkspacePath || undefined,
-          filesystem_enabled: !!effectiveWorkspacePath,
-          permission_policy: permissionPolicy,
-          collaboration_mode: collaborationMode,
-          capabilities: {
-            web: true,
-            filesystem: !!effectiveWorkspacePath,
-            bash: !!effectiveWorkspacePath,
-            python: false,
+        const response = await createAgentRun(
+          {
+            query: messageToSend,
+            image_attachments: attachmentsToSend,
+            conversation_id: conversationId!,
+            max_steps: 1000,
+            workspace_path: effectiveWorkspacePath || undefined,
+            filesystem_enabled: !!effectiveWorkspacePath,
+            permission_policy: permissionPolicy,
+            collaboration_mode: collaborationMode,
+            capabilities: {
+              web: true,
+              filesystem: !!effectiveWorkspacePath,
+              bash: !!effectiveWorkspacePath,
+              python: false,
+            },
           },
-        });
+          activeModelSelection,
+        );
 
         setPendingRunId(response.run_id);
 
@@ -2411,10 +2549,14 @@ export function ConversationView() {
         }
       } else {
         // Chat mode: use regular conversation API
-        const response = await createConversationRun(conversationId!, {
-          message: messageToSend,
-          image_attachments: attachmentsToSend,
-        });
+        const response = await createConversationRun(
+          conversationId!,
+          {
+            message: messageToSend,
+            image_attachments: attachmentsToSend,
+          },
+          activeModelSelection,
+        );
 
         setPendingRunId(response.run_id);
 
@@ -3402,7 +3544,8 @@ export function ConversationView() {
           open={modelPickerOpen}
           onOpenChange={setModelPickerOpen}
           modelStatus={modelStatus}
-          onModelStatusChange={setModelStatus}
+          onModelStatusChange={handleModelStatusChange}
+          activeSelection={activeModelSelection}
         />
         <ReasoningSettingsDialog
           open={reasoningSettingsOpen}
@@ -3489,7 +3632,8 @@ export function ConversationView() {
         open={modelPickerOpen}
         onOpenChange={setModelPickerOpen}
         modelStatus={modelStatus}
-        onModelStatusChange={setModelStatus}
+        onModelStatusChange={handleModelStatusChange}
+        activeSelection={activeModelSelection}
       />
       <ReasoningSettingsDialog
         open={reasoningSettingsOpen}

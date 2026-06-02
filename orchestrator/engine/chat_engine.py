@@ -178,6 +178,13 @@ class ChatEngine:
 
         # Create trace record (status: running)
         model_config_snapshot = self.config.model.model_dump()
+        if self._model_name_override:
+            model_config_snapshot["selected_model"] = self._model_name_override
+            model_config_snapshot["selected_provider"] = getattr(
+                self._provider,
+                "_context_profile_provider_name",
+                None,
+            )
         if reasoning_settings is not None:
             model_config_snapshot["reasoning_settings"] = reasoning_settings.model_dump()
         await trace_repo.create_conversation_trace(

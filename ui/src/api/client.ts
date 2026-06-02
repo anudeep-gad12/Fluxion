@@ -10,6 +10,7 @@ import type {
   CreateConversationRequest,
   CreateConversationResponse,
   CreateConversationRunRequest,
+  ConversationModelSelection,
 } from '@/types';
 import { withRetry } from '@/lib/retry';
 import { isLocalDesktopApp, isTauriWebview } from '@/lib/platform';
@@ -181,6 +182,16 @@ export async function createConversation(
   });
 }
 
+export async function patchConversation(
+  conversationId: string,
+  request: { title?: string; status?: string; metadata?: Record<string, unknown> },
+): Promise<Conversation> {
+  return fetchJson<Conversation>(`${getApiBase()}/conversations/${conversationId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(request),
+  });
+}
+
 export async function listConversations(
   status?: string,
   limit = 50,
@@ -255,9 +266,14 @@ export async function deleteConversation(conversationId: string): Promise<{ stat
 export async function createConversationRun(
   conversationId: string,
   request: CreateConversationRunRequest,
+  modelSelection?: Pick<ConversationModelSelection, 'provider' | 'model_id'> | null,
 ): Promise<CreateRunResponse> {
   return fetchJson<CreateRunResponse>(`${getApiBase()}/conversations/${conversationId}/runs`, {
     method: 'POST',
+    headers: modelSelection ? {
+      'X-Provider': modelSelection.provider,
+      'X-Model': modelSelection.model_id,
+    } : undefined,
     body: JSON.stringify(request),
   });
 }
@@ -353,9 +369,14 @@ import type {
  */
 export async function createAgentRun(
   request: CreateAgentRunRequest,
+  modelSelection?: Pick<ConversationModelSelection, 'provider' | 'model_id'> | null,
 ): Promise<CreateAgentRunResponse> {
   return fetchJson<CreateAgentRunResponse>(`${getApiBase()}/agent/runs`, {
     method: 'POST',
+    headers: modelSelection ? {
+      'X-Provider': modelSelection.provider,
+      'X-Model': modelSelection.model_id,
+    } : undefined,
     body: JSON.stringify(request),
   });
 }

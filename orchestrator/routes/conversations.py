@@ -65,6 +65,7 @@ async def create_conversation(
         conversation_id=conversation_id,
         title=request.title,
         workspace_path=workspace_path,
+        metadata=request.metadata,
         session_id=session_id,
     )
     return CreateConversationResponse(conversation_id=conversation_id)
@@ -168,10 +169,18 @@ async def update_conversation(
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
+    next_metadata = None
+    if request.metadata is not None:
+        next_metadata = {
+            **(conversation.get("metadata") or {}),
+            **request.metadata,
+        }
+
     await conv_repo.update(
         conversation_id=conversation_id,
         title=request.title,
         status=request.status,
+        metadata=next_metadata,
     )
 
     updated = await conv_repo.get(conversation_id)

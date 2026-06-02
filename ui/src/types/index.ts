@@ -83,6 +83,20 @@ export interface Conversation {
   metadata?: Record<string, unknown>;
 }
 
+export interface ConversationModelSelection {
+  provider: string;
+  model_id: string;
+  display_name: string;
+  context_window: number;
+  max_output_tokens: number;
+  effective_input_budget: number;
+  supports_tools: boolean;
+  supports_reasoning: boolean;
+  supports_vision: boolean;
+  source?: string;
+  selected_at?: string;
+}
+
 export interface ConversationDetailResponse {
   conversation: Conversation;
   runs: Run[];
@@ -91,6 +105,7 @@ export interface ConversationDetailResponse {
 export interface CreateConversationRequest {
   title?: string;
   workspace_path?: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface CreateConversationResponse {

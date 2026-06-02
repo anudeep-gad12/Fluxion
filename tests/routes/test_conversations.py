@@ -184,6 +184,38 @@ async def _seed_rewindable_conversation(db: Database, conversation_id: str) -> N
     )
 
 
+class TestConversationMetadataRoutes:
+    """Tests for conversation metadata persistence."""
+
+    def test_create_and_patch_metadata(self, client):
+        response = client.post(
+            "/api/conversations",
+            json={
+                "title": "Model scoped chat",
+                "metadata": {
+                    "model_selection": {
+                        "provider": "openrouter",
+                        "model_id": "test-model",
+                        "display_name": "Test Model",
+                    }
+                },
+            },
+        )
+        assert response.status_code == 200
+        conversation_id = response.json()["conversation_id"]
+
+        detail = client.get(f"/api/conversations/{conversation_id}")
+        assert detail.status_code == 200
+        assert detail.json()["conversation"]["metadata"]["model_selection"]["model_id"] == "test-model"
+
+        patch = client.patch(
+            f"/api/conversations/{conversation_id}",
+            json={"metadata": {"model_selection": {"provider": "grok", "model_id": "grok-code"}}},
+        )
+        assert patch.status_code == 200
+        assert patch.json()["metadata"]["model_selection"]["provider"] == "grok"
+
+
 class TestConversationRewindRoutes:
     """Tests for conversation rewind endpoints."""
 

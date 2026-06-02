@@ -100,6 +100,7 @@ class CreateConversationRequest(BaseModel):
 
     title: Optional[str] = None
     workspace_path: Optional[str] = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class CreateConversationResponse(BaseModel):
@@ -129,6 +130,7 @@ class UpdateConversationRequest(BaseModel):
 
     title: Optional[str] = None
     status: Optional[str] = None
+    metadata: Optional[dict[str, Any]] = None
 
 
 class ConversationRewindCheckpointResponse(BaseModel):

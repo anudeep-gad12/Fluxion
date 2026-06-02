@@ -380,6 +380,7 @@ async def create_run(request: CreateRunRequest, http_request: Request):
         model_header = http_request.headers.get("x-model")
         provider_override = await _get_provider_for_session(
             run_session_id,
+            is_owner,
             http_request.headers.get("x-provider"),
             model=model_header,
         )

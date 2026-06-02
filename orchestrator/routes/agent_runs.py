@@ -1037,6 +1037,9 @@ async def create_agent_run(request: CreateAgentRunRequest, http_request: Request
             capabilities["filesystem"] = True
         reasoning_settings, _, _ = await get_runtime_reasoning_settings()
 
+        provider_preference = http_request.headers.get("x-provider")
+        model_override = http_request.headers.get("x-model")
+
         # Create model config snapshot for agent
         model_config = {
             "mode": "agent",
@@ -1047,6 +1050,8 @@ async def create_agent_run(request: CreateAgentRunRequest, http_request: Request
             "collaboration_mode": collaboration_mode,
             "reasoning_settings": reasoning_settings.model_dump(),
             "image_attachments_count": len(request.image_attachments),
+            "selected_provider": provider_preference,
+            "selected_model": model_override,
             "plan_doc_path": request.plan_doc_path,
             "source_plan_run_id": request.source_plan_run_id,
         }
@@ -1089,8 +1094,6 @@ async def create_agent_run(request: CreateAgentRunRequest, http_request: Request
             )
 
         # Start background task (pass provider/model preference from headers)
-        provider_preference = http_request.headers.get("x-provider")
-        model_override = http_request.headers.get("x-model")
         task = asyncio.create_task(
             _run_agent_task(
                 run_id=run_id,
