@@ -71,7 +71,13 @@ export function useSSE(runId: string | null) {
       }
     };
 
-    const handleComplete = (result: { run_id: string; status: string; final_answer?: string; thinking_summary?: string }) => {
+    const handleComplete = (result: {
+      run_id: string;
+      status: string;
+      final_answer?: string;
+      thinking_summary?: string;
+      error_message?: string;
+    }) => {
       // Flush any remaining buffered events
       if (eventBufferRef.current.length > 0) {
         setEvents(id, eventBufferRef.current);
@@ -83,9 +89,15 @@ export function useSSE(runId: string | null) {
       clearStreamingThinking(id);
 
       updateRun(result.run_id, {
-        status: result.status as 'succeeded' | 'failed',
+        status: result.status as 'succeeded' | 'failed' | 'cancelled' | 'interrupted',
         final_answer: result.final_answer,
         thinking_summary: result.thinking_summary,
+        error_detail:
+          result.status === 'interrupted'
+            ? result.error_message || 'Run interrupted by server restart'
+            : result.status === 'failed'
+              ? result.error_message
+              : undefined,
       });
       setConnected(false);
       setStreamingRunId(null);

@@ -1349,7 +1349,7 @@ async def stream_agent_events(
                     run = await trace_repo.get_run(run_id)
                     if run:
                         status = run.get("status", "unknown")
-                        if status in ("succeeded", "failed", "cancelled"):
+                        if status in ("succeeded", "failed", "cancelled", "interrupted"):
                             usage = run.get("usage") or {}
                             yield {
                                 "event": "complete",
@@ -1359,7 +1359,9 @@ async def stream_agent_events(
                                         "success": status == "succeeded",
                                         "status": status,
                                         "final_answer": run.get("final_answer"),
+                                        "error_message": run.get("error_message"),
                                         "total_tokens": usage.get("total_tokens"),
+                                        "usage": usage,
                                         "context_usage": usage.get("context_usage"),
                                         "context_profile": usage.get("context_profile"),
                                         "compaction_count": usage.get("compaction_count", 0),

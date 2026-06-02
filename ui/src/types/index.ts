@@ -18,7 +18,7 @@ export interface ThinkingStep {
 export interface Run {
   run_id: string;
   created_at: string;
-  status: 'running' | 'succeeded' | 'failed' | 'cancelled';
+  status: 'running' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted';
   mode: string;
   profile: string;
   prompt: string;

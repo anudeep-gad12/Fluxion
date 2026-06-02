@@ -6,9 +6,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import os
+import json
 import time
 import uuid
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -49,6 +51,137 @@ from orchestrator.services.provider_keys import apply_persisted_provider_keys_to
 from orchestrator.storage.db import get_db
 
 logger = get_logger(__name__)
+
+
+RESTART_INTERRUPTED_MESSAGE = "Server restarted - run was interrupted"
+
+
+async def cleanup_orphaned_runs_on_startup(db) -> dict[str, int]:
+    """Mark stale in-flight work from a previous process as interrupted.
+
+    This keeps the DB and replay stream terminal after a server crash/restart so
+    clients reconnecting to an old run do not stay in a fake running state.
+    """
+    cursor = await db.conn.execute(
+        """
+        SELECT run_id, final_answer, usage_stats
+        FROM runs
+        WHERE status = 'running'
+        """
+    )
+    running_runs = await cursor.fetchall()
+    orphaned_runs = len(running_runs)
+
+    cursor = await db.conn.execute(
+        "SELECT COUNT(*) FROM agent_tool_calls WHERE status IN ('running', 'pending')"
+    )
+    row = await cursor.fetchone()
+    orphaned_tool_calls = row[0] if row else 0
+
+    cursor = await db.conn.execute(
+        "SELECT COUNT(*) FROM agent_steps WHERE state IN ('tool_calling', 'planning')"
+    )
+    row = await cursor.fetchone()
+    orphaned_steps = row[0] if row else 0
+
+    if orphaned_runs == 0 and orphaned_tool_calls == 0 and orphaned_steps == 0:
+        return {
+            "orphaned_runs": 0,
+            "orphaned_tool_calls": 0,
+            "orphaned_steps": 0,
+            "terminal_events": 0,
+        }
+
+    terminal_events = 0
+    if orphaned_runs > 0:
+        await db.conn.execute(
+            """
+            UPDATE runs
+            SET status = 'interrupted',
+                agent_state = 'interrupted',
+                error_message = ?
+            WHERE status = 'running'
+            """,
+            (RESTART_INTERRUPTED_MESSAGE,),
+        )
+
+        now = datetime.now(timezone.utc).isoformat()
+        for run in running_runs:
+            run_id = run["run_id"] if hasattr(run, "keys") else run[0]
+            final_answer = run["final_answer"] if hasattr(run, "keys") else run[1]
+            usage_stats = run["usage_stats"] if hasattr(run, "keys") else run[2]
+            try:
+                usage = json.loads(usage_stats or "{}")
+            except json.JSONDecodeError:
+                usage = {}
+
+            cursor = await db.conn.execute(
+                "SELECT COALESCE(MAX(seq), 0) + 1 FROM run_events WHERE run_id = ?",
+                (run_id,),
+            )
+            seq_row = await cursor.fetchone()
+            seq = seq_row[0] if seq_row else 1
+            event_data = {
+                "type": "_STREAM_END",
+                "seq": seq,
+                "result": {
+                    "run_id": run_id,
+                    "success": False,
+                    "status": "interrupted",
+                    "final_answer": final_answer,
+                    "error_message": RESTART_INTERRUPTED_MESSAGE,
+                    "total_tokens": usage.get("total_tokens"),
+                    "usage": usage,
+                    "cost": usage.get("cost"),
+                    "context_usage": usage.get("context_usage"),
+                    "context_profile": usage.get("context_profile"),
+                    "compaction_count": usage.get("compaction_count", 0),
+                    "last_compacted_at_step": usage.get("last_compacted_at_step"),
+                },
+            }
+            await db.conn.execute(
+                """
+                INSERT INTO run_events (id, run_id, seq, event_type, event_data, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    str(uuid.uuid4()),
+                    run_id,
+                    seq,
+                    "_STREAM_END",
+                    json.dumps(event_data, ensure_ascii=False),
+                    now,
+                ),
+            )
+            terminal_events += 1
+
+    if orphaned_tool_calls > 0:
+        await db.conn.execute(
+            """
+            UPDATE agent_tool_calls
+            SET status = 'interrupted',
+                error_message = 'Server restarted - tool call was interrupted'
+            WHERE status IN ('running', 'pending')
+            """
+        )
+
+    if orphaned_steps > 0:
+        await db.conn.execute(
+            """
+            UPDATE agent_steps
+            SET state = 'error',
+                error_message = 'Server restarted - step was interrupted'
+            WHERE state IN ('tool_calling', 'planning')
+            """
+        )
+
+    await db.conn.commit()
+    return {
+        "orphaned_runs": orphaned_runs,
+        "orphaned_tool_calls": orphaned_tool_calls,
+        "orphaned_steps": orphaned_steps,
+        "terminal_events": terminal_events,
+    }
 
 
 def get_cors_origins() -> list[str]:
@@ -188,70 +321,11 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Could not load config for logging: {e}")
 
-    # Clean up orphaned data (stuck in 'running' state from previous crash/restart)
-    # This runs unconditionally to catch any orphaned tool_calls/steps even if runs were already cleaned
-
-    # Count orphaned runs
-    cursor = await db.conn.execute("SELECT COUNT(*) FROM runs WHERE status = 'running'")
-    row = await cursor.fetchone()
-    orphaned_runs = row[0] if row else 0
-
-    # Count orphaned tool calls
-    cursor = await db.conn.execute(
-        "SELECT COUNT(*) FROM agent_tool_calls WHERE status IN ('running', 'pending')"
-    )
-    row = await cursor.fetchone()
-    orphaned_tool_calls = row[0] if row else 0
-
-    # Count orphaned steps
-    cursor = await db.conn.execute(
-        "SELECT COUNT(*) FROM agent_steps WHERE state IN ('tool_calling', 'planning')"
-    )
-    row = await cursor.fetchone()
-    orphaned_steps = row[0] if row else 0
-
-    if orphaned_runs > 0 or orphaned_tool_calls > 0 or orphaned_steps > 0:
-        # Mark orphaned runs as failed
-        if orphaned_runs > 0:
-            await db.conn.execute(
-                """
-                UPDATE runs
-                SET status = 'failed',
-                    error_message = 'Server restarted - run was interrupted'
-                WHERE status = 'running'
-                """
-            )
-
-        # Clean up orphaned agent_tool_calls (status = running/pending)
-        if orphaned_tool_calls > 0:
-            await db.conn.execute(
-                """
-                UPDATE agent_tool_calls
-                SET status = 'interrupted',
-                    error_message = 'Server restarted - tool call was interrupted'
-                WHERE status IN ('running', 'pending')
-                """
-            )
-
-        # Clean up orphaned agent_steps (state = tool_calling/planning)
-        if orphaned_steps > 0:
-            await db.conn.execute(
-                """
-                UPDATE agent_steps
-                SET state = 'error',
-                    error_message = 'Server restarted - step was interrupted'
-                WHERE state IN ('tool_calling', 'planning')
-                """
-            )
-
-        await db.conn.commit()
+    cleanup_counts = await cleanup_orphaned_runs_on_startup(db)
+    if any(cleanup_counts.values()):
         logger.warning(
             "Cleaned up orphaned data on startup",
-            extra={
-                "orphaned_runs": orphaned_runs,
-                "orphaned_tool_calls": orphaned_tool_calls,
-                "orphaned_steps": orphaned_steps,
-            },
+            extra=cleanup_counts,
         )
 
     if is_static_serving_enabled():

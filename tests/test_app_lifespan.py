@@ -1,9 +1,10 @@
 """Tests for app lifespan behavior, particularly orphaned run cleanup."""
 
 import pytest
-from unittest.mock import patch, AsyncMock
+from unittest.mock import patch
 from datetime import datetime, timezone
 
+from orchestrator.app import RESTART_INTERRUPTED_MESSAGE, cleanup_orphaned_runs_on_startup
 from orchestrator.storage.db import Database
 import orchestrator.storage.db as db_module
 
@@ -51,7 +52,7 @@ class TestOrphanedRunCleanup:
 
     @pytest.mark.asyncio
     async def test_cleanup_orphaned_runs_on_startup(self, test_db):
-        """Orphaned runs (status='running') should be marked as failed on startup."""
+        """Orphaned runs (status='running') should be marked as interrupted on startup."""
         # Create some orphaned runs
         now = datetime.now(timezone.utc).isoformat()
         await test_db.conn.execute(
@@ -84,25 +85,11 @@ class TestOrphanedRunCleanup:
         row = await cursor.fetchone()
         assert row[0] == 2
 
-        # Simulate the cleanup logic from app.py lifespan
-        cursor = await test_db.conn.execute(
-            "SELECT COUNT(*) FROM runs WHERE status = 'running'"
-        )
-        row = await cursor.fetchone()
-        orphaned_count = row[0] if row else 0
+        counts = await cleanup_orphaned_runs_on_startup(test_db)
+        assert counts["orphaned_runs"] == 2
+        assert counts["terminal_events"] == 2
 
-        if orphaned_count > 0:
-            await test_db.conn.execute(
-                """
-                UPDATE runs
-                SET status = 'failed',
-                    error_message = 'Server restarted - run was interrupted'
-                WHERE status = 'running'
-                """
-            )
-            await test_db.conn.commit()
-
-        # Verify orphaned runs are now failed
+        # Verify orphaned runs are now interrupted
         cursor = await test_db.conn.execute(
             "SELECT COUNT(*) FROM runs WHERE status = 'running'"
         )
@@ -110,7 +97,7 @@ class TestOrphanedRunCleanup:
         assert row[0] == 0
 
         cursor = await test_db.conn.execute(
-            "SELECT COUNT(*) FROM runs WHERE status = 'failed'"
+            "SELECT COUNT(*) FROM runs WHERE status = 'interrupted'"
         )
         row = await cursor.fetchone()
         assert row[0] == 2
@@ -127,7 +114,14 @@ class TestOrphanedRunCleanup:
             "SELECT error_message FROM runs WHERE run_id = 'orphan-1'"
         )
         row = await cursor.fetchone()
-        assert row[0] == "Server restarted - run was interrupted"
+        assert row[0] == RESTART_INTERRUPTED_MESSAGE
+
+        cursor = await test_db.conn.execute(
+            "SELECT event_type, event_data FROM run_events WHERE run_id = 'orphan-1'"
+        )
+        row = await cursor.fetchone()
+        assert row[0] == "_STREAM_END"
+        assert '"status": "interrupted"' in row[1]
 
     @pytest.mark.asyncio
     async def test_no_orphaned_runs_no_error(self, test_db):
@@ -150,15 +144,9 @@ class TestOrphanedRunCleanup:
         )
         await test_db.conn.commit()
 
-        # Simulate the cleanup logic
-        cursor = await test_db.conn.execute(
-            "SELECT COUNT(*) FROM runs WHERE status = 'running'"
-        )
-        row = await cursor.fetchone()
-        orphaned_count = row[0] if row else 0
-
-        # Should find no orphaned runs
-        assert orphaned_count == 0
+        counts = await cleanup_orphaned_runs_on_startup(test_db)
+        assert counts["orphaned_runs"] == 0
+        assert counts["terminal_events"] == 0
 
         # Verify no changes to existing runs
         cursor = await test_db.conn.execute(
@@ -176,13 +164,8 @@ class TestOrphanedRunCleanup:
     @pytest.mark.asyncio
     async def test_empty_database_no_error(self, test_db):
         """Cleanup should work fine on empty database."""
-        cursor = await test_db.conn.execute(
-            "SELECT COUNT(*) FROM runs WHERE status = 'running'"
-        )
-        row = await cursor.fetchone()
-        orphaned_count = row[0] if row else 0
-
-        assert orphaned_count == 0
+        counts = await cleanup_orphaned_runs_on_startup(test_db)
+        assert counts["orphaned_runs"] == 0
 
     @pytest.mark.asyncio
     async def test_cleanup_orphaned_tool_calls_and_steps(self, test_db):
@@ -245,52 +228,18 @@ class TestOrphanedRunCleanup:
         )
         await test_db.conn.commit()
 
-        # Simulate the cleanup logic from app.py lifespan
-        cursor = await test_db.conn.execute(
-            "SELECT COUNT(*) FROM runs WHERE status = 'running'"
-        )
-        row = await cursor.fetchone()
-        orphaned_count = row[0] if row else 0
+        counts = await cleanup_orphaned_runs_on_startup(test_db)
+        assert counts["orphaned_runs"] == 1
+        assert counts["orphaned_tool_calls"] == 2
+        assert counts["orphaned_steps"] == 2
+        assert counts["terminal_events"] == 1
 
-        if orphaned_count > 0:
-            # Mark orphaned runs as failed
-            await test_db.conn.execute(
-                """
-                UPDATE runs
-                SET status = 'failed',
-                    error_message = 'Server restarted - run was interrupted'
-                WHERE status = 'running'
-                """
-            )
-
-            # Also clean up orphaned agent_tool_calls
-            await test_db.conn.execute(
-                """
-                UPDATE agent_tool_calls
-                SET status = 'interrupted',
-                    error_message = 'Server restarted - tool call was interrupted'
-                WHERE status IN ('running', 'pending')
-                """
-            )
-
-            # Clean up orphaned agent_steps
-            await test_db.conn.execute(
-                """
-                UPDATE agent_steps
-                SET state = 'error',
-                    error_message = 'Server restarted - step was interrupted'
-                WHERE state IN ('tool_calling', 'planning')
-                """
-            )
-
-            await test_db.conn.commit()
-
-        # Verify run is failed
+        # Verify run is interrupted
         cursor = await test_db.conn.execute(
             "SELECT status FROM runs WHERE run_id = 'orphan-run'"
         )
         row = await cursor.fetchone()
-        assert row[0] == "failed"
+        assert row[0] == "interrupted"
 
         # Verify tool calls are interrupted (running/pending) or unchanged (success)
         cursor = await test_db.conn.execute(

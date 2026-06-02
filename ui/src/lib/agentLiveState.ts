@@ -10,7 +10,8 @@ export type AgentLivePhase =
   | 'paused'
   | 'complete'
   | 'error'
-  | 'cancelled';
+  | 'cancelled'
+  | 'interrupted';
 
 interface AgentPhaseMeta {
   label: string;
@@ -136,6 +137,17 @@ const PHASE_META: Record<AgentLivePhase, AgentPhaseMeta> = {
     loaderGradientClassName: 'from-zinc-500 via-zinc-300 to-zinc-500',
     glowClassName: 'from-zinc-500/10 via-zinc-400/4 to-transparent',
     chipClassName: 'border-zinc-500/15 bg-zinc-500/8 text-zinc-100/90',
+  },
+  interrupted: {
+    label: 'interrupted',
+    words: ['interrupted'],
+    animated: false,
+    accentClassName: 'text-orange-300',
+    indicatorClassName: 'bg-orange-400/90',
+    borderClassName: 'border-orange-500/30',
+    loaderGradientClassName: 'from-orange-500 via-amber-300 to-orange-500',
+    glowClassName: 'from-orange-500/10 via-amber-400/4 to-transparent',
+    chipClassName: 'border-orange-500/15 bg-orange-500/8 text-orange-100/90',
   },
 };
 
@@ -322,6 +334,8 @@ function deriveAgentDetail(agentState: AgentUIState, phase: AgentLivePhase): Age
       return { summary: 'run failed before completion' };
     case 'cancelled':
       return { summary: 'run cancelled by user' };
+    case 'interrupted':
+      return { summary: 'run interrupted by restart' };
     case 'complete':
       return { summary: 'response delivered' };
     default:
@@ -338,6 +352,8 @@ export function deriveAgentPhase(agentState: AgentUIState): DerivedAgentPhase {
     phase = 'error';
   } else if (!agentState.isActive && agentState.agentState === 'cancelled') {
     phase = 'cancelled';
+  } else if (!agentState.isActive && agentState.agentState === 'interrupted') {
+    phase = 'interrupted';
   } else if (agentState.agentState === 'paused') {
     phase = 'paused';
   } else if (agentState.answerBuffer) {

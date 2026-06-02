@@ -473,10 +473,17 @@ export function useAgentSSE(runId: string | null) {
         }
 
         const wasCancelled = result.status === 'cancelled';
+        const wasInterrupted = result.status === 'interrupted';
 
         updateAgentState(id, {
           isActive: false,
-          agentState: wasCancelled ? 'cancelled' : result.success ? 'complete' : 'error',
+          agentState: wasInterrupted
+            ? 'interrupted'
+            : wasCancelled
+              ? 'cancelled'
+              : result.success
+                ? 'complete'
+                : 'error',
           timing_ms: result.timing_ms,
           total_tokens: result.total_tokens,
           usage: result.usage,
@@ -494,9 +501,21 @@ export function useAgentSSE(runId: string | null) {
 
         // Update the run in main store
         updateRun(id, {
-          status: wasCancelled ? 'cancelled' : result.success ? 'succeeded' : 'failed',
+          status: wasInterrupted
+            ? 'interrupted'
+            : wasCancelled
+              ? 'cancelled'
+              : result.success
+                ? 'succeeded'
+                : 'failed',
           final_answer: result.final_answer,
-          error_detail: wasCancelled ? 'Stopped by user' : result.success ? undefined : result.error_message,
+          error_detail: wasInterrupted
+            ? result.error_message || 'Run interrupted by server restart'
+            : wasCancelled
+              ? 'Stopped by user'
+              : result.success
+                ? undefined
+                : result.error_message,
           usage: result.usage,
           cost: result.cost,
           context_usage: result.context_usage,

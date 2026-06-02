@@ -52,6 +52,8 @@ export const AgentRunMessage = memo(function AgentRunMessage({
         ? 'failed'
         : run.status === 'cancelled'
           ? 'cancelled'
+          : run.status === 'interrupted'
+            ? 'interrupted'
           : 'succeeded';
 
   return (
@@ -86,6 +88,10 @@ export const AgentRunMessage = memo(function AgentRunMessage({
               <div className="desktop-message-card-cancelled border-l border-amber-500/35 pl-4 text-sm text-amber-100/90">
                 stopped by user
               </div>
+            ) : run.status === 'interrupted' ? (
+              <div className="desktop-message-card-cancelled border-l border-orange-500/35 pl-4 text-sm text-orange-100/90">
+                interrupted by server restart
+              </div>
             ) : run.status === 'failed' ? (
               <div className="desktop-message-card-error border-l border-red-500/35 pl-4 text-sm text-red-200/90">
                 [error] {run.error_detail || 'Agent failed. Please try again.'}
@@ -101,7 +107,8 @@ export const AgentRunMessage = memo(function AgentRunMessage({
                     'desktop-run-meta-pill rounded-full border border-zinc-900/90 bg-transparent px-2.5 py-1',
                     phase?.accentClassName || 'text-zinc-300',
                     run.status === 'failed' && 'border-red-500/15 text-red-400/85',
-                    run.status === 'cancelled' && 'border-amber-500/15 text-amber-300/85'
+                    run.status === 'cancelled' && 'border-amber-500/15 text-amber-300/85',
+                    run.status === 'interrupted' && 'border-orange-500/15 text-orange-300/85'
                   )}
                   data-status={metaStatus}
                 >

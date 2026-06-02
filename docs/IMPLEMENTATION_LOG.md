@@ -9,6 +9,7 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| main | Interrupted run recovery hardening — startup orphan cleanup now terminalizes stale running runs as `interrupted`, persists replayable `_STREAM_END` events, agent/chat SSE return terminal DB fallback for inactive interrupted runs, and the UI clears HUD/spinner state with a distinct interrupted status | done | 2026-06-02 |
 | main | Conversation-scoped model selection — model picker selections are now stored in conversation metadata, restored when switching conversations, sent as per-run provider/model headers for chat and agent runs, and no longer make other conversations inherit the currently selected model UI state | done | 2026-06-02 |
 | main | Web tool breadth tuning — `web_search` now advertises/uses up to 10 results per call and `web_extract` advertises/configures up to 3 URLs per request so model guidance, runtime caps, and config align | done | 2026-06-02 |
 | main | Agent stop/approval durability — active agent tasks are tracked and force-cancelled after cooperative stop, cancellation is idempotent and broadcasts `run_cancelled`, approval/denial clicks emit immediate `tool_approval_decided` events, stale decisions resolve without HUD-blocking conflicts, and the UI clears stop/deny loading states with optimistic updates plus a status watchdog | done | 2026-06-02 |

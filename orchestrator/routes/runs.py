@@ -540,15 +540,17 @@ async def stream_run_events(run_id: str, http_request: Request):
                 trace_repo = TraceRepo(db)
                 trace = await trace_repo.get_run(run_id)
                 if trace:
-                    if trace.get("status") in ("succeeded", "failed"):
+                    if trace.get("status") in ("succeeded", "failed", "cancelled", "interrupted"):
                         yield {
                             "event": "complete",
                             "data": json.dumps(
                                 {
                                     "run_id": run_id,
+                                    "success": trace.get("status") == "succeeded",
                                     "status": trace.get("status"),
                                     "final_answer": trace.get("final_answer"),
                                     "thinking_summary": trace.get("thinking_summary"),
+                                    "error_message": trace.get("error_message"),
                                 }
                             ),
                         }

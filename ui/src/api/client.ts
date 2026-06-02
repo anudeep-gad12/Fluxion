@@ -287,7 +287,13 @@ export async function healthCheck(): Promise<{ status: string }> {
 export function subscribeToRun(
   runId: string,
   onEvent: (event: Event) => void,
-  onComplete: (result: { run_id: string; status: string; final_answer?: string }) => void,
+  onComplete: (result: {
+    run_id: string;
+    status: string;
+    final_answer?: string;
+    thinking_summary?: string;
+    error_message?: string;
+  }) => void,
   onError: (error: string) => void,
   onAbort?: () => void,
 ): () => void {

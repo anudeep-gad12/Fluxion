@@ -4,6 +4,57 @@ import asyncio
 import pytest
 from unittest.mock import patch, AsyncMock, MagicMock
 
+from httpx import ASGITransport, AsyncClient
+
+from orchestrator.app import app
+from orchestrator.storage.db import Database
+from orchestrator.storage.repositories.conversation_repo import ConversationRepo
+from orchestrator.storage.repositories.trace_repo import TraceRepo
+import orchestrator.storage.db as db_module
+import orchestrator.routes.runs as runs_module
+
+
+@pytest.fixture(scope="function")
+def test_db():
+    db_module._db = None
+    database = Database(":memory:")
+
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+    loop.run_until_complete(database.connect())
+
+    async def mock_get_db():
+        return database
+
+    with patch("orchestrator.storage.db.get_db", mock_get_db):
+        with patch("orchestrator.app.get_db", mock_get_db):
+            with patch("orchestrator.routes.runs.get_db", mock_get_db):
+                with patch("orchestrator.routes.conversations.get_db", mock_get_db):
+                    yield database
+
+    runs_module._active_runs.clear()
+    runs_module._abort_signals.clear()
+    runs_module._run_sessions.clear()
+    loop.run_until_complete(database.close())
+    db_module._db = None
+
+
+@pytest.fixture
+async def async_client(test_db):
+    runs_module._active_runs.clear()
+    runs_module._abort_signals.clear()
+    runs_module._run_sessions.clear()
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        yield client
+
+    runs_module._active_runs.clear()
+    runs_module._abort_signals.clear()
+    runs_module._run_sessions.clear()
 
 class TestEventQueueSize:
     """Tests for event queue configuration."""
@@ -189,6 +240,42 @@ class TestChatEngineCleanup:
 
             # Verify provider.close() was called
             mock_provider.close.assert_called_once()
+
+
+class TestRunStreamRecovery:
+    """Tests for terminal chat SSE fallback after in-memory state is gone."""
+
+    @pytest.mark.asyncio
+    async def test_interrupted_chat_run_streams_terminal_complete(self, async_client, test_db):
+        run_id = "interrupted-chat-run"
+        conversation_id = f"{run_id}-conv"
+        await ConversationRepo(test_db).create(
+            conversation_id=conversation_id,
+            title="interrupted chat",
+        )
+        trace_repo = TraceRepo(test_db)
+        await trace_repo.create_run(
+            run_id=run_id,
+            conversation_id=conversation_id,
+            profile_name="chat",
+            mode="chat",
+            model_config={},
+            user_message="resume interrupted chat",
+        )
+        await trace_repo.update_run(
+            run_id,
+            status="interrupted",
+            error_message="Server restarted - run was interrupted",
+        )
+        runs_module._active_runs.pop(run_id, None)
+
+        async with async_client.stream("GET", f"/api/runs/{run_id}/stream") as response:
+            body = (await response.aread()).decode()
+
+        assert response.status_code == 200
+        assert "event: complete" in body
+        assert '"status": "interrupted"' in body
+        assert '"error_message": "Server restarted - run was interrupted"' in body
 
 
 class TestConversationAutoTitles:

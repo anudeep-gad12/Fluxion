@@ -102,6 +102,7 @@ function formatRunStatusLabel(run: Run): string {
   if (run.status === 'succeeded') return 'done';
   if (run.status === 'failed') return 'failed';
   if (run.status === 'cancelled') return 'stopped';
+  if (run.status === 'interrupted') return 'interrupted';
   return 'running';
 }
 
@@ -1552,6 +1553,10 @@ const RunMessage = memo(function RunMessage({
               <div className="desktop-message-card-cancelled rounded-[1rem] border border-amber-500/16 bg-amber-500/[0.06] px-4 py-3 text-sm text-amber-100/90">
                 stopped by user
               </div>
+            ) : run.status === 'interrupted' ? (
+              <div className="desktop-message-card-cancelled rounded-[1rem] border border-orange-500/16 bg-orange-500/[0.06] px-4 py-3 text-sm text-orange-100/90">
+                interrupted by server restart
+              </div>
             ) : run.status === 'failed' ? (
               <div className="desktop-message-card-error rounded-[1rem] border border-red-500/16 bg-red-500/[0.06] px-4 py-3 text-sm text-red-200/90">
                 [error] {run.error_detail || 'Request failed. Please try again.'}
@@ -1577,6 +1582,8 @@ const RunMessage = memo(function RunMessage({
                     ? 'text-emerald-300'
                     : run.status === 'failed'
                       ? 'border-red-500/15 text-red-400/85'
+                      : run.status === 'interrupted'
+                        ? 'border-orange-500/15 text-orange-300/85'
                       : 'text-zinc-400'
                 )}
                 data-status={run.status}
@@ -2667,17 +2674,24 @@ export function ConversationView() {
     const timeout = window.setTimeout(() => {
       void getAgentRunStatus(stoppingRunId)
         .then((status) => {
-          if (!['cancelled', 'succeeded', 'failed'].includes(status.status)) return;
-          const terminalStatus = status.status as 'cancelled' | 'succeeded' | 'failed';
+          if (!['cancelled', 'succeeded', 'failed', 'interrupted'].includes(status.status)) return;
+          const terminalStatus = status.status as 'cancelled' | 'succeeded' | 'failed' | 'interrupted';
           updateRun(stoppingRunId, {
             status: terminalStatus,
-            error_detail: terminalStatus === 'cancelled' ? 'Stopped by user' : undefined,
+            error_detail:
+              terminalStatus === 'cancelled'
+                ? 'Stopped by user'
+                : terminalStatus === 'interrupted'
+                  ? status.error_message || 'Run interrupted by server restart'
+                  : undefined,
           });
           useStore.getState().updateAgentState(stoppingRunId, {
             isActive: false,
             agentState:
               terminalStatus === 'cancelled'
                 ? 'cancelled'
+                : terminalStatus === 'interrupted'
+                  ? 'interrupted'
                 : terminalStatus === 'succeeded'
                   ? 'complete'
                   : 'error',
