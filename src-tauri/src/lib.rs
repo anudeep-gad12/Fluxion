@@ -91,7 +91,7 @@ const BROWSER_NEW_TAB_INIT_SCRIPT: &str = r#"
 "#;
 
 fn app_version() -> &'static str {
-    env!("CARGO_PKG_VERSION")
+    env!("FLUXION_APP_VERSION")
 }
 
 fn build_id() -> &'static str {

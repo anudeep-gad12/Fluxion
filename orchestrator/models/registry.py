@@ -1124,14 +1124,16 @@ class ModelRegistry:
 
                 api_key = get_grok_access_token_sync()
             if not api_key and provider_name not in {"local", "chatgpt"}:
-                if preset.provider_hint:
+                if provider_name == "grok":
+                    raise ValueError("Connect Grok OAuth before selecting this model.")
+                if explicit_provider or preset.provider_hint:
                     raise ValueError(
                         f"No API key found for {provider_name}. "
                         f"Set {provider_def.api_key_env} environment variable."
                     )
-                if provider_name == "grok":
-                    raise ValueError("Connect Grok OAuth before selecting this model.")
-                # Try to fall back to another provider that has a key
+                # Legacy alias fallback for unqualified model names only. Explicit
+                # UI/provider selections must never silently route to another
+                # provider because it makes the selected model label lie.
                 api_key, provider_name, provider_def = ModelRegistry._find_available_provider(
                     prefer=provider_name
                 )

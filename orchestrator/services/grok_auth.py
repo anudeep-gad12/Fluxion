@@ -13,6 +13,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import time
 from datetime import datetime
 from pathlib import Path
@@ -26,6 +27,32 @@ _login_process: Optional[asyncio.subprocess.Process] = None
 _last_login_error: Optional[str] = None
 _last_login_message: Optional[str] = None
 _cli_version_cache: Optional[str] = None
+
+
+def _find_grok_bin() -> Optional[str]:
+    """Find the Grok CLI even when packaged macOS apps inherit a minimal PATH."""
+    found = shutil.which("grok")
+    if found:
+        return found
+
+    candidates = [
+        Path.home() / ".local" / "bin" / "grok",
+        Path.home() / ".npm-global" / "bin" / "grok",
+        Path("/opt/homebrew/bin/grok"),
+        Path("/usr/local/bin/grok"),
+        Path("/usr/bin/grok"),
+    ]
+    if sys.platform == "darwin":
+        candidates.extend(
+            [
+                Path.home() / ".cargo" / "bin" / "grok",
+                Path.home() / "Library" / "pnpm" / "grok",
+            ]
+        )
+    for candidate in candidates:
+        if candidate.exists() and os.access(candidate, os.X_OK):
+            return str(candidate)
+    return None
 
 
 def _auth_file_path() -> Path:
@@ -110,7 +137,7 @@ def get_grok_cli_version_sync() -> str:
     if _cli_version_cache:
         return _cli_version_cache
 
-    grok_bin = shutil.which("grok")
+    grok_bin = _find_grok_bin()
     if not grok_bin:
         return "0.2.11"
 
@@ -143,11 +170,7 @@ async def get_grok_auth_status() -> dict[str, Any]:
             login_running = True
         else:
             if _login_process.returncode != 0:
-                stderr = await _login_process.stderr.read() if _login_process.stderr else b""
-                _last_login_error = (
-                    stderr.decode("utf-8", errors="replace")[-500:].strip()
-                    or "Grok login failed"
-                )
+                _last_login_error = "Grok login failed"
             _login_process = None
 
     entries = _load_auth_entries()
@@ -161,7 +184,7 @@ async def get_grok_auth_status() -> dict[str, Any]:
         None,
     )
     return {
-        "enabled": shutil.which("grok") is not None,
+        "enabled": _find_grok_bin() is not None,
         "authenticated": valid_entry is not None,
         "account_id": (
             valid_entry.get("email")
@@ -185,7 +208,7 @@ async def start_grok_login() -> dict[str, Any]:
     """Start ``grok login --oauth`` if it is not already running."""
     global _login_process, _last_login_error, _last_login_message
 
-    grok_bin = shutil.which("grok")
+    grok_bin = _find_grok_bin()
     if not grok_bin:
         return {
             "status": "missing_cli",
@@ -202,10 +225,10 @@ async def start_grok_login() -> dict[str, Any]:
         "login",
         "--oauth",
         stdin=asyncio.subprocess.PIPE,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.DEVNULL,
     )
-    logger.info("Grok OAuth login started")
+    logger.info("Grok OAuth login started", extra={"grok_bin": grok_bin})
     return {"status": "started"}
 
 
@@ -272,7 +295,7 @@ async def cancel_grok_login() -> dict[str, Any]:
 async def logout_grok() -> dict[str, Any]:
     """Run official Grok logout when available, clearing cached credentials."""
     await cancel_grok_login()
-    grok_bin = shutil.which("grok")
+    grok_bin = _find_grok_bin()
     if not grok_bin:
         return {"status": "logged_out", "method": "missing_cli"}
 

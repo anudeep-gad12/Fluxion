@@ -53,6 +53,7 @@ interface AppState {
   conversations: Conversation[];
   selectedConversationId: string | null;
   draftWorkspacePath: string;
+  draftConversationNonce: number;
   workspacePaths: string[];
 
   // Runs per conversation
@@ -88,6 +89,7 @@ interface AppState {
   removeConversation: (conversationId: string) => void;
   selectConversation: (conversationId: string | null) => void;
   setDraftWorkspacePath: (workspacePath: string) => void;
+  bumpDraftConversation: () => void;
   rememberWorkspacePath: (workspacePath: string) => void;
 
   // Run actions
@@ -140,6 +142,7 @@ export const useStore = create<AppState>((set, get) => ({
   conversations: [],
   selectedConversationId: null,
   draftWorkspacePath: typeof window !== 'undefined' ? (localStorage.getItem(WORKSPACE_STORAGE_KEY) || '') : '',
+  draftConversationNonce: 0,
   workspacePaths: typeof window !== 'undefined'
     ? JSON.parse(localStorage.getItem(WORKSPACE_LIST_STORAGE_KEY) || '[]')
     : [],
@@ -188,6 +191,10 @@ export const useStore = create<AppState>((set, get) => ({
     }
     set({ draftWorkspacePath: workspacePath });
   },
+
+  bumpDraftConversation: () => set((state) => ({
+    draftConversationNonce: state.draftConversationNonce + 1,
+  })),
 
   rememberWorkspacePath: (workspacePath) => {
     const normalized = workspacePath.trim();

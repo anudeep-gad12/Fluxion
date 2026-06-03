@@ -519,9 +519,10 @@ function ModelPicker({
       const started = await startGrokLogin();
       if (started.status === 'missing_cli') {
         setError(started.message || 'Grok CLI is not installed or not on PATH.');
-        setSwitching(null);
         return;
       }
+      await refreshPickerData();
+      setSwitching(null);
       const startedAt = Date.now();
       grokLoginTimerRef.current = window.setInterval(async () => {
         try {
@@ -530,10 +531,8 @@ function ModelPicker({
           const auth = registry.providers.grok?.auth;
           if (auth?.authenticated) {
             clearGrokLoginTimer();
-            setSwitching(null);
           } else if (auth?.last_error) {
             clearGrokLoginTimer();
-            setSwitching(null);
             setError(auth.last_error);
           }
         } catch {
@@ -541,7 +540,6 @@ function ModelPicker({
         }
         if (Date.now() - startedAt > 120_000) {
           clearGrokLoginTimer();
-          setSwitching(null);
           setError('Grok login timed out. Retry to start a fresh OAuth login, or cancel.');
           void cancelGrokLogin().catch(() => {});
           void refreshPickerData();
@@ -549,7 +547,8 @@ function ModelPicker({
       }, 1200);
     } catch {
       setError('Failed to start Grok login');
-      setSwitching(null);
+    } finally {
+      setSwitching((current) => (current === 'grok-login' ? null : current));
     }
   };
 
@@ -1820,7 +1819,9 @@ export function ConversationView() {
   const setConversationMode = useStore((s) => s.setConversationMode);
   const updateTerminalState = useStore((s) => s.updateTerminalState);
   const draftWorkspacePath = useStore((s) => s.draftWorkspacePath);
+  const draftConversationNonce = useStore((s) => s.draftConversationNonce);
   const setDraftWorkspacePath = useStore((s) => s.setDraftWorkspacePath);
+  const bumpDraftConversation = useStore((s) => s.bumpDraftConversation);
   const rememberWorkspacePath = useStore((s) => s.rememberWorkspacePath);
   const [message, setMessage] = useState('');
   const [imageAttachments, setImageAttachments] = useState<ImageAttachment[]>([]);
@@ -1885,6 +1886,14 @@ export function ConversationView() {
     setMentionResults([]);
     setMentionSelectedIndex(0);
   }, []);
+
+  useEffect(() => {
+    if (selectedConversationId) return;
+    setMessage('');
+    setImageAttachments([]);
+    clearMentionState();
+    window.requestAnimationFrame(() => textareaRef.current?.focus());
+  }, [clearMentionState, draftConversationNonce, selectedConversationId]);
 
   useEffect(() => {
     localStorage.setItem('reasoner_permission_policy', permissionPolicy);
@@ -3094,6 +3103,7 @@ export function ConversationView() {
         selectConversation(null);
         rememberWorkspacePath(normalized);
         setDraftWorkspacePath(normalized);
+        bumpDraftConversation();
         navigate('/conversations');
       }
       return;
@@ -3103,6 +3113,7 @@ export function ConversationView() {
   }, [
     hasActiveRun,
     navigate,
+    bumpDraftConversation,
     rememberWorkspacePath,
     selectConversation,
     setDraftWorkspacePath,
@@ -3118,11 +3129,13 @@ export function ConversationView() {
     selectConversation(null);
     rememberWorkspacePath(normalized);
     setDraftWorkspacePath(normalized);
+    bumpDraftConversation();
     navigate('/conversations');
   }, [
     hasActiveRun,
     navigate,
     openWorkspacePickerForNewConversation,
+    bumpDraftConversation,
     rememberWorkspacePath,
     selectConversation,
     setDraftWorkspacePath,

@@ -68,6 +68,25 @@ from orchestrator.storage.repositories.trace_repo import TraceRepo
 
 logger = get_logger(__name__)
 
+
+MODEL_REGISTRY_PROVIDERS = {
+    "openai",
+    "xai",
+    "grok",
+    "openrouter",
+    "deepinfra",
+    "fireworks",
+    "local",
+}
+
+
+def _registry_selection(provider_header: Optional[str], model: str) -> str:
+    """Preserve explicit UI provider selection when resolving a model id."""
+    provider = (provider_header or "").strip().lower()
+    if provider in MODEL_REGISTRY_PROVIDERS and ":" not in model:
+        return f"{provider}:{model}"
+    return model
+
 router = APIRouter(prefix="/api/agent", tags=["agent"])
 
 # =============================================================================
@@ -681,17 +700,27 @@ async def _run_agent_task(
                     extra={"error": str(e)},
                 )
         elif model_override:
-            # Model registry path: resolve alias to provider + full model ID
+            # Model registry path: resolve alias to provider + full model ID.
+            # Preserve the explicit provider selected in the UI; otherwise IDs
+            # like grok:grok-build can silently fall through to the default
+            # Fireworks provider when Grok auth is unavailable.
+            selection = _registry_selection(provider_preference, model_override)
             try:
                 from orchestrator.providers.factory import create_provider_for_model
 
-                provider_override, resolved = create_provider_for_model(model_override)
+                provider_override, resolved = create_provider_for_model(selection)
                 model_override = resolved.model_id  # Replace alias with full ID
             except (ValueError, Exception) as e:
                 logger.warning(
-                    "Failed to resolve model via registry, using default",
-                    extra={"model": model_override, "error": str(e)},
+                    "Failed to resolve selected model via registry",
+                    extra={
+                        "provider": provider_preference,
+                        "model": model_override,
+                        "selection": selection,
+                        "error": str(e),
+                    },
                 )
+                raise RuntimeError(f"Failed to use selected model {selection}: {e}") from e
         elif not model_override and not provider_preference:
             # Web UI fallback: use the last model selected via picker
             from orchestrator.routes.models import get_active_model, get_active_model_name
@@ -722,8 +751,11 @@ async def _run_agent_task(
 
                     provider_override, resolved = create_provider_for_model(active_name)
                     model_override = resolved.model_id
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(
+                        "Failed to resolve active model via registry, using default",
+                        extra={"model": active_name, "error": str(e)},
+                    )
 
         # Build approval callback for permission system
         async def approval_callback(

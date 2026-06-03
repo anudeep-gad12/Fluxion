@@ -11,6 +11,8 @@ elif [[ -n "${GITHUB_REF_NAME:-}" && "${GITHUB_REF_NAME}" == v* ]]; then
   VERSION="${GITHUB_REF_NAME#v}"
 elif TAG="$(cd "$ROOT_DIR" && git describe --tags --exact-match 2>/dev/null)" && [[ "$TAG" == v* ]]; then
   VERSION="${TAG#v}"
+elif TAG="$(cd "$ROOT_DIR" && git describe --tags --match 'v*' --abbrev=0 2>/dev/null)" && [[ "$TAG" == v* ]]; then
+  VERSION="${TAG#v}"
 else
   VERSION="$(cd "$ROOT_DIR" && python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml","rb"))["project"]["version"])')"
 fi
@@ -26,6 +28,16 @@ elif BUILD_ID="$(cd "$ROOT_DIR" && git rev-parse --short HEAD 2>/dev/null)"; the
   :
 else
   BUILD_ID="$(date -u +%Y%m%d%H%M%S)"
+fi
+
+if [[ -n "${FLUXION_BUILD_NUMBER:-}" ]]; then
+  BUILD_NUMBER="$FLUXION_BUILD_NUMBER"
+elif [[ -n "${GITHUB_RUN_NUMBER:-}" ]]; then
+  BUILD_NUMBER="$GITHUB_RUN_NUMBER"
+elif BUILD_NUMBER="$(cd "$ROOT_DIR" && git rev-list --count HEAD 2>/dev/null)"; then
+  :
+else
+  BUILD_NUMBER="$(date -u +%Y%m%d%H%M%S)"
 fi
 
 ARCH="$(uname -m)"
@@ -49,9 +61,10 @@ log() { echo "[build-macos-tauri] $*"; }
 
 export FLUXION_APP_VERSION="$VERSION"
 export FLUXION_BUILD_ID="$BUILD_ID"
+export FLUXION_BUILD_NUMBER="$BUILD_NUMBER"
 export CI="${CI:-true}"
 
-log "Version $VERSION build $BUILD_ID"
+log "Version $VERSION build $BUILD_ID bundle $BUILD_NUMBER"
 
 if [[ -n "${FLUXION_SPARKLE_PUBLIC_ED_KEY:-}" ]]; then
   "$ROOT_DIR/scripts/patch_sparkle_public_key.sh" "$FLUXION_SPARKLE_PUBLIC_ED_KEY"
@@ -118,6 +131,12 @@ fi
 mkdir -p "$DIST_ROOT"
 rm -rf "$DIST_ROOT/${APP_NAME}.app"
 cp -R "$APP_BUNDLE" "$DIST_ROOT/${APP_NAME}.app"
+
+INFO_PLIST="$DIST_ROOT/${APP_NAME}.app/Contents/Info.plist"
+if [[ -f "$INFO_PLIST" ]]; then
+  /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$INFO_PLIST"
+  /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" "$INFO_PLIST"
+fi
 
 if [[ -f "$TAURI_DIR/target/release/bundle/dmg/${APP_NAME}_${VERSION}_${SIDEcar_TRIPLE}.dmg" ]]; then
   cp "$TAURI_DIR/target/release/bundle/dmg/${APP_NAME}_${VERSION}_${SIDEcar_TRIPLE}.dmg" "$DMG_PATH"

@@ -107,6 +107,7 @@ jobs:
       - name: Build Tauri app (unsigned bundle)
         env:
           FLUXION_APP_VERSION: ${{ steps.version.outputs.marketing_version }}
+          FLUXION_BUILD_NUMBER: ${{ steps.version.outputs.build_number }}
           FLUXION_BUILD_ID: ${{ github.sha }}
           SPARKLE_FRAMEWORK_PATH: ${{ github.workspace }}/src-tauri/Frameworks
         run: ./scripts/build_macos_tauri.sh

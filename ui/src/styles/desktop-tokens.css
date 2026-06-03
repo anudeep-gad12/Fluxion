@@ -748,3 +748,45 @@
   background: var(--desktop-accent-muted);
   color: var(--desktop-accent);
 }
+
+[data-app='desktop'] .desktop-window-drag-frame {
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 2147483000;
+}
+
+[data-app='desktop'] .desktop-window-drag-strip {
+  pointer-events: auto;
+  position: absolute;
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+
+[data-app='desktop'] .desktop-window-drag-strip-top {
+  top: 0;
+  left: 88px;
+  right: 0;
+  height: 8px;
+}
+
+[data-app='desktop'] .desktop-window-drag-strip-left {
+  top: 88px;
+  bottom: 8px;
+  left: 0;
+  width: 6px;
+}
+
+[data-app='desktop'] .desktop-window-drag-strip-right {
+  top: 8px;
+  right: 0;
+  bottom: 8px;
+  width: 6px;
+}
+
+[data-app='desktop'] .desktop-window-drag-strip-bottom {
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 6px;
+}

@@ -1,6 +1,6 @@
 // Main application component with collapsible sidebar
 
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, type MouseEvent as ReactMouseEvent } from 'react';
 import { Routes, Route, Navigate, useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import { ConversationList } from '@/components/ConversationList';
@@ -58,6 +58,22 @@ function NewConversationView() {
   return <ConversationView />;
 }
 
+
+function DesktopWindowDragFrame() {
+  const handleMouseDown = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
+    void startWindowDrag(event);
+  }, []);
+
+  return (
+    <div className="desktop-window-drag-frame" aria-hidden>
+      <div className="desktop-window-drag-strip desktop-window-drag-strip-top" data-tauri-drag-region onMouseDown={handleMouseDown} />
+      <div className="desktop-window-drag-strip desktop-window-drag-strip-left" data-tauri-drag-region onMouseDown={handleMouseDown} />
+      <div className="desktop-window-drag-strip desktop-window-drag-strip-right" data-tauri-drag-region onMouseDown={handleMouseDown} />
+      <div className="desktop-window-drag-strip desktop-window-drag-strip-bottom" data-tauri-drag-region onMouseDown={handleMouseDown} />
+    </div>
+  );
+}
+
 function AppLayout() {
   const hasActiveRun = useHasActiveRun();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -69,6 +85,7 @@ function AppLayout() {
   const selectConversation = useStore((s) => s.selectConversation);
   const rememberWorkspacePath = useStore((s) => s.rememberWorkspacePath);
   const setDraftWorkspacePath = useStore((s) => s.setDraftWorkspacePath);
+  const bumpDraftConversation = useStore((s) => s.bumpDraftConversation);
 
   const [isOwner, setIsOwner] = useState(() => {
     if (localDesktop) return true;
@@ -105,8 +122,9 @@ function AppLayout() {
     selectConversation(null);
     rememberWorkspacePath(normalized);
     setDraftWorkspacePath(normalized);
+    bumpDraftConversation();
     navigate('/conversations');
-  }, [hasActiveRun, navigate, rememberWorkspacePath, selectConversation, setDraftWorkspacePath]);
+  }, [bumpDraftConversation, hasActiveRun, navigate, rememberWorkspacePath, selectConversation, setDraftWorkspacePath]);
 
   const handleOpenWorkspacePicker = useCallback(async () => {
     if (hasActiveRun) return;
@@ -421,6 +439,7 @@ function AppLayout() {
     return (
       <div className="fluxion-app-bg flex h-[100dvh] flex-col text-zinc-100">
         {body}
+        <DesktopWindowDragFrame />
         {workspacePicker}
       </div>
     );

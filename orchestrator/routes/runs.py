@@ -12,7 +12,6 @@ from sse_starlette.sse import EventSourceResponse
 from orchestrator.config import get_chat_config
 from orchestrator.logging_config import get_logger, get_request_id, set_request_id, set_component
 
-logger = get_logger(__name__)
 from orchestrator.engine.chat_engine import ChatEngine
 from orchestrator.reporting.report_builder import ReportBuilder
 from orchestrator.schemas import (
@@ -33,6 +32,27 @@ from orchestrator.storage.repositories.agent_repo import AgentRepo
 from orchestrator.storage.repositories.conversation_repo import ConversationRepo
 from orchestrator.storage.repositories.trace_repo import TraceRepo
 from orchestrator.conversation_titles import conversation_title_from_message
+
+
+logger = get_logger(__name__)
+
+MODEL_REGISTRY_PROVIDERS = {
+    "openai",
+    "xai",
+    "grok",
+    "openrouter",
+    "deepinfra",
+    "fireworks",
+    "local",
+}
+
+
+def _registry_selection(provider_header: Optional[str], model: str) -> str:
+    """Preserve explicit UI provider selection when resolving a model id."""
+    provider = (provider_header or "").strip().lower()
+    if provider in MODEL_REGISTRY_PROVIDERS and ":" not in model:
+        return f"{provider}:{model}"
+    return model
 
 
 router = APIRouter(prefix="/api", tags=["runs"])
@@ -169,16 +189,18 @@ async def _get_provider_for_session(
 
     # Model registry path: if model header is set and not chatgpt, try registry
     if model and provider_header != "chatgpt":
+        selection = _registry_selection(provider_header, model)
         try:
             from orchestrator.providers.factory import create_provider_for_model
 
-            provider, _resolved = create_provider_for_model(model)
+            provider, _resolved = create_provider_for_model(selection)
             return provider
         except (ValueError, Exception) as e:
             logger.warning(
-                "Failed to resolve model via registry",
-                extra={"model": model, "error": str(e)},
+                "Failed to resolve selected model via registry",
+                extra={"provider": provider_header, "model": model, "selection": selection, "error": str(e)},
             )
+            raise
 
     # Web UI fallback: use the last model selected via picker
     if not model and provider_header != "chatgpt":

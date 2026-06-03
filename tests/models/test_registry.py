@@ -205,6 +205,15 @@ class TestProviderDetection:
             resolved = ModelRegistry.resolve("some-unknown-model")
             assert resolved.provider_name == "openrouter"
 
+
+    def test_explicit_provider_without_key_does_not_fallback(self, monkeypatch):
+        """Explicit provider:model selections must not silently route elsewhere."""
+        monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+        monkeypatch.setenv("FIREWORKS_API_KEY", "fireworks-key")
+
+        with pytest.raises(ValueError, match="No API key found for openrouter"):
+            ModelRegistry.resolve("openrouter:qwen/qwen3-72b")
+
     def test_detect_provider_fireworks_key_only(self):
         """When only FIREWORKS_API_KEY is set, auto-selects Fireworks."""
         env = {k: v for k, v in os.environ.items()

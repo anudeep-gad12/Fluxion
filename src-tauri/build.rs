@@ -17,7 +17,14 @@ fn ensure_sidecar_stub() {
 }
 
 fn main() {
+    println!("cargo:rerun-if-env-changed=FLUXION_APP_VERSION");
+    println!("cargo:rerun-if-env-changed=FLUXION_BUILD_ID");
+    println!("cargo:rerun-if-env-changed=FLUXION_SPARKLE_PUBLIC_ED_KEY");
     ensure_sidecar_stub();
+    let app_version = std::env::var("FLUXION_APP_VERSION")
+        .unwrap_or_else(|_| std::env::var("CARGO_PKG_VERSION").unwrap_or_else(|_| "dev".to_string()));
+    println!("cargo:rustc-env=FLUXION_APP_VERSION={app_version}");
+
     let build_id = std::env::var("FLUXION_BUILD_ID").unwrap_or_else(|_| "dev".to_string());
     println!("cargo:rustc-env=FLUXION_BUILD_ID={build_id}");
 
