@@ -7,14 +7,14 @@
     <language>en</language>
     <item>
       <title>v0.4.1</title>
-      <pubDate>Tue, 02 Jun 2026 17:50:27 +0000</pubDate>
-      <sparkle:version>552</sparkle:version>
+      <pubDate>Wed, 03 Jun 2026 04:32:15 +0000</pubDate>
+      <sparkle:version>553</sparkle:version>
       <sparkle:shortVersionString>0.4.1</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
       <enclosure
         url="https://github.com/anudeep-gad12/Fluxion/releases/download/v0.4.1/Fluxion-macos-arm64.zip"
-        sparkle:edSignature="l8a9RcBhIk4VAO6yWR/JQLzl5XFfuu3kdRiUTK2NDnKWCRxigqMPBtJEYLTuOJ2qbAAUrsPZie8hGc/ShWUkDQ=="
-        length="37813466"
+        sparkle:edSignature="DqiM7i0W6/jEB3MpbcXqw6kRQ/Af+K4eY8qForowQtLI8oKt+OS4/xKmk3i/bP15fXro7FbcNMCUY8QOjLUYBA=="
+        length="37813844"
         type="application/octet-stream" />
     </item>
   </channel>
