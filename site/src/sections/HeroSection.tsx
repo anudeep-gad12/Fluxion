@@ -1,24 +1,37 @@
+import { useEffect, useRef } from "react"
 import { Download } from "lucide-react"
 import { InstallCommand } from "../components/InstallCommand"
 import {
-  APP_SCREENSHOT_HEIGHT,
-  APP_SCREENSHOT_PNG,
-  APP_SCREENSHOT_WEBP,
-  APP_SCREENSHOT_WIDTH,
+  APP_DEMO_VIDEO_MP4,
+  APP_DEMO_VIDEO_HEIGHT,
+  APP_DEMO_VIDEO_WIDTH,
   BREW_COMMAND,
   DOCS_URL,
   DOWNLOAD_URL,
 } from "../constants"
 
 export function HeroSection() {
+  const videoRef = useRef<HTMLVideoElement | null>(null)
+
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video) return
+
+    video.muted = true
+    video.playsInline = true
+    void video.play().catch(() => {
+      // Keep native controls visible if the browser blocks autoplay.
+    })
+  }, [])
+
   return (
     <section id="top" className="hero">
       <div className="heroInner container">
         <h1 id="hero-heading" className="heroTitle">
-          The native coding agent for your Mac.
+          Coding agent for the models you choose.
         </h1>
         <p className="heroLead">
-          Plan, edit, grep, and run terminals — local models or the APIs you already pay for.
+          Plan, edit, grep, and run terminals — local models, APIs, or subscriptions you already pay for.
         </p>
         <div className="heroActions">
           <a className="btn btnPrimary btnPrimary--hero" href={DOWNLOAD_URL}>
@@ -39,19 +52,21 @@ export function HeroSection() {
       </div>
 
       <figure className="heroShot container">
-        <picture>
-          <source srcSet={APP_SCREENSHOT_WEBP} type="image/webp" />
-          <img
-            src={APP_SCREENSHOT_PNG}
-            alt="Fluxion on macOS"
-            width={APP_SCREENSHOT_WIDTH}
-            height={APP_SCREENSHOT_HEIGHT}
-            sizes="(min-width: 1180px) 1180px, calc(100vw - 48px)"
-            loading="eager"
-            decoding="async"
-            fetchPriority="high"
-          />
-        </picture>
+        <video
+          ref={videoRef}
+          className="heroMedia"
+          width={APP_DEMO_VIDEO_WIDTH}
+          height={APP_DEMO_VIDEO_HEIGHT}
+          preload="auto"
+          autoPlay
+          muted
+          loop
+          playsInline
+          disablePictureInPicture
+          aria-label="Fluxion product demo"
+        >
+          <source src={APP_DEMO_VIDEO_MP4} type="video/mp4" />
+        </video>
       </figure>
     </section>
   )
