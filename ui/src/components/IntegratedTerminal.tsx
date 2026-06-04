@@ -6,9 +6,12 @@ import { FitAddon } from '@xterm/addon-fit';
 import 'xterm/css/xterm.css';
 
 import {
+  createDraftTerminalWebSocket,
   createTerminalWebSocket,
+  restartDraftTerminalSession,
   restartTerminalSession,
 } from '@/api/client';
+import { DRAFT_TERMINAL_CONVERSATION_ID } from '@/hooks/useStore';
 import { useConversationTerminal, useStore } from '@/hooks/useStore';
 import { openExternalPath, openExternalUrl } from '@/lib/platform';
 import { cn } from '@/lib/utils';
@@ -162,7 +165,9 @@ export function IntegratedTerminal({
     socketRef.current?.close();
     lastSocketStatusRef.current = 'connecting';
 
-    const ws = createTerminalWebSocket(conversationId, targetSessionId);
+    const ws = conversationId === DRAFT_TERMINAL_CONVERSATION_ID
+      ? createDraftTerminalWebSocket(targetSessionId, workspacePath)
+      : createTerminalWebSocket(conversationId, targetSessionId);
     socketRef.current = ws;
 
     const isCurrentSocket = () => socketRef.current === ws && socketGenerationRef.current === generation;
@@ -360,11 +365,14 @@ export function IntegratedTerminal({
       terminalRef.current?.clear();
       clearTerminalBuffer(conversationId, sessionId);
       const term = terminalRef.current;
-      const nextSession = await restartTerminalSession(conversationId, sessionId, {
+      const restartRequest = {
         workspace_path: workspacePath.trim() || undefined,
         cols: term?.cols || 120,
         rows: term?.rows || 30,
-      });
+      };
+      const nextSession = conversationId === DRAFT_TERMINAL_CONVERSATION_ID
+        ? await restartDraftTerminalSession(sessionId, restartRequest)
+        : await restartTerminalSession(conversationId, sessionId, restartRequest);
       const nextSessions = [
         ...(terminalState.sessions ?? []).filter((item) => item.session_id !== sessionId),
         nextSession,

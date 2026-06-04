@@ -58,12 +58,20 @@ export function BrowserPane({
   const inputRef = useRef<HTMLInputElement>(null);
   const webviewRef = useRef<Webview | null>(null);
   const lastUrlRef = useRef(tab.url);
-  const labelRef = useRef(browserLabel(conversationId, tab.id));
+  const labelRef = useRef(tab.webviewLabel || browserLabel(conversationId, tab.id));
+  const mountedRef = useRef(true);
   const [address, setAddress] = useState(tab.url);
 
   useEffect(() => {
     setAddress(tab.url);
   }, [tab.url]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const syncBounds = useCallback(async () => {
     const webview = webviewRef.current;
@@ -98,11 +106,16 @@ export function BrowserPane({
         if (!webview) {
           throw new Error('Could not attach browser webview');
         }
+        if (!mountedRef.current) {
+          void webview.close().catch(() => undefined);
+          return;
+        }
         webviewRef.current = webview;
         lastUrlRef.current = tab.url;
         onUpdate(tab.id, { status: 'ready', title: displayTitle(tab.url), error: null });
         void syncBounds();
       } catch (error) {
+        if (!mountedRef.current) return;
         onUpdate(tab.id, {
           status: 'error',
           error: String(error || 'Could not load browser tab'),
@@ -161,10 +174,12 @@ export function BrowserPane({
     if (viewportRef.current) observer.observe(viewportRef.current);
     window.addEventListener('resize', syncBounds);
     const raf = requestAnimationFrame(() => void syncBounds());
+    const interval = window.setInterval(() => void syncBounds(), 250);
     return () => {
       observer.disconnect();
       window.removeEventListener('resize', syncBounds);
       cancelAnimationFrame(raf);
+      window.clearInterval(interval);
     };
   }, [active, obscured, syncBounds]);
 

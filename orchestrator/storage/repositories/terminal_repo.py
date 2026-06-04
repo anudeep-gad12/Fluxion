@@ -168,6 +168,19 @@ class TerminalSessionRepo:
         )
         await self.db.conn.commit()
 
+    async def reassign_conversation(self, from_conversation_id: str, to_conversation_id: str) -> None:
+        """Move terminal session metadata from one conversation id to another."""
+        now = datetime.now(timezone.utc).isoformat()
+        await self.db.conn.execute(
+            """
+            UPDATE terminal_sessions
+            SET conversation_id = ?, updated_at = ?
+            WHERE conversation_id = ? AND status = 'running'
+            """,
+            (to_conversation_id, now, from_conversation_id),
+        )
+        await self.db.conn.commit()
+
     async def delete(self, session_id: str) -> None:
         await self.db.conn.execute(
             "DELETE FROM terminal_sessions WHERE session_id = ?",

@@ -688,8 +688,27 @@
   app-region: drag;
 }
 
+[data-app='desktop'] .desktop-empty-drag-surface {
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+
+[data-app='desktop'] .desktop-empty-window-drag-surface {
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+
 [data-app='desktop'] .desktop-no-drag,
-[data-app='desktop'] .desktop-no-drag * {
+[data-app='desktop'] .desktop-no-drag *,
+[data-app='desktop'] button,
+[data-app='desktop'] a,
+[data-app='desktop'] input,
+[data-app='desktop'] textarea,
+[data-app='desktop'] select,
+[data-app='desktop'] [role='button'],
+[data-app='desktop'] [contenteditable='true'],
+[data-app='desktop'] .fluxion-composer,
+[data-app='desktop'] .desktop-composer-dock {
   -webkit-app-region: no-drag;
   app-region: no-drag;
 }

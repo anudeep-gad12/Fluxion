@@ -1,7 +1,9 @@
 import { cn } from '@/lib/utils';
 import { isLocalDesktopApp } from '@/lib/platform';
+import { startWindowDrag } from '@/lib/windowDrag';
 import type { ModelStatus } from '@/api/client';
 import type { ChatMode } from './ConversationToolbar';
+import type { MouseEvent as ReactMouseEvent } from 'react';
 
 interface EmptyStateProps {
   mode: ChatMode;
@@ -34,9 +36,21 @@ export function EmptyState({
     ? workspacePath.trim().split('/').filter(Boolean).pop() || workspacePath.trim()
     : null;
   const model = modelStatus?.model_name?.split('/').pop() || modelStatus?.model_name || 'your model';
+  const handleMouseDown = (event: ReactMouseEvent<HTMLDivElement>) => {
+    if (desktop) {
+      void startWindowDrag(event);
+    }
+  };
 
   return (
-    <div className="desktop-thread-column flex flex-1 flex-col items-center justify-center px-6 py-12 text-center">
+    <div
+      data-tauri-drag-region={desktop ? true : undefined}
+      onMouseDown={handleMouseDown}
+      className={cn(
+        'desktop-thread-column flex flex-1 flex-col items-center justify-center px-6 py-12 text-center',
+        desktop && 'desktop-empty-drag-surface'
+      )}
+    >
       <h1 className="text-[22px] font-semibold tracking-tight text-zinc-50">
         {mode === 'agent' ? 'What should we build?' : 'How can I help?'}
       </h1>
@@ -55,7 +69,7 @@ export function EmptyState({
             type="button"
             onClick={() => onSuggestionClick?.(suggestion)}
             className={cn(
-              'ui-transition rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3',
+              'desktop-no-drag ui-transition rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3',
               'text-left text-[13px] text-zinc-300 hover:border-white/10 hover:bg-white/[0.04] hover:text-zinc-100'
             )}
           >

@@ -81,11 +81,12 @@ function AppLayout() {
 
   const localDesktop = isLocalDesktopApp();
   const conversationMode = useStore((s) => s.conversationMode);
+  const selectedConversationId = useStore((s) => s.selectedConversationId);
   const draftWorkspacePath = useStore((s) => s.draftWorkspacePath);
-  const selectConversation = useStore((s) => s.selectConversation);
   const rememberWorkspacePath = useStore((s) => s.rememberWorkspacePath);
   const setDraftWorkspacePath = useStore((s) => s.setDraftWorkspacePath);
   const bumpDraftConversation = useStore((s) => s.bumpDraftConversation);
+  const selectConversation = useStore((s) => s.selectConversation);
 
   const [isOwner, setIsOwner] = useState(() => {
     if (localDesktop) return true;
@@ -236,6 +237,12 @@ function AppLayout() {
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
   }, [handleMouseMove, handleMouseUp]);
+  const emptyDesktopWindow = localDesktop && !selectedConversationId;
+  const handleMainWindowDrag = useCallback((event: ReactMouseEvent<HTMLElement>) => {
+    if (emptyDesktopWindow) {
+      void startWindowDrag(event);
+    }
+  }, [emptyDesktopWindow]);
 
   const sidebarContent = (
     <>
@@ -412,7 +419,14 @@ function AppLayout() {
         />
       )}
 
-      <main className="desktop-shell-main flex min-w-0 flex-1 flex-col overflow-hidden">
+      <main
+        data-tauri-drag-region={emptyDesktopWindow ? true : undefined}
+        onMouseDown={handleMainWindowDrag}
+        className={cn(
+          'desktop-shell-main flex min-w-0 flex-1 flex-col overflow-hidden',
+          emptyDesktopWindow && 'desktop-empty-window-drag-surface'
+        )}
+      >
         <Routes>
           <Route path="/" element={<Navigate to="/conversations" replace />} />
           <Route path="/conversations" element={<NewConversationView />} />

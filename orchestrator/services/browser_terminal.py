@@ -260,6 +260,7 @@ class TerminalSessionManager:
         session_owner: str | None,
         cols: int,
         rows: int,
+        persist: bool = True,
     ) -> TerminalSession:
         workspace = _normalize_workspace_path(workspace_path)
         shell = _get_default_shell()
@@ -278,24 +279,74 @@ class TerminalSessionManager:
                 lambda _task, sid=session.session_id: asyncio.create_task(self.mark_closed(sid))
             )
         self._register_session(session)
-        repo = await self._repo()
-        await repo.insert(
-            session_id=session.session_id,
-            conversation_id=conversation_id,
-            workspace_path=workspace,
-            shell=session.shell,
-            status=session.status,
-            cols=session.cols,
-            rows=session.rows,
-            session_owner=session_owner,
-            title=_shell_label(shell),
-        )
+        if persist:
+            repo = await self._repo()
+            await repo.insert(
+                session_id=session.session_id,
+                conversation_id=conversation_id,
+                workspace_path=workspace,
+                shell=session.shell,
+                status=session.status,
+                cols=session.cols,
+                rows=session.rows,
+                session_owner=session_owner,
+                title=_shell_label(shell),
+            )
         return session
 
     async def list_sessions(self, conversation_id: str) -> list[dict[str, Any]]:
         repo = await self._repo()
         rows = await repo.list_by_conversation(conversation_id, status="running")
         return [self._row_to_metadata(row) for row in rows]
+
+    async def list_live_sessions(self, conversation_id: str) -> list[dict[str, Any]]:
+        session_ids = self._session_ids_by_conversation.get(conversation_id, set())
+        sessions = [
+            self._sessions_by_id[session_id]
+            for session_id in session_ids
+            if self._sessions_by_id.get(session_id)
+            and self._sessions_by_id[session_id].status == "running"
+        ]
+        sessions.sort(key=lambda session: session.created_at)
+        return [self._to_metadata(session) for session in sessions]
+
+    async def reassign_conversation(
+        self,
+        *,
+        from_conversation_id: str,
+        to_conversation_id: str,
+    ) -> list[dict[str, Any]]:
+        """Move running sessions to a different conversation id."""
+        async with self._lock:
+            session_ids = list(self._session_ids_by_conversation.pop(from_conversation_id, set()))
+            if session_ids:
+                target_ids = self._session_ids_by_conversation.setdefault(to_conversation_id, set())
+                target_ids.update(session_ids)
+            for session_id in session_ids:
+                live = self._sessions_by_id.get(session_id)
+                if live:
+                    live.conversation_id = to_conversation_id
+            repo = await self._repo()
+            await repo.reassign_conversation(from_conversation_id, to_conversation_id)
+            for session_id in session_ids:
+                live = self._sessions_by_id.get(session_id)
+                if not live:
+                    continue
+                existing = await repo.get_by_session_id(session_id)
+                if existing:
+                    continue
+                await repo.insert(
+                    session_id=live.session_id,
+                    conversation_id=live.conversation_id,
+                    workspace_path=live.workspace_path,
+                    shell=live.shell,
+                    status=live.status,
+                    cols=live.cols,
+                    rows=live.rows,
+                    session_owner=live.session_owner,
+                    title=_shell_label(live.shell),
+                )
+        return await self.list_sessions(to_conversation_id)
 
     async def get_metadata(self, conversation_id: str) -> Optional[dict[str, Any]]:
         """Legacy: first running session for a conversation."""
@@ -306,6 +357,9 @@ class TerminalSessionManager:
         repo = await self._repo()
         row = await repo.get_by_session_id(session_id)
         if not row:
+            live = self._sessions_by_id.get(session_id)
+            if live:
+                return self._to_metadata(live)
             return None
         return self._row_to_metadata(row)
 
@@ -327,6 +381,7 @@ class TerminalSessionManager:
         session_owner: str | None,
         cols: int = DEFAULT_COLS,
         rows: int = DEFAULT_ROWS,
+        persist: bool = True,
     ) -> dict[str, Any]:
         """Legacy: return first running session or create one."""
         async with self._lock:
@@ -344,6 +399,7 @@ class TerminalSessionManager:
             session_owner=session_owner,
             cols=cols,
             rows=rows,
+            persist=persist,
         )
 
     async def create(
@@ -354,10 +410,21 @@ class TerminalSessionManager:
         session_owner: str | None,
         cols: int = DEFAULT_COLS,
         rows: int = DEFAULT_ROWS,
+        persist: bool = True,
     ) -> dict[str, Any]:
         async with self._lock:
-            repo = await self._repo()
-            running = await repo.count_running(conversation_id)
+            if persist:
+                repo = await self._repo()
+                running = await repo.count_running(conversation_id)
+            else:
+                running = len(
+                    [
+                        session_id
+                        for session_id in self._session_ids_by_conversation.get(conversation_id, set())
+                        if self._sessions_by_id.get(session_id)
+                        and self._sessions_by_id[session_id].status == "running"
+                    ]
+                )
             limit = self._max_sessions()
             if running >= limit:
                 raise TerminalSessionLimitError(limit=limit, conversation_id=conversation_id)
@@ -367,6 +434,7 @@ class TerminalSessionManager:
                 session_owner=session_owner,
                 cols=cols,
                 rows=rows,
+                persist=persist,
             )
             return self._to_metadata(session)
 
@@ -378,6 +446,7 @@ class TerminalSessionManager:
         session_owner: str | None,
         cols: int = DEFAULT_COLS,
         rows: int = DEFAULT_ROWS,
+        persist: bool = True,
     ) -> dict[str, Any]:
         """Legacy: restart the first running session for a conversation."""
         target_session_id: str | None = None
@@ -394,6 +463,7 @@ class TerminalSessionManager:
                 session_owner=session_owner,
                 cols=cols,
                 rows=rows,
+                persist=persist,
             )
         return await self.create(
             conversation_id=conversation_id,
@@ -401,6 +471,7 @@ class TerminalSessionManager:
             session_owner=session_owner,
             cols=cols,
             rows=rows,
+            persist=persist,
         )
 
     async def restart_session(
@@ -411,6 +482,7 @@ class TerminalSessionManager:
         session_owner: str | None,
         cols: int = DEFAULT_COLS,
         rows: int = DEFAULT_ROWS,
+        persist: bool = True,
     ) -> dict[str, Any]:
         async with self._lock:
             existing = self._sessions_by_id.get(session_id)
@@ -432,6 +504,7 @@ class TerminalSessionManager:
                 session_owner=session_owner,
                 cols=cols,
                 rows=rows,
+                persist=persist,
             )
             return self._to_metadata(session)
 

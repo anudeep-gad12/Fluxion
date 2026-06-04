@@ -842,12 +842,33 @@ export async function listTerminalSessions(
   );
 }
 
+export async function listDraftTerminalSessions(
+  workspacePath: string,
+): Promise<TerminalSessionListResponse> {
+  const params = new URLSearchParams({ workspace_path: workspacePath });
+  return fetchJson<TerminalSessionListResponse>(
+    `${getApiBase()}/terminal/draft/sessions?${params.toString()}`,
+  );
+}
+
 export async function createTerminalSession(
   conversationId: string,
   request: TerminalSessionRequest,
 ): Promise<TerminalSessionResponse> {
   return fetchJson<TerminalSessionResponse>(
     `${getApiBase()}/terminal/conversations/${conversationId}/sessions`,
+    {
+      method: 'POST',
+      body: JSON.stringify(request),
+    },
+  );
+}
+
+export async function createDraftTerminalSession(
+  request: TerminalSessionRequest,
+): Promise<TerminalSessionResponse> {
+  return fetchJson<TerminalSessionResponse>(
+    `${getApiBase()}/terminal/draft/sessions`,
     {
       method: 'POST',
       body: JSON.stringify(request),
@@ -880,6 +901,19 @@ export async function restartTerminalSession(
   );
 }
 
+export async function restartDraftTerminalSession(
+  sessionId: string,
+  request: TerminalSessionRequest,
+): Promise<TerminalSessionResponse> {
+  return fetchJson<TerminalSessionResponse>(
+    `${getApiBase()}/terminal/draft/sessions/${sessionId}/restart`,
+    {
+      method: 'POST',
+      body: JSON.stringify(request),
+    },
+  );
+}
+
 /** Legacy: restart first running session. */
 export async function restartFirstTerminalSession(
   conversationId: string,
@@ -901,6 +935,32 @@ export async function closeTerminalSession(
   return fetchJson(
     `${getApiBase()}/terminal/conversations/${conversationId}/sessions/${sessionId}/close`,
     { method: 'POST' },
+  );
+}
+
+export async function closeDraftTerminalSession(
+  sessionId: string,
+  request: TerminalSessionRequest,
+): Promise<{ status: string; session_id: string }> {
+  return fetchJson(
+    `${getApiBase()}/terminal/draft/sessions/${sessionId}/close`,
+    {
+      method: 'POST',
+      body: JSON.stringify(request),
+    },
+  );
+}
+
+export async function attachDraftTerminalSessions(
+  conversationId: string,
+  request: TerminalSessionRequest,
+): Promise<TerminalSessionListResponse> {
+  return fetchJson<TerminalSessionListResponse>(
+    `${getApiBase()}/terminal/draft/attach/${conversationId}`,
+    {
+      method: 'POST',
+      body: JSON.stringify(request),
+    },
   );
 }
 
@@ -928,6 +988,25 @@ export function createTerminalWebSocket(
   }
   return new WebSocket(
     `${protocol}//${apiUrl.host}${apiUrl.pathname}/terminal/conversations/${conversationId}/ws?${params.toString()}`
+  );
+}
+
+export function createDraftTerminalWebSocket(
+  sessionId: string,
+  workspacePath: string,
+): WebSocket {
+  const apiBase = getApiBase();
+  const apiUrl = apiBase.startsWith('http')
+    ? new URL(apiBase)
+    : new URL(apiBase, window.location.origin);
+  const protocol = apiUrl.protocol === 'https:' ? 'wss:' : 'ws:';
+  const ownerToken = getOwnerToken();
+  const params = new URLSearchParams({ session_id: sessionId, workspace_path: workspacePath });
+  if (ownerToken) {
+    params.set('owner', ownerToken);
+  }
+  return new WebSocket(
+    `${protocol}//${apiUrl.host}${apiUrl.pathname}/terminal/draft/ws?${params.toString()}`
   );
 }
 

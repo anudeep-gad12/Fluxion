@@ -12,6 +12,7 @@ const WORKSPACE_STORAGE_KEY = 'reasoner_workspace_path';
 const WORKSPACE_LIST_STORAGE_KEY = 'reasoner_workspace_paths';
 const EMPTY_RUNS: Run[] = [];
 const EMPTY_EVENTS: Event[] = [];
+export const DRAFT_TERMINAL_CONVERSATION_ID = '__draft_terminal__';
 
 function dedupeRuns(runs: Run[]): Run[] {
   const seen = new Set<string>();
@@ -42,6 +43,7 @@ export interface TerminalUIState {
 
 export interface BrowserTabState {
   id: string;
+  webviewLabel?: string;
   url: string;
   title: string;
   status: 'idle' | 'loading' | 'ready' | 'error';
@@ -81,6 +83,8 @@ interface AppState {
 
   /** Active conversation UI mode (synced from ConversationView for shell panels). */
   conversationMode: 'chat' | 'agent';
+  /** Desktop modal/popover is open; native browser webviews must hide under it. */
+  desktopOverlayOpen: boolean;
 
   // Conversation actions
   setConversations: (conversations: Conversation[]) => void;
@@ -135,6 +139,7 @@ interface AppState {
   clearTerminalBuffer: (conversationId: string, sessionId?: string) => void;
   setActiveTerminalSession: (conversationId: string, sessionId: string) => void;
   setConversationMode: (mode: 'chat' | 'agent') => void;
+  setDesktopOverlayOpen: (open: boolean) => void;
 }
 
 export const useStore = create<AppState>((set, get) => ({
@@ -158,6 +163,7 @@ export const useStore = create<AppState>((set, get) => ({
   agentRunState: {},
   terminalByConversation: {},
   conversationMode: 'agent',
+  desktopOverlayOpen: false,
 
   // Conversation actions
   setConversations: (conversations) => set({ conversations }),
@@ -629,6 +635,7 @@ export const useStore = create<AppState>((set, get) => ({
     }),
 
   setConversationMode: (mode) => set({ conversationMode: mode }),
+  setDesktopOverlayOpen: (open) => set({ desktopOverlayOpen: open }),
 }));
 
 // Selectors

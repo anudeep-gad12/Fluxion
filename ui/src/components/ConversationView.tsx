@@ -1,7 +1,7 @@
 // Conversation view - simple chat interface
 
 import { useEffect, useMemo, useRef, useState, useCallback, memo } from 'react';
-import type { KeyboardEvent, ChangeEvent, ClipboardEvent } from 'react';
+import type { KeyboardEvent, ChangeEvent, ClipboardEvent, MouseEvent as ReactMouseEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { AnswerMarkdown, extractAnswer } from '@/components/AnswerMarkdown';
@@ -21,6 +21,7 @@ import { EmptyState } from '@/components/desktop/EmptyState';
 import { Composer } from '@/components/desktop/Composer';
 import { AgentComposerOptions, AgentContextFooter } from '@/components/desktop/AgentComposerOptions';
 import { isApplePlatform } from '@/lib/platform';
+import { startWindowDrag } from '@/lib/windowDrag';
 import {
   createConversation,
   patchConversation,
@@ -53,6 +54,7 @@ import {
   searchWorkspaceFiles,
   listConversationRewindCheckpoints,
   rewindConversation,
+  attachDraftTerminalSessions,
 } from '@/api/client';
 import type {
   ConversationRewindCheckpoint,
@@ -73,7 +75,7 @@ import {
   DialogTitle,
   DialogContent,
 } from '@/components/ui/dialog';
-import { useConversationRuns, useSelectedConversation, useStore, useHasActiveRun, useConversationTerminal } from '@/hooks/useStore';
+import { DRAFT_TERMINAL_CONVERSATION_ID, useConversationRuns, useSelectedConversation, useStore, useHasActiveRun, useConversationTerminal } from '@/hooks/useStore';
 import { isLocalDesktopApp, openExternalUrl, openNativeWorkspacePicker } from '@/lib/platform';
 import { DesktopTextOptionGroup } from '@/components/desktop/DesktopTextOptionGroup';
 import { useSSE } from '@/hooks/useSSE';
@@ -712,6 +714,10 @@ function ModelPicker({
     ? Object.entries(registryData.providers)
         .filter(([providerName, info]) => providerName !== 'local' && info.models.length > 0)
     : [];
+  const registryProviderNames = new Set(registryProviders.map(([providerName]) => providerName));
+  const standaloneProviderKeys = providerKeys.filter((keyStatus) => (
+    keyStatus.api_key_env && !registryProviderNames.has(keyStatus.provider)
+  ));
 
   const providerSections = [
     {
@@ -728,7 +734,10 @@ function ModelPicker({
 
   const desktop = isLocalDesktopApp();
   const activeProviderSection = providerSections.find((section) => section.key === selectedProvider);
-  const activeProvider = selectedProvider && registryData?.providers[selectedProvider]
+  const selectedStandaloneProviderKey = selectedProvider
+    ? standaloneProviderKeys.find((keyStatus) => keyStatus.provider === selectedProvider)
+    : undefined;
+  const activeProvider = selectedProvider && (registryData?.providers[selectedProvider] || activeProviderSection || selectedStandaloneProviderKey)
     ? selectedProvider
     : activeProviderSection
       ? selectedProvider
@@ -736,6 +745,7 @@ function ModelPicker({
   const activeProviderInfo = registryData?.providers[activeProvider];
   const activeLocalSection = providerSections.find((section) => section.key === activeProvider);
   const providerKeyStatus = providerKeys.find((key) => key.provider === activeProvider);
+  const activeStandaloneProviderKey = standaloneProviderKeys.find((keyStatus) => keyStatus.provider === activeProvider);
   const allRegistryModels = registryProviders.flatMap(([provider, info]) => (
     info.models.map((model) => ({ provider, model }))
   ));
@@ -828,6 +838,38 @@ function ModelPicker({
                 </button>
               );
             })}
+            {standaloneProviderKeys.length > 0 && (
+              <div className={cn(desktop ? 'desktop-model-provider-divider' : 'my-2 border-t border-white/10 pt-2')}>
+                {standaloneProviderKeys.map((keyStatus) => {
+                  const isSelected = activeProvider === keyStatus.provider;
+                  return (
+                    <button
+                      key={keyStatus.provider}
+                      type="button"
+                      onClick={() => {
+                        setSelectedProvider(keyStatus.provider);
+                        setFocusedModel(null);
+                      }}
+                      data-active={desktop && isSelected ? 'true' : undefined}
+                      className={cn(
+                        desktop
+                          ? 'desktop-model-provider-tab'
+                          : 'mb-1 flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-xs text-zinc-300 hover:bg-white/[0.05]',
+                        !desktop && isSelected && 'bg-cyan-300/[0.08] text-cyan-100'
+                      )}
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate capitalize">{formatProviderName(keyStatus.provider, keyStatus.provider === 'parallel' ? 'Parallel' : undefined)}</span>
+                        <span className={cn(desktop ? 'desktop-model-provider-sub' : 'text-[10px] text-zinc-500')}>
+                          tools · {keyStatus.has_key ? 'ready' : 'setup'}
+                        </span>
+                      </span>
+                      {!keyStatus.has_key && <span className={cn(desktop ? 'desktop-model-provider-dot' : 'text-amber-300')}>!</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
             {providerSections.length > 0 && (
               <div className={cn(desktop ? 'desktop-model-provider-divider' : 'my-2 border-t border-white/10 pt-2')}>
                 {providerSections.map((section) => (
@@ -1091,6 +1133,47 @@ function ModelPicker({
                   </div>
                 </section>
               </>
+            ) : activeStandaloneProviderKey ? (
+              <section className={cn(desktop ? 'desktop-model-account-card' : 'premium-panel p-3')}>
+                <div className="min-w-0 flex-1">
+                  <div className={cn(desktop ? 'desktop-settings-key-name' : 'text-xs font-semibold text-zinc-200')}>
+                    {formatProviderName(activeStandaloneProviderKey.provider, activeStandaloneProviderKey.provider === 'parallel' ? 'Parallel' : undefined)} API key
+                  </div>
+                  <div className={cn(desktop ? 'desktop-settings-key-env' : 'mt-1 text-xs text-zinc-500')}>
+                    {activeStandaloneProviderKey.api_key_env} · {activeStandaloneProviderKey.has_key ? `configured via ${activeStandaloneProviderKey.source}` : 'not configured'}
+                  </div>
+                  <div className={cn(desktop ? 'desktop-settings-hint mt-2' : 'mt-2 text-xs text-zinc-500')}>
+                    {activeStandaloneProviderKey.provider === 'parallel'
+                      ? 'Used by agent web_search and web_extract tools. This is not a chat model provider.'
+                      : 'Used by agent tools. This is not a chat model provider.'}
+                  </div>
+                </div>
+                <input
+                  value={providerKeyDrafts[activeStandaloneProviderKey.provider] || ''}
+                  onChange={(e) => setProviderKeyDrafts((drafts) => ({ ...drafts, [activeStandaloneProviderKey.provider]: e.target.value }))}
+                  placeholder={activeStandaloneProviderKey.has_key ? 'Enter replacement API key' : 'Enter API key'}
+                  type="password"
+                  className={cn(desktop ? 'desktop-settings-field flex-1' : 'premium-field flex-1')}
+                />
+                <button
+                  type="button"
+                  onClick={() => handleSaveProviderKey(activeStandaloneProviderKey.provider)}
+                  disabled={!!switching}
+                  className={cn(desktop ? 'desktop-settings-btn-primary' : 'premium-primary-button')}
+                >
+                  {activeStandaloneProviderKey.has_key ? 'Update' : 'Save'}
+                </button>
+                {activeStandaloneProviderKey.source === 'database' && (
+                  <button
+                    type="button"
+                    onClick={() => handleClearProviderKey(activeStandaloneProviderKey.provider)}
+                    disabled={!!switching}
+                    className={cn(desktop ? 'desktop-settings-btn-ghost' : 'premium-subtle-button')}
+                  >
+                    Clear
+                  </button>
+                )}
+              </section>
             ) : (
               <section className={cn(desktop ? 'desktop-model-section' : 'premium-panel p-2')}>
                 <div className={cn(desktop ? 'desktop-settings-provider-header' : 'px-2 pb-2 text-xs uppercase tracking-[0.16em] text-zinc-500')}>
@@ -1814,10 +1897,12 @@ export function ConversationView() {
   const conversation = useSelectedConversation();
   const runs = useConversationRuns(selectedConversationId);
   const terminalState = useConversationTerminal(selectedConversationId);
+  const draftTerminalState = useConversationTerminal(DRAFT_TERMINAL_CONVERSATION_ID);
   const initTerminalState = useStore((s) => s.initTerminalState);
   const hasActiveRun = useHasActiveRun();
   const setConversationMode = useStore((s) => s.setConversationMode);
   const updateTerminalState = useStore((s) => s.updateTerminalState);
+  const setDesktopOverlayOpen = useStore((s) => s.setDesktopOverlayOpen);
   const draftWorkspacePath = useStore((s) => s.draftWorkspacePath);
   const draftConversationNonce = useStore((s) => s.draftConversationNonce);
   const setDraftWorkspacePath = useStore((s) => s.setDraftWorkspacePath);
@@ -1927,11 +2012,12 @@ export function ConversationView() {
       savedState = {};
     }
 
+    const existingState = useStore.getState().terminalByConversation[selectedConversationId];
     initTerminalState(selectedConversationId, {
-      isOpen: savedState.isOpen ?? false,
+      isOpen: existingState?.isOpen ?? savedState.isOpen ?? false,
       dock: 'right',
-      height: Number(savedState.height || 260),
-      width: Number(savedState.width || 420),
+      height: Number(existingState?.height || savedState.height || 260),
+      width: Number(existingState?.width || savedState.width || 420),
     });
   }, [initTerminalState, selectedConversationId]);
 
@@ -2050,6 +2136,11 @@ export function ConversationView() {
     || reasoningSettingsOpen
     || rewindOpen
   );
+  useEffect(() => {
+    if (!localDesktop) return;
+    setDesktopOverlayOpen(anyDialogOpen);
+    return () => setDesktopOverlayOpen(false);
+  }, [anyDialogOpen, localDesktop, setDesktopOverlayOpen]);
   const latestRunContextUsage = latestContextRun?.context_usage;
   const footerContextUsage = useMemo(() => (
     activeAgentState?.context_usage
@@ -2505,6 +2596,58 @@ export function ConversationView() {
         };
         addConversation(newConversation);
         setRuns(conversationId, []);
+        if (draftTerminalState?.isOpen) {
+          let attachedSessions = draftTerminalState.sessions ?? [];
+          try {
+            const attached = await attachDraftTerminalSessions(conversationId, {
+              workspace_path: effectiveWorkspacePath,
+            });
+            attachedSessions = attached.sessions;
+          } catch {
+            toast.error('Draft terminal could not attach to the new conversation');
+          }
+          initTerminalState(conversationId, {
+            isOpen: true,
+            dock: draftTerminalState.dock,
+            width: draftTerminalState.width,
+            height: draftTerminalState.height,
+            activeToolTabId: draftTerminalState.activeToolTabId,
+            browserTabs: draftTerminalState.browserTabs,
+            sessions: attachedSessions,
+            activeSessionId: attachedSessions.find(
+              (item) => item.session_id === draftTerminalState.activeSessionId
+            )?.session_id ?? attachedSessions[0]?.session_id ?? null,
+            session: attachedSessions.find(
+              (item) => item.session_id === draftTerminalState.activeSessionId
+            ) ?? attachedSessions[0] ?? null,
+            bufferBySessionId: draftTerminalState.bufferBySessionId,
+            buffer: draftTerminalState.buffer,
+            connected: false,
+            status: attachedSessions.length > 0 ? 'running' : 'idle',
+          });
+          localStorage.setItem(
+            `reasoner_terminal_state:${conversationId}`,
+            JSON.stringify({
+              isOpen: true,
+              dock: draftTerminalState.dock,
+              height: draftTerminalState.height,
+              width: draftTerminalState.width,
+            })
+          );
+          selectConversation(conversationId);
+          updateTerminalState(DRAFT_TERMINAL_CONVERSATION_ID, {
+            isOpen: false,
+            sessions: [],
+            activeSessionId: null,
+            activeToolTabId: null,
+            browserTabs: [],
+            session: null,
+            buffer: '',
+            bufferBySessionId: {},
+            connected: false,
+            status: 'idle',
+          });
+        }
         needsNavigate = true;
       } else if (!conversation?.title || conversation.title === 'New conversation') {
         updateConversation(conversationId, {
@@ -3402,9 +3545,9 @@ export function ConversationView() {
       </div>
     ) : null;
 
-  const terminalAvailable =
-    localDesktop && mode === 'agent' && !!selectedConversationId && !!effectiveWorkspacePath;
-  const terminalOpen = terminalAvailable && !!terminalState?.isOpen;
+  const terminalAvailable = localDesktop && mode === 'agent';
+  const activeTerminalState = selectedConversationId ? terminalState : draftTerminalState;
+  const terminalOpen = terminalAvailable && !!activeTerminalState?.isOpen;
 
   const handleTerminalToggle = useCallback(() => {
     if (mode !== 'agent' || !localDesktop) return;
@@ -3419,19 +3562,16 @@ export function ConversationView() {
       }
       return;
     }
-    if (!selectedConversationId) {
-      setWorkspacePickerOpen(true);
-      return;
-    }
-    updateTerminalState(selectedConversationId, {
-      isOpen: !terminalState?.isOpen,
+    const terminalKey = selectedConversationId || DRAFT_TERMINAL_CONVERSATION_ID;
+    updateTerminalState(terminalKey, {
+      isOpen: !activeTerminalState?.isOpen,
     });
   }, [
+    activeTerminalState?.isOpen,
     effectiveWorkspacePath,
     localDesktop,
     mode,
     selectedConversationId,
-    terminalState?.isOpen,
     updateTerminalState,
   ]);
 
@@ -3552,6 +3692,11 @@ export function ConversationView() {
     mentionPicker: mentionPickerNode,
     attachmentsRow: imageAttachmentsRow,
   };
+  const handleEmptyDesktopDrag = (event: ReactMouseEvent<HTMLDivElement>) => {
+    if (localDesktop) {
+      void startWindowDrag(event);
+    }
+  };
 
   if (!conversation && runs.length === 0) {
     return (
@@ -3597,7 +3742,14 @@ export function ConversationView() {
             setDraftWorkspacePath(workspacePath);
           }}
         />
-        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+        <div
+          data-tauri-drag-region={localDesktop ? true : undefined}
+          onMouseDown={handleEmptyDesktopDrag}
+          className={cn(
+            'flex min-h-0 flex-1 flex-col overflow-y-auto',
+            localDesktop && 'desktop-empty-drag-surface'
+          )}
+        >
           <EmptyState
             mode={mode}
             workspacePath={effectiveWorkspacePath}

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import secrets
 from pathlib import Path
 from typing import Optional, Tuple
@@ -100,12 +101,153 @@ def _resolve_workspace(conversation: dict, request: TerminalSessionRequest) -> s
     return workspace_path
 
 
+def _draft_conversation_id(workspace_path: str) -> str:
+    digest = hashlib.sha256(workspace_path.encode("utf-8")).hexdigest()[:32]
+    return f"draft:{digest}"
+
+
+def _resolve_draft_workspace(request: TerminalSessionRequest) -> str:
+    if not request.workspace_path:
+        raise HTTPException(status_code=400, detail="workspace_path is required")
+    workspace_path = str(_resolve_workspace_path(request.workspace_path))
+    ensure_fluxion_gitignore(Path(workspace_path))
+    return workspace_path
+
+
+def _require_owner_for_draft(is_owner: bool) -> None:
+    # Draft terminals are a local desktop/dev affordance before a conversation
+    # exists. Packaged macOS already marks requests as owner; source/dev may
+    # not, depending on host/origin, so only enforce this in hosted production.
+    if is_hosted_production() and not is_owner:
+        raise HTTPException(status_code=403, detail="Draft terminals require owner access")
+
+
 @router.get("/conversations/{conversation_id}/sessions", response_model=TerminalSessionListResponse)
 async def list_terminal_sessions(conversation_id: str, http_request: Request):
     session_id, is_owner = _get_http_session_context(http_request)
     await _require_conversation_access(conversation_id, session_id=session_id, is_owner=is_owner)
     manager = get_terminal_manager()
     sessions = await manager.list_sessions(conversation_id)
+    terminal_config = get_chat_config().terminal
+    return TerminalSessionListResponse(
+        sessions=sessions,
+        max_sessions_per_conversation=terminal_config.max_sessions_per_conversation,
+        max_browser_tabs_per_conversation=terminal_config.max_browser_tabs_per_conversation,
+    )
+
+
+@router.get("/draft/sessions", response_model=TerminalSessionListResponse)
+async def list_draft_terminal_sessions(
+    http_request: Request,
+    workspace_path: str = Query(...),
+):
+    _session_id, is_owner = _get_http_session_context(http_request)
+    _require_owner_for_draft(is_owner)
+    resolved_workspace = _resolve_draft_workspace(
+        TerminalSessionRequest(workspace_path=workspace_path)
+    )
+    manager = get_terminal_manager()
+    sessions = await manager.list_live_sessions(_draft_conversation_id(resolved_workspace))
+    terminal_config = get_chat_config().terminal
+    return TerminalSessionListResponse(
+        sessions=sessions,
+        max_sessions_per_conversation=terminal_config.max_sessions_per_conversation,
+        max_browser_tabs_per_conversation=terminal_config.max_browser_tabs_per_conversation,
+    )
+
+
+@router.post("/draft/sessions", response_model=TerminalSessionResponse)
+async def create_draft_terminal_session(
+    request: TerminalSessionRequest,
+    http_request: Request,
+):
+    _session_id, is_owner = _get_http_session_context(http_request)
+    _require_owner_for_draft(is_owner)
+    workspace_path = _resolve_draft_workspace(request)
+    manager = get_terminal_manager()
+    try:
+        return await manager.create(
+            conversation_id=_draft_conversation_id(workspace_path),
+            workspace_path=workspace_path,
+            session_owner=None,
+            cols=max(40, request.cols or DEFAULT_COLS),
+            rows=max(10, request.rows or DEFAULT_ROWS),
+            persist=False,
+        )
+    except TerminalSessionLimitError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Maximum {exc.limit} running draft terminals for this workspace",
+        ) from exc
+
+
+@router.post(
+    "/draft/sessions/{terminal_session_id}/restart",
+    response_model=TerminalSessionResponse,
+)
+async def restart_draft_terminal_session(
+    terminal_session_id: str,
+    request: TerminalSessionRequest,
+    http_request: Request,
+):
+    _session_id, is_owner = _get_http_session_context(http_request)
+    _require_owner_for_draft(is_owner)
+    workspace_path = _resolve_draft_workspace(request)
+    draft_id = _draft_conversation_id(workspace_path)
+    manager = get_terminal_manager()
+    metadata = await manager.get_metadata_by_session_id(terminal_session_id)
+    if not metadata or metadata["conversation_id"] != draft_id:
+        raise HTTPException(status_code=404, detail="Terminal session not found")
+    try:
+        return await manager.restart_session(
+            session_id=terminal_session_id,
+            workspace_path=workspace_path,
+            session_owner=None,
+            cols=max(40, request.cols or DEFAULT_COLS),
+            rows=max(10, request.rows or DEFAULT_ROWS),
+            persist=False,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Terminal session not found") from exc
+
+
+@router.post("/draft/sessions/{terminal_session_id}/close")
+async def close_draft_terminal_session(
+    terminal_session_id: str,
+    request: TerminalSessionRequest,
+    http_request: Request,
+):
+    _session_id, is_owner = _get_http_session_context(http_request)
+    _require_owner_for_draft(is_owner)
+    workspace_path = _resolve_draft_workspace(request)
+    draft_id = _draft_conversation_id(workspace_path)
+    manager = get_terminal_manager()
+    metadata = await manager.get_metadata_by_session_id(terminal_session_id)
+    if not metadata or metadata["conversation_id"] != draft_id:
+        raise HTTPException(status_code=404, detail="Terminal session not found")
+    await manager.close_session(terminal_session_id)
+    return {"status": "closed", "session_id": terminal_session_id}
+
+
+@router.post("/draft/attach/{conversation_id}", response_model=TerminalSessionListResponse)
+async def attach_draft_terminal_sessions(
+    conversation_id: str,
+    request: TerminalSessionRequest,
+    http_request: Request,
+):
+    session_id, is_owner = _get_http_session_context(http_request)
+    conversation = await _require_conversation_access(
+        conversation_id, session_id=session_id, is_owner=is_owner
+    )
+    workspace_path = _resolve_draft_workspace(request)
+    conversation_workspace = (conversation.get("workspace_path") or "").strip()
+    if conversation_workspace and str(_resolve_workspace_path(conversation_workspace)) != workspace_path:
+        raise HTTPException(status_code=400, detail="Draft workspace does not match conversation")
+    manager = get_terminal_manager()
+    sessions = await manager.reassign_conversation(
+        from_conversation_id=_draft_conversation_id(workspace_path),
+        to_conversation_id=conversation_id,
+    )
     terminal_config = get_chat_config().terminal
     return TerminalSessionListResponse(
         sessions=sessions,
@@ -265,23 +407,12 @@ async def close_terminal_session(conversation_id: str, http_request: Request):
     return {"status": "closed", "conversation_id": conversation_id}
 
 
-@router.websocket("/conversations/{conversation_id}/ws")
-async def terminal_websocket(
+async def _serve_terminal_websocket(
     websocket: WebSocket,
+    *,
     conversation_id: str,
-    session_id: str = Query(...),
-):
-    requester_session_id, is_owner = _get_ws_session_context(websocket)
-    try:
-        await _require_conversation_access(
-            conversation_id,
-            session_id=requester_session_id,
-            is_owner=is_owner,
-        )
-    except HTTPException:
-        await _deny_websocket(websocket, code=4404)
-        return
-
+    session_id: str,
+) -> None:
     manager = get_terminal_manager()
     metadata = await manager.get_metadata_by_session_id(session_id)
     if not metadata or metadata["conversation_id"] != conversation_id:
@@ -335,3 +466,51 @@ async def terminal_websocket(
     finally:
         sender_task.cancel()
         live_session.detach(queue)
+
+
+@router.websocket("/draft/ws")
+async def draft_terminal_websocket(
+    websocket: WebSocket,
+    session_id: str = Query(...),
+    workspace_path: str = Query(...),
+):
+    _requester_session_id, is_owner = _get_ws_session_context(websocket)
+    if is_hosted_production() and not is_owner:
+        await _deny_websocket(websocket, code=4403)
+        return
+    try:
+        resolved_workspace = _resolve_draft_workspace(
+            TerminalSessionRequest(workspace_path=workspace_path)
+        )
+    except HTTPException:
+        await _deny_websocket(websocket, code=4404)
+        return
+    await _serve_terminal_websocket(
+        websocket,
+        conversation_id=_draft_conversation_id(resolved_workspace),
+        session_id=session_id,
+    )
+
+
+@router.websocket("/conversations/{conversation_id}/ws")
+async def terminal_websocket(
+    websocket: WebSocket,
+    conversation_id: str,
+    session_id: str = Query(...),
+):
+    requester_session_id, is_owner = _get_ws_session_context(websocket)
+    try:
+        await _require_conversation_access(
+            conversation_id,
+            session_id=requester_session_id,
+            is_owner=is_owner,
+        )
+    except HTTPException:
+        await _deny_websocket(websocket, code=4404)
+        return
+
+    await _serve_terminal_websocket(
+        websocket,
+        conversation_id=conversation_id,
+        session_id=session_id,
+    )
