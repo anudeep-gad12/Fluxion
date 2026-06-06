@@ -30,7 +30,7 @@ import httpx
 
 from orchestrator.logging_config import get_logger
 
-from .base import LLMResponse, ProviderAuthError, RetryExhaustedError
+from .base import LLMResponse, ProviderAPIError, ProviderAuthError, RetryExhaustedError
 
 logger = get_logger(__name__)
 
@@ -146,7 +146,24 @@ class ChatGPTProvider:
                 pass
             raise ProviderAuthError(detail)
 
-        response.raise_for_status()
+        detail = body_text.strip() or response.reason_phrase
+        try:
+            payload = json.loads(body_text)
+            error = payload.get("error") if isinstance(payload, dict) else None
+            if isinstance(error, dict):
+                parts = [
+                    str(error.get("message") or "").strip(),
+                    f"param={error.get('param')}" if error.get("param") else "",
+                    f"code={error.get('code')}" if error.get("code") else "",
+                    f"type={error.get('type')}" if error.get("type") else "",
+                ]
+                detail = " | ".join(part for part in parts if part) or detail
+        except json.JSONDecodeError:
+            pass
+        raise ProviderAPIError(
+            f"{response.status_code} {response.reason_phrase} from "
+            f"{response.request.url}: {detail[:2000]}"
+        )
 
     # =========================================================================
     # Request Translation
@@ -168,6 +185,7 @@ class ChatGPTProvider:
         """
         input_items: List[Dict[str, Any]] = []
         extracted_instructions = instructions
+        seen_function_call_ids: set[str] = set()
 
         for msg in messages:
             role = msg.get("role", "")
@@ -218,6 +236,7 @@ class ChatGPTProvider:
                                 "arguments": func.get("arguments", "{}"),
                             }
                         )
+                        seen_function_call_ids.add(call_id)
                 elif content:
                     input_items.append(
                         {
@@ -229,13 +248,35 @@ class ChatGPTProvider:
 
             elif role == "tool":
                 call_id = msg.get("tool_call_id") or f"call_{uuid.uuid4().hex[:8]}"
-                input_items.append(
-                    {
-                        "type": "function_call_output",
-                        "call_id": call_id,
-                        "output": content if isinstance(content, str) else json.dumps(content),
-                    }
-                )
+                output = content if isinstance(content, str) else json.dumps(content)
+                if call_id in seen_function_call_ids:
+                    input_items.append(
+                        {
+                            "type": "function_call_output",
+                            "call_id": call_id,
+                            "output": output,
+                        }
+                    )
+                else:
+                    # ChatGPT Codex uses Responses-style stateless input and can
+                    # reject orphan function_call_output items. Keep compacted or
+                    # cross-provider tool evidence as regular user text.
+                    name = msg.get("name") or "tool"
+                    input_items.append(
+                        {
+                            "type": "message",
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "input_text",
+                                    "text": (
+                                        f"Previous {name} result for call_id "
+                                        f"{call_id}:\n{output}"
+                                    ),
+                                }
+                            ],
+                        }
+                    )
 
         return input_items, extracted_instructions
 
@@ -266,11 +307,19 @@ class ChatGPTProvider:
                         "name": func.get("name", ""),
                         "description": func.get("description", ""),
                         "parameters": func.get("parameters", {}),
+                        "strict": bool(func.get("strict", tool.get("strict", False))),
                     }
                 )
             else:
-                # Already in correct format or unknown format - pass through
-                flattened.append(tool)
+                # Already in correct format or unknown format - pass through.
+                # Keep Fluxion's best-effort tool schemas non-strict unless a
+                # caller explicitly opted into strict mode.
+                if tool.get("type") == "function":
+                    flattened_tool = dict(tool)
+                    flattened_tool["strict"] = bool(tool.get("strict", False))
+                    flattened.append(flattened_tool)
+                else:
+                    flattened.append(tool)
 
         return flattened
 

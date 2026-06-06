@@ -58,6 +58,25 @@ class TestBuildResponsesRequest:
         assert payload["tools"][0]["name"] == "get_weather"
         assert payload["tools"][0]["description"] == "Get weather"
         assert payload["tools"][0]["parameters"] == {}
+        assert payload["tools"][0]["strict"] is False
+
+    def test_with_tools_preserves_explicit_strict(self):
+        """Responses tool transform keeps explicit strict opt-in."""
+        messages = [{"role": "user", "content": "Hello"}]
+        tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "structured_tool",
+                    "description": "Strict tool",
+                    "parameters": {"type": "object", "properties": {}},
+                    "strict": True,
+                },
+            }
+        ]
+        payload = build_responses_request(messages, model="gpt-5", tools=tools)
+
+        assert payload["tools"][0]["strict"] is True
 
     def test_with_reasoning_effort(self):
         """Reasoning effort is nested under 'reasoning' key."""
@@ -100,6 +119,17 @@ class TestBuildResponsesRequest:
         """Tool result messages are transformed to function_call_output format."""
         messages = [
             {"role": "user", "content": "What's the weather?"},
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "call_123",
+                        "type": "function",
+                        "function": {"name": "get_weather", "arguments": '{"city": "NYC"}'},
+                    }
+                ],
+            },
             {"role": "tool", "tool_call_id": "call_123", "name": "get_weather", "content": "Sunny, 25°C"},
         ]
         payload = build_responses_request(messages, model="gpt-oss-20b")
@@ -109,10 +139,23 @@ class TestBuildResponsesRequest:
         assert payload["input"][0]["content"] == "What's the weather?"
 
         # Tool result is transformed to function_call_output
-        assert payload["input"][1]["type"] == "function_call_output"
-        assert payload["input"][1]["call_id"] == "call_123"
-        assert payload["input"][1]["output"] == "Sunny, 25°C"
-        assert "role" not in payload["input"][1]
+        assert payload["input"][1]["type"] == "function_call"
+        assert payload["input"][2]["type"] == "function_call_output"
+        assert payload["input"][2]["call_id"] == "call_123"
+        assert payload["input"][2]["output"] == "Sunny, 25°C"
+        assert "role" not in payload["input"][2]
+
+    def test_orphan_tool_result_becomes_text_context(self):
+        """Orphan tool results are not sent as invalid Responses outputs."""
+        messages = [
+            {"role": "user", "content": "Continue"},
+            {"role": "tool", "tool_call_id": "missing_call", "name": "grep", "content": "Found 2 matches"},
+        ]
+        payload = build_responses_request(messages, model="gpt-5")
+
+        assert payload["input"][1]["role"] == "user"
+        assert "Previous grep result" in payload["input"][1]["content"]
+        assert "missing_call" in payload["input"][1]["content"]
 
     def test_multimodal_user_message_transformed_for_responses_api(self):
         """Chat image parts are converted to Responses API input parts."""

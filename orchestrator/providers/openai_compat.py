@@ -13,7 +13,7 @@ import httpx
 
 from orchestrator.logging_config import get_logger
 
-from .base import LLMResponse, RetryExhaustedError, ToolFallbackError
+from .base import LLMResponse, ProviderAPIError, RetryExhaustedError, ToolFallbackError
 from .request_builders import build_chat_completions_request, build_responses_request
 from .response_parsers import parse_chat_result, parse_responses_result, parse_streaming_delta
 
@@ -27,6 +27,32 @@ def _format_exception(error: BaseException) -> str:
     if message:
         return f"{error_type}: {message}"
     return f"{error_type}: {repr(error)}"
+
+
+def _provider_error_detail(response: httpx.Response, body: bytes) -> str:
+    """Build a useful, non-secret provider error message from an HTTP response."""
+    body_text = body.decode(errors="replace").strip()
+    detail = body_text
+    if body_text:
+        try:
+            payload = json.loads(body_text)
+            error = payload.get("error") if isinstance(payload, dict) else None
+            if isinstance(error, dict):
+                parts = [
+                    str(error.get("message") or "").strip(),
+                    f"param={error.get('param')}" if error.get("param") else "",
+                    f"code={error.get('code')}" if error.get("code") else "",
+                    f"type={error.get('type')}" if error.get("type") else "",
+                ]
+                detail = " | ".join(part for part in parts if part)
+        except json.JSONDecodeError:
+            pass
+    if not detail:
+        detail = response.reason_phrase
+    return (
+        f"{response.status_code} {response.reason_phrase} from "
+        f"{response.request.url}: {detail[:2000]}"
+    )
 
 
 def normalize_base_url(url: str) -> str:
@@ -246,7 +272,14 @@ class OpenAICompatProvider:
                     **kwargs,
                 )
 
-        response.raise_for_status()
+        if response.status_code >= 400:
+            body = await response.aread()
+            message = _provider_error_detail(response, body)
+            logger.error(
+                "API error response",
+                extra={"status": response.status_code, "body": body.decode(errors="replace")[:2000]},
+            )
+            raise ProviderAPIError(message)
 
         # Parse response
         raw = response.json()
@@ -514,7 +547,7 @@ class OpenAICompatProvider:
                         "API error response",
                         extra={"status": response.status_code, "body": error_text[:2000]},
                     )
-                    response.raise_for_status()
+                    raise ProviderAPIError(_provider_error_detail(response, error_body))
 
                 async for line in response.aiter_lines():
                     if not line or not line.startswith("data: "):
@@ -974,7 +1007,7 @@ class OpenAICompatProvider:
                     "API error response",
                     extra={"status": response.status_code, "body": error_text[:2000]},
                 )
-            response.raise_for_status()
+                raise ProviderAPIError(_provider_error_detail(response, error_body))
 
             async for line in response.aiter_lines():
                 if not line or not line.startswith("data: "):

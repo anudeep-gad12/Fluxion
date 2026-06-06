@@ -182,6 +182,29 @@ async def test_live_catalog_does_not_add_unapproved_models(monkeypatch):
     assert "text-embedding-giant-unwanted" not in openrouter_ids
 
 
+def test_openai_live_catalog_hides_curated_models_not_returned_by_provider():
+    """Successful OpenAI live fetch prevents stale curated IDs from being selected."""
+    curated = [
+        {"model_id": "gpt-5.2", "display_name": "GPT-5.2", "recommended": True, "category": "reasoning"},
+        {"model_id": "gpt-5.5", "display_name": "GPT-5.5", "recommended": True, "category": "frontier"},
+    ]
+    live = [
+        {
+            "model_id": "gpt-5.2",
+            "display_name": "gpt-5.2 live",
+            "recommended": False,
+            "category": "live",
+            "source": "live",
+        }
+    ]
+
+    merged = model_catalog._merge_models(curated, live, provider_name="openai")  # noqa: SLF001
+    ids = {model["model_id"] for model in merged}
+
+    assert ids == {"gpt-5.2"}
+    assert merged[0]["display_name"] == "GPT-5.2"
+
+
 @pytest.mark.asyncio
 @patch.dict(os.environ, {"OPENROUTER_API_KEY": "test-or-key"})
 async def test_select_model_creates_provider_override():

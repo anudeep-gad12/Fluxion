@@ -27,6 +27,12 @@ class ProviderAuthError(ProviderError):
     pass
 
 
+class ProviderAPIError(ProviderError):
+    """Raised when a provider returns a non-retryable HTTP API error."""
+
+    pass
+
+
 class ToolFallbackError(ProviderError):
     """Raised when tool use requires /v1/responses but server doesn't support it."""
 

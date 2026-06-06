@@ -18,6 +18,7 @@ Usage:
 from .base import (
     LLMProvider,
     LLMResponse,
+    ProviderAPIError,
     ProviderError,
     RetryExhaustedError,
     ToolFallbackError,
@@ -36,6 +37,7 @@ __all__ = [
     "LLMResponse",
     # Exceptions
     "ProviderError",
+    "ProviderAPIError",
     "RetryExhaustedError",
     "ToolFallbackError",
     "AllProvidersFailedError",

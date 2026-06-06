@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 
 from orchestrator.providers.openai_compat import OpenAICompatProvider
-from orchestrator.providers.base import ToolFallbackError
+from orchestrator.providers.base import ProviderAPIError, ToolFallbackError
 from orchestrator.providers.base import RetryExhaustedError
 
 
@@ -151,6 +151,43 @@ class TestPreviousResponseId:
         )
 
         assert "previous_response_id" not in payload
+
+
+class TestProviderErrors:
+    """Tests for provider HTTP error diagnostics."""
+
+    @pytest.mark.asyncio
+    async def test_complete_includes_response_body_in_provider_error(self):
+        """OpenAI-compatible 400s surface provider error message/body."""
+        provider = OpenAICompatProvider(
+            base_url="https://api.openai.com/v1",
+            endpoint="responses",
+        )
+        request = httpx.Request("POST", "https://api.openai.com/v1/responses")
+        response = httpx.Response(
+            400,
+            json={
+                "error": {
+                    "message": "Invalid tool schema: default is not permitted",
+                    "param": "tools[0].parameters",
+                    "type": "invalid_request_error",
+                }
+            },
+            request=request,
+        )
+
+        with patch.object(provider, "_request_with_retry", return_value=response):
+            with pytest.raises(ProviderAPIError) as exc_info:
+                await provider.complete(
+                    messages=[{"role": "user", "content": "test"}],
+                    model="gpt-5",
+                )
+
+        message = str(exc_info.value)
+        assert "400 Bad Request" in message
+        assert "Invalid tool schema" in message
+        assert "tools[0].parameters" in message
+        await provider.close()
 
 
 class TestStreamingRetry:

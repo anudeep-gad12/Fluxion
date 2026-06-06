@@ -20,17 +20,36 @@ def _transform_messages_for_responses_api(messages: List[Dict[str, Any]]) -> Lis
         List of message dicts in responses API format.
     """
     result = []
+    seen_function_call_ids: set[str] = set()
 
     for msg in messages:
         role = msg.get("role")
 
         if role == "tool":
             # Transform tool result to function_call_output format
-            result.append({
-                "type": "function_call_output",
-                "call_id": msg.get("tool_call_id"),
-                "output": msg.get("content", ""),
-            })
+            call_id = msg.get("tool_call_id")
+            output = msg.get("content", "")
+            if call_id and call_id in seen_function_call_ids:
+                result.append({
+                    "type": "function_call_output",
+                    "call_id": call_id,
+                    "output": output,
+                })
+            else:
+                # The Responses API rejects function_call_output items without a
+                # matching function_call in the same stateless input. This can
+                # happen when replaying compacted/cross-provider agent context.
+                # Preserve the evidence as ordinary text instead of sending an
+                # orphan tool output that hard-fails the request.
+                name = msg.get("name") or "tool"
+                result.append({
+                    "role": "user",
+                    "content": (
+                        f"Previous {name} result"
+                        + (f" for call_id {call_id}" if call_id else "")
+                        + f":\n{output}"
+                    ),
+                })
 
         elif role == "assistant" and msg.get("tool_calls"):
             # Assistant message with tool calls needs special handling
@@ -52,6 +71,8 @@ def _transform_messages_for_responses_api(messages: List[Dict[str, Any]]) -> Lis
                     "name": func.get("name"),
                     "arguments": arguments,
                 })
+                if tool_call.get("id"):
+                    seen_function_call_ids.add(tool_call["id"])
 
         else:
             # User/assistant messages (without tools) stay the same
@@ -130,12 +151,18 @@ def build_responses_request(
         transformed_tools = []
         for t in tools:
             func = t.get("function", t)
-            transformed_tools.append({
+            transformed_tool = {
                 "type": "function",
                 "name": func.get("name"),
                 "description": func.get("description", ""),
                 "parameters": func.get("parameters", {}),
-            })
+            }
+            # OpenAI Responses defaults custom tools toward strict schema
+            # normalization. Our agent tool schemas intentionally use optional
+            # fields and defaults (offset, limit, max_results, etc.), so opt out
+            # explicitly to avoid 400s from strict-schema validation.
+            transformed_tool["strict"] = bool(func.get("strict", t.get("strict", False)))
+            transformed_tools.append(transformed_tool)
         payload["tools"] = transformed_tools
 
         # Add tool_choice to force tool usage when specified

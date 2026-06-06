@@ -69,6 +69,21 @@ class TestExplicitProviderPrefix:
         assert resolved.supports_tools is True
         assert resolved.reasoning_request_param == "reasoning"
 
+    def test_resolve_chatgpt_subscription_models(self):
+        """ChatGPT subscription uses current GPT model IDs, not stale Codex IDs."""
+        resolved = ModelRegistry.resolve("chatgpt:gpt-5.5")
+        assert resolved.provider_name == "chatgpt"
+        assert resolved.model_id == "gpt-5.5"
+        assert resolved.api_key is None
+
+        alias = ModelRegistry.resolve("chatgpt:chatgpt-latest")
+        assert alias.model_id == "gpt-5.5"
+
+    def test_reject_unknown_chatgpt_model(self):
+        """Unknown ChatGPT subscription model IDs should fail at selection time."""
+        with pytest.raises(ValueError, match="Unsupported ChatGPT/Codex model"):
+            ModelRegistry.resolve("chatgpt:gpt-5.3-codex")
+
     @patch.dict(os.environ, {"XAI_API_KEY": "xai-key"})
     def test_resolve_xai_provider_prefix(self):
         """'xai:model' forces the xAI provider."""

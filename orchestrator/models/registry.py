@@ -258,12 +258,12 @@ MODEL_PRESETS: list[ModelPreset] = [
         reasoning_effort="medium",
         category="fast",
     ),
-    # --- ChatGPT / Codex OAuth ---
+    # --- ChatGPT OAuth / subscription ---
     ModelPreset(
-        model_id="gpt-5.3-codex",
-        display_name="GPT-5.3 Codex (ChatGPT)",
+        model_id="gpt-5.5",
+        display_name="GPT-5.5 (ChatGPT)",
         provider="chatgpt",
-        aliases=["chatgpt-gpt-5.3-codex", "codex-latest", "gpt-5.3-codex-chatgpt"],
+        aliases=["chatgpt-gpt-5.5", "chatgpt-latest", "gpt-5.5-chatgpt"],
         context_window=400000,
         max_output_tokens=128000,
         supports_reasoning=True,
@@ -274,13 +274,13 @@ MODEL_PRESETS: list[ModelPreset] = [
         cached_input_cost_per_million=0.0,
         output_cost_per_million=0.0,
         recommended=True,
-        category="coding",
+        category="frontier",
     ),
     ModelPreset(
-        model_id="gpt-5.2-codex",
-        display_name="GPT-5.2 Codex (ChatGPT)",
+        model_id="gpt-5.4",
+        display_name="GPT-5.4 (ChatGPT)",
         provider="chatgpt",
-        aliases=["chatgpt-gpt-5.2-codex", "codex", "gpt-5.2-codex-chatgpt"],
+        aliases=["chatgpt-gpt-5.4", "gpt-5.4-chatgpt"],
         context_window=400000,
         max_output_tokens=128000,
         supports_reasoning=True,
@@ -291,19 +291,23 @@ MODEL_PRESETS: list[ModelPreset] = [
         cached_input_cost_per_million=0.0,
         output_cost_per_million=0.0,
         recommended=True,
-        category="coding",
+        category="reasoning",
     ),
     ModelPreset(
-        model_id="o4-mini",
-        display_name="o4-mini (ChatGPT)",
+        model_id="gpt-5.4-mini",
+        display_name="GPT-5.4 mini (ChatGPT)",
         provider="chatgpt",
-        aliases=["chatgpt-o4-mini"],
-        context_window=200000,
-        max_output_tokens=100000,
+        aliases=["chatgpt-gpt-5.4-mini", "gpt-5.4-mini-chatgpt"],
+        context_window=270000,
+        max_output_tokens=128000,
         supports_reasoning=True,
         supports_vision=True,
         reasoning_request_param="reasoning",
         reasoning_effort="medium",
+        input_cost_per_million=0.0,
+        cached_input_cost_per_million=0.0,
+        output_cost_per_million=0.0,
+        recommended=True,
         category="fast",
     ),
     # --- xAI ---
@@ -1162,6 +1166,11 @@ class ModelRegistry:
         # Unknown model — use as raw model ID with conservative defaults
         if explicit_provider:
             provider_name = explicit_provider
+            if provider_name == "chatgpt":
+                raise ValueError(
+                    f"Unsupported ChatGPT/Codex model '{model_string}'. "
+                    "Use one of the ChatGPT models listed in the picker."
+                )
             provider_def = PROVIDERS[provider_name]
             api_key = ModelRegistry._get_api_key(provider_def)
             if provider_name == "grok":

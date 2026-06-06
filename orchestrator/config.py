@@ -300,13 +300,12 @@ class ChatGPTConfig(BaseModel):
     backend_url: str = "https://chatgpt.com/backend-api"
     callback_path: str = "/auth/callback"
     callback_url: Optional[str] = None  # Auto-detect from request if None
-    default_model: str = "gpt-5.2-codex"
+    default_model: str = "gpt-5.5"
     reasoning_effort: Literal["low", "medium", "high"] = "medium"
     available_models: List[Dict[str, str]] = [
-        {"id": "gpt-5.2-codex", "label": "GPT-5.2 Codex"},
-        {"id": "o4-mini", "label": "o4-mini"},
-        {"id": "gpt-4o", "label": "GPT-4o"},
-        {"id": "o3", "label": "o3"},
+        {"id": "gpt-5.5", "label": "GPT-5.5"},
+        {"id": "gpt-5.4", "label": "GPT-5.4"},
+        {"id": "gpt-5.4-mini", "label": "GPT-5.4 mini"},
     ]
 
     @field_validator("callback_url", mode="before")

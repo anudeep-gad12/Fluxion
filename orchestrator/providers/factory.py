@@ -52,7 +52,16 @@ def create_chatgpt_provider(
         config = get_chat_config()
         chatgpt_config = config.chatgpt
 
-    default_model = model or (chatgpt_config.default_model if chatgpt_config else "gpt-5.2-codex")
+    configured_default = chatgpt_config.default_model if chatgpt_config else "gpt-5.5"
+    default_model = model or configured_default
+    if chatgpt_config:
+        available_ids = {
+            str(item.get("id"))
+            for item in (chatgpt_config.available_models or [])
+            if item.get("id")
+        }
+        if available_ids and default_model not in available_ids:
+            default_model = configured_default
 
     async def on_auth_error() -> None:
         if not auth_session_id:

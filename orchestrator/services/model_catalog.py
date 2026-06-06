@@ -28,10 +28,11 @@ VISIBLE_MODEL_IDS_BY_PROVIDER: dict[str, set[str]] = {
         "gpt-5.2",
         "gpt-5.1-codex",
     },
-    # ChatGPT/Codex OAuth: GPT-5 Codex family only.
+    # ChatGPT OAuth/subscription: current GPT-5 subscription models.
     "chatgpt": {
-        "gpt-5.3-codex",
-        "gpt-5.2-codex",
+        "gpt-5.5",
+        "gpt-5.4",
+        "gpt-5.4-mini",
     },
     # Grok OAuth/subscription: separate from xAI API-key models.
     "grok": {
@@ -109,6 +110,15 @@ def _merge_models(
     """Merge live models into curated presets, preserving curated metadata."""
     visible_curated = [m for m in curated if _is_visible(provider_name, m)]
     visible_live = [m for m in live if _is_visible(provider_name, m)]
+    if provider_name in {"openai", "xai"} and visible_live:
+        # These providers expose a relatively small, authoritative /models list.
+        # If a successful live fetch says a curated future/retired ID is absent,
+        # hide it from the picker so users do not select a model that will fail
+        # later with a provider-side 400/404.
+        live_ids = {str(m.get("model_id") or "") for m in visible_live}
+        visible_curated = [
+            m for m in visible_curated if str(m.get("model_id") or "") in live_ids
+        ]
     merged: dict[str, dict[str, Any]] = {m["model_id"]: {**m} for m in visible_curated}
     for live_model in visible_live:
         model_id = live_model.get("model_id")

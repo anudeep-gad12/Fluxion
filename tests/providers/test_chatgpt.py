@@ -5,8 +5,10 @@ import httpx
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from orchestrator.config import ChatGPTConfig
 from orchestrator.providers.base import ProviderAuthError
 from orchestrator.providers.chatgpt import ChatGPTProvider
+from orchestrator.providers.factory import create_chatgpt_provider
 
 
 class TestRequestTranslation:
@@ -92,6 +94,19 @@ class TestRequestTranslation:
         """Tool result messages should become function_call_output items."""
         messages = [
             {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "call_123",
+                        "function": {
+                            "name": "web_search",
+                            "arguments": '{"query": "test"}',
+                        },
+                    }
+                ],
+            },
+            {
                 "role": "tool",
                 "tool_call_id": "call_123",
                 "content": "Search results: ...",
@@ -100,10 +115,30 @@ class TestRequestTranslation:
 
         input_items, _ = self.provider._translate_messages_to_input(messages)
 
+        assert len(input_items) == 2
+        assert input_items[0]["type"] == "function_call"
+        assert input_items[1]["type"] == "function_call_output"
+        assert input_items[1]["call_id"] == "call_123"
+        assert input_items[1]["output"] == "Search results: ..."
+
+    def test_orphan_tool_result_becomes_user_context(self):
+        """Orphan tool results should not become invalid function_call_output items."""
+        messages = [
+            {
+                "role": "tool",
+                "tool_call_id": "missing_call",
+                "name": "grep",
+                "content": "Found matches",
+            },
+        ]
+
+        input_items, _ = self.provider._translate_messages_to_input(messages)
+
         assert len(input_items) == 1
-        assert input_items[0]["type"] == "function_call_output"
-        assert input_items[0]["call_id"] == "call_123"
-        assert input_items[0]["output"] == "Search results: ..."
+        assert input_items[0]["type"] == "message"
+        assert input_items[0]["role"] == "user"
+        assert "Previous grep result" in input_items[0]["content"][0]["text"]
+        assert "missing_call" in input_items[0]["content"][0]["text"]
 
     def test_instructions_parameter_overrides_system(self):
         """Explicit instructions parameter should take priority."""
@@ -137,8 +172,27 @@ class TestRequestTranslation:
         assert flattened[0]["type"] == "function"
         assert flattened[0]["name"] == "web_search"
         assert flattened[0]["description"] == "Search the web"
+        assert flattened[0]["strict"] is False
         # No nested "function" key
         assert "function" not in flattened[0]
+
+    def test_flatten_tools_preserves_explicit_strict(self):
+        """Explicit strict mode is preserved for ChatGPT Responses tools."""
+        tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "web_search",
+                    "description": "Search the web",
+                    "parameters": {"type": "object", "properties": {}},
+                    "strict": True,
+                },
+            }
+        ]
+
+        flattened = self.provider._translate_tools(tools)
+
+        assert flattened[0]["strict"] is True
 
     def test_flatten_tools_none(self):
         """None tools should return None."""
@@ -203,6 +257,22 @@ class TestRequestTranslation:
 
         assert "tools" in payload
         assert payload["tools"][0]["name"] == "web_search"
+        assert payload["tools"][0]["strict"] is False
+
+    @pytest.mark.asyncio
+    async def test_factory_falls_back_from_stale_chatgpt_model(self):
+        """Stored stale ChatGPT selections do not keep using unsupported models."""
+        provider = create_chatgpt_provider(
+            {
+                "access_token": "test-token",
+                "account_id": "test-account",
+            },
+            chatgpt_config=ChatGPTConfig(),
+            model="gpt-5.3-codex",
+        )
+
+        assert provider._default_model == "gpt-5.5"
+        await provider.close()
 
 
 class TestResponseTranslation:
