@@ -278,6 +278,16 @@ class TestParseStreamingDelta:
 
         assert result["reasoning"] == "Reasoning..."
 
+    def test_responses_reasoning_summary_text_delta(self):
+        """Official Responses reasoning summary text delta is parsed."""
+        delta = {
+            "type": "response.reasoning_summary_text.delta",
+            "delta": "Summarized reasoning...",
+        }
+        result = parse_streaming_delta(delta, "responses")
+
+        assert result["reasoning"] == "Summarized reasoning..."
+
     def test_chat_completions_content(self):
         """Chat completions content delta is parsed."""
         delta = {"content": "Hello"}
@@ -316,10 +326,59 @@ class TestParseStreamingDelta:
 
     def test_lm_studio_function_call_arguments_delta(self):
         """LM Studio response.function_call_arguments.delta is parsed."""
-        delta = {"type": "response.function_call_arguments.delta", "delta": '{"query":'}
+        delta = {
+            "type": "response.function_call_arguments.delta",
+            "item_id": "fc_abc123",
+            "output_index": 0,
+            "delta": '{"query":',
+        }
         result = parse_streaming_delta(delta, "responses")
 
         assert result["tool_call"] == '{"query":'
+        assert result["tool_call_arguments_delta"] == {
+            "item_id": "fc_abc123",
+            "output_index": 0,
+            "delta": '{"query":',
+        }
+
+    def test_responses_output_item_added_function_call(self):
+        """Official Responses output_item.added function_call is tracked."""
+        delta = {
+            "type": "response.output_item.added",
+            "output_index": 0,
+            "item": {
+                "id": "fc_abc123",
+                "type": "function_call",
+                "call_id": "call_xyz789",
+                "name": "web_search",
+                "arguments": "",
+            },
+        }
+        result = parse_streaming_delta(delta, "responses")
+
+        assert result["tool_call_started"] == {
+            "item_id": "fc_abc123",
+            "call_id": "call_xyz789",
+            "name": "web_search",
+            "arguments": "",
+            "output_index": 0,
+        }
+
+    def test_responses_function_call_arguments_done(self):
+        """Official Responses function_call_arguments.done is parsed."""
+        delta = {
+            "type": "response.function_call_arguments.done",
+            "item_id": "fc_abc123",
+            "output_index": 0,
+            "arguments": '{"query": "weather japan"}',
+        }
+        result = parse_streaming_delta(delta, "responses")
+
+        assert result["tool_call_arguments_done"] == {
+            "item_id": "fc_abc123",
+            "output_index": 0,
+            "arguments": '{"query": "weather japan"}',
+        }
 
     def test_lm_studio_output_item_done_function_call(self):
         """LM Studio response.output_item.done with function_call is parsed."""

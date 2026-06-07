@@ -139,6 +139,7 @@ function loadHistoricalAgentRun(runId: string): Promise<AgentUIState> {
       steps,
       toolCalls,
       citations,
+      assistantUpdates: trace.assistant_updates || [],
       systemEvents: trace.system_events || [],
       injectedSteers: [],
       lastSeq: 0,

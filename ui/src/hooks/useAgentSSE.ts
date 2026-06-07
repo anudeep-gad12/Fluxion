@@ -22,6 +22,7 @@ import type {
   PlanDocUpdatedEvent,
   UserInputRequiredEvent,
   ToolResultEvent,
+  AssistantUpdateEvent,
   RunCancelledEvent,
   AnswerEvent,
   TokenUsage,
@@ -50,6 +51,7 @@ export function useAgentSSE(runId: string | null) {
   const addAgentStep = useStore((s) => s.addAgentStep);
   const updateAgentStep = useStore((s) => s.updateAgentStep);
   const addAgentToolCall = useStore((s) => s.addAgentToolCall);
+  const addAgentAssistantUpdate = useStore((s) => s.addAgentAssistantUpdate);
   const updateAgentToolCall = useStore((s) => s.updateAgentToolCall);
   const setAgentCitations = useStore((s) => s.setAgentCitations);
   const updateRun = useStore((s) => s.updateRun);
@@ -349,6 +351,17 @@ export function useAgentSSE(runId: string | null) {
               duration_ms: toolResultEvent.duration_ms,
               completed_at: toolResultEvent.timestamp,
               approval_required: false,
+            });
+            break;
+          }
+
+          case 'assistant_update': {
+            const updateEvent = event as AssistantUpdateEvent;
+            addAgentAssistantUpdate(id, {
+              content: updateEvent.content,
+              step_number: updateEvent.step_number,
+              seq: updateEvent.seq,
+              created_at: updateEvent.timestamp,
             });
             break;
           }

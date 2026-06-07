@@ -613,6 +613,102 @@ To provide your final answer, respond WITHOUT calling any tools."""
             stripped = stripped[:397].rstrip() + "..."
         return stripped
 
+    def _tool_schema_names(self, tool_schemas: List[Dict[str, Any]]) -> set[str]:
+        """Return function names advertised in an OpenAI-style tool schema list."""
+        names: set[str] = set()
+        for schema in tool_schemas:
+            func = schema.get("function", schema)
+            name = func.get("name")
+            if isinstance(name, str) and name:
+                names.add(name)
+        return names
+
+    def _query_requires_web_research(self, query: str, tool_schemas: List[Dict[str, Any]]) -> bool:
+        """Return whether this run explicitly needs app-owned web search evidence.
+
+        This is intentionally limited to user-facing requests for research/current
+        lookup. It is not a prose-to-tool parser; it only marks the web-search
+        capability as outstanding so a model that emits a progress update instead
+        of a structured tool call can get one forced API-level recovery.
+        """
+        if "web_search" not in self._tool_schema_names(tool_schemas):
+            return False
+        lowered = query.lower()
+        research_terms = (
+            "research",
+            "look up",
+            "lookup",
+            "web search",
+            "search the web",
+            "what does research say",
+            "latest",
+            "current",
+            "up to date",
+            "today",
+            "recent",
+        )
+        return any(term in lowered for term in research_terms)
+
+    def _has_successful_web_lookup(self) -> bool:
+        """Return whether this run already has successful web evidence."""
+        return any(
+            entry.get("tool_name") in {"web_search", "web_extract"}
+            and bool(entry.get("success"))
+            for entry in self._tool_call_log
+        )
+
+    def _tool_calls_include(self, tool_calls: Optional[List[Dict[str, Any]]], name: str) -> bool:
+        """Return whether normalized/provider tool calls include a named function."""
+        for tool_call in tool_calls or []:
+            if tool_call.get("function", {}).get("name") == name:
+                return True
+        return False
+
+    async def _emit_assistant_update(
+        self,
+        *,
+        event_callback: Optional[Callable[[Dict[str, Any]], None]],
+        run_id: str,
+        step_number: int,
+        content: Optional[str],
+        parent_event_id: Optional[str] = None,
+    ) -> Optional[str]:
+        """Emit and trace a visible non-final assistant progress update."""
+        update = self._summarize_assistant_content(content)
+        if not update:
+            return None
+        self._emit(
+            event_callback,
+            "assistant_update",
+            run_id=run_id,
+            step_number=step_number,
+            content=update,
+        )
+        await self._add_trace_event(
+            run_id=run_id,
+            event_type="assistant_update",
+            content={
+                "step_number": step_number,
+                "content": update,
+            },
+            actor="model",
+            step_number=step_number,
+            parent_event_id=parent_event_id,
+        )
+        return update
+
+    def _build_forced_web_search_recovery_message(self) -> Dict[str, str]:
+        """Build the one-shot protocol recovery prompt for missing web tool calls."""
+        return {
+            "role": "user",
+            "content": (
+                "Your previous response was a progress update, but this task still "
+                "requires web research. The next response must be a structured "
+                "`web_search` function call using the provided tool schema. Do not "
+                "describe planned searching in prose."
+            ),
+        }
+
     def _trim_scaffold_messages(
         self,
         scaffold_messages: List[Dict[str, Any]],
@@ -3107,6 +3203,10 @@ To provide your final answer, respond WITHOUT calling any tools."""
             step_metadata: Dict[str, int] = {}
             consecutive_filtered_steps = 0
             length_only_continuations = 0
+            empty_no_tool_retries = 0
+            forced_tool_choice_next: Optional[str] = None
+            forced_web_search_attempted = False
+            web_research_required = False
 
             # Main agent loop
             while state_machine.can_continue():
@@ -3254,6 +3354,11 @@ To provide your final answer, respond WITHOUT calling any tools."""
 
                 # Call LLM with tools
                 tool_schemas = self._available_tool_schemas()
+                if step_number == 1:
+                    web_research_required = self._query_requires_web_research(
+                        query,
+                        tool_schemas,
+                    )
 
                 # Trace: llm_request
                 llm_request_event_id = await self._add_trace_event(
@@ -3263,6 +3368,10 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         "model": self._model_name,
                         "messages_count": len(pruned_messages),
                         "tools_count": len(tool_schemas) if tool_schemas else 0,
+                        "tool_choice": (
+                            forced_tool_choice_next
+                            or (self._tool_choice if step_number == 1 else None)
+                        ),
                     },
                     event_status="pending",
                     step_number=step_number,
@@ -3270,7 +3379,12 @@ To provide your final answer, respond WITHOUT calling any tools."""
 
                 llm_start_time = time.perf_counter()
                 try:
-                    step_tool_choice = self._tool_choice if step_number == 1 else None
+                    forced_tool_choice_for_step = forced_tool_choice_next
+                    forced_tool_choice_next = None
+                    step_tool_choice = (
+                        forced_tool_choice_for_step
+                        or (self._tool_choice if step_number == 1 else None)
+                    )
                     llm_response = await self._call_llm_with_tools(
                         messages=pruned_messages,
                         event_callback=event_callback,
@@ -3363,6 +3477,13 @@ To provide your final answer, respond WITHOUT calling any tools."""
                             break
                     else:
                         logger.debug("No tool calls found in text or reasoning")
+
+                api_tool_calls_present = bool(llm_response.tool_calls)
+                assistant_update_content = (
+                    self._summarize_assistant_content(llm_response.text)
+                    if tool_calls and api_tool_calls_present
+                    else None
+                )
 
                 # Trace: llm_response (with thinking)
                 llm_duration_ms = int((time.perf_counter() - llm_start_time) * 1000)
@@ -3487,7 +3608,44 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     consecutive_filtered_steps = 0
                     continue
 
+                if (
+                    forced_tool_choice_for_step == "web_search"
+                    and not self._tool_calls_include(tool_calls, "web_search")
+                ):
+                    error_message = (
+                        "Model protocol error: forced `web_search` was requested, "
+                        "but the provider returned no structured `web_search` tool call."
+                    )
+                    logger.warning(
+                        "Forced web_search recovery failed",
+                        extra={
+                            "run_id": run_id,
+                            "step_number": step_number,
+                            "has_tool_calls": bool(tool_calls),
+                            "tool_names": [
+                                tc.get("function", {}).get("name")
+                                for tc in (tool_calls or [])
+                            ],
+                            "text_length": len(llm_response.text or ""),
+                            "finish_reason": llm_response.finish_reason,
+                        },
+                    )
+                    await state_machine.complete_step(
+                        decision="forced_web_search_failed",
+                        thinking_text=thinking_text,
+                    )
+                    raise RuntimeError(error_message)
+
                 if tool_calls:
+                    if assistant_update_content:
+                        await self._emit_assistant_update(
+                            event_callback=event_callback,
+                            run_id=run_id,
+                            step_number=step_number,
+                            content=assistant_update_content,
+                            parent_event_id=llm_request_event_id,
+                        )
+
                     # Check for redundant tool calls before execution
                     parsed_for_check = self._parse_tool_calls(tool_calls)
                     malformed_calls = [
@@ -3783,6 +3941,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
 
                     consecutive_filtered_steps = 0
                     length_only_continuations = 0
+                    empty_no_tool_retries = 0
 
                     await state_machine.complete_step(
                         decision="call_tool",
@@ -3812,13 +3971,52 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         )
 
                 else:
-                    # No tool calls normally means final answer. If the provider
-                    # gives us no final content, do not synthesize or guess from
-                    # reasoning. Ask the model to continue and either call a tool
-                    # or produce a real final answer.
+                    # No tool calls normally means final answer. Composer-style
+                    # models can emit a visible progress update before the
+                    # structured tool call; when explicit web research is still
+                    # outstanding, recover once with API-level tool_choice.
                     final_answer = self._clean_answer(llm_response.text)
+                    web_lookup_pending = (
+                        web_research_required
+                        and not self._has_successful_web_lookup()
+                        and "web_search" in self._tool_schema_names(tool_schemas)
+                    )
+
+                    if web_lookup_pending and not forced_web_search_attempted:
+                        update = await self._emit_assistant_update(
+                            event_callback=event_callback,
+                            run_id=run_id,
+                            step_number=step_number,
+                            content=final_answer,
+                            parent_event_id=llm_request_event_id,
+                        )
+                        recovery_message = self._build_forced_web_search_recovery_message()
+                        messages.append(recovery_message)
+                        if self._is_coding_profile():
+                            ephemeral_messages.append(recovery_message)
+                        forced_tool_choice_next = "web_search"
+                        forced_web_search_attempted = True
+                        await state_machine.complete_step(
+                            decision=(
+                                "forced_web_search_recovery"
+                                if update
+                                else "empty_forced_web_search_recovery"
+                            ),
+                            thinking_text=thinking_text,
+                        )
+                        continue
 
                     if not final_answer:
+                        if empty_no_tool_retries >= 1:
+                            error_message = (
+                                "Model protocol error: provider returned empty content "
+                                "with no structured tool calls twice."
+                            )
+                            await state_machine.complete_step(
+                                decision="empty_response_failed",
+                                thinking_text=thinking_text,
+                            )
+                            raise RuntimeError(error_message)
                         logger.warning(
                             "Provider sent empty final content with no tool calls; continuing",
                             extra={
@@ -3843,6 +4041,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         messages.append(retry_message)
                         if self._is_coding_profile():
                             ephemeral_messages.append(retry_message)
+                        empty_no_tool_retries += 1
                         continue
 
                     # Synthesis step - final answer is available.

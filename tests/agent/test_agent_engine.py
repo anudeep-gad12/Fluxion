@@ -4806,3 +4806,209 @@ class TestCodingContinuationBehavior:
         system_content = provider.complete_streaming.call_args.kwargs["messages"][0]["content"]
         assert "Latest user intent" not in system_content
         assert "Tool guidance" not in system_content
+
+    @pytest.mark.asyncio
+    async def test_text_with_api_tool_call_emits_assistant_update(self):
+        """Assistant text accompanying API tool calls is shown as progress, not final."""
+        provider = MagicMock()
+        provider.complete_streaming = AsyncMock(
+            side_effect=[
+                LLMResponse(
+                    text="I'll search for this.",
+                    tool_calls=[
+                        {
+                            "id": "tc-1",
+                            "function": {
+                                "name": "web_search",
+                                "arguments": '{"query": "test"}',
+                            },
+                        }
+                    ],
+                ),
+                LLMResponse(text="Final answer.", tool_calls=None),
+            ]
+        )
+        web_tool = MagicMock()
+        web_tool.execute = AsyncMock(
+            return_value=ToolResult(
+                success=True,
+                result_summary="Found 5 results",
+                result_data={"results": []},
+                duration_ms=1,
+            )
+        )
+        registry = MagicMock()
+        registry.get_openai_schemas.return_value = [
+            {"type": "function", "function": {"name": "web_search"}}
+        ]
+        registry.get.return_value = web_tool
+        registry.is_idempotent.return_value = True
+        mock_sm = create_mock_state_machine(
+            can_continue_sequence=[True, True, False],
+            step_sequence=[
+                {"step_number": 1, "id": "step-1"},
+                {"step_number": 2, "id": "step-2"},
+            ],
+        )
+        mock_sm.record_tool_call = AsyncMock(return_value={"id": "tc-1"})
+
+        with patch(
+            "orchestrator.agent.agent_engine.AgentStateMachine",
+            return_value=mock_sm,
+        ):
+            engine = AgentEngine(provider=provider, repo=create_mock_repo(), registry=registry)
+            events = []
+            result = await engine.run(
+                run_id="run-assistant-update",
+                query="Test query",
+                event_callback=lambda event: events.append(event),
+            )
+
+        assert result.success is True
+        web_tool.execute.assert_awaited_once_with(query="test")
+        updates = [event for event in events if event["type"] == "assistant_update"]
+        answers = [event for event in events if event["type"] == "answer_token"]
+        assert updates == [
+            {
+                "type": "assistant_update",
+                "run_id": "run-assistant-update",
+                "step_number": 1,
+                "content": "I'll search for this.",
+            }
+        ]
+        assert "I'll search for this." not in "".join(event["content"] for event in answers)
+
+    @pytest.mark.asyncio
+    async def test_progress_update_forces_one_web_search_when_research_pending(self):
+        """Progress-only research response gets one forced web_search recovery."""
+        provider = MagicMock()
+        provider.complete_streaming = AsyncMock(
+            side_effect=[
+                LLMResponse(
+                    text="Cross-checking evidence on what speeds VO2max gains.",
+                    tool_calls=None,
+                    reasoning="I should use web_search before answering.",
+                ),
+                LLMResponse(
+                    text="",
+                    tool_calls=[
+                        {
+                            "id": "tc-web",
+                            "function": {
+                                "name": "web_search",
+                                "arguments": '{"query": "VO2max training evidence"}',
+                            },
+                        }
+                    ],
+                ),
+                LLMResponse(text="Final evidence-backed answer.", tool_calls=None),
+            ]
+        )
+        web_tool = MagicMock()
+        web_tool.execute = AsyncMock(
+            return_value=ToolResult(
+                success=True,
+                result_summary="Found 10 results",
+                result_data={"results": []},
+                duration_ms=1,
+            )
+        )
+        registry = MagicMock()
+        registry.get_openai_schemas.return_value = [
+            {"type": "function", "function": {"name": "web_search"}}
+        ]
+        registry.get.return_value = web_tool
+        registry.is_idempotent.return_value = True
+        mock_sm = create_mock_state_machine(
+            can_continue_sequence=[True, True, True, False],
+            step_sequence=[
+                {"step_number": 1, "id": "step-1"},
+                {"step_number": 2, "id": "step-2"},
+                {"step_number": 3, "id": "step-3"},
+            ],
+        )
+        mock_sm.record_tool_call = AsyncMock(return_value={"id": "tc-web"})
+
+        with patch(
+            "orchestrator.agent.agent_engine.AgentStateMachine",
+            return_value=mock_sm,
+        ):
+            engine = AgentEngine(provider=provider, repo=create_mock_repo(), registry=registry)
+            events = []
+            result = await engine.run(
+                run_id="run-forced-web",
+                query="research on how to improve VO2max faster",
+                event_callback=lambda event: events.append(event),
+            )
+
+        assert result.success is True
+        assert provider.complete_streaming.await_args_list[1].kwargs["tool_choice"] == "web_search"
+        web_tool.execute.assert_awaited_once_with(query="VO2max training evidence")
+        decisions = [call.kwargs.get("decision") for call in mock_sm.complete_step.await_args_list]
+        assert "forced_web_search_recovery" in decisions
+        updates = [event for event in events if event["type"] == "assistant_update"]
+        assert len(updates) == 1
+        assert updates[0]["content"] == "Cross-checking evidence on what speeds VO2max gains."
+
+    @pytest.mark.asyncio
+    async def test_forced_web_search_failure_errors_instead_of_looping(self):
+        """If a forced web_search is ignored, fail clearly instead of nudging forever."""
+        provider = MagicMock()
+        provider.complete_streaming = AsyncMock(
+            side_effect=[
+                LLMResponse(
+                    text="I'll search the evidence.",
+                    tool_calls=None,
+                    reasoning="I should use web_search.",
+                ),
+                LLMResponse(text="Still not a tool call.", tool_calls=None),
+            ]
+        )
+        registry = MagicMock()
+        registry.get_openai_schemas.return_value = [
+            {"type": "function", "function": {"name": "web_search"}}
+        ]
+        registry.get.return_value = None
+        registry.is_idempotent.return_value = True
+        mock_sm = create_mock_state_machine(
+            can_continue_sequence=[True, True, False],
+            step_sequence=[
+                {"step_number": 1, "id": "step-1"},
+                {"step_number": 2, "id": "step-2"},
+            ],
+        )
+
+        with patch(
+            "orchestrator.agent.agent_engine.AgentStateMachine",
+            return_value=mock_sm,
+        ):
+            engine = AgentEngine(provider=provider, repo=create_mock_repo(), registry=registry)
+            result = await engine.run(
+                run_id="run-forced-web-fail",
+                query="research current VO2max evidence",
+            )
+
+        assert result.success is False
+        assert "forced `web_search`" in (result.error_message or "")
+        assert provider.complete_streaming.await_count == 2
+        decisions = [call.kwargs.get("decision") for call in mock_sm.complete_step.await_args_list]
+        assert decisions.count("forced_web_search_recovery") == 1
+        assert "forced_web_search_failed" in decisions
+
+    def test_available_tool_schemas_do_not_add_final_answer_tool(self):
+        """The agent does not advertise a synthetic final_answer finish tool."""
+        registry = MagicMock()
+        registry.get_openai_schemas.return_value = [
+            {"type": "function", "function": {"name": "web_search"}},
+        ]
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=create_mock_repo(),
+            registry=registry,
+        )
+
+        tool_names = {
+            schema.get("function", {}).get("name")
+            for schema in engine._available_tool_schemas()
+        }
+        assert "final_answer" not in tool_names

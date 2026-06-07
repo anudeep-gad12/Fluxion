@@ -2,7 +2,7 @@
 
 import { create } from 'zustand';
 import type { Run, Event, Conversation } from '@/types';
-import type { AgentUIState, AgentStep, AgentToolCall, AgentCitation } from '@/types/agent';
+import type { AgentUIState, AgentStep, AgentToolCall, AgentCitation, AgentAssistantUpdate } from '@/types/agent';
 import {
   ensureWorkspaceFluxionGitignore,
   type TerminalSessionResponse,
@@ -127,6 +127,7 @@ interface AppState {
   appendAgentAnswer: (runId: string, content: string) => void;
   addAgentStep: (runId: string, step: AgentStep) => void;
   addAgentToolCall: (runId: string, toolCall: AgentToolCall) => void;
+  addAgentAssistantUpdate: (runId: string, update: AgentAssistantUpdate) => void;
   updateAgentToolCall: (runId: string, toolCallId: string, updates: Partial<AgentToolCall>) => void;
   updateAgentStep: (runId: string, stepNumber: number, updates: Partial<AgentStep>) => void;
   setAgentCitations: (runId: string, citations: AgentCitation[]) => void;
@@ -366,6 +367,7 @@ export const useStore = create<AppState>((set, get) => ({
           steps: [],
           toolCalls: [],
           citations: [],
+          assistantUpdates: [],
           systemEvents: [],
           injectedSteers: [],
           lastSeq: 0,
@@ -447,6 +449,28 @@ export const useStore = create<AppState>((set, get) => ({
           [runId]: {
             ...current,
             toolCalls: [...current.toolCalls, toolCall],
+          },
+        },
+      };
+    }),
+
+  addAgentAssistantUpdate: (runId, update) =>
+    set((state) => {
+      const current = state.agentRunState[runId];
+      if (!current) return state;
+      const key = update.seq != null ? `seq:${update.seq}` : `${update.step_number ?? 0}:${update.content}`;
+      const currentUpdates = current.assistantUpdates || [];
+      const exists = currentUpdates.some((item) => {
+        const itemKey = item.seq != null ? `seq:${item.seq}` : `${item.step_number ?? 0}:${item.content}`;
+        return itemKey === key;
+      });
+      if (exists) return state;
+      return {
+        agentRunState: {
+          ...state.agentRunState,
+          [runId]: {
+            ...current,
+            assistantUpdates: [...currentUpdates, update],
           },
         },
       };

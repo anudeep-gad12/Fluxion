@@ -132,6 +132,7 @@ export function AgentStepsPanel({ agentState }: AgentStepsPanelProps) {
     isActive,
     injectedSteers,
     systemEvents = [],
+    assistantUpdates = [],
   } = agentState;
   const [expandedThinking, setExpandedThinking] = useState<Record<number, boolean>>({});
 
@@ -149,6 +150,16 @@ export function AgentStepsPanel({ agentState }: AgentStepsPanelProps) {
       return acc;
     },
     {} as Record<number, AgentToolCall[]>
+  );
+
+  const assistantUpdatesByStep = assistantUpdates.reduce(
+    (acc, update) => {
+      const stepNum = update.step_number ?? currentStep;
+      if (!acc[stepNum]) acc[stepNum] = [];
+      acc[stepNum].push(update);
+      return acc;
+    },
+    {} as Record<number, typeof assistantUpdates>
   );
 
   const thinkingContentByStep = useMemo(() => {
@@ -176,9 +187,10 @@ export function AgentStepsPanel({ agentState }: AgentStepsPanelProps) {
     for (const step of steps) {
       const isCurrentStep = step.step_number === currentStep;
       const stepToolCalls = toolCallsByStep[step.step_number] || [];
+      const stepAssistantUpdates = assistantUpdatesByStep[step.step_number] || [];
       const thinkingEntry = thinkingContentByStep[step.step_number];
       const stepSteers = injectedSteers.filter((steer) => steer.step_number === step.step_number);
-      const itemsCount = stepSteers.length + (thinkingEntry ? 1 : 0) + stepToolCalls.length;
+      const itemsCount = stepSteers.length + stepAssistantUpdates.length + (thinkingEntry ? 1 : 0) + stepToolCalls.length;
 
       for (const _steer of stepSteers) {
         tones.push('steer');
@@ -186,6 +198,10 @@ export function AgentStepsPanel({ agentState }: AgentStepsPanelProps) {
 
       if (thinkingEntry) {
         tones.push(thinkingEntry.isLive ? 'live' : 'default');
+      }
+
+      for (const _update of stepAssistantUpdates) {
+        tones.push('default');
       }
 
       for (const toolCall of stepToolCalls) {
@@ -206,6 +222,7 @@ export function AgentStepsPanel({ agentState }: AgentStepsPanelProps) {
     systemEvents,
     steps,
     toolCallsByStep,
+    assistantUpdatesByStep,
     thinkingContentByStep,
     injectedSteers,
     currentStep,
@@ -247,9 +264,10 @@ export function AgentStepsPanel({ agentState }: AgentStepsPanelProps) {
           {steps.map((step) => {
             const isCurrentStep = step.step_number === currentStep;
             const stepToolCalls = toolCallsByStep[step.step_number] || [];
+            const stepAssistantUpdates = assistantUpdatesByStep[step.step_number] || [];
             const thinkingEntry = thinkingContentByStep[step.step_number];
             const stepSteers = injectedSteers.filter((steer) => steer.step_number === step.step_number);
-            const itemsCount = stepSteers.length + (thinkingEntry ? 1 : 0) + stepToolCalls.length;
+            const itemsCount = stepSteers.length + stepAssistantUpdates.length + (thinkingEntry ? 1 : 0) + stepToolCalls.length;
 
             return (
               <div key={step.id} className="space-y-3">
@@ -279,6 +297,17 @@ export function AgentStepsPanel({ agentState }: AgentStepsPanelProps) {
                     />
                   </TimelineItem>
                 )}
+
+                {stepAssistantUpdates.map((update, index) => (
+                  <TimelineItem key={`assistant-update-${step.step_number}-${update.seq ?? index}`} dotTone="default">
+                    <div
+                      className="desktop-step-block text-[12px] leading-6 text-cyan-100/85"
+                      data-tone="assistant-update"
+                    >
+                      {update.content}
+                    </div>
+                  </TimelineItem>
+                ))}
 
                 {stepToolCalls.map((toolCall) => (
                   <TimelineItem key={toolCall.id} dotTone={toolCallDotTone(toolCall.status)}>

@@ -46,6 +46,7 @@ from orchestrator.logging_config import (
 from orchestrator.reasoning_controls import ReasoningSettings
 from orchestrator.routes.workspaces import _resolve_workspace_path, ensure_fluxion_gitignore
 from orchestrator.schemas import (
+    AgentAssistantUpdateResponse,
     AgentCitationResponse,
     AgentRunStatusResponse,
     AgentRunTraceResponse,
@@ -151,6 +152,7 @@ _EVENT_TYPE_MAP = {
     "plan_doc_updated": "plan_doc_updated",
     "user_input_required": "user_input_required",
     "tool_result": "tool_result",
+    "assistant_update": "assistant_update",
     "synthesizing": "agent_state",
     "answer_token": "answer",
     "agent_complete": "complete",
@@ -1916,6 +1918,22 @@ async def get_agent_run_trace(run_id: str, http_request: Request):
         for event in run_events
         if event.get("event_type") == "conversation_compacted"
     ]
+    assistant_updates = []
+    for event in run_events:
+        if event.get("event_type") != "assistant_update":
+            continue
+        data = event.get("event_data") or {}
+        content = data.get("content")
+        if not content:
+            continue
+        assistant_updates.append(
+            AgentAssistantUpdateResponse(
+                content=content,
+                step_number=data.get("step_number"),
+                seq=event.get("seq"),
+                created_at=event.get("created_at"),
+            )
+        )
 
     return AgentRunTraceResponse(
         run_id=run_id,
@@ -1926,6 +1944,7 @@ async def get_agent_run_trace(run_id: str, http_request: Request):
         citations=citations,
         artifacts=artifacts,
         system_events=system_events,
+        assistant_updates=assistant_updates,
         final_answer=run.get("final_answer"),
         collaboration_mode=normalize_collaboration_mode(run.get("collaboration_mode")),
         usage=usage_stats.get("usage"),

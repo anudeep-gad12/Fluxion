@@ -395,6 +395,15 @@ class AgentSystemEventResponse(BaseModel):
     created_at: Optional[str] = None
 
 
+class AgentAssistantUpdateResponse(BaseModel):
+    """Visible non-final assistant progress update."""
+
+    content: str
+    step_number: Optional[int] = None
+    seq: Optional[int] = None
+    created_at: Optional[str] = None
+
+
 class CreateAgentRunRequest(BaseModel):
     """Request to start an agent run."""
 
@@ -507,6 +516,7 @@ class AgentRunTraceResponse(BaseModel):
     citations: list[AgentCitationResponse]
     artifacts: list[RunArtifactResponse] = []
     system_events: list[AgentSystemEventResponse] = []
+    assistant_updates: list[AgentAssistantUpdateResponse] = []
     final_answer: Optional[str] = None
     collaboration_mode: Literal["default", "plan"] = "default"
     usage: Optional[dict[str, Any]] = None

@@ -557,6 +557,7 @@ export function subscribeToAgentRun(
     'plan_doc_updated',
     'user_input_required',
     'tool_result',
+    'assistant_update',
     'answer',
     'paused',
     'resumed',

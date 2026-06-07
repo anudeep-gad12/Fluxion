@@ -203,6 +203,7 @@ export interface AgentRunTrace {
   citations: AgentCitation[];
   artifacts?: RunArtifact[];
   system_events?: AgentSystemEvent[];
+  assistant_updates?: AgentAssistantUpdate[];
   final_answer?: string;
   collaboration_mode?: CollaborationMode;
   usage?: TokenUsage;
@@ -231,6 +232,7 @@ export type AgentSSEEventType =
   | 'plan_doc_updated' // durable plan markdown file changed
   | 'user_input_required' // Plan Mode question waiting for browser input
   | 'tool_result' // tool finished
+  | 'assistant_update' // user-visible non-final assistant update
   | 'answer' // streaming answer tokens
   | 'complete' // run finished
   | 'error' // run failed
@@ -276,6 +278,19 @@ export interface StepStartEvent extends AgentSSEEventBase {
 export interface ThinkingEvent extends AgentSSEEventBase {
   type: 'thinking';
   content: string;
+}
+
+export interface AgentAssistantUpdate {
+  content: string;
+  step_number?: number;
+  seq?: number;
+  created_at?: string;
+}
+
+export interface AssistantUpdateEvent extends AgentSSEEventBase {
+  type: 'assistant_update';
+  content: string;
+  step_number?: number;
 }
 
 /** Tool start event */
@@ -490,6 +505,7 @@ export type AgentSSEEvent =
   | PlanDocUpdatedEvent
   | UserInputRequiredEvent
   | ToolResultEvent
+  | AssistantUpdateEvent
   | AnswerEvent
   | CompleteEvent
   | ErrorEvent
@@ -514,6 +530,7 @@ export interface AgentUIState {
   steps: AgentStep[];
   toolCalls: AgentToolCall[];
   citations: AgentCitation[];
+  assistantUpdates: AgentAssistantUpdate[];
   lastSeq: number;
   timing_ms?: number;
   total_tokens?: number;

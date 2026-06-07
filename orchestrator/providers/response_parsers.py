@@ -161,6 +161,9 @@ def parse_streaming_delta(
         "reasoning": None,
         "tool_call": None,
         "tool_call_complete": None,  # Completed function call object
+        "tool_call_started": None,
+        "tool_call_arguments_delta": None,
+        "tool_call_arguments_done": None,
     }
 
     if endpoint_type == "responses":
@@ -175,18 +178,45 @@ def parse_streaming_delta(
         elif delta_type == "reasoning_delta":
             result["reasoning"] = delta.get("delta", {}).get("text")
 
-        # LM Studio format: response.output_text.delta, response.reasoning_text.delta
+        # Official Responses / LM Studio format:
+        # response.output_text.delta, response.reasoning_*_text.delta
         elif delta_type == "response.output_text.delta":
             result["content"] = delta.get("delta")
-        elif delta_type == "response.reasoning_text.delta":
+        elif delta_type in (
+            "response.reasoning_text.delta",
+            "response.reasoning_summary_text.delta",
+        ):
             result["reasoning"] = delta.get("delta")
 
-        # LM Studio format: response.function_call_arguments.delta (streaming args)
-        elif delta_type == "response.function_call_arguments.delta":
-            # Returns partial arguments as they stream
-            result["tool_call"] = delta.get("delta", "")
+        elif delta_type == "response.output_item.added":
+            item = delta.get("item", {})
+            if item.get("type") == "function_call":
+                result["tool_call_started"] = {
+                    "item_id": item.get("id"),
+                    "call_id": item.get("call_id") or item.get("id"),
+                    "name": item.get("name"),
+                    "arguments": item.get("arguments", ""),
+                    "output_index": delta.get("output_index"),
+                }
 
-        # LM Studio format: response.output_item.done (completed function call)
+        # Official Responses / LM Studio format:
+        # response.function_call_arguments.delta streams function args.
+        elif delta_type == "response.function_call_arguments.delta":
+            result["tool_call"] = delta.get("delta", "")
+            result["tool_call_arguments_delta"] = {
+                "item_id": delta.get("item_id"),
+                "output_index": delta.get("output_index"),
+                "delta": delta.get("delta", ""),
+            }
+
+        elif delta_type == "response.function_call_arguments.done":
+            result["tool_call_arguments_done"] = {
+                "item_id": delta.get("item_id"),
+                "output_index": delta.get("output_index"),
+                "arguments": delta.get("arguments", ""),
+            }
+
+        # Official Responses / LM Studio format: completed output item.
         elif delta_type == "response.output_item.done":
             item = delta.get("item", {})
             if item.get("type") == "function_call":

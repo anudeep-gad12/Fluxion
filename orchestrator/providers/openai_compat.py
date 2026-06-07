@@ -476,6 +476,7 @@ class OpenAICompatProvider:
         tool_calls: List[Dict[str, Any]] = []
         # Accumulator for streaming tool calls (index -> {id, name, arguments_parts})
         tool_call_accumulators: Dict[int, Dict[str, Any]] = {}
+        responses_tool_call_accumulators: Dict[str, Dict[str, Any]] = {}
         finish_reason = "stop"
         usage: Dict[str, int] = {}
         response_id: Optional[str] = None
@@ -506,6 +507,44 @@ class OpenAICompatProvider:
                 "payload_preview": payload_json[:8000],
             },
         )
+
+        known_response_event_types = {
+            "response.created",
+            "response.in_progress",
+            "response.completed",
+            "response.failed",
+            "response.incomplete",
+            "response.output_item.added",
+            "response.output_item.done",
+            "response.content_part.added",
+            "response.content_part.done",
+            "response.output_text.delta",
+            "response.output_text.done",
+            "response.refusal.delta",
+            "response.refusal.done",
+            "response.function_call_arguments.delta",
+            "response.function_call_arguments.done",
+            "response.reasoning_summary_part.added",
+            "response.reasoning_summary_part.done",
+            "response.reasoning_summary_text.delta",
+            "response.reasoning_summary_text.done",
+            "response.reasoning_text.delta",
+            "response.reasoning_text.done",
+            "response.web_search_call.in_progress",
+            "response.web_search_call.searching",
+            "response.web_search_call.completed",
+            "content_block_delta",
+            "reasoning_delta",
+        }
+
+        def _responses_accumulator_key(payload: Dict[str, Any]) -> Optional[str]:
+            item_id = payload.get("item_id")
+            if item_id is not None:
+                return f"item:{item_id}"
+            output_index = payload.get("output_index")
+            if output_index is not None:
+                return f"idx:{output_index}"
+            return None
 
         try:
             async with self._client.stream("POST", url, json=payload) as response:
@@ -573,7 +612,58 @@ class OpenAICompatProvider:
 
                     # Parse based on endpoint type
                     if "/responses" in url:
+                        delta_type = data.get("type")
+                        if delta_type and delta_type not in known_response_event_types:
+                            logger.debug(
+                                "Unknown Responses streaming event type",
+                                extra={
+                                    "event_type": delta_type,
+                                    "preview": str(data)[:500],
+                                },
+                            )
                         delta = parse_streaming_delta(data, "responses")
+                        if delta.get("tool_call_started"):
+                            started = delta["tool_call_started"]
+                            key = _responses_accumulator_key(started)
+                            if key:
+                                responses_tool_call_accumulators[key] = {
+                                    "id": started.get("call_id") or started.get("item_id"),
+                                    "item_id": started.get("item_id"),
+                                    "name": started.get("name"),
+                                    "arguments_parts": [
+                                        started.get("arguments", "")
+                                    ] if started.get("arguments") else [],
+                                }
+                        if delta.get("tool_call_arguments_delta"):
+                            arg_delta = delta["tool_call_arguments_delta"]
+                            key = _responses_accumulator_key(arg_delta)
+                            if key:
+                                acc = responses_tool_call_accumulators.setdefault(
+                                    key,
+                                    {
+                                        "id": None,
+                                        "item_id": arg_delta.get("item_id"),
+                                        "name": None,
+                                        "arguments_parts": [],
+                                    },
+                                )
+                                if arg_delta.get("delta"):
+                                    acc["arguments_parts"].append(arg_delta["delta"])
+                        if delta.get("tool_call_arguments_done"):
+                            arg_done = delta["tool_call_arguments_done"]
+                            key = _responses_accumulator_key(arg_done)
+                            if key:
+                                acc = responses_tool_call_accumulators.setdefault(
+                                    key,
+                                    {
+                                        "id": None,
+                                        "item_id": arg_done.get("item_id"),
+                                        "name": None,
+                                        "arguments_parts": [],
+                                    },
+                                )
+                                if arg_done.get("arguments"):
+                                    acc["arguments_parts"] = [arg_done["arguments"]]
                     else:
                         choices = data.get("choices", [{}])
                         if choices:
@@ -693,6 +783,39 @@ class OpenAICompatProvider:
                     tools, max_tokens, temperature, reasoning_effort, **kwargs
                 )
             raise
+
+        # Finalize accumulated Responses streaming tool calls when a provider
+        # sends output_item.added + function_call_arguments.done without a
+        # complete function_call in response.output_item.done.
+        if responses_tool_call_accumulators:
+            existing_ids = {tc.get("id") for tc in tool_calls}
+            for acc in responses_tool_call_accumulators.values():
+                tc_id = acc.get("id") or acc.get("item_id")
+                name = acc.get("name")
+                if not (tc_id and name and acc.get("arguments_parts")):
+                    continue
+                if tc_id in existing_ids:
+                    continue
+                args_str = "".join(acc["arguments_parts"])
+                if not _has_valid_tool_arguments(args_str):
+                    logger.warning(
+                        "Skipped Responses streaming tool call with invalid arguments",
+                        extra={"tool_name": name, "tool_id": tc_id},
+                    )
+                    continue
+                tool_calls.append({
+                    "id": tc_id,
+                    "type": "function",
+                    "function": {
+                        "name": name,
+                        "arguments": args_str,
+                    },
+                })
+                existing_ids.add(tc_id)
+                logger.debug(
+                    "Finalized Responses streaming tool call",
+                    extra={"tool_name": name, "arguments_length": len(args_str)},
+                )
 
         # Finalize accumulated streaming tool calls (for llama-server format).
         # Only add tool calls not already captured via tool_calls_complete
