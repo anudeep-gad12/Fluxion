@@ -660,6 +660,9 @@ ul {
 }
 
 .capabilityGrid {
+  list-style: none;
+  padding: 0;
+  margin: 0;
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 32px 40px;
@@ -785,12 +788,222 @@ footer a:hover {
 }
 
 @media (max-width: 640px) {
-  .nav--fixed {
-    padding: 12px 16px;
+  :root {
+    --nav-height: 56px;
   }
 
-  .navLinks a:not(.navCta):not(.navStar):not([href="#capabilities"]) {
+  .container,
+  footer {
+    width: min(var(--max-wide), calc(100% - 32px));
+  }
+
+  .nav--fixed {
+    padding: 10px 16px;
+  }
+
+  .navInner {
+    gap: 12px;
+  }
+
+  .logoLockup {
+    gap: 8px !important;
+  }
+
+  .logoLockup img {
+    width: 22px;
+    height: 22px;
+  }
+
+  .logoLockup span {
+    font-size: 14px;
+  }
+
+  .navLinks {
+    flex-shrink: 0;
+    gap: 0;
+  }
+
+  .navLinks a:not(.navCta) {
     display: none;
+  }
+
+  .navLinks a {
+    padding: 8px 11px;
+    font-size: 13px;
+  }
+
+  .hero {
+    padding: 30px 0 56px;
+  }
+
+  .heroTitle {
+    max-width: 15ch;
+    margin-inline: auto;
+    font-size: clamp(30px, 8.8vw, 40px);
+    line-height: 1.08;
+    letter-spacing: -0.035em;
+  }
+
+  .heroLead {
+    max-width: 32em;
+    margin-top: 14px;
+    font-size: 14px;
+    line-height: 1.55;
+  }
+
+  .heroActions {
+    margin-top: 24px;
+  }
+
+  .btnPrimary--hero {
+    width: 100%;
+    max-width: 320px;
+    min-height: 48px;
+  }
+
+  .heroFoot {
+    margin-top: 18px;
+  }
+
+  .installCmd--hero {
+    display: none;
+  }
+
+  .heroNote {
+    max-width: 25em;
+    margin-inline: auto;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  .heroShot {
+    width: min(var(--max-wide), calc(100% - 24px));
+    margin-top: 36px;
+    padding-bottom: 20px;
+  }
+
+  .heroShot::after {
+    left: 14%;
+    right: 14%;
+    height: 30px;
+    filter: blur(7px);
+  }
+
+  .heroShot .heroMedia {
+    border-radius: 12px;
+    filter: drop-shadow(0 24px 42px rgba(0, 0, 0, 0.78));
+  }
+
+  .providerStrip {
+    padding-top: 56px;
+    padding-bottom: 56px;
+  }
+
+  .providerStripHeader,
+  .capabilityHeader {
+    margin-bottom: 22px;
+  }
+
+  .providerStripHeader h2,
+  .capabilityHeader h2,
+  .installPreCtaCopy h2 {
+    font-size: 22px;
+    line-height: 1.16;
+    letter-spacing: -0.025em;
+  }
+
+  .providerStripLead,
+  .capabilityHeader p,
+  .installPreCtaCopy p,
+  .finalCta p {
+    font-size: 14px;
+    line-height: 1.55;
+  }
+
+  .providerStripLead {
+    margin-top: 10px;
+  }
+
+  .providerGrid,
+  .capabilityGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .providerCard {
+    padding: 14px 16px;
+  }
+
+  .providerFacts {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+    margin-top: 18px;
+  }
+
+  .openSourceLine {
+    max-width: 28em;
+    padding-bottom: 36px;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  .installPreCta,
+  .capabilitySection,
+  .finalCta {
+    padding-top: 56px;
+    padding-bottom: 56px;
+  }
+
+  .installPreCtaCard {
+    padding: 28px 0;
+  }
+
+  .installPreCtaCmd .installCmdInner {
+    padding: 14px 16px;
+  }
+
+  .capabilitySection,
+  .capabilityHeader,
+  .capabilityGrid,
+  .capabilityItem,
+  .capabilityText {
+    text-align: left;
+  }
+
+  .capabilityGrid {
+    gap: 22px;
+    justify-items: stretch;
+  }
+
+  .capabilityItem {
+    justify-content: flex-start;
+    width: 100%;
+  }
+
+  .capabilityText h3 {
+    font-size: 15px;
+  }
+
+  .capabilityText p {
+    font-size: 14px;
+  }
+
+  .finalCta h2 {
+    font-size: 25px;
+    line-height: 1.14;
+    letter-spacing: -0.03em;
+  }
+
+  .installCmdInner code {
+    white-space: normal;
+    word-break: break-word;
+  }
+}
+
+@media (max-width: 480px) {
+  .container,
+  footer {
+    width: min(var(--max-wide), calc(100% - 28px));
   }
 
   .hero {
@@ -798,50 +1011,19 @@ footer a:hover {
   }
 
   .heroTitle {
-    max-width: none;
-    font-size: clamp(34px, 10vw, 48px);
-    letter-spacing: -0.035em;
+    font-size: clamp(29px, 8.8vw, 36px);
   }
 
-  .providerGrid {
-    grid-template-columns: 1fr;
+  .btnPrimary--hero {
+    font-size: 14px;
   }
 
-  .providerStrip,
-  .installPreCta,
-  .capabilitySection {
-    padding-top: 80px;
-    padding-bottom: 80px;
+  .heroShot {
+    width: calc(100% - 20px);
   }
 
-  .openSourceLine {
-    padding-bottom: 64px;
-  }
-
-  .installPreCta {
-    padding-bottom: 80px;
-  }
-
-  .capabilityGrid {
-    grid-template-columns: 1fr;
-  }
-
-  .installCmdInner code {
-    white-space: normal;
-    word-break: break-all;
-  }
-
-  .providerFacts {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 12px;
-  }
-}
-
-@media (max-width: 480px) {
-  .container,
-  .nav,
   footer {
-    width: min(var(--max-wide), calc(100% - 24px));
+    align-items: flex-start;
+    flex-direction: column;
   }
 }
