@@ -28,6 +28,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 mkdir -p "$LOG_DIR" "$PID_DIR"
+export UV_CACHE_DIR="${UV_CACHE_DIR:-$PROJECT_DIR/.uv-cache}"
 
 log() {
     echo -e "${GREEN}[dev]${NC} $1"
@@ -222,7 +223,7 @@ start_desktop_api() {
 
     : > "$LOG_DIR/api.log"
     start_detached "$PID_DIR/api.pid" "$LOG_DIR/api.log" "$PROJECT_DIR" \
-        uv run uvicorn orchestrator.app:app --reload --reload-dir orchestrator --port "$API_PORT" --host 127.0.0.1
+        uv run uvicorn orchestrator.app:app --port "$API_PORT" --host 127.0.0.1
     if wait_for_http "http://$CHECK_HOST:$API_PORT/api/health" 20; then
         log "Desktop API ready: ${BLUE}http://127.0.0.1:$API_PORT${NC}"
         local ui_built

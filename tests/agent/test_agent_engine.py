@@ -2749,8 +2749,8 @@ class TestAgentEngineToolExecution:
         assert tool_results[0]["success"] is False
 
     @pytest.mark.asyncio
-    async def test_forces_synthesis_after_repeated_filtered_duplicate_tool_calls(self):
-        """Repeated duplicate tool calls should not spin until max steps."""
+    async def test_stalls_after_repeated_filtered_duplicate_tool_calls(self):
+        """Repeated duplicate tool calls should fail clearly instead of force synthesis."""
         call_count = 0
         captured_messages = []
 
@@ -2840,11 +2840,10 @@ class TestAgentEngineToolExecution:
                 query="Revert the previous change",
             )
 
-        assert result.success is True
-        assert result.final_answer == "I already checked git status. The revert is complete."
-        assert result.total_steps == 3
+        assert result.success is False
+        assert "repeated filtered tool calls" in (result.error_message or "")
         assert mock_tool.execute.call_count == 1
-        assert provider.complete_streaming.call_count == 4
+        assert provider.complete_streaming.call_count == 3
 
         decisions = [
             call.kwargs.get("decision")
@@ -4358,7 +4357,7 @@ class TestCodingContinuationBehavior:
 
     @pytest.mark.asyncio
     async def test_coding_run_first_step_does_not_force_tool_choice(self):
-        provider = create_mock_provider(response_text="Inspection complete.")
+        provider = create_mock_provider(response_text="Hi — ready when you are.")
         mock_sm = create_mock_state_machine()
 
         with patch(
@@ -4372,18 +4371,17 @@ class TestCodingContinuationBehavior:
                 profile=self._coding_profile(),
                 planning_enabled=False,
             )
-            await engine.run(run_id="run-fix", query="fix the broken UI test")
+            await engine.run(run_id="run-chat", query="say hi")
 
         assert provider.complete_streaming.call_args.kwargs["tool_choice"] is None
 
     @pytest.mark.asyncio
-    async def test_length_only_reasoning_forces_no_tools_synthesis(self):
+    async def test_repeated_length_only_reasoning_fails_without_forced_synthesis(self):
         provider = MagicMock()
         provider.complete_streaming = AsyncMock(
             side_effect=[
                 LLMResponse(text="", reasoning="thinking only", finish_reason="length"),
                 LLMResponse(text="", reasoning="still thinking", finish_reason="length"),
-                LLMResponse(text="Compact final answer.", finish_reason="stop"),
             ]
         )
         mock_sm = create_mock_state_machine(
@@ -4407,10 +4405,9 @@ class TestCodingContinuationBehavior:
             )
             result = await engine.run(run_id="run-length", query="fix the UI")
 
-        assert result.success is True
-        assert result.final_answer == "Compact answer."
-        assert provider.complete_streaming.call_count == 3
-        assert provider.complete_streaming.call_args_list[2].kwargs["tools"] is None
+        assert result.success is False
+        assert "length-truncated reasoning" in (result.error_message or "")
+        assert provider.complete_streaming.call_count == 2
 
     @pytest.mark.asyncio
     async def test_regression_praise_after_changes_stays_conversational(self):
@@ -4594,6 +4591,7 @@ class TestCodingContinuationBehavior:
                     ],
                 ),
                 LLMResponse(text="I need valid edit arguments before changing that file."),
+                LLMResponse(text="I need valid edit arguments before changing that file."),
             ]
         )
         repo = create_mock_repo()
@@ -4622,10 +4620,11 @@ class TestCodingContinuationBehavior:
             }
         ]
         mock_sm = create_mock_state_machine(
-            can_continue_sequence=[True, True, False],
+            can_continue_sequence=[True, True, True, False],
             step_sequence=[
                 {"step_number": 1, "id": "step-1"},
                 {"step_number": 2, "id": "step-2"},
+                {"step_number": 3, "id": "step-3"},
             ],
         )
         mock_sm.record_tool_call = AsyncMock(return_value={"id": "tc-bad"})
@@ -4643,7 +4642,8 @@ class TestCodingContinuationBehavior:
             )
             result = await engine.run(run_id="run-invalid", query="fix the broken UI")
 
-        assert result.success is True
+        assert result.success is False
+        assert "repeated text-only updates" in (result.error_message or "")
         second_messages = provider.complete_streaming.call_args_list[1].kwargs["messages"]
         assistant_with_tool_calls = [
             msg
@@ -4879,8 +4879,8 @@ class TestCodingContinuationBehavior:
         assert "I'll search for this." not in "".join(event["content"] for event in answers)
 
     @pytest.mark.asyncio
-    async def test_progress_update_forces_one_web_search_when_research_pending(self):
-        """Progress-only research response gets one forced web_search recovery."""
+    async def test_progress_update_continues_without_forcing_web_search(self):
+        """Progress-only response is shown as update, then agent continues normally."""
         provider = MagicMock()
         provider.complete_streaming = AsyncMock(
             side_effect=[
@@ -4942,17 +4942,19 @@ class TestCodingContinuationBehavior:
             )
 
         assert result.success is True
-        assert provider.complete_streaming.await_args_list[1].kwargs["tool_choice"] == "web_search"
+        assert provider.complete_streaming.await_args_list[0].kwargs["tool_choice"] is None
+        assert provider.complete_streaming.await_args_list[1].kwargs["tool_choice"] is None
         web_tool.execute.assert_awaited_once_with(query="VO2max training evidence")
         decisions = [call.kwargs.get("decision") for call in mock_sm.complete_step.await_args_list]
-        assert "forced_web_search_recovery" in decisions
+        assert "completion_gate_continue" in decisions
+        assert "call_tool" in decisions
         updates = [event for event in events if event["type"] == "assistant_update"]
         assert len(updates) == 1
         assert updates[0]["content"] == "Cross-checking evidence on what speeds VO2max gains."
 
     @pytest.mark.asyncio
-    async def test_forced_web_search_failure_errors_instead_of_looping(self):
-        """If a forced web_search is ignored, fail clearly instead of nudging forever."""
+    async def test_repeated_progress_updates_stall_without_web_nudge(self):
+        """Repeated progress-only responses fail clearly without web-specific nudging."""
         provider = MagicMock()
         provider.complete_streaming = AsyncMock(
             side_effect=[
@@ -4961,7 +4963,11 @@ class TestCodingContinuationBehavior:
                     tool_calls=None,
                     reasoning="I should use web_search.",
                 ),
-                LLMResponse(text="Still not a tool call.", tool_calls=None),
+                LLMResponse(
+                    text="I'll search the evidence.",
+                    tool_calls=None,
+                    reasoning="I should use web_search.",
+                ),
             ]
         )
         registry = MagicMock()
@@ -4986,14 +4992,128 @@ class TestCodingContinuationBehavior:
             result = await engine.run(
                 run_id="run-forced-web-fail",
                 query="research current VO2max evidence",
-            )
+        )
 
         assert result.success is False
-        assert "forced `web_search`" in (result.error_message or "")
+        assert "repeated text-only updates" in (result.error_message or "")
         assert provider.complete_streaming.await_count == 2
         decisions = [call.kwargs.get("decision") for call in mock_sm.complete_step.await_args_list]
-        assert decisions.count("forced_web_search_recovery") == 1
-        assert "forced_web_search_failed" in decisions
+        assert decisions.count("completion_gate_continue") == 1
+        assert "completion_gate_stalled" in decisions
+
+    @pytest.mark.asyncio
+    async def test_today_logging_task_does_not_trigger_web_recovery(self):
+        """Words like today do not force web-search recovery for no-tool final text."""
+        provider = MagicMock()
+        provider.complete_streaming = AsyncMock(
+            return_value=LLMResponse(
+                text="Logged today's sleep and HRV.",
+                tool_calls=None,
+            )
+        )
+        registry = MagicMock()
+        registry.get_openai_schemas.return_value = [
+            {"type": "function", "function": {"name": "web_search"}}
+        ]
+        registry.get.return_value = None
+        registry.is_idempotent.return_value = True
+        mock_sm = create_mock_state_machine()
+
+        with patch(
+            "orchestrator.agent.agent_engine.AgentStateMachine",
+            return_value=mock_sm,
+        ):
+            engine = AgentEngine(provider=provider, repo=create_mock_repo(), registry=registry)
+            result = await engine.run(
+                run_id="run-today-log",
+                query="today’s log 23:10 - 5:50 - 6h",
+            )
+
+        assert result.success is True
+        assert result.final_answer == "Logged today's sleep and HRV."
+        assert provider.complete_streaming.await_count == 1
+        assert provider.complete_streaming.await_args.kwargs["tool_choice"] is None
+        decisions = [call.kwargs.get("decision") for call in mock_sm.complete_step.await_args_list]
+        assert "synthesize" in decisions
+
+    def test_completion_gate_blocks_coding_final_before_mutation_evidence(self):
+        registry = create_mock_registry()
+        registry.get_openai_schemas.return_value = [
+            {"type": "function", "function": {"name": "read_file"}},
+            {"type": "function", "function": {"name": "edit_file"}},
+        ]
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=create_mock_repo(),
+            registry=registry,
+            profile=self._coding_profile(),
+        )
+
+        gate = engine._evaluate_completion_gate(
+            query="fix the broken button",
+            llm_response=LLMResponse(text="I found the issue and will fix it."),
+            tool_calls=None,
+            tool_schemas=registry.get_openai_schemas.return_value,
+            working_memory=WorkingMemory(objective="fix the broken button"),
+        )
+
+        assert gate.action == "show_update_and_continue"
+        assert gate.evidence_missing == [
+            "workspace_inspection",
+            "workspace_mutation",
+        ]
+
+    def test_completion_gate_accepts_coding_final_after_mutation_evidence(self):
+        registry = create_mock_registry()
+        registry.get_openai_schemas.return_value = [
+            {"type": "function", "function": {"name": "read_file"}},
+            {"type": "function", "function": {"name": "edit_file"}},
+        ]
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=create_mock_repo(),
+            registry=registry,
+            profile=self._coding_profile(),
+        )
+        memory = WorkingMemory(objective="fix the broken button")
+        memory.files_inspected["ui/Button.tsx"] = "Read button component."
+        memory.files_changed["ui/Button.tsx"] = "Updated click handler."
+        engine._tool_call_log = [
+            {"tool_name": "edit_file", "success": True, "arguments": {}},
+        ]
+
+        gate = engine._evaluate_completion_gate(
+            query="fix the broken button",
+            llm_response=LLMResponse(text="Fixed the button."),
+            tool_calls=None,
+            tool_schemas=registry.get_openai_schemas.return_value,
+            working_memory=memory,
+        )
+
+        assert gate.action == "accept_final"
+        assert gate.evidence_missing == []
+
+    def test_completion_gate_blocks_research_final_before_web_evidence(self):
+        registry = create_mock_registry()
+        registry.get_openai_schemas.return_value = [
+            {"type": "function", "function": {"name": "web_search"}},
+        ]
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=create_mock_repo(),
+            registry=registry,
+        )
+
+        gate = engine._evaluate_completion_gate(
+            query="research what speeds VO2max gains",
+            llm_response=LLMResponse(text="VO2max improves with intervals."),
+            tool_calls=None,
+            tool_schemas=registry.get_openai_schemas.return_value,
+            working_memory=WorkingMemory(objective="research VO2max"),
+        )
+
+        assert gate.action == "show_update_and_continue"
+        assert gate.evidence_missing == ["web_evidence"]
 
     def test_available_tool_schemas_do_not_add_final_answer_tool(self):
         """The agent does not advertise a synthetic final_answer finish tool."""

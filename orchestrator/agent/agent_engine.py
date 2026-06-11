@@ -141,6 +141,17 @@ class ParsedToolCall:
 
 
 @dataclass
+class CompletionGateResult:
+    """Harness decision for no-tool/tool-call model responses."""
+
+    action: str
+    reason: str
+    evidence_required: List[str] = field(default_factory=list)
+    evidence_satisfied: List[str] = field(default_factory=list)
+    evidence_missing: List[str] = field(default_factory=list)
+
+
+@dataclass
 class WorkingMemory:
     """Compact agent working memory used for prompt reconstruction."""
 
@@ -613,6 +624,10 @@ To provide your final answer, respond WITHOUT calling any tools."""
             stripped = stripped[:397].rstrip() + "..."
         return stripped
 
+    def _assistant_update_key(self, content: str) -> str:
+        """Return a stable key for detecting repeated text-only updates."""
+        return re.sub(r"\W+", " ", content.lower()).strip()[:240]
+
     def _tool_schema_names(self, tool_schemas: List[Dict[str, Any]]) -> set[str]:
         """Return function names advertised in an OpenAI-style tool schema list."""
         names: set[str] = set()
@@ -623,46 +638,276 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 names.add(name)
         return names
 
-    def _query_requires_web_research(self, query: str, tool_schemas: List[Dict[str, Any]]) -> bool:
-        """Return whether this run explicitly needs app-owned web search evidence.
-
-        This is intentionally limited to user-facing requests for research/current
-        lookup. It is not a prose-to-tool parser; it only marks the web-search
-        capability as outstanding so a model that emits a progress update instead
-        of a structured tool call can get one forced API-level recovery.
-        """
-        if "web_search" not in self._tool_schema_names(tool_schemas):
+    def _query_needs_web_evidence(self, query: str, tool_names: set[str]) -> bool:
+        """Return whether the user asked for external/current research evidence."""
+        if "web_search" not in tool_names:
             return False
         lowered = query.lower()
-        research_terms = (
-            "research",
-            "look up",
-            "lookup",
+        explicit_web_terms = (
             "web search",
             "search the web",
-            "what does research say",
-            "latest",
-            "current",
-            "up to date",
-            "today",
-            "recent",
+            "look up",
+            "lookup",
+            "google",
+            "online",
+            "external docs",
+            "official docs",
         )
+        research_terms = (
+            "research",
+            "what does research say",
+            "evidence-based",
+            "sources",
+            "cite",
+            "latest research",
+            "current research",
+            "recent research",
+            "up to date",
+        )
+        if any(term in lowered for term in explicit_web_terms):
+            return True
         return any(term in lowered for term in research_terms)
 
-    def _has_successful_web_lookup(self) -> bool:
-        """Return whether this run already has successful web evidence."""
-        return any(
-            entry.get("tool_name") in {"web_search", "web_extract"}
-            and bool(entry.get("success"))
-            for entry in self._tool_call_log
+    def _query_needs_calculation_evidence(self, query: str, tool_names: set[str]) -> bool:
+        """Return whether the user asked for arithmetic/data aggregation work."""
+        if "python_execute" not in tool_names:
+            return False
+        lowered = query.lower()
+        calculation_terms = (
+            "calculate",
+            "calc",
+            "compute",
+            "sum",
+            "total",
+            "average",
+            "median",
+            "percent",
+            "percentage",
+            "convert",
+            "aggregate",
+        )
+        return any(term in lowered for term in calculation_terms) or bool(
+            re.search(r"\d+\s*[-+*/]\s*\d+", lowered)
         )
 
-    def _tool_calls_include(self, tool_calls: Optional[List[Dict[str, Any]]], name: str) -> bool:
-        """Return whether normalized/provider tool calls include a named function."""
-        for tool_call in tool_calls or []:
-            if tool_call.get("function", {}).get("name") == name:
-                return True
-        return False
+    def _query_needs_workspace_inspection(self, query: str, tool_names: set[str]) -> bool:
+        """Return whether a coding run needs local workspace evidence before finality."""
+        if not self._is_coding_profile():
+            return False
+        if not ({"read_file", "grep", "glob", "list_directory"} & tool_names):
+            return False
+        lowered = query.lower()
+        if self._query_is_conversational(query):
+            return False
+        workspace_terms = (
+            "file",
+            "readme",
+            "repo",
+            "code",
+            "component",
+            "page",
+            "site/",
+            "src/",
+            "docs/",
+            "logs",
+            "traces",
+            "workspace",
+            "here",
+            "in this",
+        )
+        action_terms = (
+            "fix",
+            "implement",
+            "add",
+            "update",
+            "change",
+            "redesign",
+            "refactor",
+            "debug",
+            "wire",
+            "edit",
+            "make",
+            "remove",
+            "check",
+            "look at",
+            "review",
+        )
+        return any(term in lowered for term in workspace_terms + action_terms) or bool(
+            re.search(r"[\w.-]+/[\w./-]+", query)
+        )
+
+    def _query_needs_workspace_mutation(self, query: str, tool_names: set[str]) -> bool:
+        """Return whether the request asks Fluxion to change workspace state."""
+        if not self._is_coding_profile():
+            return False
+        if not ({"write_file", "edit_file", "apply_patch"} & tool_names):
+            return False
+        lowered = query.lower()
+        if self._query_is_conversational(query):
+            return False
+        mutation_terms = (
+            "fix",
+            "implement",
+            "add",
+            "update",
+            "change",
+            "redesign",
+            "refactor",
+            "wire",
+            "edit",
+            "make",
+            "remove",
+            "delete",
+            "rename",
+            "create",
+        )
+        return any(term in lowered for term in mutation_terms)
+
+    def _query_needs_command_evidence(self, query: str, tool_names: set[str]) -> bool:
+        """Return whether the user explicitly requested a local command action."""
+        if not ({"exec_command", "bash", "write_stdin"} & tool_names):
+            return False
+        lowered = query.lower()
+        command_terms = (
+            "commit",
+            "push",
+            "tag",
+            "release",
+            "deploy",
+            "run tests",
+            "run the tests",
+            "test it",
+            "build it",
+            "npm run",
+            "pytest",
+            "check logs",
+            "look at logs",
+            "look at traces",
+        )
+        return any(term in lowered for term in command_terms)
+
+    def _query_is_conversational(self, query: str) -> bool:
+        """Return whether the user is chatting rather than requesting work."""
+        lowered = query.lower().strip()
+        conversational_markers = (
+            "thanks",
+            "thank you",
+            "cool",
+            "nice",
+            "awesome",
+            "great",
+            "love this",
+            "looks good",
+            "woah",
+        )
+        return any(marker in lowered for marker in conversational_markers)
+
+    def _completion_requirements(
+        self,
+        query: str,
+        tool_schemas: List[Dict[str, Any]],
+    ) -> List[str]:
+        """Return state evidence required before accepting no-tool text as final."""
+        tool_names = self._tool_schema_names(tool_schemas)
+        requirements: List[str] = []
+        if self._query_needs_workspace_inspection(query, tool_names):
+            requirements.append("workspace_inspection")
+        if self._query_needs_workspace_mutation(query, tool_names):
+            requirements.append("workspace_mutation")
+        if self._query_needs_command_evidence(query, tool_names):
+            requirements.append("command_execution")
+        if self._query_needs_web_evidence(query, tool_names):
+            requirements.append("web_evidence")
+        if self._query_needs_calculation_evidence(query, tool_names):
+            requirements.append("calculation_evidence")
+        return requirements
+
+    def _successful_tool_names(self) -> set[str]:
+        """Return successful tool names seen in the current run."""
+        return {
+            str(entry.get("tool_name"))
+            for entry in self._tool_call_log
+            if bool(entry.get("success"))
+        }
+
+    def _satisfied_completion_evidence(
+        self,
+        working_memory: WorkingMemory,
+    ) -> List[str]:
+        """Return completion evidence already present in this run/session."""
+        tools = self._successful_tool_names()
+        satisfied: List[str] = []
+        if tools & {"read_file", "grep", "glob", "list_directory"} or working_memory.files_inspected:
+            satisfied.append("workspace_inspection")
+        if tools & {"write_file", "edit_file", "apply_patch"}:
+            satisfied.append("workspace_mutation")
+        if tools & {"bash", "exec_command", "write_stdin"}:
+            satisfied.append("command_execution")
+        if tools & {"web_search", "web_extract"}:
+            satisfied.append("web_evidence")
+        if tools & {"python_execute"}:
+            satisfied.append("calculation_evidence")
+        return satisfied
+
+    def _evaluate_completion_gate(
+        self,
+        *,
+        query: str,
+        llm_response: "LLMResponse",
+        tool_calls: Optional[List[Dict[str, Any]]],
+        tool_schemas: List[Dict[str, Any]],
+        working_memory: WorkingMemory,
+    ) -> CompletionGateResult:
+        """Decide whether text is final using protocol shape plus run evidence."""
+        if tool_calls:
+            return CompletionGateResult(
+                action="execute_tools",
+                reason="structured_tool_calls_present",
+            )
+
+        final_answer = self._clean_answer(llm_response.text)
+        if not final_answer:
+            return CompletionGateResult(
+                action="retry_empty",
+                reason="empty_text_without_tool_calls",
+            )
+
+        requirements = self._completion_requirements(query, tool_schemas)
+        satisfied = self._satisfied_completion_evidence(working_memory)
+        missing = [item for item in requirements if item not in satisfied]
+        if missing:
+            return CompletionGateResult(
+                action="show_update_and_continue",
+                reason="required_task_evidence_missing",
+                evidence_required=requirements,
+                evidence_satisfied=satisfied,
+                evidence_missing=missing,
+            )
+
+        return CompletionGateResult(
+            action="accept_final",
+            reason="completion_evidence_satisfied",
+            evidence_required=requirements,
+            evidence_satisfied=satisfied,
+            evidence_missing=[],
+        )
+
+    def _build_completion_gate_continuation_message(
+        self,
+        gate: CompletionGateResult,
+    ) -> Dict[str, str]:
+        """Build generic continuation guidance without forcing a specific tool."""
+        missing = ", ".join(gate.evidence_missing) or "task evidence"
+        return {
+            "role": "user",
+            "content": (
+                "Continue the run. The previous response was shown as a non-final "
+                f"update because required evidence is still missing: {missing}. "
+                "Use the next needed structured tool call if work remains. Provide "
+                "the final answer only after the task evidence is satisfied, or if "
+                "you can clearly explain why the requested evidence/action is impossible."
+            ),
+        }
 
     async def _emit_assistant_update(
         self,
@@ -696,18 +941,6 @@ To provide your final answer, respond WITHOUT calling any tools."""
             parent_event_id=parent_event_id,
         )
         return update
-
-    def _build_forced_web_search_recovery_message(self) -> Dict[str, str]:
-        """Build the one-shot protocol recovery prompt for missing web tool calls."""
-        return {
-            "role": "user",
-            "content": (
-                "Your previous response was a progress update, but this task still "
-                "requires web research. The next response must be a structured "
-                "`web_search` function call using the provided tool schema. Do not "
-                "describe planned searching in prose."
-            ),
-        }
 
     def _trim_scaffold_messages(
         self,
@@ -3204,9 +3437,8 @@ To provide your final answer, respond WITHOUT calling any tools."""
             consecutive_filtered_steps = 0
             length_only_continuations = 0
             empty_no_tool_retries = 0
-            forced_tool_choice_next: Optional[str] = None
-            forced_web_search_attempted = False
-            web_research_required = False
+            completion_update_continuations = 0
+            last_completion_update_key: Optional[str] = None
 
             # Main agent loop
             while state_machine.can_continue():
@@ -3354,11 +3586,6 @@ To provide your final answer, respond WITHOUT calling any tools."""
 
                 # Call LLM with tools
                 tool_schemas = self._available_tool_schemas()
-                if step_number == 1:
-                    web_research_required = self._query_requires_web_research(
-                        query,
-                        tool_schemas,
-                    )
 
                 # Trace: llm_request
                 llm_request_event_id = await self._add_trace_event(
@@ -3368,10 +3595,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         "model": self._model_name,
                         "messages_count": len(pruned_messages),
                         "tools_count": len(tool_schemas) if tool_schemas else 0,
-                        "tool_choice": (
-                            forced_tool_choice_next
-                            or (self._tool_choice if step_number == 1 else None)
-                        ),
+                        "tool_choice": self._tool_choice if step_number == 1 else None,
                     },
                     event_status="pending",
                     step_number=step_number,
@@ -3379,12 +3603,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
 
                 llm_start_time = time.perf_counter()
                 try:
-                    forced_tool_choice_for_step = forced_tool_choice_next
-                    forced_tool_choice_next = None
-                    step_tool_choice = (
-                        forced_tool_choice_for_step
-                        or (self._tool_choice if step_number == 1 else None)
-                    )
+                    step_tool_choice = self._tool_choice if step_number == 1 else None
                     llm_response = await self._call_llm_with_tools(
                         messages=pruned_messages,
                         event_callback=event_callback,
@@ -3527,6 +3746,29 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     last_compacted_at_step=self._last_compacted_at_step,
                 )
 
+                completion_gate = self._evaluate_completion_gate(
+                    query=query,
+                    llm_response=llm_response,
+                    tool_calls=tool_calls,
+                    tool_schemas=tool_schemas,
+                    working_memory=working_memory,
+                )
+                await self._add_trace_event(
+                    run_id=run_id,
+                    event_type="completion_gate",
+                    content={
+                        "step_number": step_number,
+                        "completion_gate_decision": completion_gate.action,
+                        "completion_gate_reason": completion_gate.reason,
+                        "evidence_required": completion_gate.evidence_required,
+                        "evidence_satisfied": completion_gate.evidence_satisfied,
+                        "evidence_missing": completion_gate.evidence_missing,
+                    },
+                    actor="system",
+                    step_number=step_number,
+                    parent_event_id=llm_request_event_id,
+                )
+
                 # Model was truncated (hit max_tokens) — partial content
                 # is not a final answer, the model may have been mid-tool-call
                 if not tool_calls and llm_response.finish_reason == "length":
@@ -3534,8 +3776,12 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         llm_response.reasoning
                     )
                     if length_only and length_only_continuations >= 1:
+                        error_message = (
+                            "Model protocol error: provider repeatedly returned "
+                            "length-truncated reasoning without answer text or tool calls."
+                        )
                         logger.warning(
-                            "Length-only reasoning repeated; forcing no-tools synthesis",
+                            "Length-only reasoning repeated; stopping without forced synthesis",
                             extra={
                                 "run_id": run_id,
                                 "step_number": step_number,
@@ -3543,32 +3789,10 @@ To provide your final answer, respond WITHOUT calling any tools."""
                             },
                         )
                         await state_machine.complete_step(
-                            decision="length_only_force_synthesis",
+                            decision="length_only_stalled",
                             thinking_text=thinking_text,
                         )
-                        final_answer = await self._force_synthesis(
-                            messages=self._build_prompt_messages(
-                                scaffold_messages=messages,
-                                working_memory=working_memory,
-                            ),
-                            event_callback=event_callback,
-                            run_id=run_id,
-                        )
-                        return await self._finalize_successful_run(
-                            final_answer=final_answer,
-                            messages=messages,
-                            state_machine=state_machine,
-                            step_number=step_number,
-                            start_time=start_time,
-                            event_callback=event_callback,
-                            run_id=run_id,
-                            query=query,
-                            conversation_id=conversation_id,
-                            working_memory=working_memory,
-                            coding_session_state=coding_session_state,
-                            coding_session_dirty=coding_session_dirty,
-                            forced_synthesis=True,
-                        )
+                        raise RuntimeError(error_message)
                     logger.warning(
                         "Model truncated (finish_reason=length), continuing",
                         extra={
@@ -3607,34 +3831,6 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     )
                     consecutive_filtered_steps = 0
                     continue
-
-                if (
-                    forced_tool_choice_for_step == "web_search"
-                    and not self._tool_calls_include(tool_calls, "web_search")
-                ):
-                    error_message = (
-                        "Model protocol error: forced `web_search` was requested, "
-                        "but the provider returned no structured `web_search` tool call."
-                    )
-                    logger.warning(
-                        "Forced web_search recovery failed",
-                        extra={
-                            "run_id": run_id,
-                            "step_number": step_number,
-                            "has_tool_calls": bool(tool_calls),
-                            "tool_names": [
-                                tc.get("function", {}).get("name")
-                                for tc in (tool_calls or [])
-                            ],
-                            "text_length": len(llm_response.text or ""),
-                            "finish_reason": llm_response.finish_reason,
-                        },
-                    )
-                    await state_machine.complete_step(
-                        decision="forced_web_search_failed",
-                        thinking_text=thinking_text,
-                    )
-                    raise RuntimeError(error_message)
 
                 if tool_calls:
                     if assistant_update_content:
@@ -3754,8 +3950,12 @@ To provide your final answer, respond WITHOUT calling any tools."""
                             else:
                                 consecutive_filtered_steps += 1
                             if consecutive_filtered_steps >= 2:
+                                error_message = (
+                                    "Model protocol error: model repeated filtered "
+                                    "tool calls without choosing a valid next action."
+                                )
                                 logger.warning(
-                                    "Model repeated filtered tool calls; forcing synthesis",
+                                    "Model repeated filtered tool calls; stopping without forced synthesis",
                                     extra={
                                         "run_id": run_id,
                                         "step_number": step_number,
@@ -3763,29 +3963,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                                         "reasons": reasons,
                                     },
                                 )
-                                final_answer = await self._force_synthesis(
-                                    messages=self._build_prompt_messages(
-                                        scaffold_messages=messages,
-                                        working_memory=working_memory,
-                                    ),
-                                    event_callback=event_callback,
-                                    run_id=run_id,
-                                )
-                                return await self._finalize_successful_run(
-                                    final_answer=final_answer,
-                                    messages=messages,
-                                    state_machine=state_machine,
-                                    step_number=step_number,
-                                    start_time=start_time,
-                                    event_callback=event_callback,
-                                    run_id=run_id,
-                                    query=query,
-                                    conversation_id=conversation_id,
-                                    working_memory=working_memory,
-                                    coding_session_state=coding_session_state,
-                                    coding_session_dirty=coding_session_dirty,
-                                    forced_synthesis=True,
-                                )
+                                raise RuntimeError(error_message)
 
                         filtered_user_prompt = {
                             "role": "user",
@@ -3942,6 +4120,8 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     consecutive_filtered_steps = 0
                     length_only_continuations = 0
                     empty_no_tool_retries = 0
+                    completion_update_continuations = 0
+                    last_completion_update_key = None
 
                     await state_machine.complete_step(
                         decision="call_tool",
@@ -3971,18 +4151,38 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         )
 
                 else:
-                    # No tool calls normally means final answer. Composer-style
-                    # models can emit a visible progress update before the
-                    # structured tool call; when explicit web research is still
-                    # outstanding, recover once with API-level tool_choice.
+                    # No tool calls are final only when the completion gate says
+                    # the task has enough run evidence. Otherwise the text is a
+                    # visible non-final update and the loop continues with normal
+                    # model-selected tool use.
                     final_answer = self._clean_answer(llm_response.text)
-                    web_lookup_pending = (
-                        web_research_required
-                        and not self._has_successful_web_lookup()
-                        and "web_search" in self._tool_schema_names(tool_schemas)
-                    )
+                    if completion_gate.action == "show_update_and_continue":
+                        update_key = self._assistant_update_key(final_answer)
+                        if (
+                            completion_update_continuations >= 3
+                            or update_key == last_completion_update_key
+                        ):
+                            error_message = (
+                                "Model protocol error: model emitted repeated text-only "
+                                "updates without satisfying required task evidence."
+                            )
+                            logger.warning(
+                                "Completion gate stalled on text-only updates",
+                                extra={
+                                    "run_id": run_id,
+                                    "step_number": step_number,
+                                    "completion_update_continuations": completion_update_continuations,
+                                    "evidence_missing": completion_gate.evidence_missing,
+                                    "text_preview": final_answer[:300],
+                                    "finish_reason": llm_response.finish_reason,
+                                },
+                            )
+                            await state_machine.complete_step(
+                                decision="completion_gate_stalled",
+                                thinking_text=thinking_text,
+                            )
+                            raise RuntimeError(error_message)
 
-                    if web_lookup_pending and not forced_web_search_attempted:
                         update = await self._emit_assistant_update(
                             event_callback=event_callback,
                             run_id=run_id,
@@ -3990,18 +4190,26 @@ To provide your final answer, respond WITHOUT calling any tools."""
                             content=final_answer,
                             parent_event_id=llm_request_event_id,
                         )
-                        recovery_message = self._build_forced_web_search_recovery_message()
-                        messages.append(recovery_message)
+                        if update:
+                            update_message = {
+                                "role": "assistant",
+                                "content": update,
+                            }
+                            messages.append(update_message)
+                            if self._is_coding_profile():
+                                ephemeral_messages.append(update_message)
+                        continuation_message = self._build_completion_gate_continuation_message(
+                            completion_gate
+                        )
+                        messages.append(continuation_message)
                         if self._is_coding_profile():
-                            ephemeral_messages.append(recovery_message)
-                        forced_tool_choice_next = "web_search"
-                        forced_web_search_attempted = True
+                            ephemeral_messages.append(continuation_message)
+                        else:
+                            messages = self._trim_scaffold_messages(messages)
+                        completion_update_continuations += 1
+                        last_completion_update_key = update_key
                         await state_machine.complete_step(
-                            decision=(
-                                "forced_web_search_recovery"
-                                if update
-                                else "empty_forced_web_search_recovery"
-                            ),
+                            decision="completion_gate_continue",
                             thinking_text=thinking_text,
                         )
                         continue
@@ -4043,6 +4251,9 @@ To provide your final answer, respond WITHOUT calling any tools."""
                             ephemeral_messages.append(retry_message)
                         empty_no_tool_retries += 1
                         continue
+
+                    completion_update_continuations = 0
+                    last_completion_update_key = None
 
                     # Synthesis step - final answer is available.
                     await state_machine.transition_to(AgentStepState.SYNTHESIZING)

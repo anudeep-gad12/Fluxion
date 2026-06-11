@@ -793,6 +793,10 @@ class TestAgentIntegrationCodingContinuation:
                     text="I spotted a few improvement ideas, but I need a valid edit request to change files.",
                     tool_calls=None,
                 ),
+                LLMResponse(
+                    text="I spotted a few improvement ideas, but I need a valid edit request to change files.",
+                    tool_calls=None,
+                ),
             ]
         )
 
@@ -846,7 +850,7 @@ class TestAgentIntegrationCodingContinuation:
                 last_completed_step=0,
             )
         )
-        mock_sm.can_continue.side_effect = lambda: step_count < 2
+        mock_sm.can_continue.side_effect = lambda: step_count < 3
         mock_sm.start_step = AsyncMock(side_effect=start_step)
         mock_sm.transition_to = AsyncMock()
         mock_sm.complete_step = AsyncMock()
@@ -876,7 +880,8 @@ class TestAgentIntegrationCodingContinuation:
                 query="is there any part of UI you'd improve to make it cleaner?",
             )
 
-        assert result.success is True
+        assert result.success is False
+        assert "repeated text-only updates" in (result.error_message or "")
         second_messages = provider.complete_streaming.call_args_list[1].kwargs["messages"]
         assert not any(
             msg.get("role") == "assistant" and msg.get("tool_calls")
