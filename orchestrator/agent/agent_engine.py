@@ -638,6 +638,40 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 names.add(name)
         return names
 
+    def _canonical_tool_name(self, name: str) -> str:
+        """Normalize model-emitted tool names to the registered schema name."""
+        stripped = str(name or "").strip()
+        if not stripped:
+            return stripped
+
+        def normalize(value: str) -> str:
+            return value.strip().lower().replace("-", "_").replace(" ", "_")
+
+        known: Dict[str, str] = {}
+        registry_tools = getattr(self._registry, "_tools", None)
+        if isinstance(registry_tools, dict):
+            for tool_name in registry_tools.keys():
+                if isinstance(tool_name, str) and tool_name:
+                    known[normalize(tool_name)] = tool_name
+
+        try:
+            schemas = self._registry.get_openai_schemas() or []
+        except Exception:
+            schemas = []
+        for schema in schemas:
+            func = schema.get("function", schema)
+            tool_name = func.get("name")
+            if isinstance(tool_name, str) and tool_name:
+                known[normalize(tool_name)] = tool_name
+
+        canonical = known.get(normalize(stripped), stripped)
+        if canonical != stripped:
+            logger.info(
+                "Canonicalized tool name",
+                extra={"raw_tool_name": stripped, "tool_name": canonical},
+            )
+        return canonical
+
     def _query_needs_web_evidence(self, query: str, tool_names: set[str]) -> bool:
         """Return whether the user asked for external/current research evidence."""
         if "web_search" not in tool_names:
@@ -732,9 +766,89 @@ To provide your final answer, respond WITHOUT calling any tools."""
             "look at",
             "review",
         )
-        return any(term in lowered for term in workspace_terms + action_terms) or bool(
-            re.search(r"[\w.-]+/[\w./-]+", query)
+        return any(term in lowered for term in workspace_terms + action_terms) or (
+            self._query_has_workspace_path_reference(query)
         )
+
+    def _query_has_workspace_path_reference(self, query: str) -> bool:
+        """Return whether the query contains a plausible workspace path.
+
+        A bare slash between normal words is not enough. For example,
+        "Bangalore/Bengaluru" is a location naming question, not a file path.
+        """
+        path_prefixes = (
+            "./",
+            "../",
+            "~/",
+            "/",
+        )
+        workspace_roots = {
+            ".agents",
+            ".claude",
+            ".codex",
+            ".cursor",
+            ".github",
+            ".fluxion",
+            "app",
+            "apps",
+            "career",
+            "components",
+            "docs",
+            "health",
+            "lib",
+            "orchestrator",
+            "packages",
+            "scripts",
+            "site",
+            "src",
+            "src-tauri",
+            "tests",
+            "ui",
+        }
+        file_extensions = {
+            ".c",
+            ".cpp",
+            ".css",
+            ".csv",
+            ".docx",
+            ".go",
+            ".h",
+            ".html",
+            ".java",
+            ".js",
+            ".json",
+            ".jsx",
+            ".md",
+            ".pdf",
+            ".py",
+            ".rs",
+            ".sh",
+            ".sql",
+            ".sqlite",
+            ".toml",
+            ".ts",
+            ".tsx",
+            ".txt",
+            ".yaml",
+            ".yml",
+        }
+        for raw_token in re.findall(r"""[`'"(\[]?[^\s`'"()\[\],;:?!]+/[^\s`'"()\[\],;:?!]+""", query):
+            token = raw_token.strip("`'\"()[]{}.,;:")
+            if "://" in token:
+                continue
+            lowered = token.lower()
+            if lowered.startswith(path_prefixes):
+                return True
+            parts = [part for part in lowered.split("/") if part]
+            if not parts:
+                continue
+            if parts[0] in workspace_roots:
+                return True
+            if any(part in workspace_roots for part in parts[:-1]):
+                return True
+            if any(Path(part).suffix.lower() in file_extensions for part in parts):
+                return True
+        return False
 
     def _query_needs_workspace_mutation(self, query: str, tool_names: set[str]) -> bool:
         """Return whether the request asks Fluxion to change workspace state."""
@@ -891,23 +1005,6 @@ To provide your final answer, respond WITHOUT calling any tools."""
             evidence_satisfied=satisfied,
             evidence_missing=[],
         )
-
-    def _build_completion_gate_continuation_message(
-        self,
-        gate: CompletionGateResult,
-    ) -> Dict[str, str]:
-        """Build generic continuation guidance without forcing a specific tool."""
-        missing = ", ".join(gate.evidence_missing) or "task evidence"
-        return {
-            "role": "user",
-            "content": (
-                "Continue the run. The previous response was shown as a non-final "
-                f"update because required evidence is still missing: {missing}. "
-                "Use the next needed structured tool call if work remains. Provide "
-                "the final answer only after the task evidence is satisfied, or if "
-                "you can clearly explain why the requested evidence/action is impossible."
-            ),
-        }
 
     async def _emit_assistant_update(
         self,
@@ -4198,13 +4295,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                             messages.append(update_message)
                             if self._is_coding_profile():
                                 ephemeral_messages.append(update_message)
-                        continuation_message = self._build_completion_gate_continuation_message(
-                            completion_gate
-                        )
-                        messages.append(continuation_message)
-                        if self._is_coding_profile():
-                            ephemeral_messages.append(continuation_message)
-                        else:
+                        if not self._is_coding_profile():
                             messages = self._trim_scaffold_messages(messages)
                         completion_update_continuations += 1
                         last_completion_update_key = update_key
@@ -5692,7 +5783,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
             try:
                 tc_id = tc.get("id", str(uuid.uuid4()))
                 func = tc.get("function", {})
-                name = func.get("name", "")
+                name = self._canonical_tool_name(func.get("name", ""))
                 raw_arguments_value = func.get("arguments", "{}")
                 parse_error: Optional[str] = None
 

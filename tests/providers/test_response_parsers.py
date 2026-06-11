@@ -401,6 +401,47 @@ class TestParseStreamingDelta:
         assert result["tool_call_complete"]["function"]["name"] == "web_search"
         assert result["tool_call_complete"]["function"]["arguments"] == '{"query": "weather japan"}'
 
+    def test_responses_completed_native_web_search_calls(self):
+        """Grok native web_search_call output items become Fluxion web_search calls."""
+        delta = {
+            "type": "response.completed",
+            "response": {
+                "id": "resp_123",
+                "output": [
+                    {"type": "reasoning", "id": "rs_123"},
+                    {
+                        "type": "web_search_call",
+                        "id": "ws_1",
+                        "status": "in_progress",
+                        "action": {
+                            "type": "search",
+                            "query": "threshold interval training research",
+                            "sources": [],
+                        },
+                    },
+                    {
+                        "type": "web_search_call",
+                        "id": "ws_empty",
+                        "status": "in_progress",
+                        "action": {"type": "search", "query": "", "sources": []},
+                    },
+                ],
+            },
+        }
+
+        result = parse_streaming_delta(delta, "responses")
+
+        assert result["tool_calls_complete"] == [
+            {
+                "id": "ws_1",
+                "type": "function",
+                "function": {
+                    "name": "web_search",
+                    "arguments": '{"query": "threshold interval training research"}',
+                },
+            }
+        ]
+
 
 class TestLMStudioFunctionCallFormat:
     """Tests for LM Studio function_call format in responses parser."""

@@ -712,6 +712,75 @@ class TestAgentEngineToolParsing:
         assert parsed[0].name == "web_search"
         assert parsed[1].name == "web_extract"
 
+    def test_parse_tool_calls_canonicalizes_tool_name_case_and_separator(self):
+        """Normalize model-emitted tool names against advertised schemas."""
+        registry = create_mock_registry()
+        registry.get_openai_schemas.return_value = [
+            {"type": "function", "function": {"name": "grep"}},
+            {"type": "function", "function": {"name": "glob"}},
+            {"type": "function", "function": {"name": "read_file"}},
+        ]
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=create_mock_repo(),
+            registry=registry,
+        )
+
+        tool_calls = [
+            {
+                "id": "tc-1",
+                "function": {
+                    "name": "Grep",
+                    "arguments": '{"pattern": "resume", "path": "Career"}',
+                },
+            },
+            {
+                "id": "tc-2",
+                "function": {
+                    "name": "Glob",
+                    "arguments": '{"pattern": "Career/**/*"}',
+                },
+            },
+            {
+                "id": "tc-3",
+                "function": {
+                    "name": "Read-File",
+                    "arguments": '{"file_path": "README.md"}',
+                },
+            },
+        ]
+
+        parsed = engine._parse_tool_calls(tool_calls)
+
+        assert [tool_call.name for tool_call in parsed] == [
+            "grep",
+            "glob",
+            "read_file",
+        ]
+
+    def test_parse_tool_calls_leaves_unknown_tool_name_unchanged(self):
+        """Unknown names still surface as unknown-tool errors later."""
+        registry = create_mock_registry()
+        registry.get_openai_schemas.return_value = [
+            {"type": "function", "function": {"name": "grep"}},
+        ]
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=create_mock_repo(),
+            registry=registry,
+        )
+
+        parsed = engine._parse_tool_calls(
+            [
+                {
+                    "id": "tc-1",
+                    "function": {"name": "Nope", "arguments": "{}"},
+                }
+            ]
+        )
+
+        assert parsed[0].name == "Nope"
+
     def test_parse_tool_calls_non_object_json_marks_parse_error(self):
         """Parse tool calls with JSON that is not an object."""
         engine = AgentEngine(
@@ -4944,6 +5013,11 @@ class TestCodingContinuationBehavior:
         assert result.success is True
         assert provider.complete_streaming.await_args_list[0].kwargs["tool_choice"] is None
         assert provider.complete_streaming.await_args_list[1].kwargs["tool_choice"] is None
+        second_call_messages = provider.complete_streaming.await_args_list[1].kwargs["messages"]
+        second_call_text = "\n".join(str(message.get("content", "")) for message in second_call_messages)
+        assert "Cross-checking evidence on what speeds VO2max gains." in second_call_text
+        assert "Continue the run" not in second_call_text
+        assert "required evidence is still missing" not in second_call_text
         web_tool.execute.assert_awaited_once_with(query="VO2max training evidence")
         decisions = [call.kwargs.get("decision") for call in mock_sm.complete_step.await_args_list]
         assert "completion_gate_continue" in decisions
@@ -5114,6 +5188,54 @@ class TestCodingContinuationBehavior:
 
         assert gate.action == "show_update_and_continue"
         assert gate.evidence_missing == ["web_evidence"]
+
+    def test_completion_gate_does_not_treat_word_slash_word_as_workspace_path(self):
+        registry = create_mock_registry()
+        registry.get_openai_schemas.return_value = [
+            {"type": "function", "function": {"name": "read_file"}},
+            {"type": "function", "function": {"name": "grep"}},
+        ]
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=create_mock_repo(),
+            registry=registry,
+            profile=self._coding_profile(),
+        )
+
+        gate = engine._evaluate_completion_gate(
+            query="Bangalore/Bengaluru? which is right",
+            llm_response=LLMResponse(text="Use Bengaluru for formal India resumes."),
+            tool_calls=None,
+            tool_schemas=registry.get_openai_schemas.return_value,
+            working_memory=WorkingMemory(objective="location naming"),
+        )
+
+        assert gate.action == "accept_final"
+        assert gate.evidence_missing == []
+
+    def test_completion_gate_still_detects_real_workspace_path_references(self):
+        registry = create_mock_registry()
+        registry.get_openai_schemas.return_value = [
+            {"type": "function", "function": {"name": "read_file"}},
+            {"type": "function", "function": {"name": "grep"}},
+        ]
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=create_mock_repo(),
+            registry=registry,
+            profile=self._coding_profile(),
+        )
+
+        gate = engine._evaluate_completion_gate(
+            query="explain Health/Phase-7.5-Plan.md",
+            llm_response=LLMResponse(text="That file describes the current training phase."),
+            tool_calls=None,
+            tool_schemas=registry.get_openai_schemas.return_value,
+            working_memory=WorkingMemory(objective="explain plan file"),
+        )
+
+        assert gate.action == "show_update_and_continue"
+        assert gate.evidence_missing == ["workspace_inspection"]
 
     def test_available_tool_schemas_do_not_add_final_answer_tool(self):
         """The agent does not advertise a synthetic final_answer finish tool."""

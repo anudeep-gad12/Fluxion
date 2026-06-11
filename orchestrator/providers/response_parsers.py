@@ -161,6 +161,7 @@ def parse_streaming_delta(
         "reasoning": None,
         "tool_call": None,
         "tool_call_complete": None,  # Completed function call object
+        "tool_calls_complete": None,  # Batch of completed function call objects
         "tool_call_started": None,
         "tool_call_arguments_delta": None,
         "tool_call_arguments_done": None,
@@ -233,6 +234,33 @@ def parse_streaming_delta(
                         "arguments": arguments,
                     },
                 }
+
+        elif delta_type == "response.completed":
+            # Grok Composer can emit native Responses web_search_call items
+            # instead of custom function_call items, even when Fluxion exposes a
+            # web_search function tool. Convert those native search intents into
+            # Fluxion's normal web_search tool-call shape so the agent can run
+            # its own durable web_search tool and feed the result back.
+            response = delta.get("response") or {}
+            output_items = response.get("output") or []
+            completed_calls: List[Dict[str, Any]] = []
+            for item in output_items:
+                if not isinstance(item, dict) or item.get("type") != "web_search_call":
+                    continue
+                action = item.get("action") or {}
+                query = action.get("query") if isinstance(action, dict) else None
+                if not isinstance(query, str) or not query.strip():
+                    continue
+                completed_calls.append({
+                    "id": item.get("id") or f"web_search_{len(completed_calls)}",
+                    "type": "function",
+                    "function": {
+                        "name": "web_search",
+                        "arguments": json.dumps({"query": query.strip()}),
+                    },
+                })
+            if completed_calls:
+                result["tool_calls_complete"] = completed_calls
 
     else:
         # Chat completions streaming format
