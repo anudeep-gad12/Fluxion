@@ -55,6 +55,7 @@ import {
   listConversationRewindCheckpoints,
   rewindConversation,
   attachDraftTerminalSessions,
+  ApiError,
 } from '@/api/client';
 import type {
   ConversationRewindCheckpoint,
@@ -638,40 +639,41 @@ function ModelPicker({
   };
 
   const handleSelectLocal = async (model: LocalModel) => {
-    setSwitching(model.path);
+    setSwitching(`local:${model.path}`);
     setError(null);
     try {
       const started = await startLocalModel(model.path);
       onModelStatusChange({
         provider: 'local',
         model_name: started.model_name,
-        base_url: modelStatus?.base_url ?? null,
+        base_url: started.base_url,
         local_running: true,
-        context_window: modelStatus?.context_window ?? 0,
-        max_output_tokens: modelStatus?.max_output_tokens ?? 0,
-        effective_input_budget: modelStatus?.effective_input_budget ?? 0,
-        supports_tools: modelStatus?.supports_tools ?? true,
-        supports_reasoning: modelStatus?.supports_reasoning ?? false,
-        supports_vision: modelStatus?.supports_vision ?? false,
+        context_window: started.context_window,
+        max_output_tokens: started.max_output_tokens,
+        effective_input_budget: started.effective_input_budget,
+        supports_tools: started.supports_tools,
+        supports_reasoning: started.supports_reasoning,
+        supports_vision: started.supports_vision,
         provider_family: 'local',
         reasoning_capabilities: null,
-        source: 'local',
+        source: started.source,
       }, {
         provider: 'local',
-        model_id: started.model_name,
+        model_id: started.model_id,
         display_name: started.model_name,
-        context_window: modelStatus?.context_window ?? 0,
-        max_output_tokens: modelStatus?.max_output_tokens ?? 0,
-        effective_input_budget: modelStatus?.effective_input_budget ?? 0,
-        supports_tools: modelStatus?.supports_tools ?? true,
-        supports_reasoning: modelStatus?.supports_reasoning ?? false,
-        supports_vision: modelStatus?.supports_vision ?? false,
-        source: 'local',
+        context_window: started.context_window,
+        max_output_tokens: started.max_output_tokens,
+        effective_input_budget: started.effective_input_budget,
+        supports_tools: started.supports_tools,
+        supports_reasoning: started.supports_reasoning,
+        supports_vision: started.supports_vision,
+        source: started.source,
         selected_at: new Date().toISOString(),
       });
       onOpenChange(false);
-    } catch {
-      setError(`Failed to start model. Check logs/${model.model_type === 'mlx' ? 'mlx' : 'llama'}.log`);
+    } catch (err) {
+      const detail = err instanceof ApiError || err instanceof Error ? err.message : null;
+      setError(detail || `Failed to start model. Check logs/${model.model_type === 'mlx' ? 'mlx' : 'llama'}.log`);
     } finally {
       setSwitching(null);
     }
@@ -787,11 +789,16 @@ function ModelPicker({
     model.supports_vision ? 'vision' : null,
     model.category && model.category !== 'general' ? model.category : null,
   ].filter(Boolean);
+  const startingLocalModel = switching?.startsWith('local:') ?? false;
+  const handleDialogOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen && startingLocalModel) return;
+    onOpenChange(nextOpen);
+  };
 
   return (
     <Dialog
       open={open}
-      onOpenChange={onOpenChange}
+      onOpenChange={handleDialogOpenChange}
       className="max-h-[90vh] max-w-6xl"
     >
       <DialogHeader>
@@ -807,18 +814,24 @@ function ModelPicker({
           {loading && (
             <p className={cn(desktop ? 'desktop-settings-hint px-1 py-2' : 'px-1 py-2 text-xs text-zinc-500')}>Loading models…</p>
           )}
+          {startingLocalModel && (
+            <p className={cn(desktop ? 'desktop-settings-hint px-1 py-2' : 'px-1 py-2 text-xs text-cyan-200')}>
+              Starting local model… keep this window open while the server loads.
+            </p>
+          )}
 
           <aside className={cn(desktop ? 'desktop-model-provider-rail' : 'premium-panel p-2')}>
             {registryProviders.map(([providerName, info]) => {
               const isSelected = activeProvider === providerName;
               const authReady = info.auth_type === 'oauth' ? !!info.auth?.authenticated : info.available;
               return (
-                <button
-                  key={providerName}
-                  type="button"
-                  onClick={() => {
-                    setSelectedProvider(providerName);
-                    setFocusedModel(null);
+                  <button
+                    key={providerName}
+                    type="button"
+                    disabled={!!switching}
+                    onClick={() => {
+                      setSelectedProvider(providerName);
+                      setFocusedModel(null);
                   }}
                   data-active={desktop && isSelected ? 'true' : undefined}
                   className={cn(
@@ -846,6 +859,7 @@ function ModelPicker({
                     <button
                       key={keyStatus.provider}
                       type="button"
+                      disabled={!!switching}
                       onClick={() => {
                         setSelectedProvider(keyStatus.provider);
                         setFocusedModel(null);
@@ -876,6 +890,7 @@ function ModelPicker({
                   <button
                     key={section.key}
                     type="button"
+                    disabled={!!switching}
                     onClick={() => {
                       setSelectedProvider(section.key);
                       setFocusedModel(null);
@@ -909,6 +924,7 @@ function ModelPicker({
                   <input
                     value={modelSearch}
                     onChange={(e) => setModelSearch(e.target.value)}
+                    disabled={!!switching}
                     placeholder="Search models, aliases, capabilities…"
                     className={cn(desktop ? 'desktop-settings-field desktop-model-search' : 'premium-field w-full lg:w-80')}
                   />
@@ -1181,7 +1197,7 @@ function ModelPicker({
                 </div>
                 {activeLocalSection && activeLocalSection.models.length > 0 ? (
                   activeLocalSection.models.map((model) => {
-                    const isBusy = switching === model.path;
+                    const isBusy = switching === `local:${model.path}`;
                     return (
                       <button
                         key={model.path}

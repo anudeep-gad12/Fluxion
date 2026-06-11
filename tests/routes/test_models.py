@@ -12,7 +12,8 @@ from httpx import ASGITransport, AsyncClient
 
 from orchestrator.app import app
 import orchestrator.routes.models as models_module
-from orchestrator.services import model_catalog
+from orchestrator.providers.factory import get_provider_override, set_provider_override
+from orchestrator.services import local_models, model_catalog
 from orchestrator.storage.db import get_db
 
 
@@ -21,9 +22,11 @@ def reset_active_model():
     """Reset active model state between tests."""
     models_module._active_model = None
     models_module._active_model_name = None
+    set_provider_override(None)
     yield
     models_module._active_model = None
     models_module._active_model_name = None
+    set_provider_override(None)
 
 
 @pytest.fixture(autouse=True)
@@ -57,6 +60,67 @@ async def test_list_models_returns_grouped_presets():
     assert "local" in data["providers"]
     assert "active_model" in data
     assert "active_model_id" in data
+
+
+@pytest.mark.asyncio
+async def test_start_local_mlx_uses_served_model_id_for_provider(monkeypatch):
+    """MLX local provider should request the server's model id, not the display basename."""
+
+    async def fake_start(model_path: str, ctx_size: int):
+        return local_models.LocalServerStartResult(
+            model_name="Qwen-MLX-4bit",
+            model_type=local_models.ModelType.MLX,
+            served_model_id="/models/lmstudio-community/Qwen-MLX-4bit",
+            base_url="http://localhost:8080/v1",
+            ctx_size=ctx_size,
+            log_file="logs/mlx.log",
+            diagnostics={"executable": "/usr/bin/mlx_lm.server"},
+        )
+
+    monkeypatch.setattr(local_models, "start", fake_start)
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.post(
+            "/api/models/local/start",
+            json={"model_path": "/models/lmstudio-community/Qwen-MLX-4bit"},
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["model_name"] == "Qwen-MLX-4bit"
+    assert data["model_id"] == "/models/lmstudio-community/Qwen-MLX-4bit"
+    assert data["model_type"] == "mlx"
+    provider = get_provider_override()
+    assert provider is not None
+    assert provider._default_model == "/models/lmstudio-community/Qwen-MLX-4bit"
+    assert provider._context_profile_display_name == "Qwen-MLX-4bit"
+
+
+@pytest.mark.asyncio
+async def test_start_local_model_returns_backend_start_error(monkeypatch):
+    """Startup diagnostics should reach the picker instead of a generic failure."""
+
+    async def fake_start(model_path: str, ctx_size: int):
+        raise local_models.LocalModelStartError(
+            "mlx_lm.server was not found. Install or update with: uv tool install -U mlx-lm",
+            model_type=local_models.ModelType.MLX,
+            log_file="logs/mlx.log",
+        )
+
+    monkeypatch.setattr(local_models, "start", fake_start)
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.post(
+            "/api/models/local/start",
+            json={"model_path": "/models/missing-mlx"},
+        )
+
+    assert response.status_code == 500
+    assert "uv tool install -U mlx-lm" in response.json()["detail"]
 
 
 @pytest.mark.asyncio
@@ -404,14 +468,19 @@ async def test_select_model_updates_active_state():
 @pytest.mark.asyncio
 async def test_start_local_model_sets_provider_default_model():
     """Local model start should pin the provider default model to the loaded local model."""
-    with patch("orchestrator.routes.models.local_models.start", return_value=True), patch(
-        "orchestrator.routes.models.local_models.status",
-        return_value={
-            "model_name": "Qwen3.6-35B-A3B-Q4_K_M",
-            "model_path": "/models/qwen.gguf",
-            "model_type": "gguf",
-        },
-    ), patch("orchestrator.routes.models.set_provider_override") as mock_set_provider:
+    started = local_models.LocalServerStartResult(
+        model_name="Qwen3.6-35B-A3B-Q4_K_M",
+        model_type=local_models.ModelType.GGUF,
+        served_model_id="Qwen3.6-35B-A3B-Q4_K_M",
+        base_url="http://localhost:8080/v1",
+        ctx_size=65536,
+        log_file="logs/llama.log",
+        diagnostics={"executable": "/usr/bin/llama-server"},
+    )
+
+    with patch("orchestrator.routes.models.local_models.start", return_value=started), patch(
+        "orchestrator.routes.models.set_provider_override"
+    ) as mock_set_provider:
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://test"
         ) as client:

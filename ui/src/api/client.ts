@@ -636,6 +636,23 @@ export interface LocalModel {
   model_type: 'gguf' | 'mlx';
 }
 
+export interface StartLocalModelResponse {
+  status: string;
+  model_name: string;
+  model_id: string;
+  model_type: 'gguf' | 'mlx';
+  base_url: string;
+  context_window: number;
+  max_output_tokens: number;
+  effective_input_budget: number;
+  supports_tools: boolean;
+  supports_reasoning: boolean;
+  supports_vision: boolean;
+  source: string;
+  log_file?: string;
+  diagnostics?: Record<string, string | null>;
+}
+
 export interface ModelStatus {
   provider: string;
   model_name: string | null;
@@ -699,8 +716,8 @@ export async function listLocalModels(): Promise<LocalModel[]> {
 
 export async function startLocalModel(
   modelPath: string,
-): Promise<{ status: string; model_name: string }> {
-  return fetchJson(`${getApiBase()}/models/local/start`, {
+): Promise<StartLocalModelResponse> {
+  return fetchJson<StartLocalModelResponse>(`${getApiBase()}/models/local/start`, {
     method: 'POST',
     body: JSON.stringify({ model_path: modelPath }),
     timeoutMs: 120_000,

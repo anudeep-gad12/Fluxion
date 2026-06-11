@@ -112,45 +112,66 @@ async def start_local_model(request: StartModelRequest):
         ctx_size = config.context.max_tokens
 
     try:
-        ok = await local_models.start(request.model_path, ctx_size)
+        started = await local_models.start(request.model_path, ctx_size)
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
-
-    if not ok:
-        model_type = local_models.status().get("model_type", "gguf")
-        log_file = "mlx.log" if model_type == "mlx" else "llama.log"
+    except local_models.LocalModelStartError as e:
         raise HTTPException(
-            status_code=500, detail=f"Server failed to start. Check logs/{log_file}"
+            status_code=500,
+            detail=str(e),
         )
 
     # Swap the provider to point at local server
-    local_status = local_models.status()
-    local_model_name = local_status.get("model_name") or request.model_path
     local_provider = OpenAICompatProvider(
-        base_url=f"http://localhost:{local_models.LLAMA_PORT}/v1",
+        base_url=started.base_url,
         api_key="not-needed",
         endpoint="chat_completions",
-        default_model=local_model_name,
+        default_model=started.served_model_id,
     )
     local_provider._shared = True  # Prevent engine.close() from killing the shared client
     local_provider._input_cost_per_million = 0.0
     local_provider._cached_input_cost_per_million = 0.0
     local_provider._output_cost_per_million = 0.0
-    local_provider._context_window = int(ctx_size)
+    local_provider._context_window = int(started.ctx_size)
     local_provider._max_output_tokens = 8192
     local_provider._supports_tools = True
     local_provider._supports_reasoning = False
     local_provider._reasoning_provider_family = "local"
     local_provider._context_profile_source = "local"
     local_provider._context_profile_provider_name = "local"
-    local_provider._context_profile_model_id = local_model_name
-    local_provider._context_profile_display_name = local_model_name
+    local_provider._context_profile_model_id = started.served_model_id
+    local_provider._context_profile_display_name = started.model_name
     set_provider_override(local_provider)
 
-    model_name = local_models.status()["model_name"]
-    logger.info(f"Provider switched to local: {model_name}")
+    profile = resolve_model_context_profile(
+        model_name=started.served_model_id,
+        provider_override=local_provider,
+    )
+    logger.info(
+        "Provider switched to local",
+        extra={
+            "model_name": started.model_name,
+            "model_type": started.model_type.value,
+            "served_model_id": started.served_model_id,
+        },
+    )
 
-    return {"status": "ok", "model_name": model_name}
+    return {
+        "status": "ok",
+        "model_name": started.model_name,
+        "model_id": started.served_model_id,
+        "model_type": started.model_type.value,
+        "base_url": started.base_url,
+        "context_window": profile.context_window,
+        "max_output_tokens": profile.max_output_tokens,
+        "effective_input_budget": profile.effective_input_budget,
+        "supports_tools": profile.supports_tools,
+        "supports_reasoning": profile.supports_reasoning,
+        "supports_vision": profile.supports_vision,
+        "source": profile.source,
+        "log_file": started.log_file,
+        "diagnostics": started.diagnostics,
+    }
 
 
 @router.post("/local/stop")

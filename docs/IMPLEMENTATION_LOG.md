@@ -9,6 +9,7 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| main | Local model startup hardening — local GGUF/MLX selection now keeps the model picker locked open while the server starts, reports concrete startup diagnostics, resolves desktop-safe server executable paths, and uses MLX's served model id/path instead of the display basename for local provider requests | done | 2026-06-11 |
 | main | Tool-name canonicalization — normalized model-emitted tool names against registered schemas so casing/separator mistakes like `Grep`, `Glob`, or `Read-File` execute as `grep`, `glob`, and `read_file` instead of failing as unknown tools | done | 2026-06-11 |
 | main | Completion gate path/nudge fix — tightened slash-path detection so ordinary slash-separated text no longer gets treated as a workspace path, and stopped injecting synthetic user continuation messages after non-final assistant updates | done | 2026-06-11 |
 | main | Grok native web-search parsing — verified Composer emits native `web_search_call` Responses items rather than Fluxion function calls in failing research runs, then mapped completed native search intents back into Fluxion `web_search` tool calls so the agent can execute them normally | done | 2026-06-11 |

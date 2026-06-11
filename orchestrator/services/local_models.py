@@ -7,10 +7,12 @@ import asyncio
 import os
 import re
 import signal
+import shutil
 import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Optional
 
@@ -60,6 +62,36 @@ class LocalModel:
 
 
 @dataclass
+class LocalServerStartResult:
+    """Metadata for a successfully started local model server."""
+
+    model_name: str
+    model_type: ModelType
+    served_model_id: str
+    base_url: str
+    ctx_size: int
+    log_file: str
+    diagnostics: dict[str, Optional[str]] = field(default_factory=dict)
+
+
+class LocalModelStartError(RuntimeError):
+    """Raised when a local model server cannot be started."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        model_type: Optional[ModelType] = None,
+        log_file: Optional[str] = None,
+        diagnostics: Optional[dict[str, Optional[str]]] = None,
+    ) -> None:
+        super().__init__(message)
+        self.model_type = model_type
+        self.log_file = log_file
+        self.diagnostics = diagnostics or {}
+
+
+@dataclass
 class _ServerState:
     """Internal state for the managed server process."""
 
@@ -67,6 +99,7 @@ class _ServerState:
     model_path: Optional[str] = None
     model_name: Optional[str] = None
     model_type: Optional[ModelType] = None
+    served_model_id: Optional[str] = None
     ctx_size: int = 4096
 
 
@@ -165,6 +198,129 @@ def _detect_model_type(path: str) -> ModelType:
     if p.is_dir() and (p / "config.json").exists():
         return ModelType.MLX
     raise ValueError(f"Cannot detect model type for: {path}")
+
+
+def _server_binary_name(model_type: ModelType) -> str:
+    """Return the executable name for the local server type."""
+    return "mlx_lm.server" if model_type == ModelType.MLX else "llama-server"
+
+
+def _candidate_executable_paths(binary_name: str) -> list[Path]:
+    """Return desktop-safe executable candidates, including user tool dirs."""
+    candidates: list[Path] = []
+    found = shutil.which(binary_name)
+    if found:
+        candidates.append(Path(found))
+
+    candidates.extend(
+        [
+            Path.home() / ".local" / "bin" / binary_name,
+            Path("/opt/homebrew/bin") / binary_name,
+            Path("/usr/local/bin") / binary_name,
+            Path("/usr/bin") / binary_name,
+        ]
+    )
+
+    deduped: list[Path] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        key = str(candidate)
+        if key not in seen:
+            deduped.append(candidate)
+            seen.add(key)
+    return deduped
+
+
+def _resolve_server_executable(model_type: ModelType) -> str:
+    """Resolve the server executable without relying only on packaged-app PATH."""
+    binary_name = _server_binary_name(model_type)
+    for candidate in _candidate_executable_paths(binary_name):
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return str(candidate)
+    install_hint = (
+        "Install or update with: uv tool install -U mlx-lm"
+        if model_type == ModelType.MLX
+        else "Install llama.cpp so llama-server is on PATH."
+    )
+    raise LocalModelStartError(
+        f"{binary_name} was not found. {install_hint}",
+        model_type=model_type,
+        log_file=str(_log_file_path(model_type)),
+    )
+
+
+def _python_from_script_shebang(executable: str) -> Optional[str]:
+    """Read a console script shebang without importing the tool package."""
+    try:
+        first_line = Path(executable).read_text(encoding="utf-8", errors="ignore").splitlines()[0]
+    except (OSError, IndexError):
+        return None
+    if not first_line.startswith("#!"):
+        return None
+    python_path = first_line[2:].strip().split(" ", 1)[0]
+    return python_path if python_path else None
+
+
+def _package_version_in_python(python_path: str, package_name: str) -> Optional[str]:
+    """Read package metadata in another Python env without importing MLX/Metal."""
+    try:
+        result = subprocess.run(
+            [
+                python_path,
+                "-c",
+                (
+                    "from importlib.metadata import version, PackageNotFoundError\n"
+                    f"pkg={package_name!r}\n"
+                    "try:\n"
+                    " print(version(pkg))\n"
+                    "except PackageNotFoundError:\n"
+                    " print('')\n"
+                ),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    value = result.stdout.strip()
+    return value or None
+
+
+def _current_env_package_version(package_name: str) -> Optional[str]:
+    """Read package metadata from Fluxion's own Python env."""
+    try:
+        return version(package_name)
+    except PackageNotFoundError:
+        return None
+
+
+def _local_server_diagnostics(
+    model_type: ModelType,
+    executable: Optional[str],
+) -> dict[str, Optional[str]]:
+    """Return non-invasive diagnostics for local server startup."""
+    diagnostics: dict[str, Optional[str]] = {
+        "executable": executable,
+    }
+    if model_type != ModelType.MLX:
+        return diagnostics
+
+    python_path = _python_from_script_shebang(executable) if executable else None
+    diagnostics["python"] = python_path
+    diagnostics["mlx_lm_version"] = (
+        _package_version_in_python(python_path, "mlx-lm")
+        if python_path
+        else _current_env_package_version("mlx-lm")
+    )
+    diagnostics["mlx_version"] = (
+        _package_version_in_python(python_path, "mlx")
+        if python_path
+        else _current_env_package_version("mlx")
+    )
+    return diagnostics
 
 
 def _kill_port(port: int) -> None:
@@ -300,7 +456,24 @@ async def _wait_for_health(model_type: ModelType, timeout: float = 60.0) -> bool
     return False
 
 
-async def start(model_path: str, ctx_size: int = 100000) -> bool:
+def _served_model_id(model_type: ModelType, resolved_model_path: str, model_name: str) -> str:
+    """Return the model id Fluxion should send to the local OpenAI-compatible API."""
+    if model_type == ModelType.MLX:
+        return str(Path(resolved_model_path).resolve())
+    return model_name
+
+
+def _tail_log_file(model_type: ModelType, max_chars: int = 1600) -> str:
+    """Return a short log tail for startup errors."""
+    log_file = _log_file_path(model_type)
+    try:
+        content = log_file.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+    return content[-max_chars:].strip()
+
+
+async def start(model_path: str, ctx_size: int = 100000) -> LocalServerStartResult:
     """Start a local model server.
 
     Detects model type (GGUF or MLX) and launches the appropriate server.
@@ -310,7 +483,7 @@ async def start(model_path: str, ctx_size: int = 100000) -> bool:
         ctx_size: Context window size (used for GGUF/llama-server only).
 
     Returns:
-        True if server started and is healthy.
+        Metadata for the healthy server.
     """
     resolved = os.path.expanduser(model_path)
     model_type = _detect_model_type(resolved)
@@ -320,6 +493,9 @@ async def start(model_path: str, ctx_size: int = 100000) -> bool:
     if model_type == ModelType.MLX and not os.path.isdir(resolved):
         raise FileNotFoundError(f"Model directory not found: {resolved}")
 
+    executable = _resolve_server_executable(model_type)
+    diagnostics = _local_server_diagnostics(model_type, executable)
+
     # Stop any existing server
     await stop()
 
@@ -328,21 +504,32 @@ async def start(model_path: str, ctx_size: int = 100000) -> bool:
     await asyncio.sleep(0.5)
 
     model_name = Path(resolved).stem if model_type == ModelType.GGUF else Path(resolved).name
+    served_model_id = _served_model_id(model_type, resolved, model_name)
 
+    server_name = _server_binary_name(model_type)
     logger.info(
-        f"Starting {'mlx_lm.server' if model_type == ModelType.MLX else 'llama-server'} with {model_name}",
-        extra={"model_path": resolved, "model_type": model_type.value, "ctx_size": ctx_size},
+        f"Starting {server_name} with {model_name}",
+        extra={
+            "model_path": resolved,
+            "model_type": model_type.value,
+            "ctx_size": ctx_size,
+            "executable": executable,
+            "served_model_id": served_model_id,
+            "mlx_lm_version": diagnostics.get("mlx_lm_version"),
+            "mlx_version": diagnostics.get("mlx_version"),
+        },
     )
 
     if model_type == ModelType.MLX:
         cmd = [
-            "mlx_lm.server",
+            executable,
             "--model", resolved,
+            "--host", "127.0.0.1",
             "--port", str(LLAMA_PORT),
         ]
     else:
         cmd = [
-            "llama-server",
+            executable,
             "-m", resolved,
             "--port", str(LLAMA_PORT),
             "--jinja",
@@ -369,17 +556,35 @@ async def start(model_path: str, ctx_size: int = 100000) -> bool:
     _state.model_path = resolved
     _state.model_name = model_name
     _state.model_type = model_type
+    _state.served_model_id = served_model_id
     _state.ctx_size = ctx_size
 
     # Wait for health
     healthy = await _wait_for_health(model_type, timeout=60.0)
     if not healthy:
-        logger.error(f"{'mlx_lm.server' if model_type == ModelType.MLX else 'llama-server'} failed to become healthy")
+        logger.error(f"{server_name} failed to become healthy")
+        log_tail = _tail_log_file(model_type)
         await stop()
-        return False
+        message = f"{server_name} failed to become healthy. Check {log_file}."
+        if log_tail:
+            message = f"{message}\n\nRecent log:\n{log_tail}"
+        raise LocalModelStartError(
+            message,
+            model_type=model_type,
+            log_file=str(log_file),
+            diagnostics=diagnostics,
+        )
 
     logger.info(f"Server ready: {model_name} ({model_type.value})")
-    return True
+    return LocalServerStartResult(
+        model_name=model_name,
+        model_type=model_type,
+        served_model_id=served_model_id,
+        base_url=f"http://localhost:{LLAMA_PORT}/v1",
+        ctx_size=ctx_size,
+        log_file=str(log_file),
+        diagnostics=diagnostics,
+    )
 
 
 async def stop() -> None:
@@ -399,6 +604,7 @@ async def stop() -> None:
         _state.model_path = None
         _state.model_name = None
         _state.model_type = None
+        _state.served_model_id = None
 
 
 async def is_running() -> bool:
@@ -427,6 +633,7 @@ def status() -> dict:
         "model_path": _state.model_path,
         "model_name": _state.model_name,
         "model_type": _state.model_type.value if _state.model_type else None,
+        "served_model_id": _state.served_model_id,
         "ctx_size": _state.ctx_size if managed else None,
         "port": LLAMA_PORT,
     }
