@@ -79,3 +79,6 @@ src-tauri/binaries/fluxion-server-*
 gaia_results/
 !gaia_results/best_runs/
 .codex/
+
+# Generated Remotion product video
+fluxion-product-video/
