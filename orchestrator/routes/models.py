@@ -106,13 +106,11 @@ async def list_local_models():
 @router.post("/local/start")
 async def start_local_model(request: StartModelRequest):
     """Start llama-server with the selected model and switch provider."""
-    # Use config context window if no explicit ctx_size provided
+    # Use local-only workstation context defaults if no explicit ctx_size is provided.
+    # Do not read chat_config.model/context here: those settings also affect cloud providers.
     ctx_size = request.ctx_size
     if ctx_size is None:
-        from orchestrator.config import get_chat_config
-
-        config = get_chat_config()
-        ctx_size = config.context.max_tokens
+        ctx_size = local_models.DEFAULT_LOCAL_CONTEXT_TOKENS
 
     try:
         started = await local_models.start(request.model_path, ctx_size)

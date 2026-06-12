@@ -47,6 +47,11 @@ MLX_MODELS_URL = f"http://localhost:{LLAMA_PORT}/v1/models"
 LOG_DIR = Path(__file__).parent.parent.parent / "logs"
 LOCAL_MODEL_LOG_MAX_BYTES = 5 * 1024 * 1024
 LOCAL_MODEL_LOG_SEGMENTS = 10
+DEFAULT_LOCAL_CONTEXT_TOKENS = int(os.getenv("FLUXION_LOCAL_CONTEXT_TOKENS", "131072"))
+DEFAULT_LLAMA_BATCH_SIZE = int(os.getenv("FLUXION_LLAMA_BATCH_SIZE", "2048"))
+DEFAULT_LLAMA_UBATCH_SIZE = int(os.getenv("FLUXION_LLAMA_UBATCH_SIZE", "512"))
+DEFAULT_MLX_PREFILL_STEP_SIZE = int(os.getenv("FLUXION_MLX_PREFILL_STEP_SIZE", "4096"))
+DEFAULT_MLX_PROMPT_CACHE_SIZE = int(os.getenv("FLUXION_MLX_PROMPT_CACHE_SIZE", "16"))
 
 
 class ModelType(str, Enum):
@@ -593,20 +598,26 @@ def _tail_log_file(model_type: ModelType, max_chars: int = 1600) -> str:
     return content[-max_chars:].strip()
 
 
-async def start(model_path: str, ctx_size: int = 100000) -> LocalServerStartResult:
+async def start(
+    model_path: str,
+    ctx_size: Optional[int] = None,
+) -> LocalServerStartResult:
     """Start a local model server.
 
     Detects model type (GGUF or MLX) and launches the appropriate server.
 
     Args:
         model_path: Path to GGUF file or MLX model directory.
-        ctx_size: Context window size (used for GGUF/llama-server only).
+        ctx_size: Context window size. If omitted, uses the local-only
+            high-context workstation default.
 
     Returns:
         Metadata for the healthy server.
     """
     resolved = os.path.expanduser(model_path)
     model_type = _detect_model_type(resolved)
+    if ctx_size is None:
+        ctx_size = DEFAULT_LOCAL_CONTEXT_TOKENS
 
     if model_type == ModelType.GGUF and not os.path.isfile(resolved):
         raise FileNotFoundError(f"Model file not found: {resolved}")
@@ -661,6 +672,8 @@ async def start(model_path: str, ctx_size: int = 100000) -> LocalServerStartResu
             "--model", resolved,
             "--host", "127.0.0.1",
             "--port", str(LLAMA_PORT),
+            "--prefill-step-size", str(DEFAULT_MLX_PREFILL_STEP_SIZE),
+            "--prompt-cache-size", str(DEFAULT_MLX_PROMPT_CACHE_SIZE),
         ]
     else:
         cmd = [
@@ -669,8 +682,13 @@ async def start(model_path: str, ctx_size: int = 100000) -> LocalServerStartResu
             "--port", str(LLAMA_PORT),
             "--jinja",
             "--ctx-size", str(ctx_size),
-            "-ub", "512",
-            "-b", "512",
+            "-ngl", "all",
+            "-fa", "auto",
+            "--cache-type-k", "f16",
+            "--cache-type-v", "f16",
+            "--mlock",
+            "-b", str(DEFAULT_LLAMA_BATCH_SIZE),
+            "-ub", str(DEFAULT_LLAMA_UBATCH_SIZE),
         ]
 
     lf, log_file = _open_log_file(

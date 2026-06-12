@@ -264,3 +264,69 @@ async def test_start_mlx_uses_absolute_served_model_id(monkeypatch, tmp_path):
         "127.0.0.1",
         "--port",
     ]
+    assert "--prefill-step-size" in commands[0]
+    assert "4096" in commands[0]
+    assert "--prompt-cache-size" in commands[0]
+    assert "16" in commands[0]
+
+
+@pytest.mark.asyncio
+async def test_start_gguf_uses_local_workstation_server_flags(monkeypatch, tmp_path):
+    model_file = tmp_path / "qwen.gguf"
+    model_file.write_text("ok", encoding="utf-8")
+
+    commands: list[list[str]] = []
+
+    class FakeProcess:
+        def poll(self):
+            return None
+
+        def terminate(self):
+            pass
+
+        def wait(self, timeout=None):
+            return 0
+
+        def kill(self):
+            pass
+
+    def fake_popen(command, stdout=None, stderr=None):
+        commands.append(command)
+        return FakeProcess()
+
+    async def fake_wait_for_health(model_type, timeout=60.0):
+        return True
+
+    monkeypatch.setattr(
+        local_models,
+        "_resolve_server_executable",
+        lambda model_type: "/usr/bin/llama-server",
+    )
+    monkeypatch.setattr(
+        local_models,
+        "_local_server_diagnostics",
+        lambda model_type, executable: {"executable": executable},
+    )
+    monkeypatch.setattr(local_models, "_kill_port", lambda port: None)
+    monkeypatch.setattr(local_models, "_wait_for_health", fake_wait_for_health)
+    monkeypatch.setattr(subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(local_models, "LOG_DIR", tmp_path / "logs")
+    local_models._state = local_models._ServerState()
+
+    try:
+        result = await local_models.start(str(model_file))
+    finally:
+        local_models._state = local_models._ServerState()
+
+    command = commands[0]
+    assert result.ctx_size == local_models.DEFAULT_LOCAL_CONTEXT_TOKENS
+    assert command[command.index("--ctx-size") + 1] == str(
+        local_models.DEFAULT_LOCAL_CONTEXT_TOKENS
+    )
+    assert command[command.index("-ngl") + 1] == "all"
+    assert command[command.index("-fa") + 1] == "auto"
+    assert command[command.index("--cache-type-k") + 1] == "f16"
+    assert command[command.index("--cache-type-v") + 1] == "f16"
+    assert "--mlock" in command
+    assert command[command.index("-b") + 1] == str(local_models.DEFAULT_LLAMA_BATCH_SIZE)
+    assert command[command.index("-ub") + 1] == str(local_models.DEFAULT_LLAMA_UBATCH_SIZE)
