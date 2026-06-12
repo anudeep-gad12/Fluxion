@@ -5237,6 +5237,50 @@ class TestCodingContinuationBehavior:
         assert gate.action == "show_update_and_continue"
         assert gate.evidence_missing == ["workspace_inspection"]
 
+    def test_completion_gate_does_not_treat_negated_test_it_as_command(self):
+        registry = create_mock_registry()
+        registry.get_openai_schemas.return_value = [
+            {"type": "function", "function": {"name": "exec_command"}},
+        ]
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=create_mock_repo(),
+            registry=registry,
+        )
+
+        gate = engine._evaluate_completion_gate(
+            query='might i have this? "DEC2 (BHLHE41 gene)" just curious tho, didn’t test it but is it possible?',
+            llm_response=LLMResponse(text="It is possible, but you would need a genotype to know."),
+            tool_calls=None,
+            tool_schemas=registry.get_openai_schemas.return_value,
+            working_memory=WorkingMemory(objective="answer genetics question"),
+        )
+
+        assert gate.action == "accept_final"
+        assert gate.evidence_missing == []
+
+    def test_completion_gate_still_treats_test_it_as_command(self):
+        registry = create_mock_registry()
+        registry.get_openai_schemas.return_value = [
+            {"type": "function", "function": {"name": "exec_command"}},
+        ]
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=create_mock_repo(),
+            registry=registry,
+        )
+
+        gate = engine._evaluate_completion_gate(
+            query="the fix is ready, test it",
+            llm_response=LLMResponse(text="I'll test it now."),
+            tool_calls=None,
+            tool_schemas=registry.get_openai_schemas.return_value,
+            working_memory=WorkingMemory(objective="test fix"),
+        )
+
+        assert gate.action == "show_update_and_continue"
+        assert gate.evidence_missing == ["command_execution"]
+
     def test_available_tool_schemas_do_not_add_final_answer_tool(self):
         """The agent does not advertise a synthetic final_answer finish tool."""
         registry = MagicMock()

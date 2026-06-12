@@ -882,23 +882,37 @@ To provide your final answer, respond WITHOUT calling any tools."""
         if not ({"exec_command", "bash", "write_stdin"} & tool_names):
             return False
         lowered = query.lower()
-        command_terms = (
-            "commit",
-            "push",
-            "tag",
-            "release",
-            "deploy",
-            "run tests",
-            "run the tests",
-            "test it",
-            "build it",
-            "npm run",
-            "pytest",
-            "check logs",
-            "look at logs",
-            "look at traces",
+        command_patterns = (
+            r"\bcommit\b",
+            r"\bpush\b",
+            r"\btag\b",
+            r"\brelease\b",
+            r"\bdeploy\b",
+            r"\brun\s+(?:the\s+)?tests?\b",
+            r"\bnpm\s+run\b",
+            r"\bpytest\b",
+            r"\bcheck\s+logs?\b",
+            r"\blook\s+at\s+logs?\b",
+            r"\blook\s+at\s+traces?\b",
         )
-        return any(term in lowered for term in command_terms)
+        if any(re.search(pattern, lowered) for pattern in command_patterns):
+            return True
+
+        for phrase in ("test it", "build it"):
+            match = re.search(rf"\b{re.escape(phrase)}\b", lowered)
+            if match and not self._phrase_is_negated(lowered, match.start()):
+                return True
+        return False
+
+    def _phrase_is_negated(self, lowered_query: str, phrase_start: int) -> bool:
+        """Return whether a matched action phrase is locally negated."""
+        prefix = lowered_query[max(0, phrase_start - 40) : phrase_start]
+        return bool(
+            re.search(
+                r"(?:didn['’]?t|did\s+not|haven['’]?t|have\s+not|not|never|without)\s+$",
+                prefix,
+            )
+        )
 
     def _query_is_conversational(self, query: str) -> bool:
         """Return whether the user is chatting rather than requesting work."""
