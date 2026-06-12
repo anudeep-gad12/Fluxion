@@ -725,7 +725,13 @@ To provide your final answer, respond WITHOUT calling any tools."""
         )
 
     def _query_needs_workspace_inspection(self, query: str, tool_names: set[str]) -> bool:
-        """Return whether a coding run needs local workspace evidence before finality."""
+        """Return whether the user explicitly requested local workspace evidence.
+
+        Keep this anchored to workspace nouns/paths, not generic action verbs.
+        Generic verbs like "check" or "look at" appear in normal follow-up chat
+        and can otherwise turn a complete answer into an endless "intermediate"
+        update loop just because read tools happen to be available.
+        """
         if not self._is_coding_profile():
             return False
         if not ({"read_file", "grep", "glob", "list_directory"} & tool_names):
@@ -749,24 +755,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
             "here",
             "in this",
         )
-        action_terms = (
-            "fix",
-            "implement",
-            "add",
-            "update",
-            "change",
-            "redesign",
-            "refactor",
-            "debug",
-            "wire",
-            "edit",
-            "make",
-            "remove",
-            "check",
-            "look at",
-            "review",
-        )
-        return any(term in lowered for term in workspace_terms + action_terms) or (
+        return any(term in lowered for term in workspace_terms) or (
             self._query_has_workspace_path_reference(query)
         )
 
@@ -938,9 +927,10 @@ To provide your final answer, respond WITHOUT calling any tools."""
         """Return state evidence required before accepting no-tool text as final."""
         tool_names = self._tool_schema_names(tool_schemas)
         requirements: List[str] = []
-        if self._query_needs_workspace_inspection(query, tool_names):
+        needs_workspace_mutation = self._query_needs_workspace_mutation(query, tool_names)
+        if self._query_needs_workspace_inspection(query, tool_names) or needs_workspace_mutation:
             requirements.append("workspace_inspection")
-        if self._query_needs_workspace_mutation(query, tool_names):
+        if needs_workspace_mutation:
             requirements.append("workspace_mutation")
         if self._query_needs_command_evidence(query, tool_names):
             requirements.append("command_execution")
@@ -986,7 +976,15 @@ To provide your final answer, respond WITHOUT calling any tools."""
         tool_schemas: List[Dict[str, Any]],
         working_memory: WorkingMemory,
     ) -> CompletionGateResult:
-        """Decide whether text is final using protocol shape plus run evidence."""
+        """Decide the next step from protocol shape.
+
+        Text without structured tool calls is a final answer. Earlier versions
+        converted text into "intermediate updates" when heuristic evidence was
+        missing, then asked the model to continue. That made ordinary answers
+        loop/fail whenever natural-language heuristics misclassified the prompt.
+        Keep evidence in traces for observability, but never hard-block final
+        text on inferred intent.
+        """
         if tool_calls:
             return CompletionGateResult(
                 action="execute_tools",
@@ -1003,21 +1001,16 @@ To provide your final answer, respond WITHOUT calling any tools."""
         requirements = self._completion_requirements(query, tool_schemas)
         satisfied = self._satisfied_completion_evidence(working_memory)
         missing = [item for item in requirements if item not in satisfied]
-        if missing:
-            return CompletionGateResult(
-                action="show_update_and_continue",
-                reason="required_task_evidence_missing",
-                evidence_required=requirements,
-                evidence_satisfied=satisfied,
-                evidence_missing=missing,
-            )
-
         return CompletionGateResult(
             action="accept_final",
-            reason="completion_evidence_satisfied",
+            reason=(
+                "text_without_tool_calls_evidence_missing"
+                if missing
+                else "text_without_tool_calls"
+            ),
             evidence_required=requirements,
             evidence_satisfied=satisfied,
-            evidence_missing=[],
+            evidence_missing=missing,
         )
 
     async def _emit_assistant_update(

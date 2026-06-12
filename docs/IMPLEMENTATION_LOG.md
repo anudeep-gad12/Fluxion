@@ -9,6 +9,7 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| main | Completion gate text-finality fix — no-tool model text is now accepted as the final answer instead of being converted into intermediate updates based on inferred evidence requirements, eliminating heuristic-driven continuation/nudge loops while still tracing any missing evidence for debugging | done | 2026-06-12 |
 | main | Local-only workstation server defaults — GGUF local launches now use a 131k context, full Metal offload, flash attention auto, f16 KV cache, mlock, and larger batch defaults; MLX launches use larger prefill/prompt-cache settings, all isolated to local server startup without changing cloud provider request settings | done | 2026-06-12 |
 | main | MLX unsupported-model handling — local MLX scanning now detects installed mlx-lm supported model types without importing Metal, marks unsupported models like `gemma4` as disabled in the picker, and fails fast with an update/use-GGUF diagnostic instead of launching `mlx_lm.server` and waiting for health timeout | done | 2026-06-12 |
 | main | Completion gate command-evidence fix — command gating now uses explicit command regexes and ignores locally negated phrases like “didn’t test it,” preventing genetics/health questions from being blocked on impossible terminal evidence | done | 2026-06-12 |

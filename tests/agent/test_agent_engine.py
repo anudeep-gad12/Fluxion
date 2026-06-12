@@ -5011,24 +5011,19 @@ class TestCodingContinuationBehavior:
             )
 
         assert result.success is True
+        assert result.final_answer == "Cross-checking evidence on what speeds VO2max gains."
+        assert provider.complete_streaming.await_count == 1
         assert provider.complete_streaming.await_args_list[0].kwargs["tool_choice"] is None
-        assert provider.complete_streaming.await_args_list[1].kwargs["tool_choice"] is None
-        second_call_messages = provider.complete_streaming.await_args_list[1].kwargs["messages"]
-        second_call_text = "\n".join(str(message.get("content", "")) for message in second_call_messages)
-        assert "Cross-checking evidence on what speeds VO2max gains." in second_call_text
-        assert "Continue the run" not in second_call_text
-        assert "required evidence is still missing" not in second_call_text
-        web_tool.execute.assert_awaited_once_with(query="VO2max training evidence")
+        web_tool.execute.assert_not_awaited()
         decisions = [call.kwargs.get("decision") for call in mock_sm.complete_step.await_args_list]
-        assert "completion_gate_continue" in decisions
-        assert "call_tool" in decisions
+        assert "synthesize" in decisions
+        assert "completion_gate_continue" not in decisions
         updates = [event for event in events if event["type"] == "assistant_update"]
-        assert len(updates) == 1
-        assert updates[0]["content"] == "Cross-checking evidence on what speeds VO2max gains."
+        assert updates == []
 
     @pytest.mark.asyncio
-    async def test_repeated_progress_updates_stall_without_web_nudge(self):
-        """Repeated progress-only responses fail clearly without web-specific nudging."""
+    async def test_text_only_response_is_final_instead_of_progress_loop(self):
+        """Text-only responses are final; the engine does not continue/nudge on inferred evidence."""
         provider = MagicMock()
         provider.complete_streaming = AsyncMock(
             side_effect=[
@@ -5066,14 +5061,15 @@ class TestCodingContinuationBehavior:
             result = await engine.run(
                 run_id="run-forced-web-fail",
                 query="research current VO2max evidence",
-        )
+            )
 
-        assert result.success is False
-        assert "repeated text-only updates" in (result.error_message or "")
-        assert provider.complete_streaming.await_count == 2
+        assert result.success is True
+        assert result.final_answer == "I'll search the evidence."
+        assert provider.complete_streaming.await_count == 1
         decisions = [call.kwargs.get("decision") for call in mock_sm.complete_step.await_args_list]
-        assert decisions.count("completion_gate_continue") == 1
-        assert "completion_gate_stalled" in decisions
+        assert "synthesize" in decisions
+        assert "completion_gate_continue" not in decisions
+        assert "completion_gate_stalled" not in decisions
 
     @pytest.mark.asyncio
     async def test_today_logging_task_does_not_trigger_web_recovery(self):
@@ -5110,7 +5106,7 @@ class TestCodingContinuationBehavior:
         decisions = [call.kwargs.get("decision") for call in mock_sm.complete_step.await_args_list]
         assert "synthesize" in decisions
 
-    def test_completion_gate_blocks_coding_final_before_mutation_evidence(self):
+    def test_completion_gate_accepts_text_even_when_mutation_evidence_missing(self):
         registry = create_mock_registry()
         registry.get_openai_schemas.return_value = [
             {"type": "function", "function": {"name": "read_file"}},
@@ -5131,7 +5127,7 @@ class TestCodingContinuationBehavior:
             working_memory=WorkingMemory(objective="fix the broken button"),
         )
 
-        assert gate.action == "show_update_and_continue"
+        assert gate.action == "accept_final"
         assert gate.evidence_missing == [
             "workspace_inspection",
             "workspace_mutation",
@@ -5167,7 +5163,7 @@ class TestCodingContinuationBehavior:
         assert gate.action == "accept_final"
         assert gate.evidence_missing == []
 
-    def test_completion_gate_blocks_research_final_before_web_evidence(self):
+    def test_completion_gate_accepts_text_even_when_web_evidence_missing(self):
         registry = create_mock_registry()
         registry.get_openai_schemas.return_value = [
             {"type": "function", "function": {"name": "web_search"}},
@@ -5186,7 +5182,7 @@ class TestCodingContinuationBehavior:
             working_memory=WorkingMemory(objective="research VO2max"),
         )
 
-        assert gate.action == "show_update_and_continue"
+        assert gate.action == "accept_final"
         assert gate.evidence_missing == ["web_evidence"]
 
     def test_completion_gate_does_not_treat_word_slash_word_as_workspace_path(self):
@@ -5234,7 +5230,7 @@ class TestCodingContinuationBehavior:
             working_memory=WorkingMemory(objective="explain plan file"),
         )
 
-        assert gate.action == "show_update_and_continue"
+        assert gate.action == "accept_final"
         assert gate.evidence_missing == ["workspace_inspection"]
 
     def test_completion_gate_does_not_treat_negated_test_it_as_command(self):
@@ -5259,7 +5255,32 @@ class TestCodingContinuationBehavior:
         assert gate.action == "accept_final"
         assert gate.evidence_missing == []
 
-    def test_completion_gate_still_treats_test_it_as_command(self):
+    def test_completion_gate_does_not_treat_followup_check_as_workspace_task(self):
+        registry = create_mock_registry()
+        registry.get_openai_schemas.return_value = [
+            {"type": "function", "function": {"name": "read_file"}},
+            {"type": "function", "function": {"name": "grep"}},
+            {"type": "function", "function": {"name": "exec_command"}},
+        ]
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=create_mock_repo(),
+            registry=registry,
+            profile=self._coding_profile(),
+        )
+
+        gate = engine._evaluate_completion_gate(
+            query="so i never know unless i test and check?",
+            llm_response=LLMResponse(text="Correct — you cannot know for sure without a genetic test."),
+            tool_calls=None,
+            tool_schemas=registry.get_openai_schemas.return_value,
+            working_memory=WorkingMemory(objective="answer follow-up question"),
+        )
+
+        assert gate.action == "accept_final"
+        assert gate.evidence_missing == []
+
+    def test_completion_gate_accepts_text_even_when_command_evidence_missing(self):
         registry = create_mock_registry()
         registry.get_openai_schemas.return_value = [
             {"type": "function", "function": {"name": "exec_command"}},
@@ -5278,7 +5299,7 @@ class TestCodingContinuationBehavior:
             working_memory=WorkingMemory(objective="test fix"),
         )
 
-        assert gate.action == "show_update_and_continue"
+        assert gate.action == "accept_final"
         assert gate.evidence_missing == ["command_execution"]
 
     def test_available_tool_schemas_do_not_add_final_answer_tool(self):
