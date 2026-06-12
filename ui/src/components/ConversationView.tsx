@@ -790,6 +790,7 @@ function ModelPicker({
     model.category && model.category !== 'general' ? model.category : null,
   ].filter(Boolean);
   const startingLocalModel = switching?.startsWith('local:') ?? false;
+  const initialPickerLoading = loading && !registryData && localModels.length === 0 && providerKeys.length === 0;
   const handleDialogOpenChange = (nextOpen: boolean) => {
     if (!nextOpen && startingLocalModel) return;
     onOpenChange(nextOpen);
@@ -810,17 +811,23 @@ function ModelPicker({
             desktop ? 'desktop-settings-hint-error' : 'rounded-xl border border-red-500/20 bg-red-500/[0.08] px-3 py-2 text-xs text-red-300'
           )}>{error}</p>
         )}
+        {loading && (
+          <p className={cn(desktop ? 'desktop-settings-hint px-1 py-2' : 'px-1 py-2 text-xs text-zinc-500')}>Loading models…</p>
+        )}
+        {startingLocalModel && (
+          <p className={cn(desktop ? 'desktop-settings-hint px-1 py-2' : 'px-1 py-2 text-xs text-cyan-200')}>
+            Starting local model… keep this window open while the server loads.
+          </p>
+        )}
         <div className={cn(desktop ? 'desktop-model-picker-shell' : 'grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)]')}>
-          {loading && (
-            <p className={cn(desktop ? 'desktop-settings-hint px-1 py-2' : 'px-1 py-2 text-xs text-zinc-500')}>Loading models…</p>
-          )}
-          {startingLocalModel && (
-            <p className={cn(desktop ? 'desktop-settings-hint px-1 py-2' : 'px-1 py-2 text-xs text-cyan-200')}>
-              Starting local model… keep this window open while the server loads.
-            </p>
-          )}
-
           <aside className={cn(desktop ? 'desktop-model-provider-rail' : 'premium-panel p-2')}>
+            {initialPickerLoading && (
+              <div className="space-y-2 p-1">
+                {Array.from({ length: 6 }).map((_, index) => (
+                  <div key={index} className="h-11 rounded-xl bg-white/[0.04]" />
+                ))}
+              </div>
+            )}
             {registryProviders.map(([providerName, info]) => {
               const isSelected = activeProvider === providerName;
               const authReady = info.auth_type === 'oauth' ? !!info.auth?.authenticated : info.available;
@@ -909,7 +916,18 @@ function ModelPicker({
           </aside>
 
           <main className={cn(desktop ? 'desktop-model-picker-main' : 'min-w-0 space-y-3')}>
-            {activeProviderInfo ? (
+            {initialPickerLoading ? (
+              <section className={cn(desktop ? 'desktop-model-section' : 'premium-panel p-3')}>
+                <div className={cn(desktop ? 'desktop-settings-provider-header' : 'px-2 pb-2 text-xs uppercase tracking-[0.16em] text-zinc-500')}>
+                  Loading catalog
+                </div>
+                <div className="space-y-2 p-2">
+                  {Array.from({ length: 6 }).map((_, index) => (
+                    <div key={index} className="h-14 rounded-xl bg-white/[0.035]" />
+                  ))}
+                </div>
+              </section>
+            ) : activeProviderInfo ? (
               <>
                 <div className={cn(desktop ? 'desktop-model-picker-toolbar' : 'premium-panel p-3')}>
                   <div className="min-w-0">

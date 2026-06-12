@@ -9,6 +9,7 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| main | Conversation list controls — fixed model picker loading layout, added right-click chat actions for rename/copy session-id/pin/delete, and sorted workspace chats by last activity with pinned chats kept at the top | done | 2026-06-12 |
 | main | Local model startup hardening — local GGUF/MLX selection now keeps the model picker locked open while the server starts, reports concrete startup diagnostics, resolves desktop-safe server executable paths, and uses MLX's served model id/path instead of the display basename for local provider requests | done | 2026-06-11 |
 | main | Tool-name canonicalization — normalized model-emitted tool names against registered schemas so casing/separator mistakes like `Grep`, `Glob`, or `Read-File` execute as `grep`, `glob`, and `read_file` instead of failing as unknown tools | done | 2026-06-11 |
 | main | Completion gate path/nudge fix — tightened slash-path detection so ordinary slash-separated text no longer gets treated as a workspace path, and stopped injecting synthetic user continuation messages after non-final assistant updates | done | 2026-06-11 |

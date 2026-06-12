@@ -76,6 +76,7 @@ export interface CreateRunResponse {
 export interface Conversation {
   conversation_id: string;
   created_at: string;
+  updated_at?: string | null;
   title?: string;
   summary?: string;
   workspace_path?: string | null;

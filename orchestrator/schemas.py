@@ -81,6 +81,7 @@ class ConversationResponse(BaseModel):
 
     conversation_id: str
     created_at: str
+    updated_at: Optional[str] = None
     title: Optional[str] = None
     summary: Optional[str] = None
     workspace_path: Optional[str] = None

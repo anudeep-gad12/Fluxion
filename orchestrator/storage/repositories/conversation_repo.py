@@ -37,16 +37,18 @@ class ConversationRepo:
         await self.db.conn.execute(
             """
             INSERT INTO conversations (
-                conversation_id, created_at, title, status, workspace_path, metadata_json, session_id
+                conversation_id, created_at, updated_at, title, status, workspace_path,
+                metadata_json, session_id
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (conversation_id, now, title, status, workspace_path, metadata_json, session_id),
+            (conversation_id, now, now, title, status, workspace_path, metadata_json, session_id),
         )
         await self.db.conn.commit()
         return {
             "conversation_id": conversation_id,
             "created_at": now,
+            "updated_at": now,
             "title": title,
             "status": status,
             "workspace_path": workspace_path,
@@ -147,7 +149,7 @@ class ConversationRepo:
         if conditions:
             query += " WHERE " + " AND ".join(conditions)
 
-        query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+        query += " ORDER BY COALESCE(updated_at, created_at) DESC LIMIT ? OFFSET ?"
         params.extend([limit, offset])
 
         async with self.db.conn.execute(query, params) as cursor:

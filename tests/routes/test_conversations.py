@@ -214,6 +214,37 @@ class TestConversationMetadataRoutes:
         )
         assert patch.status_code == 200
         assert patch.json()["metadata"]["model_selection"]["provider"] == "grok"
+        assert patch.json()["updated_at"]
+
+    def test_patch_conversation_pin_metadata(self, client):
+        response = client.post(
+            "/api/conversations",
+            json={"title": "Pin me"},
+        )
+        assert response.status_code == 200
+        conversation_id = response.json()["conversation_id"]
+
+        patch = client.patch(
+            f"/api/conversations/{conversation_id}",
+            json={"metadata": {"pinned_at": "2026-06-12T00:00:00+00:00"}},
+        )
+
+        assert patch.status_code == 200
+        assert patch.json()["metadata"]["pinned_at"] == "2026-06-12T00:00:00+00:00"
+
+    def test_list_conversations_orders_by_updated_at(self, client, test_db):
+        loop = asyncio.get_event_loop()
+        conv_repo = ConversationRepo(test_db)
+
+        first = client.post("/api/conversations", json={"title": "First"}).json()["conversation_id"]
+        second = client.post("/api/conversations", json={"title": "Second"}).json()["conversation_id"]
+        loop.run_until_complete(conv_repo.update(first, title="First updated"))
+
+        response = client.get("/api/conversations")
+
+        assert response.status_code == 200
+        ids = [conversation["conversation_id"] for conversation in response.json()["conversations"]]
+        assert ids.index(first) < ids.index(second)
 
 
 class TestConversationRewindRoutes:

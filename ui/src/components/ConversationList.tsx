@@ -1,12 +1,19 @@
 // Conversation list - grouped by workspace folder
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
+import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { deleteConversation, listConversations } from '@/api/client';
+import { deleteConversation, listConversations, patchConversation } from '@/api/client';
 import { useStore, useHasActiveRun } from '@/hooks/useStore';
 import { Button } from '@/components/ui/button';
-import { ConfirmDialog } from '@/components/ui/dialog';
+import {
+  ConfirmDialog,
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { WorkspacePickerDialog } from '@/components/WorkspacePickerDialog';
 import { isLocalDesktopApp, openNativeWorkspacePicker } from '@/lib/platform';
 import { cn, formatRelativeTime, truncate } from '@/lib/utils';
@@ -14,12 +21,16 @@ import {
   CheckSquare,
   ChevronDown,
   ChevronRight,
+  Copy,
+  Pencil,
+  Pin,
   Plus,
   Square,
   Trash2,
   X,
 } from 'lucide-react';
 import type { Conversation, Run } from '@/types';
+import { toast } from 'sonner';
 
 type ThreadStatus = 'idle' | 'running' | 'failed';
 
@@ -44,6 +55,14 @@ function workspaceLabel(workspacePath: string): string {
   return workspacePath.split('/').filter(Boolean).pop() || workspacePath;
 }
 
+function conversationActivityAt(conversation: Conversation): string {
+  return conversation.updated_at || conversation.created_at;
+}
+
+function isConversationPinned(conversation: Conversation): boolean {
+  return Boolean(conversation.metadata?.pinned_at);
+}
+
 type WorkspaceGroup = {
   workspacePath: string;
   label: string;
@@ -59,6 +78,7 @@ function ConversationCard({
   isChecked,
   threadStatus,
   onClick,
+  onContextMenu,
   onDelete,
   onToggleCheck,
 }: {
@@ -68,9 +88,12 @@ function ConversationCard({
   isChecked: boolean;
   threadStatus: ThreadStatus;
   onClick: () => void;
+  onContextMenu: (event: ReactMouseEvent<HTMLDivElement>) => void;
   onDelete: () => void;
   onToggleCheck: () => void;
 }) {
+  const pinned = isConversationPinned(conversation);
+
   return (
     <div
       className={cn(
@@ -79,6 +102,7 @@ function ConversationCard({
         isChecked && !isSelected && 'bg-white/[0.05]'
       )}
       onClick={isSelectMode ? onToggleCheck : onClick}
+      onContextMenu={isSelectMode ? undefined : onContextMenu}
     >
       {isSelectMode && (
         <div className="shrink-0">
@@ -108,9 +132,12 @@ function ConversationCard({
             <span className="truncate">
               {conversation.title ? truncate(conversation.title, 50) : 'New conversation'}
             </span>
+            {pinned && (
+              <Pin className="h-3 w-3 shrink-0 fill-zinc-500 text-zinc-500" aria-label="Pinned" />
+            )}
           </p>
         <p className="truncate text-[11px] text-zinc-600">
-          {formatRelativeTime(conversation.created_at)}
+          {formatRelativeTime(conversationActivityAt(conversation))}
         </p>
       </div>
       {!isSelectMode && (
@@ -204,6 +231,7 @@ export function ConversationList({
   const streamingRunId = useStore((s) => s.streamingRunId);
   const selectedConversationId = useStore((s) => s.selectedConversationId);
   const setConversations = useStore((s) => s.setConversations);
+  const updateConversation = useStore((s) => s.updateConversation);
   const removeConversation = useStore((s) => s.removeConversation);
   const setDraftWorkspacePath = useStore((s) => s.setDraftWorkspacePath);
   const bumpDraftConversation = useStore((s) => s.bumpDraftConversation);
@@ -220,6 +248,14 @@ export function ConversationList({
 
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [conversationToDelete, setConversationToDelete] = useState<string | null>(null);
+  const [renameModalOpen, setRenameModalOpen] = useState(false);
+  const [conversationToRename, setConversationToRename] = useState<Conversation | null>(null);
+  const [renameTitle, setRenameTitle] = useState('');
+  const [contextMenu, setContextMenu] = useState<{
+    conversation: Conversation;
+    x: number;
+    y: number;
+  } | null>(null);
 
   const [isSelectMode, setIsSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -241,6 +277,24 @@ export function ConversationList({
     fetchConversations();
   }, [setConversations]);
 
+  useEffect(() => {
+    if (!contextMenu) return;
+
+    const close = () => setContextMenu(null);
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') close();
+    };
+
+    window.addEventListener('click', close);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('click', close);
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [contextMenu]);
+
   const workspaceGroups = useMemo(() => {
     const groups = new Map<string, WorkspaceGroup>();
     const generalConversations: Conversation[] = [];
@@ -254,15 +308,16 @@ export function ConversationList({
       const existing = groups.get(workspacePath);
       if (existing) {
         existing.conversations.push(conversation);
-        if (conversation.created_at > existing.latestCreatedAt) {
-          existing.latestCreatedAt = conversation.created_at;
+        const activityAt = conversationActivityAt(conversation);
+        if (activityAt > existing.latestCreatedAt) {
+          existing.latestCreatedAt = activityAt;
         }
       } else {
         groups.set(workspacePath, {
           workspacePath,
           label: workspaceLabel(workspacePath),
           conversations: [conversation],
-          latestCreatedAt: conversation.created_at,
+          latestCreatedAt: conversationActivityAt(conversation),
         });
       }
     }
@@ -273,7 +328,10 @@ export function ConversationList({
         label: 'General',
         conversations: generalConversations,
         latestCreatedAt: generalConversations.reduce(
-          (latest, conversation) => conversation.created_at > latest ? conversation.created_at : latest,
+          (latest, conversation) => {
+            const activityAt = conversationActivityAt(conversation);
+            return activityAt > latest ? activityAt : latest;
+          },
           ''
         ),
         isGeneral: true,
@@ -283,7 +341,11 @@ export function ConversationList({
     return Array.from(groups.values())
       .map((group) => ({
         ...group,
-        conversations: [...group.conversations].sort((a, b) => b.created_at.localeCompare(a.created_at)),
+        conversations: [...group.conversations].sort((a, b) => {
+          const pinnedDelta = Number(isConversationPinned(b)) - Number(isConversationPinned(a));
+          if (pinnedDelta !== 0) return pinnedDelta;
+          return conversationActivityAt(b).localeCompare(conversationActivityAt(a));
+        }),
       }))
       .sort((a, b) => b.latestCreatedAt.localeCompare(a.latestCreatedAt));
   }, [conversations]);
@@ -324,8 +386,69 @@ export function ConversationList({
   };
 
   const handleDeleteClick = (conversationId: string) => {
+    setContextMenu(null);
     setConversationToDelete(conversationId);
     setDeleteModalOpen(true);
+  };
+
+  const handleConversationContextMenu = (
+    event: ReactMouseEvent<HTMLDivElement>,
+    conversation: Conversation,
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setContextMenu({
+      conversation,
+      x: Math.min(event.clientX, window.innerWidth - 210),
+      y: Math.min(event.clientY, window.innerHeight - 180),
+    });
+  };
+
+  const openRenameDialog = (conversation: Conversation) => {
+    setContextMenu(null);
+    setConversationToRename(conversation);
+    setRenameTitle(conversation.title || '');
+    setRenameModalOpen(true);
+  };
+
+  const handleRenameConversation = async () => {
+    if (!conversationToRename) return;
+    const nextTitle = renameTitle.trim() || 'New conversation';
+    try {
+      const updated = await patchConversation(conversationToRename.conversation_id, {
+        title: nextTitle,
+      });
+      updateConversation(conversationToRename.conversation_id, updated);
+      setRenameModalOpen(false);
+      setConversationToRename(null);
+    } catch (error) {
+      console.error('Failed to rename conversation:', error);
+      toast.error('Failed to rename chat');
+    }
+  };
+
+  const handleCopySessionId = async (conversation: Conversation) => {
+    setContextMenu(null);
+    try {
+      await navigator.clipboard.writeText(conversation.conversation_id);
+      toast.success('session-id copied');
+    } catch {
+      toast.error('copy failed');
+    }
+  };
+
+  const handleTogglePin = async (conversation: Conversation) => {
+    setContextMenu(null);
+    const nextPinnedAt = isConversationPinned(conversation) ? null : new Date().toISOString();
+    try {
+      const updated = await patchConversation(conversation.conversation_id, {
+        metadata: { pinned_at: nextPinnedAt },
+      });
+      updateConversation(conversation.conversation_id, updated);
+    } catch (error) {
+      console.error('Failed to update pinned state:', error);
+      toast.error('Failed to update pinned chat');
+    }
   };
 
   const handleConfirmDelete = async () => {
@@ -537,6 +660,7 @@ export function ConversationList({
                       streamingRunId
                     )}
                     onClick={() => navigate(`/conversations/${conversation.conversation_id}`)}
+                    onContextMenu={(event) => handleConversationContextMenu(event, conversation)}
                     onDelete={() => handleDeleteClick(conversation.conversation_id)}
                     onToggleCheck={() => toggleCheck(conversation.conversation_id)}
                   />
@@ -560,6 +684,86 @@ export function ConversationList({
           }}
         />
       )}
+
+      {contextMenu && (
+        <div
+          className="fixed z-[2147482100] w-52 rounded-xl border border-white/10 bg-zinc-950/98 p-1 shadow-2xl shadow-black/40 backdrop-blur"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[12px] text-zinc-300 hover:bg-white/[0.06] hover:text-zinc-50"
+            onClick={() => openRenameDialog(contextMenu.conversation)}
+          >
+            <Pencil className="h-3.5 w-3.5" />
+            Rename chat
+          </button>
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[12px] text-zinc-300 hover:bg-white/[0.06] hover:text-zinc-50"
+            onClick={() => handleTogglePin(contextMenu.conversation)}
+          >
+            <Pin className="h-3.5 w-3.5" />
+            {isConversationPinned(contextMenu.conversation) ? 'Unpin chat' : 'Pin chat'}
+          </button>
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[12px] text-zinc-300 hover:bg-white/[0.06] hover:text-zinc-50"
+            onClick={() => handleCopySessionId(contextMenu.conversation)}
+          >
+            <Copy className="h-3.5 w-3.5" />
+            Copy session-id
+          </button>
+          <div className="my-1 border-t border-white/10" />
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[12px] text-red-300 hover:bg-red-500/[0.10] hover:text-red-200"
+            onClick={() => handleDeleteClick(contextMenu.conversation.conversation_id)}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            Delete chat
+          </button>
+        </div>
+      )}
+
+      <Dialog
+        open={renameModalOpen}
+        onOpenChange={(open) => {
+          setRenameModalOpen(open);
+          if (!open) setConversationToRename(null);
+        }}
+      >
+        <DialogHeader>
+          <DialogTitle>Rename chat</DialogTitle>
+        </DialogHeader>
+        <DialogContent>
+          <input
+            autoFocus
+            value={renameTitle}
+            onChange={(event) => setRenameTitle(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                void handleRenameConversation();
+              }
+            }}
+            className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-cyan-300/35"
+            placeholder="Chat title"
+          />
+        </DialogContent>
+        <DialogFooter>
+          <Button
+            variant="ghost"
+            onClick={() => setRenameModalOpen(false)}
+          >
+            Cancel
+          </Button>
+          <Button onClick={() => void handleRenameConversation()}>
+            Rename
+          </Button>
+        </DialogFooter>
+      </Dialog>
 
       <ConfirmDialog
         open={deleteModalOpen}
