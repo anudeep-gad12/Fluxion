@@ -639,6 +639,10 @@ function ModelPicker({
   };
 
   const handleSelectLocal = async (model: LocalModel) => {
+    if (model.supported === false) {
+      setError(model.status_message || 'This local model is not supported by the installed server.');
+      return;
+    }
     setSwitching(`local:${model.path}`);
     setError(null);
     try {
@@ -1216,15 +1220,22 @@ function ModelPicker({
                 {activeLocalSection && activeLocalSection.models.length > 0 ? (
                   activeLocalSection.models.map((model) => {
                     const isBusy = switching === `local:${model.path}`;
+                    const unsupported = model.supported === false;
                     return (
                       <button
                         key={model.path}
                         onClick={() => handleSelectLocal(model)}
-                        disabled={!!switching}
-                        className={cn(desktop ? 'desktop-settings-list-item' : 'mb-1 block w-full rounded-[1rem] border border-transparent px-4 py-3 text-left text-zinc-300 hover:border-white/10 hover:bg-white/[0.045]')}
+                        disabled={!!switching || unsupported}
+                        title={model.status_message || undefined}
+                        className={cn(
+                          desktop ? 'desktop-settings-list-item' : 'mb-1 block w-full rounded-[1rem] border border-transparent px-4 py-3 text-left text-zinc-300 hover:border-white/10 hover:bg-white/[0.045]',
+                          unsupported && 'cursor-not-allowed opacity-50',
+                        )}
                       >
                         <div className={cn(desktop ? 'desktop-settings-list-title truncate' : 'truncate text-[13px] font-semibold')}>{model.name}</div>
-                        <div className={cn(desktop ? 'desktop-settings-list-meta' : 'mt-1 text-[11px] text-zinc-500')}>{isBusy ? 'Starting…' : model.size_display}</div>
+                        <div className={cn(desktop ? 'desktop-settings-list-meta' : 'mt-1 text-[11px] text-zinc-500')}>
+                          {isBusy ? 'Starting…' : unsupported ? (model.model_type_id ? `Unsupported ${model.model_type_id}` : 'Unsupported') : model.size_display}
+                        </div>
                       </button>
                     );
                   })

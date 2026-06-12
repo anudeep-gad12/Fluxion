@@ -91,6 +91,38 @@ def test_scan_mlx_models_excludes_ollama_paths(monkeypatch, tmp_path):
     assert models[0].path.endswith("good-mlx")
 
 
+def test_scan_mlx_models_marks_unsupported_model_type(monkeypatch, tmp_path):
+    cache_dir = tmp_path / ".cache" / "lm-studio" / "models"
+    model_dir = cache_dir / "lmstudio-community" / "gemma-4-mlx"
+    model_dir.mkdir(parents=True)
+    (model_dir / "config.json").write_text('{"model_type": "gemma4"}', encoding="utf-8")
+    (model_dir / "weights.safetensors").write_text("ok", encoding="utf-8")
+
+    monkeypatch.setattr(local_models, "MODEL_DIRS", [cache_dir])
+    monkeypatch.setattr(
+        local_models,
+        "_resolve_server_executable",
+        lambda model_type: "/usr/bin/mlx_lm.server",
+    )
+    monkeypatch.setattr(
+        local_models,
+        "_local_server_diagnostics",
+        lambda model_type, executable: {"mlx_lm_version": "0.31.1"},
+    )
+    monkeypatch.setattr(
+        local_models,
+        "_supported_mlx_model_types",
+        lambda executable: {"gemma3", "qwen3"},
+    )
+
+    models = local_models._scan_mlx_models()
+
+    assert len(models) == 1
+    assert models[0].model_type_id == "gemma4"
+    assert models[0].supported is False
+    assert "not supported by installed mlx-lm 0.31.1" in models[0].status_message
+
+
 def test_resolve_server_executable_uses_desktop_safe_user_path(monkeypatch, tmp_path):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -128,6 +160,46 @@ def test_local_server_diagnostics_reads_mlx_versions_without_importing_mlx(
     assert diagnostics["python"] == str(python_path)
     assert diagnostics["mlx_lm_version"] == "0.31.3"
     assert diagnostics["mlx_version"] == "0.31.2"
+
+
+@pytest.mark.asyncio
+async def test_start_mlx_fails_fast_for_unsupported_model_type(monkeypatch, tmp_path):
+    model_dir = tmp_path / "lmstudio-community" / "gemma-4-mlx"
+    model_dir.mkdir(parents=True)
+    (model_dir / "config.json").write_text('{"model_type": "gemma4"}', encoding="utf-8")
+    (model_dir / "weights.safetensors").write_text("ok", encoding="utf-8")
+
+    popen_called = False
+
+    def fake_popen(*args, **kwargs):
+        nonlocal popen_called
+        popen_called = True
+        raise AssertionError("server should not be spawned for unsupported MLX type")
+
+    monkeypatch.setattr(
+        local_models,
+        "_resolve_server_executable",
+        lambda model_type: "/usr/bin/mlx_lm.server",
+    )
+    monkeypatch.setattr(
+        local_models,
+        "_local_server_diagnostics",
+        lambda model_type, executable: {"mlx_lm_version": "0.31.1"},
+    )
+    monkeypatch.setattr(
+        local_models,
+        "_supported_mlx_model_types",
+        lambda executable: {"gemma3", "qwen3"},
+    )
+    monkeypatch.setattr(subprocess, "Popen", fake_popen)
+
+    with pytest.raises(local_models.LocalModelStartError) as exc_info:
+        await local_models.start(str(model_dir), ctx_size=4096)
+
+    assert popen_called is False
+    assert "MLX model type 'gemma4' is not supported by installed mlx-lm 0.31.1" in str(
+        exc_info.value
+    )
 
 
 @pytest.mark.asyncio

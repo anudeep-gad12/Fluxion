@@ -4,6 +4,7 @@ Scans for GGUF and MLX models on disk and manages llama-server / mlx_lm.server l
 """
 
 import asyncio
+import json
 import os
 import re
 import signal
@@ -28,6 +29,17 @@ MODEL_DIRS = [
     Path.home() / ".cache" / "lm-studio" / "models",
 ]
 EXCLUDED_MODEL_PATH_PARTS = {"ollama"}
+MLX_MODEL_TYPE_REMAPPING = {
+    "mistral": "llama",
+    "llava": "mistral3",
+    "phi-msft": "phixtral",
+    "falcon_mamba": "mamba",
+    "joyai_llm_flash": "deepseek_v3",
+    "kimi_k2": "deepseek_v3",
+    "qwen2_5_vl": "qwen2_vl",
+    "minimax_m2": "minimax",
+    "iquestcoder": "llama",
+}
 
 LLAMA_PORT = 8080
 LLAMA_HEALTH_URL = f"http://localhost:{LLAMA_PORT}/health"
@@ -50,6 +62,9 @@ class LocalModel:
     name: str
     size_bytes: int
     model_type: ModelType = ModelType.GGUF
+    model_type_id: Optional[str] = None
+    supported: bool = True
+    status_message: Optional[str] = None
 
     @property
     def size_display(self) -> str:
@@ -144,10 +159,107 @@ def _scan_gguf_models() -> list[LocalModel]:
     return models
 
 
+def _package_path_in_python(python_path: str, package_name: str) -> Optional[str]:
+    """Find a package directory in another Python env without importing the package."""
+    try:
+        result = subprocess.run(
+            [
+                python_path,
+                "-c",
+                (
+                    "import importlib.util\n"
+                    f"spec=importlib.util.find_spec({package_name!r})\n"
+                    "locs=getattr(spec, 'submodule_search_locations', None) if spec else None\n"
+                    "print(next(iter(locs), '') if locs else '')\n"
+                ),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    value = result.stdout.strip()
+    return value or None
+
+
+def _supported_mlx_model_types(executable: Optional[str]) -> Optional[set[str]]:
+    """Return model_type ids supported by the installed mlx-lm package.
+
+    This is a filesystem check, not an MLX import, so it is safe in desktop and
+    headless test contexts where importing MLX may initialize Metal.
+    """
+    python_path = _python_from_script_shebang(executable) if executable else None
+    package_path = _package_path_in_python(python_path, "mlx_lm") if python_path else None
+    if not package_path:
+        return None
+
+    models_dir = Path(package_path) / "models"
+    if not models_dir.is_dir():
+        return None
+
+    supported = {
+        path.stem
+        for path in models_dir.iterdir()
+        if path.name != "__init__.py"
+        and not path.name.startswith("__")
+        and (path.suffix == ".py" or (path.is_dir() and (path / "__init__.py").exists()))
+    }
+    supported.update(MLX_MODEL_TYPE_REMAPPING.keys())
+    return supported
+
+
+def _read_mlx_model_type(model_dir: Path) -> Optional[str]:
+    """Read the Hugging Face config model_type for an MLX model directory."""
+    try:
+        config = json.loads((model_dir / "config.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    model_type = config.get("model_type")
+    return str(model_type) if model_type else None
+
+
+def _mlx_support_status(
+    *,
+    model_dir: Path,
+    supported_types: Optional[set[str]],
+    mlx_lm_version: Optional[str],
+) -> tuple[bool, Optional[str], Optional[str]]:
+    """Return (supported, model_type_id, status_message) for an MLX model."""
+    model_type = _read_mlx_model_type(model_dir)
+    if not model_type or supported_types is None:
+        return True, model_type, None
+
+    resolved_type = MLX_MODEL_TYPE_REMAPPING.get(model_type, model_type)
+    if resolved_type in supported_types:
+        return True, model_type, None
+
+    version_text = f" {mlx_lm_version}" if mlx_lm_version else ""
+    return (
+        False,
+        model_type,
+        (
+            f"MLX model type '{model_type}' is not supported by installed mlx-lm{version_text}. "
+            "Update mlx-lm or use a supported MLX/GGUF model."
+        ),
+    )
+
+
 def _scan_mlx_models() -> list[LocalModel]:
     """Scan standard directories for MLX models (dirs with config.json + safetensors)."""
     models: list[LocalModel] = []
     seen_paths: set[str] = set()
+    executable: Optional[str] = None
+    diagnostics: dict[str, Optional[str]] = {}
+    supported_types: Optional[set[str]] = None
+    try:
+        executable = _resolve_server_executable(ModelType.MLX)
+        diagnostics = _local_server_diagnostics(ModelType.MLX, executable)
+        supported_types = _supported_mlx_model_types(executable)
+    except LocalModelStartError:
+        supported_types = None
 
     for model_dir in MODEL_DIRS:
         if not model_dir.is_dir():
@@ -172,6 +284,11 @@ def _scan_mlx_models() -> list[LocalModel]:
             seen_paths.add(parent_str)
             size = sum(f.stat().st_size for f in safetensors)
             display_name = f"{parent.parent.name}/{parent.name}"
+            supported, model_type_id, status_message = _mlx_support_status(
+                model_dir=parent,
+                supported_types=supported_types,
+                mlx_lm_version=diagnostics.get("mlx_lm_version"),
+            )
 
             models.append(
                 LocalModel(
@@ -179,6 +296,9 @@ def _scan_mlx_models() -> list[LocalModel]:
                     name=display_name,
                     size_bytes=size,
                     model_type=ModelType.MLX,
+                    model_type_id=model_type_id,
+                    supported=supported,
+                    status_message=status_message,
                 )
             )
 
@@ -495,6 +615,21 @@ async def start(model_path: str, ctx_size: int = 100000) -> LocalServerStartResu
 
     executable = _resolve_server_executable(model_type)
     diagnostics = _local_server_diagnostics(model_type, executable)
+    if model_type == ModelType.MLX:
+        supported_types = _supported_mlx_model_types(executable)
+        supported, model_type_id, status_message = _mlx_support_status(
+            model_dir=Path(resolved),
+            supported_types=supported_types,
+            mlx_lm_version=diagnostics.get("mlx_lm_version"),
+        )
+        diagnostics["model_type_id"] = model_type_id
+        if not supported:
+            raise LocalModelStartError(
+                status_message or "Selected MLX model is not supported by installed mlx-lm.",
+                model_type=model_type,
+                log_file=str(_log_file_path(model_type)),
+                diagnostics=diagnostics,
+            )
 
     # Stop any existing server
     await stop()

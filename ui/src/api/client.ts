@@ -634,6 +634,9 @@ export interface LocalModel {
   size_bytes: number;
   size_display: string;
   model_type: 'gguf' | 'mlx';
+  model_type_id?: string | null;
+  supported?: boolean;
+  status_message?: string | null;
 }
 
 export interface StartLocalModelResponse {

@@ -539,6 +539,9 @@ class LocalModelSchema(BaseModel):
     name: str
     size_bytes: int
     model_type: str = "gguf"
+    model_type_id: Optional[str] = None
+    supported: bool = True
+    status_message: Optional[str] = None
     size_display: str
 
 

@@ -95,6 +95,9 @@ async def list_local_models():
             size_bytes=m.size_bytes,
             size_display=m.size_display,
             model_type=m.model_type.value,
+            model_type_id=m.model_type_id,
+            supported=m.supported,
+            status_message=m.status_message,
         )
         for m in models
     ]

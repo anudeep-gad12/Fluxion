@@ -9,6 +9,7 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| main | MLX unsupported-model handling — local MLX scanning now detects installed mlx-lm supported model types without importing Metal, marks unsupported models like `gemma4` as disabled in the picker, and fails fast with an update/use-GGUF diagnostic instead of launching `mlx_lm.server` and waiting for health timeout | done | 2026-06-12 |
 | main | Completion gate command-evidence fix — command gating now uses explicit command regexes and ignores locally negated phrases like “didn’t test it,” preventing genetics/health questions from being blocked on impossible terminal evidence | done | 2026-06-12 |
 | main | Conversation list controls — fixed model picker loading layout, added right-click chat actions for rename/copy session-id/pin/delete, and sorted workspace chats by last activity with pinned chats kept at the top | done | 2026-06-12 |
 | main | Local model startup hardening — local GGUF/MLX selection now keeps the model picker locked open while the server starts, reports concrete startup diagnostics, resolves desktop-safe server executable paths, and uses MLX's served model id/path instead of the display basename for local provider requests | done | 2026-06-11 |
