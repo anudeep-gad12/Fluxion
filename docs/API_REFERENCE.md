@@ -8,14 +8,16 @@ Complete documentation of all API endpoints in the Fluxion system.
 2. [Conversations](#conversations)
 3. [Runs](#runs)
 4. [Agent Runs](#agent-runs)
-5. [ChatGPT Auth](#chatgpt-auth-cli)
-6. [Models](#models)
-7. [Browser Terminal](#browser-terminal)
-8. [Benchmarks](#benchmarks)
-9. [System](#system)
-10. [Rate Limiting](#rate-limiting)
-11. [SSE Streaming](#sse-streaming)
-12. [Error Handling](#error-handling)
+5. [ChatGPT Auth](#chatgpt-auth)
+6. [Grok Auth](#grok-auth)
+7. [Models](#models)
+8. [Workspaces](#workspaces)
+9. [Browser Terminal](#browser-terminal)
+10. [Benchmarks](#benchmarks)
+11. [System](#system)
+12. [Rate Limiting](#rate-limiting)
+13. [SSE Streaming](#sse-streaming)
+14. [Error Handling](#error-handling)
 
 ---
 
@@ -757,7 +759,7 @@ GET /api/runs/{run_id}/thinking?detail=user
 
 ### Create Agent Run
 
-Start an agent research query.
+Start a workspace coding-agent task or follow-up.
 
 **Request**:
 ```
@@ -795,7 +797,7 @@ POST /api/agent/runs
 | `working_dir` | string | No | null | Filesystem root for coding tools |
 | `filesystem_enabled` | bool | No | false | Enable filesystem tools |
 | `capabilities` | object | No | `{web:true, filesystem:false, bash:false, python:false}` | Browser-owned tool capability switches |
-| `python_provider` | string | No | env/config default | `"local"` or `"daytona"` |
+| `python_provider` | string | No | env/config default | `"local"` by default; `"daytona"` remains legacy/optional |
 | `image_attachments` | array | No | `[]` | Optional multimodal image attachments |
 
 **Response** (200 OK):
@@ -1241,13 +1243,49 @@ GET /api/agent/runs/{run_id}/stream?token=abc123&since_seq=0
 
 See [SSE Streaming](#sse-streaming) for event format.
 
+### Plan Approval / Rejection
+
+```http
+POST /api/agent/runs/{run_id}/plan/approve
+POST /api/agent/runs/{run_id}/plan/reject
+```
+
+Approving a Plan Mode proposal starts or links the implementation run. Rejecting records the reason and terminates the planning run. Both return a plan approval status payload.
+
+### Respond to User Input Request
+
+```http
+POST /api/agent/runs/{run_id}/input/{request_id}
+```
+
+Used by collaboration/Plan Mode tools to resume a run after structured user input.
+
+### Read Run Artifact
+
+```http
+GET /api/agent/runs/{run_id}/artifacts/read?path=.fluxion/runs/{run_id}/...
+```
+
+Reads persisted run output artifacts created by command/web extraction tools. Source-file reads/edits are not exposed as scratch artifacts.
+
 ---
 
-## ChatGPT Auth (CLI)
+## ChatGPT Auth
+
+ChatGPT/Codex OAuth routes live under `/api/auth/chatgpt`. Login/callback/status/logout/cancel/refresh are used by the desktop model picker and local web flows; export/restore remain available for token backup.
+
+```http
+GET  /api/auth/chatgpt/login
+GET  /api/auth/chatgpt/callback
+GET  /api/auth/chatgpt/status
+POST /api/auth/chatgpt/logout
+POST /api/auth/chatgpt/cancel
+POST /api/auth/chatgpt/refresh
+```
 
 ### Export Tokens
 
-Export ChatGPT OAuth tokens for local backup.
+Export ChatGPT OAuth tokens for local backup or desktop/provider migration.
 
 **Request**:
 ```
@@ -1269,7 +1307,7 @@ Returns 404 if no valid tokens for the session.
 
 ### Restore Tokens
 
-Restore ChatGPT auth from backed-up refresh token.
+Restore ChatGPT auth from a backed-up refresh token.
 
 **Request**:
 ```
@@ -1291,6 +1329,20 @@ Content-Type: application/json
 ```
 
 Returns `{"success": false, "error": "..."}` if refresh fails.
+
+---
+
+## Grok Auth
+
+Grok OAuth/helper routes live under `/api/auth/grok`. They support normal login plus fallback-code entry when the browser flow cannot reach the app callback.
+
+```http
+GET  /api/auth/grok/status
+POST /api/auth/grok/login
+POST /api/auth/grok/code
+POST /api/auth/grok/cancel
+POST /api/auth/grok/logout
+```
 
 ---
 
@@ -1579,9 +1631,39 @@ POST /api/models/local/stop
 
 ---
 
+## Workspaces
+
+Workspace routes support desktop/browser folder selection, workspace file mentions, and `.fluxion` gitignore hygiene.
+
+### Ensure `.fluxion` Gitignore Entry
+
+```http
+POST /api/workspaces/ensure-fluxion-gitignore
+```
+
+Body: `{ "workspace_path": "/Users/me/project" }`. Best-effort adds `.fluxion/` to the workspace-local `.gitignore` for Git workspaces.
+
+### Browse Workspace Folders
+
+```http
+GET /api/workspaces/browse?path=/Users/me
+```
+
+Returns folder entries for the web fallback picker. Tauri desktop prefers the native folder picker.
+
+### Search Workspace Files
+
+```http
+GET /api/workspaces/search-files?workspace_path=/Users/me/project&q=foo&limit=20
+```
+
+Used for `@file` composer mentions. Hidden/generated directories and `.fluxion` artifacts are excluded.
+
+---
+
 ## Browser Terminal
 
-Desktop agent mode exposes multiple persistent terminal sessions per conversation (configurable cap, default 5). Each session is backed by a PTY shell. The browser terminal is separate from the agent `bash` tool: it is user-driven, interactive, and long-lived until restarted or closed.
+Desktop agent mode exposes multiple persistent terminal sessions per conversation (configurable cap, default 10). Each session is backed by a PTY shell. The browser terminal is separate from the agent `bash` tool: it is user-driven, interactive, and long-lived until restarted or closed.
 
 ### List Terminal Sessions
 
@@ -1594,11 +1676,24 @@ GET /api/terminal/conversations/{conversation_id}/sessions
 ```json
 {
   "sessions": [ { "session_id": "...", "shell": "/bin/zsh", "title": "zsh", "status": "running", ... } ],
-  "max_sessions_per_conversation": 5
+  "max_sessions_per_conversation": 10
 }
 ```
 
 Returns running sessions only (closed/stale rows are omitted).
+
+Draft conversations use the same shape under:
+
+```http
+GET  /api/terminal/draft/sessions
+POST /api/terminal/draft/sessions
+POST /api/terminal/draft/sessions/{terminal_session_id}/restart
+POST /api/terminal/draft/sessions/{terminal_session_id}/close
+POST /api/terminal/draft/attach/{conversation_id}
+WS   /api/terminal/draft/ws?session_id={session_id}
+```
+
+Draft sessions are attached to the real conversation after the first message creates it.
 
 ### Create Terminal Session
 
@@ -1612,9 +1707,9 @@ Same body as legacy create. Always spawns a **new** PTY. Returns **409** when `m
 ### Get / Restart / Close One Session
 
 ```
-GET  /api/terminal/conversations/{conversation_id}/sessions/{session_id}
-POST /api/terminal/conversations/{conversation_id}/sessions/{session_id}/restart
-POST /api/terminal/conversations/{conversation_id}/sessions/{session_id}/close
+GET  /api/terminal/conversations/{conversation_id}/sessions/{terminal_session_id}
+POST /api/terminal/conversations/{conversation_id}/sessions/{terminal_session_id}/restart
+POST /api/terminal/conversations/{conversation_id}/sessions/{terminal_session_id}/close
 ```
 
 Restart kills that shell and starts a new PTY with a new `session_id`. Close stops one session without affecting siblings.

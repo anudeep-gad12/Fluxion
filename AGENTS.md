@@ -2,7 +2,7 @@
 
 AI chat application with thinking system and agent mode.
 FastAPI backend (`orchestrator/`) + React/Vite frontend (`ui/`).
-SQLite storage, OpenAI-compatible providers (DeepInfra cloud default, supports local llama-cpp).
+SQLite storage, OpenAI-compatible providers (Fireworks cloud default in config, plus OpenAI/OpenRouter/DeepInfra/xAI/ChatGPT/Grok and local GGUF/MLX).
 
 ## Session Start
 

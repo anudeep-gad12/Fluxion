@@ -17,7 +17,7 @@ Comprehensive technical documentation of the Fluxion system architecture.
 
 ## System Overview
 
-Fluxion is an AI chat application with multi-strategy reasoning capabilities. It consists of a FastAPI backend (orchestrator) and a React/Vite frontend (ui), connected to OpenAI-compatible LLM providers. Default configuration uses DeepInfra cloud, but supports local OpenAI-compatible runtimes plus managed local GGUF/MLX launches and ChatGPT (via OAuth).
+Fluxion is a macOS coding-agent application. A Tauri desktop shell hosts the React/Vite UI, app-managed browser tabs, and integrated terminals; the FastAPI backend (`orchestrator/`) runs chat, coding-agent, model/provider, auth, workspace, and terminal APIs. The repo default cloud provider is Fireworks/Kimi via OpenAI-compatible chat completions, with registry support for OpenAI API, ChatGPT/Codex OAuth, Grok OAuth, xAI, OpenRouter, DeepInfra, and managed local GGUF/MLX launches.
 
 ### High-Level Architecture
 
@@ -25,12 +25,12 @@ Fluxion is an AI chat application with multi-strategy reasoning capabilities. It
 ┌─────────────────────────────────────────────────────────────────────────────────┐
 │                                    USER                                          │
 │                      ┌──────────┐                                            │
-│                      │ Browser  │                                            │
+│                      │ Tauri app │                                            │
 │                      └────┬─────┘                                            │
 └───────────────────────────┼───────────────────────────────────────────────────┘
                             │
 ┌───────────────────────────▼───────────────────────────────────────────────────┐
-│  FRONTEND - React + Vite (:3000)                                             │
+│  FRONTEND - React + Vite (:3000 dev, bundled in Tauri desktop)               │
 │  ┌─────────────┐  ┌─────────────┐                                            │
 │  │ Conversation │──│ Zustand     │                                            │
 │  │ Views & UI   │  │ Store       │                                            │
@@ -55,8 +55,8 @@ Fluxion is an AI chat application with multi-strategy reasoning capabilities. It
                                ▼                              ▼
 ┌──────────────────────────────────────────┐  ┌────────────────────────────────────┐
 │   LLM Provider                           │  │   SQLite (var/traces.sqlite)       │
-│   - DeepInfra / llama-server / vLLM      │  │ conversations | runs | trace_events│
-│   - ChatGPT (OAuth + Codex API)          │  │ coding_sessions | coding_session_  │
+│   - Fireworks / OpenAI / OpenRouter     │  │ conversations | runs | trace_events│
+│   - ChatGPT/Grok OAuth, xAI, DeepInfra   │  │ coding_sessions | coding_session_  │
 │   - /v1/chat/completions (default)       │  │ entries | agent_steps              │
 │   - /v1/responses (gpt-oss native)       │  │ agent_tool_calls | run_events      │
 │                                           │  │ run_artifacts                      │
@@ -66,16 +66,16 @@ Fluxion is an AI chat application with multi-strategy reasoning capabilities. It
 
 ### Key Features
 
-- **Web UI + REST API**: Browser-first product surface plus backend APIs
-- **Chat + Coding Agent**: Plain chat runs and browser coding-agent runs
+- **macOS Desktop + REST API**: Tauri desktop surface, app-managed browser tabs, integrated terminals, plus backend APIs
+- **Chat + Coding Agent**: Plain chat runs and workspace-bound coding-agent runs
 - **Filesystem Tools**: apply_patch, exec_command/write_stdin, bash, glob, grep, read_file, edit_file, write_file, list_directory
 - **Tool Approval Flow**: Permission-gated tool execution (strict/relaxed/yolo policies)
-- **Multi-Provider Support**: DeepInfra, ChatGPT (OAuth), llama-server, vLLM, Ollama
+- **Multi-Provider Support**: Fireworks, OpenAI API, ChatGPT/Codex OAuth, Grok OAuth, xAI, OpenRouter, DeepInfra, and local GGUF/MLX
 - **Streaming-First**: Real-time token streaming via Server-Sent Events (SSE)
 - **Context Management**: Model-aware context profiles, threshold-based conversation compaction, bounded tool-result history, turn summaries, transcript-first coding-session replay for coding-profile follow-ups, metadata-only coding session state, stored-context telemetry, per-file freshness/reread tracking for coding continuity, and project context injection
 - **Full Traceability**: Every LLM call, tool execution, approval, and file change is recorded
 - **Provider Failover**: Circuit breaker pattern with automatic provider switching
-- **Pause/Resume/Steer**: Pause agent between steps, resume later, or inject steering messages mid-run
+- **Plan/Approve + Pause/Resume/Steer**: Plan Mode proposals, durable plan docs, plan approval/rejection, pause/resume, and mid-run steering
 - **Per-Session Message Limits**: Configurable usage caps with owner bypass for demo deployments
 
 ---
@@ -133,14 +133,23 @@ orchestrator/                     # Backend (FastAPI)
 │       ├── web_search.py         # Parallel.ai web search
 │       ├── web_extract.py        # Content extraction
 │       ├── python_local.py       # Local Python execution
-│       ├── python_daytona.py     # Daytona cloud sandbox
+│       ├── run_artifacts.py      # Read/list persisted run output artifacts
+│       ├── request_user_input.py # Plan Mode/user input bridge
+│       ├── update_plan_doc.py    # Plan Mode durable plan updates
+│       ├── python_daytona.py     # Legacy optional Daytona sandbox
 │       └── view_image.py         # Local image inspection
 │
 ├── models/
 │   └── registry.py              # ProviderDef, ModelPreset, ModelRegistry (~25 presets)
 │
 ├── services/
-│   └── local_models.py          # GGUF/MLX scanning + local server lifecycle
+│   ├── browser_terminal.py      # PTY-backed terminal manager
+│   ├── conversation_rewind.py   # Workspace rewind capture/restore
+│   ├── grok_auth.py             # Grok CLI/OAuth integration
+│   ├── local_models.py          # GGUF/MLX scanning + local server lifecycle
+│   ├── model_catalog.py         # Live/curated provider catalog helpers
+│   ├── provider_keys.py         # DB-backed provider key storage
+│   └── reasoning_settings.py    # Runtime reasoning settings persistence
 │
 ├── context/
 │   ├── budget.py                # ContextBudget tracking and utilization
@@ -154,6 +163,10 @@ orchestrator/                     # Backend (FastAPI)
 │   ├── agent_runs.py             # Agent runs + SSE + tool approval endpoints
 │   ├── models.py                 # Model registry + custom/local runtime management
 │   ├── auth.py                   # ChatGPT OAuth PKCE flow
+│   ├── grok_auth.py              # Grok OAuth/fallback-code routes
+│   ├── models.py                 # Model registry/provider keys/local runtime
+│   ├── terminal.py               # PTY terminal sessions + websocket attach
+│   ├── workspaces.py             # Workspace browse/search/gitignore APIs
 │   └── benchmarks.py             # GAIA benchmark traces API
 │
 ├── storage/
@@ -181,7 +194,7 @@ The FastAPI application initializes with:
    - `SecurityHeadersMiddleware`: Security headers (X-Frame-Options, X-Content-Type-Options, Content-Security-Policy, etc.)
    - `RateLimitMiddleware`: IP-based rate limiting for demo mode
    - `CORSMiddleware`: Allows frontend at localhost:3000
-3. **Routers**: `/api/conversations`, `/api/runs`, `/api/agent/runs`, `/api/models`, `/api/auth/chatgpt`, `/api/benchmarks`
+3. **Routers**: `/api/conversations`, `/api/runs`, `/api/agent/runs`, `/api/models`, `/api/auth/chatgpt`, `/api/auth/grok`, `/api/workspaces`, `/api/terminal`, `/api/benchmarks`
 4. **Health/Config Endpoints**: `/api/health`, `/api/config`
 
 ```python
@@ -194,10 +207,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(conversations.router, prefix="/api")
-app.include_router(runs.router, prefix="/api")
-app.include_router(agent_runs.router, prefix="/api")
-app.include_router(benchmarks.router)  # prefix="/api/benchmarks" in router
+app.include_router(conversations.router)
+app.include_router(runs.router)
+app.include_router(agent_runs.router)
+app.include_router(benchmarks.router)
+app.include_router(auth.router)
+app.include_router(grok_auth.router)
+app.include_router(models.router)
+app.include_router(workspaces.router)
+app.include_router(terminal.router)
 ```
 
 ### Chat Engine (`engine/chat_engine.py`)
@@ -259,44 +277,27 @@ class ChatResult:
 ui/src/
 ├── main.tsx                  # React entry point
 ├── App.tsx                   # Main layout + routing
-│
+├── api/client.ts             # REST + SSE API client
+├── assets/                   # UI assets
 ├── components/
-│   ├── ConversationView.tsx  # Chat interface (dual mode: chat/agent)
-│   ├── ConversationList.tsx  # Sidebar with conversation list
-│   ├── DetailPanel.tsx       # Debug trace viewer
-│   ├── BenchmarksPage.tsx    # GAIA benchmark results page
-│   ├── TracesModal.tsx       # Evaluation trace browser modal
-│   ├── AgentRunMessage.tsx   # Agent mode message display
+│   ├── ConversationView.tsx  # Browser/desktop conversation surface
+│   ├── ConversationList.tsx  # Workspace-grouped sidebar
+│   ├── AgentLiveHUD.tsx      # Active agent/Plan Mode HUD
+│   ├── AgentRunMessage.tsx   # Agent run transcript rendering
 │   ├── AgentStepsPanel.tsx   # Agent progress timeline
-│   ├── AnswerMarkdown.tsx    # Markdown + LaTeX rendering + copy button
-│   ├── AnswerWithCitations.tsx  # Answer with source citations
-│   ├── ThinkingPanel.tsx     # Collapsible thinking display (animated)
-│   ├── ToolCallCard.tsx      # Tool execution card
-│   ├── CitationInline.tsx    # Inline citation badge
-│   └── ui/                   # Shadcn-style primitives
-│       ├── button.tsx
-│       ├── card.tsx
-│       ├── badge.tsx
-│       ├── input.tsx
-│       ├── dialog.tsx
-│       └── ...
-│
+│   ├── ToolCallCard.tsx      # Tool approval/result cards
+│   ├── IntegratedTerminal.tsx# xterm terminal surface
+│   ├── WorkspacePickerDialog.tsx
+│   ├── desktop/              # Tauri titlebar, browser pane, terminal panel, composer, status bar
+│   └── ui/                   # Shared primitives
 ├── hooks/
-│   ├── useStore.ts           # Zustand store (state + actions)
-│   ├── useSSE.ts             # Chat mode streaming hook
-│   ├── useAgentSSE.ts        # Agent mode streaming hook
-│   └── useAgentRunDetails.ts # Load agent trace data
-│
-├── api/
-│   └── client.ts             # REST + SSE API client
-│
-├── types/
-│   ├── index.ts              # Core types (Run, Conversation, Event)
-│   └── agent.ts              # Agent-specific types
-│
-└── lib/
-    ├── utils.ts              # Utility functions (cn, formatTimestamp)
-    └── retry.ts              # Retry with exponential backoff
+│   ├── useStore.ts           # Zustand store
+│   ├── useSSE.ts             # Chat SSE
+│   ├── useAgentSSE.ts        # Agent SSE + replay/token auth
+│   └── useAgentRunDetails.ts # Trace/artifact loading
+├── lib/                      # platform, retry, live agent state, usage metrics
+├── styles/                   # Global/theme styles
+└── types/                    # Core + agent TypeScript types
 ```
 
 ### Component Hierarchy
@@ -315,7 +316,7 @@ App.tsx
 │       │   │   ├── ThinkingPanel (collapsible)
 │       │   │   └── AnswerMarkdown
 │       │   │
-│       │   └── AgentRunMessage (research mode)
+│       │   └── AgentRunMessage (agent mode)
 │       │       ├── User query bubble
 │       │       ├── AgentStepsPanel
 │       │       │   └── ToolCallCard (per tool)
@@ -361,7 +362,7 @@ The store (`useStore.ts`) manages all application state:
 - Routes `THINKING_TOKEN` events to `streamingThinking`
 - Clears streaming state on completion
 
-**`useAgentSSE.ts`** (Research Mode):
+**`useAgentSSE.ts`** (Agent Mode):
 - Subscribes to `/api/agent/runs/{id}/stream` with per-run stream token
 - Processes events: `step_start`, `thinking`, `tool_start`, `tool_result`, `answer`, `complete`
 - Supports resumption via `since_seq` parameter and token-authenticated reconnection
@@ -417,10 +418,10 @@ The provider supports two OpenAI endpoints with automatic fallback:
 
 The `ChatGPTProvider` (`orchestrator/providers/chatgpt.py`) enables direct access to ChatGPT models via OAuth:
 
-- **Auth**: OAuth PKCE flow initiated from CLI (`/login` command) or web UI
+- **Auth**: OAuth PKCE flow initiated from the desktop/web model picker or API routes
 - **API**: Translates to ChatGPT's Codex Responses API (`chatgpt.com/backend-api/codex/responses`)
 - **Translation**: Converts chat completions format → Codex format, maps streaming deltas back
-- **Models**: gpt-5.2-codex, o4-mini, gpt-4o, o3
+- **Models**: current registry allowlist in `orchestrator/models/registry.py` and `chat_config.yaml` (currently GPT-5.5/5.4 family for ChatGPT/Codex)
 - **Token refresh**: Supports `update_token()` for session management
 - **Retry**: Exponential backoff (3 attempts max)
 
@@ -438,7 +439,7 @@ Ollama subfolders under those roots are intentionally excluded from discovery. G
 - Start with selected GGUF model on port 8080
 - Health check polling during startup
 - Graceful shutdown via SIGTERM
-- Default context size: 100,000 tokens
+- Default GGUF launch context: 131k tokens; MLX launches use larger prefill/prompt-cache defaults. API callers can override `ctx_size`.
 
 **API Endpoints** (`orchestrator/routes/models.py`):
 | Endpoint | Method | Description |
@@ -466,44 +467,34 @@ OpenRouter-hosted models (e.g., `qwen/qwen3.5-35b-a3b`) are auto-detected via ba
 
 ### Provider Switching
 
-Switch between providers at runtime:
+Switch providers/models at runtime through the model picker or API:
 
-**Via API** (local models):
-```
-POST /api/models/local/start  {"model_path": "/path/to/model.gguf"}
+```http
+POST /api/models/select
+GET  /api/models/provider-keys
+PUT  /api/models/provider-keys/{provider}
+POST /api/models/local/start
 POST /api/models/local/stop
+GET  /api/models/status
+GET  /api/models/reasoning-settings
+PUT  /api/models/reasoning-settings
 ```
 
-**Via CLI** (`/switch` command):
-```
-/switch chatgpt    # Switch to ChatGPT (requires /login first)
-/switch default    # Switch to configured cloud provider
-```
+Environment fallback remains available for development:
 
-**Via environment** (`.env`):
 ```bash
-LLM_BASE_URL=http://localhost:8080/v1              # Local llama-server
-LLM_BASE_URL=https://api.fireworks.ai/inference/v1 # Fireworks (repo default)
+LLM_BASE_URL=https://api.fireworks.ai/inference/v1 # Fireworks repo default
 LLM_BASE_URL=https://api.deepinfra.com/v1/openai   # DeepInfra
 LLM_BASE_URL=https://openrouter.ai/api/v1           # OpenRouter
-LLM_MODEL=qwen/qwen3.5-35b-a3b
+LLM_BASE_URL=http://localhost:8080/v1               # Existing local OpenAI-compatible server
+LLM_MODEL=accounts/fireworks/models/kimi-k2p6
 ```
 
-**Supported Providers**:
-- Fireworks (cloud, repo default)
-- DeepInfra (cloud)
-- OpenRouter (cloud, reasoning model support)
-- llama-server (local, GGUF models)
-- vLLM (local, OpenAI-compatible)
-- Ollama (local, via OpenAI compatibility mode)
-- ChatGPT (via OAuth, CLI only)
+Supported provider families in the registry: Fireworks, OpenAI API, ChatGPT/Codex OAuth, Grok OAuth, xAI, OpenRouter, DeepInfra, and local GGUF/MLX. Explicit provider selections fail visibly when credentials are missing; they do not silently fall back to another configured provider.
 
 **URL Building**: Handles base URLs that already contain `/v1` to avoid double `/v1/v1/...` paths.
 
-**Message Alternation**: Some models (Mistral family) require strict user/assistant message alternation. The provider layer ensures:
-- Plan is appended to system message (not as separate message)
-- Incomplete conversation history runs are skipped
-- No duplicate user messages
+**Message Alternation**: Some models require strict user/assistant alternation. Provider/request builders normalize message layout and avoid duplicate user messages.
 
 ### Circuit Breaker Pattern
 
@@ -621,226 +612,63 @@ class ThinkingResult:
 
 ## Agent Framework
 
-### Architecture
+Fluxion has one live browser/desktop agent runtime: a workspace-bound coding agent. It is capability-driven per run (`web`, `filesystem`, `bash`, `python`) and uses permission policies (`strict`, `relaxed`, `yolo`) to decide whether tools need approval. Historical research-profile/planner code has been removed from the live path.
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                           AgentEngine                                    │
-│                                                                          │
-│  ┌────────────────┐  ┌────────────────┐  ┌────────────────────────────┐ │
-│  │ State Machine  │  │ Context Pruner │  │ Tool Registry              │ │
-│  │ - PLANNING     │  │ - Token budget │  │ - web_search               │ │
-│  │ - TOOL_CALLING │  │ - LLM-based    │  │ - web_extract              │ │
-│  │ - SYNTHESIZING │  │   summarization│  │ - python_execute           │ │
-│  │ - PAUSED       │  │ - Query-aware  │  │                            │ │
-│  │ - COMPLETE     │  │                │  │                            │ │
-│  │ - ERROR        │  │                │  │                            │ │
-│  └────────┬───────┘  └────────────────┘  └────────────────────────────┘ │
-│           │                                                              │
-│           │          ┌────────────────┐                                  │
-│           │          │ Findings       │ Tracks key findings from each   │
-│           │          │ Accumulator    │ tool result for synthesis       │
-│           │          └────────────────┘                                  │
-│           ▼                                                              │
-│  ┌────────────────────────────────────────────────────────────────────┐ │
-│  │                        Agent Loop                                   │ │
-│  │  while not (synthesis or max_steps):                                │ │
-│  │    0. Check pause_signal; block if paused (resume_signal unblocks)  │ │
-│  │    0b. Inject any queued steer messages as user role                │ │
-│  │    1. Prune context with LLM summarization (query-aware)            │ │
-│  │    2. Call LLM with tool schemas                                    │ │
-│  │    3. Parse response for tool calls or synthesis decision           │ │
-│  │    4. Execute tools (with idempotency keys)                         │ │
-│  │    5. Extract findings from tool results                            │ │
-│  │    6. Record results in database, track tokens                      │ │
-│  │    7. Emit SSE events for UI                                        │ │
-│  └────────────────────────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────────────────┘
+### Runtime Loop
+
+```text
+Create agent run
+  -> resolve conversation/workspace/capabilities/provider/context profile
+  -> load coding-session replay + project context
+  -> call model with canonical tool schemas
+  -> canonicalize tool names and parse native/function tool calls
+  -> gate approvals for confirm/dangerous tools
+  -> execute tools, persist steps/tool calls/events/artifacts
+  -> compact replay context under pressure
+  -> accept final assistant text when no tools are pending
 ```
 
-### Planning Step (Pre-Execution)
+Completion is evidence-aware but tool-call based: no-tool assistant text can be final, while missing required command/filesystem/web evidence is traced for debugging. Synthetic nudge loops and prose-pattern progress detection are not part of the current completion path.
 
-Before entering the main agent loop, the engine can optionally create a research plan:
+### Plan Mode
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                         Planning Step                                │
-│                                                                      │
-│  Input: User query + system prompt                                   │
-│  Output: ResearchPlan with ordered steps                             │
-│                                                                      │
-│  1. Analyze query complexity                                         │
-│  2. Generate plan with tool suggestions per step                     │
-│  3. Inject plan into system message                                  │
-│  4. Track plan progress during execution                             │
-└─────────────────────────────────────────────────────────────────────┘
-```
+Plan Mode is a collaboration mode for workspace runs. Planning runs create `.fluxion/plans/<run_id>.md`, can update that file through `update_plan_doc`, emit `plan_doc_updated` SSE/artifact events, and wait for explicit approval or rejection through `/api/agent/runs/{run_id}/plan/approve` or `/plan/reject`. Approved implementation runs are linked back to the plan and append progress journal updates.
 
-**Configuration** (`chat_config.yaml`):
-```yaml
-agent_planning:
-  enabled: true           # Enable/disable planning step
-  max_plan_steps: 5       # Maximum steps planner can create
-```
+### State Machine
 
-**Current Status**: Planning is disabled (`planning_enabled=False` in the agent factory). The extra LLM call added latency with no measurable benefit to output quality.
-
-**Plan Injection**: The plan is appended to the system message (not as a separate message) to maintain strict user/assistant message alternation required by some models (e.g., Mistral).
-
-### Agent State Machine
-
-```
-┌─────────────┐
-│   INIT      │
-└──────┬──────┘
-       │
-       ▼
-┌─────────────┐ (optional)
-│  PLANNING   │─────────────────────────┐
-│  (research  │                         │
-│   plan)     │                         │
-└──────┬──────┘                         │
-       │                                │
-       ▼                                ▼
-┌─────────────┐     tool_calls     ┌─────────────┐
-│ STEP_LOOP   │──────────────────►│ TOOL_CALLING│
-└──────┬──────┘                    └──────┬──────┘
-       │                                  │
-       │ synthesize                       │ all tools done
-       │                                  │
-       ▼                                  ▼
-┌─────────────┐                    ┌─────────────┐
-│SYNTHESIZING │◄───────────────────│ STEP_LOOP   │
-└──────┬──────┘                    └─────────────┘
-       │
-       ▼                           ┌─────────────┐
-┌─────────────┐  pause_signal ───►│   PAUSED    │
-│  COMPLETE   │                    │ (blocked)   │
-└─────────────┘  resume_signal ◄──│             │
-                                   └─────────────┘
-
-Any state in STEP_LOOP can transition to PAUSED via pause_signal.
-resume_signal unblocks back to STEP_LOOP.
-Any state can transition to ERROR on failure.
-```
-
-### Agent Profiles
-
-Profiles configure the agent's tool set, system prompt, and context strategy:
-
-| Profile | Tools | Context | Max Steps | Use Case |
-|---------|-------|---------|-----------|----------|
-| `research` | web_search, web_extract, python_execute | Date + knowledge cutoff | 25 | Web UI research mode |
-| `coding` | All filesystem + web + python (10 tools) | 5-layer project context | 30 | CLI coding assistant |
-
-**System Prompt Architecture** (informed by frontier systems like GPT-5 Agent Mode and Codex CLI):
-- **AUTONOMY**: Operate independently, minimize back-and-forth
-- **SELF-CORRECTION**: Verify work, re-read after edits, fix own mistakes
-- **RECENCY**: Prefer fresh tool results over training knowledge
-- **OUTPUT FORMAT**: Structured response guidelines per profile
-- **USE WHEN**: Tool-specific patterns describing when each tool is appropriate
-- **UNDERSTAND INTENT**: Focus on what users want, not literal words
-- **STEP BACK WHEN STUCK**: If 2 attempts fail, reconsider approach
-- **STAY ON TASK**: Track back to original question
-- **BEFORE EACH TOOL CALL**: State why (1 sentence max)
-- **STOPPING CRITERIA**: Profile-specific rules for when to synthesize
-- Forced synthesis at max steps includes accumulated findings
+Live states are `init`, `planning`, `tool_calling`, `synthesizing`, `paused`, `complete`, and `error`. `pause`, `resume`, `steer`, `cancel`, tool approval/denial, user-input responses, and Plan Mode approval/rejection are all exposed as agent routes and SSE events.
 
 ### Available Tools
 
-| Tool | Description | Permission | Idempotent | Profile |
-|------|-------------|------------|------------|---------|
-| `apply_patch` | Atomic Codex-style add/update/delete/move patches | `confirm` | No | coding |
-| `exec_command` | Shell command session with resumable output | `dangerous` | No | coding |
-| `write_stdin` | Poll/write to a running command session | `dangerous` | No | coding |
-| `bash` | Legacy shell command execution | `dangerous` | No | coding |
-| `read_file` | Read file with line numbers | `auto` | Yes | coding |
-| `write_file` | Create/overwrite file | `confirm` | No | coding |
-| `edit_file` | Exact string replacement fallback | `confirm` | No | coding |
-| `glob` | File pattern matching | `auto` | Yes | coding |
-| `grep` | Regex content search (uses ripgrep if available) | `auto` | Yes | coding |
-| `list_directory` | Tree-style directory listing | `auto` | Yes | coding |
-| `web_search` | Search the web for information | `auto` | Yes | research, coding |
-| `web_extract` | Extract content from URLs | `auto` | Yes | research, coding |
-| `python_execute` | Execute Python code | `auto` | No | research, coding |
-
-**Python Execution Providers** (set via `PYTHON_PROVIDER` env var):
-- `local` (default): Fast subprocess execution
-- `daytona`: Secure cloud sandbox via Daytona SDK (~90ms startup)
+| Tool | Description | Permission | Notes |
+|------|-------------|------------|-------|
+| `apply_patch` | Atomic add/update/delete/move patches | `confirm` | Workspace-safe; preferred for code edits |
+| `exec_command` | Resumable shell command session | `dangerous` | Returns `session_id` for long-running commands |
+| `write_stdin` | Poll/write to running command | `dangerous` | Paired with `exec_command` |
+| `bash` | Legacy single-shot shell command | `dangerous` | Kept for compatibility |
+| `read_file` | Read files with line numbers/pagination | `auto` | Tracks read spans/freshness |
+| `write_file` | Create/overwrite files | `confirm` | Overwrites require explicit argument |
+| `edit_file` | Exact string replacement fallback | `confirm` | Returns diffs |
+| `glob` | File pattern search | `auto` | Read-only |
+| `grep` | Regex content search | `auto` | Uses ripgrep when available |
+| `list_directory` | Bounded tree listing | `auto` | Read-only |
+| `web_search` | Parallel.ai search | `auto` | Requires `PARALLEL_API_KEY` |
+| `web_extract` | Parallel.ai extraction | `auto` | Persists large extracts as artifacts |
+| `python_execute` | Local Python execution by default | `auto` | Daytona implementation remains optional/legacy |
+| `view_image` | Inspect local image files | `auto` | Vision-capable model support |
+| `list_run_artifacts`/`read_artifact` | Read persisted run outputs | `auto` | Exposes `.fluxion/runs/<run_id>/` outputs |
+| `request_user_input` | Ask structured user input | `auto` | Plan/collaboration support |
+| `update_plan_doc` | Update durable plan markdown | `auto` | Plan Mode only |
 
 ### Context Management
 
-The context system prevents token blowout while maintaining relevant information. Older rolling tool-result pruning is no longer the primary strategy for agent runs:
+Agent prompts are assembled from the system prompt, project context, model context profile, coding-session replay, neutral file/command metadata, and recent raw tool results. `coding_session_entries` are the canonical replay source; `coding_sessions.state_json` is metadata only. When prompt pressure crosses the compaction threshold, the backend writes a visible compaction entry and future prompts use the checkpoint summary plus raw post-compaction history.
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                  Context Pipeline                         │
-│                                                           │
-│  1. Context Strategy (profile-dependent)                  │
-│     ├─ Research: date + knowledge cutoff                  │
-│     └─ Coding: 5-layer project context                    │
-│        ├─ Environment (OS, Python/Node versions)          │
-│        ├─ Project rules (.reasoner/rules.md, CLAUDE.md)   │
-│        ├─ Structure (file tree, dependencies)             │
-│        ├─ Git state (branch, status, last 3 commits)      │
-│        └─ Working directory                               │
-│                                                           │
-│  2. History Builder (conversation turns → messages)       │
-│                                                           │
-│  3. Model Context Profile                                 │
-│     ├─ Registry/custom/local/config fallback sources      │
-│     ├─ context_window / max_output_tokens / pricing       │
-│     └─ effective_input_budget for live accounting         │
-│                                                           │
-│  4. Prompt-History Budgeting + Compaction                 │
-│     ├─ Per-tool bounded history formatting                │
-│     ├─ Historical reasoning never re-sent                 │
-│     ├─ Visible compaction at 90% of effective budget      │
-│     └─ Emergency hard truncation as final fallback        │
-└─────────────────────────────────────────────────────────┘
-```
+Agent SSE/status payloads expose both `context_usage` (current assembled provider prompt) and `stored_context` (replayable persisted conversation context). The desktop composer footer uses `stored_context` for ctx utilization and raw provider usage for lifetime token totals.
 
-**Live Context Accounting**: Agent SSE/status payloads now expose two separate context views:
-- `context_usage` = current assembled provider prompt for the active call (`prompt_tokens_current_call`, `remaining_tokens`, effective-budget percentages, compaction counters)
-- `stored_context` = replayable conversation context currently persisted for future coding turns (`stored_tokens`, `context_window`, `utilization_pct`, `replayable_entry_count`)
+### Recovery and Artifacts
 
-The browser composer footer uses `stored_context` for `ctx` and sums conversation-lifetime provider `usage.total_tokens` for `raw`.
-
-### Crash Recovery
-
-The agent supports crash recovery via:
-- **Idempotency Keys**: Hash-based tool call deduplication
-- **State Reconstruction**: Rebuild state from database on restart
-- **Execution Attempts**: Track retry count per tool call
-
-### Findings Accumulator
-
-The agent tracks key findings from each tool result to improve synthesis quality:
-- Extracts query-relevant facts from web search/extract results
-- Stores findings with step number and source tool
-- Includes accumulated findings in forced synthesis prompt
-- Improves answer quality when hitting max steps
-
-### Conversation Compaction
-
-When active prompt history reaches 90% of the model's effective input budget:
-- the backend writes one visible compaction system message into the conversation
-- future prompt assembly uses only the latest compaction message plus raw post-compaction history
-- pre-compaction raw history is no longer sent to the model
-- compaction summaries exclude hidden reasoning/thinking
-- emergency hard truncation remains as a last-resort safety path
-
-Compaction is surfaced to the UI and traces as a visible system event and SSE event.
-
-### Token Tracking
-
-The agent tracks total tokens used across all LLM calls:
-- Accumulates tokens from each planning/tool-calling step
-- Includes tokens from forced synthesis
-- Returns `total_tokens` in `AgentResult`
-- Displayed in UI alongside duration
-
----
+Startup cleanup marks orphaned running runs interrupted/failed and persists terminal `_STREAM_END` events for replay. Tool calls have idempotency keys and approval audit fields. Command output, raw web extracts, and other large outputs are written under `.fluxion/runs/<run_id>/` with DB rows in `run_artifacts`; source reads/edits are not dumped wholesale into scratch artifacts.
 
 ## Storage Layer
 
@@ -917,97 +745,51 @@ The agent tracks total tokens used across all LLM calls:
 
 ### Configuration File (`chat_config.yaml`)
 
-Single source of truth for all runtime settings:
+Single source of truth for runtime defaults. Current important defaults:
 
 ```yaml
 provider:
-  # Repo default: Fireworks cloud. Override with LLM_BASE_URL for other providers.
   base_url: ${LLM_BASE_URL:-https://api.fireworks.ai/inference/v1}
-  api_key: ${LLM_API_KEY:-}
-  endpoint: ${LLM_ENDPOINT:-chat_completions}  # chat_completions | responses | auto
-  fallback_on_404: true
-  fail_on_tool_fallback: true   # Raise error if tools unavailable
-  state_mode: "stateless"       # stateless | stateful_opt_in
+  api_key: ${FIREWORKS_API_KEY:-}
+  endpoint: ${LLM_ENDPOINT:-chat_completions}
   timeout: 120.0
-  slow_response_threshold: 15.0 # Seconds before showing "taking longer" message
+  slow_response_threshold: 15.0
   max_retries: 3
-  base_delay: 1.0
-  max_delay: 30.0
-  retryable_statuses: [429, 500, 502, 503, 504]
-  extra_headers: {}             # Additional headers (e.g., api-version for Azure)
-
-provider_chain:
-  enabled: false              # Set true for multi-provider failover
 
 model:
   name: ${LLM_MODEL:-accounts/fireworks/models/kimi-k2p6}
-  temperature: 1.0
+  temperature: 0.7
   max_tokens: 32768
-  reasoning_effort: "medium"  # For gpt-oss: low | medium | high
+  reasoning_effort: "medium"
+
+reasoning_controls:
+  max_output_tokens: null   # null = selected model max
+  reasoning_effort: "medium"
 
 context:
   max_messages: 50
-  max_tokens: 100000
+  max_tokens: 100000        # fallback when registry has no profile
   reserve_for_response: 16384
-  truncation_strategy: "sliding_window"
 
-thinking:
-  mode_mapping:
-    default: "direct"
-    thinking: "direct"
-  tracing:
-    save_internal: true       # Save internal reasoning traces
-    save_user_summary: true   # Save UI-friendly summaries
-  ui:
-    show_thinking: false      # Show thinking in UI by default
-    collapsible: true         # Allow collapsing thinking sections
-
-tracing:                      # Chat-level tracing (separate from thinking)
-  enabled: true
-  log_level: "info"           # debug | info | warn
-  log_model_calls: true       # Log LLM requests/responses
-
-query_classification:         # Query classification for tool selection
-  enabled: true               # If false, skip classification
-  min_confidence_for_enforcement: 2
-
-parallel:                     # Web search/extract (Parallel.ai)
+parallel:
   api_key: ${PARALLEL_API_KEY:-}
-  base_url: "https://api.parallel.ai/v1beta"
-  search:
-    max_results: 10
-    timeout_ms: 15000
-  extract:
-    timeout_ms: 30000
-    max_urls_per_request: 5
+  search.max_results: 10
+  extract.max_urls_per_request: 3
 
-python:                       # Local Python execution
-  timeout_seconds: 30
+terminal:
+  max_sessions_per_conversation: 10
+  max_browser_tabs_per_conversation: 10
 
-# NOTE: E2B sandbox is configured but not currently in use.
-# Local Python execution is used instead.
-sandbox:                      # Python sandbox (NOT CURRENTLY USED)
-  provider: "e2b"
-  e2b:
-    api_key: ${E2B_API_KEY:-}
-    template: "code-interpreter"
-    timeout_seconds: 30
-    cleanup_on_startup: true
-    stale_session_minutes: 10
+chatgpt:
+  enabled: ${CHATGPT_OAUTH_ENABLED:-true}
+  default_model: "gpt-5.5"
 
-# Demo mode for showcase deployments
 demo:
   enabled: ${DEMO_MODE:-false}
-  owner_secret: ${DEMO_OWNER_SECRET:-}  # Long random string for owner access
-  rate_limit:
-    max_agent_runs_per_hour: 10    # Agent runs are expensive
-    max_chat_runs_per_hour: 30     # Chat runs are cheaper
-    window_seconds: 3600           # 1 hour window
-  message_limit: ${DEMO_MESSAGE_LIMIT:-10}  # Per-session message cap (0 = unlimited)
-  whitelist_ips:                   # IPs that bypass rate limiting
-    - "127.0.0.1"
-    - "::1"
+  message_limit: ${DEMO_MESSAGE_LIMIT:-10}
 ```
+
+`provider_chain` remains available but disabled by default. `query_classification` is disabled by default so the model decides tool usage. E2B/Daytona dependencies remain in the project for compatibility, but the current Python tool default is local subprocess execution.
 
 ### Environment Variable Resolution
 
@@ -1020,17 +802,17 @@ Variables are resolved before Pydantic validation.
 
 | Class | Purpose |
 |-------|---------|
-| `ProviderConfig` | LLM endpoint, retry settings, state mode, `slow_response_threshold` |
+| `ProviderConfig` | LLM endpoint, retry settings, fallback policy, `slow_response_threshold` |
 | `ProviderChainConfig` | Multi-provider failover with circuit breakers |
-| `ChatModelConfig` | Model name, temperature, max_tokens, reasoning_effort |
+| `ChatModelConfig` | Model name, temperature, max_tokens, reasoning_effort and sampling controls |
 | `ChatContextConfig` | Conversation history limits, truncation |
 | `ChatTracingConfig` | Chat-level tracing (enabled, log_level, log_model_calls) |
 | `ThinkingConfig` | Mode mapping, ThinkingTracingConfig, ThinkingUIConfig |
-| `QueryClassificationConfig` | Query classification settings for tool selection |
+| `QueryClassificationConfig` | Legacy keyword enforcement controls; disabled by default |
 | `ParallelConfig` | Web search/extract with nested `ParallelSearchConfig`, `ParallelExtractConfig` |
 | `PythonConfig` | Local Python execution settings |
-| `SandboxConfig` | Python sandbox with `E2BConfig` (not currently used) |
-| `DemoConfig` | Demo mode with `RateLimitConfig` for rate limiting, sidebar lock, and per-session message limits |
+| `SandboxConfig` | Legacy sandbox config retained for compatibility; not used by default |
+| `DemoConfig` | Demo mode with `RateLimitConfig`, owner bypass, and per-session message limits |
 
 ---
 

@@ -9,6 +9,7 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| main | Documentation source-of-truth refresh — surgically updated architecture, API, data flow, data models, component, workflow, README, project structure, and historical reference docs to match the current macOS/Tauri desktop coding-agent runtime, provider/model stack, Plan Mode, workspace/terminal/browser flows, SQLite schema, and local-model defaults | done | 2026-06-13 |
 | main | Completion gate text-finality fix — no-tool model text is now accepted as the final answer instead of being converted into intermediate updates based on inferred evidence requirements, eliminating heuristic-driven continuation/nudge loops while still tracing any missing evidence for debugging | done | 2026-06-12 |
 | main | Local-only workstation server defaults — GGUF local launches now use a 131k context, full Metal offload, flash attention auto, f16 KV cache, mlock, and larger batch defaults; MLX launches use larger prefill/prompt-cache settings, all isolated to local server startup without changing cloud provider request settings | done | 2026-06-12 |
 | main | MLX unsupported-model handling — local MLX scanning now detects installed mlx-lm supported model types without importing Metal, marks unsupported models like `gemma4` as disabled in the picker, and fails fast with an update/use-GGUF diagnostic instead of launching `mlx_lm.server` and waiting for health timeout | done | 2026-06-12 |

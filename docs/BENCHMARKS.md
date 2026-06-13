@@ -1,5 +1,8 @@
 # Benchmarks
 
+> **Status:** Historical benchmark notes and result archive. Current runtime defaults are defined by `orchestrator/chat_config.yaml` and the model registry, not by the deployed-model labels in this file.
+
+
 Performance evaluation of the Fluxion agent system.
 
 ## GAIA Benchmark

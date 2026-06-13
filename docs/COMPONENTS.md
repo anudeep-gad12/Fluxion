@@ -341,7 +341,7 @@ class LLMProvider(Protocol):
 **Class: `ChatGPTProvider`**
 
 **Features**:
-- OAuth access token from CLI `/login` flow
+- OAuth access token from the ChatGPT OAuth route/model-picker flow
 - Translates chat completions format → Codex Responses API (`chatgpt.com/backend-api/codex/responses`)
 - Request translation: system → instructions, tools → flattened format
 - Response translation: `output_text.delta` → content, `reasoning_summary_text.delta` → reasoning, `function_call` → tool calls
@@ -572,6 +572,19 @@ async def create_agent_engine(
     temperature: Optional[float] = None,
     system_prompt: Optional[str] = None,
     query: Optional[str] = None,
+    provider_override: Optional[object] = None,
+    filesystem_enabled: bool = False,
+    working_dir: Optional[str] = None,
+    approval_callback: Optional[object] = None,
+    permission_policy: str = "strict",
+    python_provider: Optional[str] = None,
+    agent_capabilities: Optional[dict] = None,
+    reasoning_settings: Optional[ReasoningSettings] = None,
+    collaboration_mode: str = "default",
+    plan_approval_callback: Optional[object] = None,
+    user_input_callback: Optional[object] = None,
+    plan_doc_relative_path: Optional[str] = None,
+    run_id: Optional[str] = None,
 ) -> AgentEngine
 ```
 
@@ -584,7 +597,15 @@ async def create_agent_engine(
 | `max_tokens` | int | config | Override max tokens |
 | `temperature` | float | config | Override temperature |
 | `system_prompt` | str | None | Override system prompt |
-| `query` | str | None | Current coding task text |
+| `query` | str | None | Legacy parameter; ignored because live runs are coding-only |
+| `provider_override` | object | None | Explicit provider instance, e.g. ChatGPT/Grok/local override |
+| `filesystem_enabled` | bool | false | Enable workspace filesystem tools |
+| `working_dir` | str | None | Workspace/tool root |
+| `permission_policy` | str | strict | Tool approval policy |
+| `python_provider` | str | None | Python backend selection; local by default |
+| `agent_capabilities` | dict | None | Per-run web/filesystem/bash/python tool switches |
+| `reasoning_settings` | ReasoningSettings | None | Runtime reasoning control snapshot |
+| `collaboration_mode` | str | default | Default or Plan Mode collaboration mode |
 
 **Behavior**:
 1. Loads configuration from `chat_config.yaml`
@@ -862,25 +883,11 @@ class BaseTool(Protocol):
 
 ### `orchestrator/agent/tools/python_daytona.py`
 
-**Purpose**: Secure Python execution in Daytona cloud sandbox.
+**Purpose**: Legacy optional Daytona-backed Python execution.
 
 **Class: `DaytonaPythonTool`**
 
-**Features**:
-- Secure isolated execution via Daytona SDK
-- ~90ms startup time
-- Same schema as `LocalPythonTool`
-- Ideal for production deployments (Railway, etc.)
-
-**Registration**: Used when `PYTHON_PROVIDER=daytona`. Requires `DAYTONA_API_KEY`.
-
-### `orchestrator/agent/tools/python_sandbox.py`
-
-**Purpose**: Python execution in E2B sandbox (deprecated).
-
-**Class: `PythonSandboxTool`**
-
-**Note**: This tool exists but is not registered. Use `LocalPythonTool` or `DaytonaPythonTool` instead.
+**Current status**: The live default is `LocalPythonTool`. Daytona remains in the tree for compatibility/testing and is only used when explicitly selected/configured.
 
 ### `orchestrator/agent/tools/apply_patch_tool.py`
 
@@ -910,6 +917,27 @@ class BaseTool(Protocol):
 - `write_stdin` polls a running command and can send stdin text
 - Captures stdout/stderr, exit code, timeout status, and truncated output summaries
 - Cleans up remaining command sessions when the agent tool registry closes
+
+### `orchestrator/agent/tools/run_artifacts.py`
+
+**Purpose**: Read-only access to persisted run output artifacts.
+
+**Tools**: `list_run_artifacts`, `read_artifact`
+
+**Permission**: `auto`
+
+**Features**:
+- Lists artifact metadata recorded in `run_artifacts`
+- Reads safe paths under `.fluxion/runs/<run_id>/`
+- Used for large command stdout/stderr and raw web extraction outputs
+
+### `orchestrator/agent/tools/request_user_input.py`
+
+**Purpose**: Pause a collaboration/Plan Mode run for structured user input and resume through `/api/agent/runs/{run_id}/input/{request_id}`.
+
+### `orchestrator/agent/tools/update_plan_doc.py`
+
+**Purpose**: Plan Mode-only tool that updates `.fluxion/plans/<run_id>.md` and emits `plan_doc_updated` events/artifacts.
 
 ### `orchestrator/agent/tools/bash_tool.py`
 
@@ -1063,7 +1091,7 @@ class BaseTool(Protocol):
 - Uses `ripgrep` (`rg`) if available, falls back to Python `re` module
 - File glob filtering
 - Configurable context lines
-- Max results (default 50)
+- Max results default follows `parallel.search.max_results` (currently 10)
 - Skips binary files
 
 ### `orchestrator/agent/tools/list_directory.py`
@@ -1093,6 +1121,19 @@ class BaseTool(Protocol):
 - Max 500 entries with truncation
 
 ---
+
+### `orchestrator/agent/tools/view_image.py`
+
+**Purpose**: Let the agent inspect local image files in the workspace when the selected model supports vision.
+
+**Tool**: `view_image`
+
+**Permission**: `auto`
+
+**Features**:
+- Resolves paths within the workspace
+- Returns model-visible image content/metadata through the provider vision path
+- Used for screenshots, UI assets, diagrams, and image-debugging tasks
 
 ## Model Registry
 
@@ -1393,7 +1434,7 @@ async with self._seq_lock:
 
 **Behavior**:
 - Starts shell in the selected workspace on first open
-- Keeps one persistent live shell per conversation
+- Keeps multiple persistent live shells per conversation, capped by `terminal.max_sessions_per_conversation`
 - Stores only lightweight metadata in SQLite; PTY handles stay in memory
 - Returns `status="stale"` when metadata exists but the live PTY died (for example after server restart)
 
@@ -1629,11 +1670,11 @@ _EVENT_TYPE_MAP = {
 
 ### `ui/src/components/ConversationView.tsx`
 
-**Purpose**: Main chat interface for both chat and research modes.
+**Purpose**: Main conversation interface for chat and workspace agent modes.
 
 **Modes**:
 - **Chat Mode** - Normal conversational chat
-- **Agent Mode** - Agent with tools (web search, code execution)
+- **Agent Mode** - Workspace coding agent with capability-gated tools
 
 **Features**:
 - Mode toggle in input form (labels: "Agent" / "Chat")
@@ -1656,7 +1697,7 @@ _EVENT_TYPE_MAP = {
 
 **State**:
 - Uses `useSSE` for chat streaming (only auto-subscribes to `activeChatRunId`, not agent runs)
-- Uses `useAgentSSE` for research streaming (with stream token from localStorage)
+- Uses `useAgentSSE` for agent streaming (with stream token from localStorage)
 - Lazy conversation creation on first message
 - Stores stream tokens in `localStorage` on agent run creation for page reload recovery
 - `subscribedRunRef` tracks run IDs already subscribed in `handleSubmit()` to prevent `loadConversation()` from opening a duplicate SSE connection
@@ -1705,7 +1746,7 @@ _EVENT_TYPE_MAP = {
 - List conversations on mount
 - Groups conversations under their immutable `workspace_path`
 - Workspace sections default collapsed and can create a new conversation directly in that workspace
-- "General" workspace-less conversations are purged from the browser sidebar/API load path
+- Workspace-less conversations are hidden from the workspace-grouped sidebar/API load path for the browser/desktop workspace surface
 - Single delete per item
 - Multi-select mode with bulk delete
 - Delete confirmation modal
@@ -1716,20 +1757,22 @@ _EVENT_TYPE_MAP = {
 - `selectedIds` - Selected conversation IDs
 - `deleteModalOpen` - Confirmation modal
 
-### `ui/src/components/DetailPanel.tsx`
+### `ui/src/components/AgentLiveHUD.tsx`
 
-**Purpose**: Debug trace viewer panel.
+**Purpose**: Active agent/Plan Mode status surface.
 
 **Features**:
-- Toggle "Full Trace" vs "Selected Event"
-- Toggle "All Runs" vs "Single Run"
-- Toggle "All Events" vs "User-Facing"
-- Copy JSON to clipboard
-- Groups events by run
+- Shows running, paused, interrupted, plan-awaiting-approval, and completed states
+- Links/copies durable plan files when Plan Mode is active
+- Clears stale HUD state when interrupted or when approved implementation runs finish
 
-**Data Source**: `/api/runs/{id}/timeline` and `/api/conversations/{id}/traces`
+### `ui/src/components/VirtualizedConversationRunList.tsx`
 
----
+**Purpose**: Efficient transcript rendering for long conversations while preserving the normal DOM path for smaller threads.
+
+### `ui/src/components/WorkspacePickerDialog.tsx`
+
+**Purpose**: Workspace folder picker fallback for browser/dev contexts; Tauri desktop uses native folder selection when IPC is available.
 
 ## Message Components
 
@@ -1788,12 +1831,12 @@ _EVENT_TYPE_MAP = {
 **Purpose**: Display complete agent run with stats.
 
 **Elements**:
-- User query bubble (indigo)
-- "Research Agent" badge
+- User task/prompt block
+- Agent status/model badge
 - Progress indicator (step N/M)
 - AgentStepsPanel
 - AnswerWithCitations
-- Status badge and actions
+- Status, approval, artifact, and action controls
 - **Stats display** (when complete):
   - Duration with Clock icon (formatted: ms, s, or Xm Ys)
   - Total tokens with Zap icon (with thousands separator)
@@ -1861,37 +1904,24 @@ _EVENT_TYPE_MAP = {
 
 ---
 
-## Benchmarks Components
+## Desktop Components
 
-### `ui/src/components/BenchmarksPage.tsx`
+### `ui/src/components/desktop/BrowserPane.tsx`
 
-**Purpose**: Dedicated benchmarks page displaying GAIA evaluation results.
-
-**Features**:
-- Hero stats cards (Level 1 rank, cost efficiency, overall rank)
-- Results table by difficulty level with accuracy percentages
-- Comparison table with top systems from HAL Princeton leaderboard
-- Key observations/takeaways section
-- Responsive: tables convert to cards on mobile
-- Link to TracesModal for browsing full evaluation traces
-
-### `ui/src/components/TracesModal.tsx`
-
-**Purpose**: Modal for browsing GAIA evaluation trace results.
+**Purpose**: Desktop right-panel browser tabs backed by Tauri child WebViews.
 
 **Features**:
-- Loads traces from `/api/benchmarks/traces` API endpoint
-- Filters to show only full evaluation runs (≥19 questions)
-- Filters out deprecated models (Mistral)
-- Groups best traces by model + level, sorted by accuracy
-- Shows metadata: level, model, timestamp, questions, correct answers, accuracy
-- Detail view with ALL question results, expected vs actual answers, timing
-- Color-coded correct/incorrect results
-- GPT-5-mini traces sorted first
+- App-managed tabs for URLs opened from terminal output or browser target-blank/window.open flows
+- Hides native WebViews while dialogs/menus are open to avoid z-order issues
+- Enforces `max_browser_tabs_per_conversation`
 
-**Data Source**: `GET /api/benchmarks/traces` and `GET /api/benchmarks/traces/{filename}`
+### `ui/src/components/desktop/DesktopChrome.tsx` and titlebar/sidebar components
 
----
+**Purpose**: Frameless macOS desktop layout, drag regions, sidebar/header controls, and provider/settings entry points.
+
+### `ui/src/components/desktop/DesktopComposer.tsx` and controls
+
+**Purpose**: Desktop composer, run settings, capability/permission controls, and status footer.
 
 ## UI Primitives
 

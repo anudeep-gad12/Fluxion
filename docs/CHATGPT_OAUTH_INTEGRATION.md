@@ -1,5 +1,8 @@
 # ChatGPT OAuth Integration — Research Findings
 
+> **Status:** Historical research note. ChatGPT/Codex OAuth is implemented in `orchestrator/routes/auth.py` + `orchestrator/providers/chatgpt.py` and is available from the desktop model picker as well as API routes under `/api/auth/chatgpt`. Keep this file for design context; use `docs/API_REFERENCE.md`, `docs/ARCHITECTURE.md`, and the code as current source of truth.
+
+
 ## Goal
 
 Allow users to log in with their ChatGPT subscription (Plus/Pro/etc.) and use OpenAI models (GPT-5, Codex, etc.) as the LLM provider in the Fluxion app — at no extra API cost to us or the user.
@@ -42,7 +45,7 @@ User sends a query
 ### What Does NOT Change
 
 - `agent_engine.py` — agent loop stays exactly the same
-- `planner.py` — research planning stays the same
+- Current agent planning/Plan Mode lives in `orchestrator/agent/plan_mode.py` and durable plan docs; the old standalone research planner is no longer current runtime architecture.
 - context handling remains backend-owned and provider-agnostic, but the current implementation now uses normalized model context profiles, bounded tool-result history, and 90%-threshold conversation compaction
 - Tool execution (web_search, web_extract, python_execute) — all the same
 - SSE streaming and frontend — all the same
@@ -124,5 +127,5 @@ This integration now coexists with the newer context system:
 2. Understand the ChatGPT backend API format differences from standard OpenAI API
 3. Decide: build translation layer in-app vs run external proxy (CLIProxyAPI)
 4. Implement OAuth flow (frontend + backend)
-5. Add provider selection UI (DeepInfra vs ChatGPT subscription)
+5. Provider selection UI is implemented in the desktop model picker for hosted providers, local models, ChatGPT/Codex OAuth, and Grok OAuth.
 6. Handle token storage and refresh

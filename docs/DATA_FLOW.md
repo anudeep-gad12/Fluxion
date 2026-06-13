@@ -1,1112 +1,211 @@
 # Data Flow
 
-Complete documentation of request lifecycles, streaming patterns, and data flow in the Fluxion system.
+Current request, streaming, workspace, model, and desktop-terminal flows for Fluxion.
 
 ## Table of Contents
 
 1. [Chat Mode Flow](#chat-mode-flow)
-2. [Research/Agent Mode Flow](#researchagent-mode-flow)
-3. [Tool Approval Flow](#tool-approval-flow)
-4. [Context Pipeline](#context-pipeline)
-5. [Provider Failover Flow](#provider-failover-flow)
+2. [Coding Agent Flow](#coding-agent-flow)
+3. [Plan Mode Flow](#plan-mode-flow)
+4. [Tool Approval Flow](#tool-approval-flow)
+5. [Context Pipeline](#context-pipeline)
 6. [SSE Streaming Protocol](#sse-streaming-protocol)
-7. [Database Operations](#database-operations)
-8. [Model Selection Flow](#model-selection-flow)
-9. [ChatGPT OAuth Flow](#chatgpt-oauth-flow)
+7. [Workspace and Rewind Flow](#workspace-and-rewind-flow)
+8. [Desktop Terminal and Browser Flow](#desktop-terminal-and-browser-flow)
+9. [Model and Provider Flow](#model-and-provider-flow)
+10. [Auth Flows](#auth-flows)
+11. [Database Write Patterns](#database-write-patterns)
 
 ---
 
 ## Chat Mode Flow
 
-### Overview
-
-Chat mode processes a single user message and returns a streamed response with optional thinking display.
-
-### Sequence Diagram
-
-```
-┌──────────┐     ┌──────────┐     ┌──────────┐     ┌──────────┐     ┌──────────┐     ┌──────────┐
-│  Browser │     │  React   │     │  FastAPI │     │  Chat    │     │  LLM     │     │  SQLite  │
-│          │     │  + Store │     │  Routes  │     │  Engine  │     │ Provider │     │          │
-└────┬─────┘     └────┬─────┘     └────┬─────┘     └────┬─────┘     └────┬─────┘     └────┬─────┘
-     │                │                │                │                │                │
-     │  User types    │                │                │                │                │
-     │  message       │                │                │                │                │
-     │───────────────>│                │                │                │                │
-     │                │                │                │                │                │
-     │                │ POST /api/conversations/{id}/runs                │                │
-     │                │ {message, thinking_mode, reasoning_effort}       │                │
-     │                │───────────────>│                │                │                │
-     │                │                │                │                │                │
-     │                │                │ Generate run_id│                │                │
-     │                │                │ Create Queue   │                │                │
-     │                │                │───────────────>│                │                │
-     │                │                │                │                │                │
-     │                │ {run_id,       │                │                │                │
-     │                │  stream_url}   │                │                │                │
-     │                │<───────────────│                │                │                │
-     │                │                │                │                │                │
-     │                │ Subscribe to   │                │                │                │
-     │                │ SSE stream     │                │                │                │
-     │                │───────────────>│                │                │                │
-     │                │                │                │                │                │
-     │                │                │ Background:    │                │                │
-     │                │                │ run_chat()     │                │                │
-     │                │                │───────────────>│                │                │
-     │                │                │                │                │                │
-     │                │                │                │ Load history   │                │
-     │                │                │                │────────────────────────────────>│
-     │                │                │                │<───────────────────────────────│
-     │                │                │                │                │                │
-     │                │                │                │ Create run     │                │
-     │                │                │                │ status=running │                │
-     │                │                │                │────────────────────────────────>│
-     │                │                │                │                │                │
-     │                │                │                │ Build messages │                │
-     │                │                │                │ (system + history + user)       │
-     │                │                │                │                │                │
-     │                │                │                │ complete_      │                │
-     │                │                │                │ streaming()    │                │
-     │                │                │                │───────────────>│                │
-     │                │                │                │                │                │
-     │                │                │                │                │ Stream tokens  │
-     │                │                │                │<─ ─ ─ ─ ─ ─ ─ ─│                │
-     │                │                │                │   (on_token,   │                │
-     │                │                │                │    on_reason)  │                │
-     │                │                │                │                │                │
-     │                │                │                │ StreamParser   │                │
-     │                │                │                │ routes tokens  │                │
-     │                │                │                │                │                │
-     │                │ SSE: {type:    │<───────────────│                │                │
-     │                │ "THINKING_     │ event_callback │                │                │
-     │                │  TOKEN"}       │                │                │                │
-     │<───────────────│                │                │                │                │
-     │                │                │                │                │                │
-     │  Display       │                │                │                │                │
-     │  thinking      │                │                │                │                │
-     │                │                │                │                │                │
-     │                │ SSE: {type:    │<───────────────│                │                │
-     │                │ "TOKEN"}       │                │                │                │
-     │<───────────────│                │                │                │                │
-     │                │                │                │                │                │
-     │  Display       │                │                │                │                │
-     │  answer        │                │                │                │                │
-     │                │                │                │                │                │
-     │                │                │                │<───────────────│ LLMResponse    │
-     │                │                │                │                │                │
-     │                │                │                │ Record trace   │                │
-     │                │                │                │ events         │                │
-     │                │                │                │────────────────────────────────>│
-     │                │                │                │                │                │
-     │                │                │                │ Update run     │                │
-     │                │                │                │ status=succeeded│               │
-     │                │                │                │ final_answer   │                │
-     │                │                │                │────────────────────────────────>│
-     │                │                │                │                │                │
-     │                │ SSE: event:    │<───────────────│                │                │
-     │                │ complete       │                │                │                │
-     │<───────────────│                │                │                │                │
-     │                │                │                │                │                │
-     │  Update UI     │                │                │                │                │
-     │  final state   │                │                │                │                │
-     │                │                │                │                │                │
+```text
+UI composer
+  -> POST /api/conversations/{id}/runs or POST /api/runs
+  -> routes/runs.py resolves session/provider/model/reasoning settings
+  -> ChatEngine builds system + budgeted conversation history + image attachments
+  -> provider.complete_streaming()
+  -> trace_events + run_events persisted
+  -> GET /api/runs/{run_id}/stream emits tokens/thinking/final status
+  -> runs.final_answer/status/usage_stats updated
 ```
 
-### Step-by-Step Flow
+Notes:
+- If no conversation exists, the backend can create one and auto-title it from the first user message.
+- Chat mode uses `orchestrator/engine/chat_engine.py`, not the coding-agent tool loop.
+- Provider payload shape is selected by `orchestrator/providers/request_builders.py` for chat completions vs Responses-compatible providers.
 
-1. **User Input**
-   - User types message in `ConversationView.tsx`
-   - Form submission triggers `handleSubmit()`
+## Coding Agent Flow
 
-2. **Create Run Request**
-   - Frontend calls `POST /api/conversations/{id}/runs`
-   - Request body: `{message, thinking_mode, reasoning_effort}`
-
-3. **Backend Initialization**
-   - Generate `run_id` (UUID[:8])
-   - Create `asyncio.Queue` for SSE events
-   - Start background task `run_chat()`
-   - Return `{run_id, stream_url}` immediately
-
-4. **SSE Subscription**
-   - Frontend subscribes to `GET /api/runs/{run_id}/stream`
-   - `useSSE` hook manages connection
-
-5. **Chat Execution (Background)**
-   - Load conversation history from SQLite
-   - Create run record with `status="running"`
-   - Build message list (system prompt + history + user message)
-   - Call `LLMProvider.complete_streaming()`
-
-6. **Token Streaming**
-   - `on_token()` callback receives tokens
-   - `StreamParser.feed()` separates thinking/answer tokens
-   - Events pushed to queue: `{type: "TOKEN"}` or `{type: "THINKING_TOKEN"}`
-
-7. **SSE Delivery**
-   - `EventSourceResponse` streams events from queue
-   - Frontend receives and updates store
-
-8. **Completion**
-   - Record trace events (llm_request, llm_response)
-   - Update run with `final_answer`, `status="succeeded"`
-   - Send `event: complete` with full result
-
----
-
-## Research/Agent Mode Flow
-
-### Overview
-
-Research mode runs an agent loop that plans, calls tools, and synthesizes an answer with citations.
-
-### Sequence Diagram
-
-```
-┌──────────┐     ┌──────────┐     ┌──────────┐     ┌──────────┐     ┌──────────┐     ┌──────────┐
-│  Browser │     │  React   │     │  FastAPI │     │  Agent   │     │  LLM     │     │  Tools   │
-│          │     │  + Store │     │  Routes  │     │  Engine  │     │ Provider │     │          │
-└────┬─────┘     └────┬─────┘     └────┬─────┘     └────┬─────┘     └────┬─────┘     └────┬─────┘
-     │                │                │                │                │                │
-     │  User enters   │                │                │                │                │
-     │  research query│                │                │                │                │
-     │───────────────>│                │                │                │                │
-     │                │                │                │                │                │
-     │                │ POST /api/agent/runs            │                │                │
-     │                │ {query, conversation_id?, max_steps=1000,        │                │
-     │                │  workspace_path?, capabilities, ...}             │                │
-     │                │───────────────>│                │                │                │
-     │                │                │                │                │                │
-     │                │                │ Create run_id  │                │                │
-     │                │                │ Start background│               │                │
-     │                │                │───────────────>│                │                │
-     │                │                │                │                │                │
-     │                │ {run_id,       │                │                │                │
-     │                │  stream_url}   │                │                │                │
-     │                │<───────────────│                │                │                │
-     │                │                │                │                │                │
-     │                │ Subscribe to   │                │                │                │
-     │                │ agent stream   │                │                │                │
-     │                │───────────────>│                │                │                │
-     │                │                │                │                │                │
-     │                │ SSE: agent_state               │                │                │
-     │<───────────────│<───────────────│<──────────────│                │                │
-     │                │                │                │                │                │
-     │                │                │                │ ═══════════════════════════════│
-     │                │                │                │      AGENT LOOP (per step)     │
-     │                │                │                │ ═══════════════════════════════│
-     │                │                │                │                │                │
-     │                │ SSE: step_start│<──────────────│ Step N started │                │
-     │                │ (context_tokens│                │ (w/ context    │                │
-     │                │  context_max,  │                │  budget info)  │                │
-     │<───────────────│  total_tokens) │                │                │                │
-     │                │                │                │                │                │
-     │                │                │                │ Prune context  │                │
-     │                │                │                │ (token budget) │                │
-     │                │                │                │                │                │
-     │                │                │                │ complete() with│                │
-     │                │                │                │ tool schemas   │                │
-     │                │                │                │───────────────>│                │
-     │                │                │                │                │                │
-     │                │ SSE: thinking  │<──────────────│<───────────────│                │
-     │<───────────────│<───────────────│                │ (streaming)    │                │
-     │                │                │                │                │                │
-     │                │                │                │<───────────────│ Response with  │
-     │                │                │                │                │ tool_calls     │
-     │                │                │                │                │                │
-     │                │ SSE: tool_start│<──────────────│ Start tool     │                │
-     │<───────────────│<───────────────│                │───────────────────────────────>│
-     │                │                │                │                │                │
-     │                │                │                │<──────────────────────────────│
-     │                │                │                │                │ Tool result    │
-     │                │                │                │                │                │
-     │                │ SSE: tool_result<─────────────│                │                │
-     │<───────────────│<───────────────│                │                │                │
-     │                │                │                │                │                │
-     │                │                │                │ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─│
-     │                │                │                │   Repeat for more tools/steps  │
-     │                │                │                │ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─│
-     │                │                │                │                │                │
-     │                │                │                │ Decision:      │                │
-     │                │                │                │ synthesize     │                │
-     │                │                │                │                │                │
-     │                │ SSE: agent_state│<─────────────│ SYNTHESIZING   │                │
-     │<───────────────│<───────────────│                │                │                │
-     │                │                │                │                │                │
-     │                │                │                │ Generate final │                │
-     │                │                │                │ answer         │                │
-     │                │                │                │───────────────>│                │
-     │                │                │                │                │                │
-     │                │ SSE: answer    │<──────────────│<───────────────│                │
-     │<───────────────│<───────────────│                │ (streaming)    │                │
-     │                │                │                │                │                │
-     │                │                │                │ Extract        │                │
-     │                │                │                │ citations      │                │
-     │                │                │                │                │                │
-     │                │ SSE: complete  │<──────────────│                │                │
-     │<───────────────│<───────────────│                │                │                │
-     │                │                │                │                │                │
-     │  Display       │                │                │                │                │
-     │  answer +      │                │                │                │                │
-     │  citations     │                │                │                │                │
-     │                │                │                │                │                │
+```text
+UI/desktop task
+  -> POST /api/agent/runs
+  -> resolve/create conversation and immutable workspace_path
+  -> resolve provider/model/context profile + runtime reasoning settings
+  -> build coding system prompt + project context + coding_session replay
+  -> model emits final text or tool calls
+  -> canonicalize tool names and parse native/function/XML variants
+  -> approval gate if tool permission requires it
+  -> execute tools, persist step/tool_call/run_event/artifact rows
+  -> append replayable coding_session_entries
+  -> repeat until final assistant text, cancel, failure, or max_steps
 ```
 
-### Agent Loop Details
+Agent runs are capability-driven. `capabilities.web/filesystem/bash/python` decide which tools are registered for that run. `permission_policy` (`strict`, `relaxed`, `yolo`) decides which `confirm`/`dangerous` tools block for approval.
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                              AGENT LOOP                                          │
-└─────────────────────────────────────────────────────────────────────────────────┘
+Completion gating is structured around tool calls and observed evidence. A no-tool assistant response can be accepted as final; missing expected evidence is traced for debugging instead of forcing synthetic continuation loops.
 
-while not (synthesis_decision or step >= max_steps):
-    │
-    ▼
-┌─────────────────────┐
-│ 0. PAUSE CHECK      │
-│ ┌─────────────────┐ │
-│ │ If pause_signal  │ │
-│ │ is cleared:     │ │
-│ │ block until     │ │
-│ │ resume_signal   │ │
-│ │                 │ │
-│ │ Emit SSE:      │ │
-│ │ 'paused' /     │ │
-│ │ 'resumed'      │ │
-│ └─────────────────┘ │
-└──────────┬──────────┘
-           │
-           ▼
-┌─────────────────────┐
-│ 0b. STEER INJECT    │
-│ ┌─────────────────┐ │
-│ │ Drain steer     │ │
-│ │ queue, inject   │ │
-│ │ as user-role    │ │
-│ │ messages before │ │
-│ │ next LLM call   │ │
-│ │                 │ │
-│ │ Emit SSE:      │ │
-│ │ 'steer'        │ │
-│ └─────────────────┘ │
-└──────────┬──────────┘
-           │
-           ▼
-┌─────────────────────┐
-│ 1. PRUNE CONTEXT    │
-│ ┌─────────────────┐ │
-│ │ Calculate token │ │
-│ │ budget          │ │
-│ │                 │ │
-│ │ Remove old      │ │
-│ │ tool results    │ │
-│ │                 │ │
-│ │ Keep recent     │ │
-│ │ context         │ │
-│ │                 │ │
-│ │ Update budget:  │ │
-│ │ ContextBudget.  │ │
-│ │ history_tokens  │ │
-│ │ set to actual   │ │
-│ │ estimated_tokens│ │
-│ │ from pruner     │ │
-│ └─────────────────┘ │
-└──────────┬──────────┘
-           │
-           ▼
-┌─────────────────────┐
-│ 2. LLM CALL         │
-│ ┌─────────────────┐ │
-│ │ Messages:       │ │
-│ │ - System prompt │ │
-│ │ - Prior steps   │ │
-│ │ - Tool results  │ │
-│ │ - Current query │ │
-│ │                 │ │
-│ │ Tools:            │ │
-│ │ - python_execute  │ │
-│ │ - web_search      │ │
-│ │ - web_extract     │ │
-│ └───────────────────┘ │
-└──────────┬──────────┘
-           │
-           ▼
-┌─────────────────────┐
-│ 3. PARSE RESPONSE   │
-│ ┌─────────────────┐ │
-│ │ Decision:       │ │
-│ │ ├─ call_tool    │──────┐
-│ │ ├─ synthesize   │─────┐│
-│ │ └─ error        │     ││
-│ └─────────────────┘     ││
-└─────────────────────────┼┼───────────────────────────────────────────────────────┐
-                          ││                                                       │
-           ┌──────────────┘│                                                       │
-           │               │                                                       │
-           ▼               │                                                       │
-┌─────────────────────┐    │                                                       │
-│ 4a. EXECUTE TOOLS   │    │                                                       │
-│ ┌─────────────────┐ │    │                                                       │
-│ │ For each tool:  │ │    │                                                       │
-│ │                 │ │    │                                                       │
-│ │ 1. Check        │ │    │                                                       │
-│ │    idempotency  │ │    │                                                       │
-│ │                 │ │    │                                                       │
-│ │ 2. Execute tool │ │    │                                                       │
-│ │                 │ │    │                                                       │
-│ │ 3. Record       │ │    │                                                       │
-│ │    result       │ │    │                                                       │
-│ │                 │ │    │                                                       │
-│ │ 4. Emit SSE     │ │    │                                                       │
-│ │    tool_result  │ │    │                                                       │
-│ └─────────────────┘ │    │                                                       │
-└──────────┬──────────┘    │                                                       │
-           │               │                                                       │
-           │ Continue loop │                                                       │
-           └───────────────┼───────────────────────────────────────────────────────┘
-                           │
-                           ▼
-              ┌─────────────────────┐
-              │ 4b. SYNTHESIZE      │
-              │ ┌─────────────────┐ │
-              │ │ Generate final  │ │
-              │ │ answer from     │ │
-              │ │ tool results    │ │
-              │ │                 │ │
-              │ │ Stream tokens   │ │
-              │ │ via SSE         │ │
-              │ │                 │ │
-              │ │ Extract         │ │
-              │ │ citations       │ │
-              │ └─────────────────┘ │
-              └──────────┬──────────┘
-                         │
-                         ▼
-              ┌─────────────────────┐
-              │ 5. COMPLETE         │
-              │ ┌─────────────────┐ │
-              │ │ Update run      │ │
-              │ │ status=complete │ │
-              │ │                 │ │
-              │ │ Emit SSE        │ │
-              │ │ complete event  │ │
-              │ └─────────────────┘ │
-              └─────────────────────┘
+## Plan Mode Flow
+
+```text
+Plan request with collaboration_mode=plan
+  -> agent creates .fluxion/plans/<plan_run_id>.md
+  -> update_plan_doc tool mutates the durable plan file
+  -> plan_doc_updated SSE/artifact events update the HUD
+  -> final plan is rendered for approval
+  -> POST /plan/approve starts/links implementation run
+  -> POST /plan/reject records rejection and ends planning run
+  -> implementation run appends progress journal entries to the approved plan
 ```
 
----
+Plan Mode is a collaboration mode, not the removed old research-planner profile. It uses normal agent persistence plus plan-specific APIs and artifacts.
 
 ## Tool Approval Flow
 
-### Permission Decision Tree
-
-```
-┌───────────────────────────────────────────────────────────┐
-│                  TOOL APPROVAL DECISION                     │
-└───────────────────────────────────────────────────────────┘
-
-         Tool execution requested
-                   │
-                   ▼
-         ┌──────────────────┐
-         │ Tool permission  │
-         │ level?           │
-         └────────┬─────────┘
-                  │
-     ┌────────────┼────────────────┐
-     ▼            ▼                ▼
-  "auto"      "confirm"       "dangerous"
-  (read-only)  (write ops)    (bash)
-     │            │                │
-     ▼            │                │
-  Execute         │                │
-  immediately     │                │
-                  ▼                ▼
-         ┌──────────────────┐
-         │ Policy?          │
-         └────────┬─────────┘
-                  │
-     ┌────────────┼────────────────┐
-     ▼            ▼                ▼
-  "yolo"      "relaxed"       "strict"
-     │            │                │
-     ▼            │                │
-  Execute         ▼                ▼
-  immediately  ┌──────────┐   Require
-               │ confirm  │   approval
-               │ or       │   for ALL
-               │ dangerous?│   (incl.
-               └──┬───┬───┘   confirm)
-              yes │   │ no        │
-                  │   ▼           │
-                  │ Execute       │
-                  │ immediately   │
-                  ▼               ▼
-         ┌──────────────────────────┐
-         │    APPROVAL REQUIRED      │
-         │                           │
-         │  1. Create Future[bool]   │
-         │  2. Emit SSE event:       │
-         │     tool_approval_required│
-         │  3. Wait for response     │
-         │     (5 min timeout)       │
-         └─────────┬────────────────┘
-                   │
-          ┌────────┴─────────┐
-          ▼                  ▼
-     /approve/          /deny/ or timeout
-          │                  │
-          ▼                  ▼
-     Execute tool       Skip tool
-     Record:            Record:
-     approval_decision  approval_decision
-     = "approved"       = "denied"/"timeout"
+```text
+model tool call
+  -> ToolSchema.permission_level: auto | confirm | dangerous
+  -> policy decision from strict/relaxed/yolo
+  -> if approval required: persist pending tool_call + emit tool_approval_required
+  -> UI approves/denies POST /api/agent/runs/{run_id}/approve|deny/{tool_call_id}
+  -> backend records approval_decision/policy/decided_at
+  -> execute or mark denied
 ```
 
-### Backend State
-
-The approval flow uses in-memory state (single-process):
-
-```python
-_approval_queues: Dict[run_id, Dict[tool_call_id, asyncio.Future[bool]]]
-```
-
-- Agent engine creates a `Future` when approval is needed
-- `/approve/{tool_call_id}` resolves with `True`
-- `/deny/{tool_call_id}` resolves with `False`
-- Timeout (5 min): resolves with `False` automatically
-- Futures are cleaned up when the run completes
-
----
+Read-only tools such as `read_file`, `grep`, `glob`, `list_directory`, artifact reads, and web tools usually auto-run. File mutation and shell tools require confirmation or dangerous-tool allowance depending on policy.
 
 ## Context Pipeline
 
-### Agent Loop with Context Management
-
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                      AGENT LOOP (with context pipeline)                          │
-└─────────────────────────────────────────────────────────────────────────────────┘
-
-Step 0: INITIALIZATION
-    │
-    ├── Load AgentProfile (research or coding)
-    ├── context_params_for_model() resolves context window from model registry
-    │   for known presets (falls back to config default for unknown models)
-    ├── Build context via ContextStrategy:
-    │   ├── Research: date + knowledge cutoff
-    │   └── Coding: environment + rules + structure + git + working_dir
-    ├── Format system prompt with context slots
-    └── Create planner with profile-specific prompt
-    │
-    ▼
-Step 1: PLANNING (optional)
-    │
-    ├── Planner generates ResearchPlan
-    ├── Plan injected into system message (not separate message)
-    └── Plan includes: analysis, approach, steps with tool hints
-    │
-    ▼
-Step 2+: MAIN LOOP (while not synthesis and step < max_steps)
-    │
-    ├── 1. CONTEXT PROFILE + BUDGET
-    │   ├── Resolve active model context profile
-    │   ├── effective_input_budget = context_window - max_output_tokens
-    │   ├── Bound tool results before they enter prompt history
-    │   ├── Exclude historical reasoning from future prompt history
-    │   └── Compute active prompt token usage
-    │
-    ├── 2. HISTORY BUILDING (HistoryBuilder)
-    │   ├── Load prior runs for conversation
-    │   ├── Chat flows use turn_summary when available (~10x more history)
-    │   │   └── Turn summaries include key_findings from tool results
-    │   │       for richer cross-turn context
-    │   ├── Coding agent flows rebuild from replayable coding_session_entries
-    │   │   as checkpoint summary + restored file evidence + preserved raw tail
-    │   ├── coding_sessions.state_json is bookkeeping-only, not narrative prompt authority
-    │   ├── Non-coding agent flows fall back to runs.agent_state / summary history
-    │   ├── Else use raw user_message + final_answer pairs
-    │   └── Apply token budget with sliding window
-    │
-    ├── 3. COMPACTION CHECK
-    │   ├── At 90% of effective_input_budget:
-    │   │   ├── compact older coding transcript into replayable compaction_summary checkpoint entry
-    │   │   ├── insert checkpoint at the compaction boundary
-    │   │   ├── restore bounded current read_file evidence for important files
-    │   │   └── future coding prompt = system + checkpoint + metadata + restored files + preserved raw tail
-    │   │      with stored file evidence reused when fresh and explicit reread tracking when stale
-    │   └── Emergency hard truncation only if still over budget
-    │
-    ├── 4. LLM CALL with tool schemas
-    │   └── Messages: system + active history + current context + user query
-    │
-    ├── 5. PARSE RESPONSE
-    │   ├── tool_calls → check approval → execute tools → extract findings
-    │   └── synthesize decision → break to synthesis
-    │
-    └── 6. RECORD (DB + SSE events)
-    │
-    ▼
-SYNTHESIS
-    │
-    ├── Generate final answer (streaming)
-    ├── Include accumulated findings in prompt
-    ├── Store turn_summary for future context
-    └── Extract citations
+```text
+ModelContextProfile
+  -> context window, max output, pricing, tool/reasoning/vision support
+CodingSessionContextBuilder
+  -> replayable coding_session_entries + neutral coding_sessions metadata
+Project context
+  -> environment, rules, structure, dependencies, git state, cwd
+Agent prompt builder
+  -> system + project + replay + latest user + available tools
+Compaction
+  -> when effective input budget threshold is crossed, write visible compaction checkpoint
 ```
 
----
-
-## Provider Failover Flow
-
-### Circuit Breaker State Machine
-
-```
-                                    Request arrives
-                                          │
-                                          ▼
-                               ┌─────────────────────┐
-                               │ Check circuit state │
-                               └──────────┬──────────┘
-                                          │
-                    ┌─────────────────────┼─────────────────────┐
-                    │                     │                     │
-                    ▼                     ▼                     ▼
-             ┌─────────────┐       ┌─────────────┐       ┌─────────────┐
-             │   CLOSED    │       │    OPEN     │       │  HALF_OPEN  │
-             │  (healthy)  │       │ (unhealthy) │       │  (testing)  │
-             └──────┬──────┘       └──────┬──────┘       └──────┬──────┘
-                    │                     │                     │
-                    ▼                     ▼                     ▼
-           ┌────────────────┐    ┌────────────────┐    ┌────────────────┐
-           │ Try request    │    │ Check timeout  │    │ Try test       │
-           └───────┬────────┘    └───────┬────────┘    │ request        │
-                   │                     │             └───────┬────────┘
-           ┌───────┴───────┐     ┌───────┴───────┐            │
-           │               │     │               │     ┌──────┴──────┐
-           ▼               ▼     ▼               ▼     │             │
-      ┌─────────┐    ┌─────────┐ │          ┌────────┐ ▼             ▼
-      │ Success │    │ Failure │ │          │Expired │Success      Failure
-      └────┬────┘    └────┬────┘ │          └───┬────┘  │             │
-           │              │      │              │       │             │
-           │              ▼      │              ▼       ▼             ▼
-           │    ┌──────────────┐ │   ┌──────────────┐ Record       Record
-           │    │ failures++   │ │   │ Try HALF_OPEN│ success      failure
-           │    └──────┬───────┘ │   └──────────────┘   │             │
-           │           │         │                      │             │
-           │    ┌──────┴──────┐  │               ┌──────┴──────┐      │
-           │    │ >= threshold?│  │               │>=threshold? │      │
-           │    └──────┬──────┘  │               └──────┬──────┘      │
-           │           │         │                      │             │
-           │     Yes   │  No     │                Yes   │  No         │
-           │     ┌─────┴──┐      │                ┌─────┴──┐          │
-           │     ▼        │      ▼                ▼        │          │
-           │ ┌──────┐     │ ┌──────────┐     ┌──────┐      │          │
-           │ │ OPEN │     │ │ Reject   │     │CLOSED│      │          │
-           │ └──────┘     │ │ request  │     └──────┘      │          │
-           │              │ └──────────┘                   │          │
-           │              │                                │          │
-           ▼              ▼                                ▼          ▼
-      ┌───────────────────────────────────────────────────────────────────┐
-      │                         Return result                              │
-      └───────────────────────────────────────────────────────────────────┘
-```
-
-### Provider Chain Failover
-
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                           PROVIDER CHAIN FAILOVER                                │
-└─────────────────────────────────────────────────────────────────────────────────┘
-
-Providers sorted by priority:
-  [0] DeepInfra (priority: 0)
-  [1] Together.ai (priority: 1)
-  [2] Local vLLM (priority: 2)
-
-                         Request arrives
-                               │
-                               ▼
-                    ┌─────────────────────┐
-                    │ Try Provider [0]    │
-                    │ (DeepInfra)         │
-                    └──────────┬──────────┘
-                               │
-              ┌────────────────┴────────────────┐
-              │                                 │
-              ▼                                 ▼
-       ┌─────────────┐                   ┌─────────────┐
-       │   Success   │                   │   Failure   │
-       │             │                   │ or circuit  │
-       │             │                   │ OPEN        │
-       └──────┬──────┘                   └──────┬──────┘
-              │                                 │
-              ▼                                 ▼
-       ┌─────────────┐                ┌─────────────────────┐
-       │  Return     │                │ Try Provider [1]    │
-       │  response   │                │ (Together.ai)       │
-       └─────────────┘                └──────────┬──────────┘
-                                                 │
-                                ┌────────────────┴────────────────┐
-                                │                                 │
-                                ▼                                 ▼
-                         ┌─────────────┐                   ┌─────────────┐
-                         │   Success   │                   │   Failure   │
-                         └──────┬──────┘                   └──────┬──────┘
-                                │                                 │
-                                ▼                                 ▼
-                         ┌─────────────┐                ┌─────────────────────┐
-                         │  Return     │                │ Try Provider [2]    │
-                         │  response   │                │ (Local vLLM)        │
-                         └─────────────┘                └──────────┬──────────┘
-                                                                   │
-                                                  ┌────────────────┴────────────────┐
-                                                  │                                 │
-                                                  ▼                                 ▼
-                                           ┌─────────────┐                   ┌─────────────┐
-                                           │   Success   │                   │   Failure   │
-                                           └──────┬──────┘                   └──────┬──────┘
-                                                  │                                 │
-                                                  ▼                                 ▼
-                                           ┌─────────────┐                ┌──────────────────┐
-                                           │  Return     │                │ AllProvidersFailed│
-                                           │  response   │                │ Error            │
-                                           └─────────────┘                └──────────────────┘
-```
-
-### Retry Logic Flow
-
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                              RETRY LOGIC                                         │
-└─────────────────────────────────────────────────────────────────────────────────┘
-
-                         Request to provider
-                               │
-                               ▼
-                    ┌─────────────────────┐
-                    │ Attempt 1           │
-                    └──────────┬──────────┘
-                               │
-              ┌────────────────┴────────────────┐
-              │                                 │
-              ▼                                 ▼
-       ┌─────────────┐                   ┌─────────────┐
-       │   Success   │                   │   Failure   │
-       └──────┬──────┘                   └──────┬──────┘
-              │                                 │
-              ▼                                 ▼
-       ┌─────────────┐                ┌─────────────────────┐
-       │  Return     │                │ Is status retryable?│
-       │  response   │                │ [429,500,502,503,504]│
-       └─────────────┘                └──────────┬──────────┘
-                                                 │
-                                    ┌────────────┴────────────┐
-                                    │                         │
-                                    ▼                         ▼
-                               ┌─────────┐               ┌─────────┐
-                               │   Yes   │               │   No    │
-                               └────┬────┘               └────┬────┘
-                                    │                         │
-                                    ▼                         ▼
-                         ┌─────────────────────┐       ┌─────────────┐
-                         │ Calculate delay:    │       │ Raise error │
-                         │                     │       └─────────────┘
-                         │ base * 2^attempt    │
-                         │ + random jitter     │
-                         │                     │
-                         │ Attempt 1: ~1.0s    │
-                         │ Attempt 2: ~2.0s    │
-                         │ Attempt 3: ~4.0s    │
-                         │ (max 30s)           │
-                         └──────────┬──────────┘
-                                    │
-                                    ▼
-                         ┌─────────────────────┐
-                         │ await sleep(delay)  │
-                         └──────────┬──────────┘
-                                    │
-                                    ▼
-                         ┌─────────────────────┐
-                         │ attempts < max?     │
-                         └──────────┬──────────┘
-                                    │
-                       ┌────────────┴────────────┐
-                       │                         │
-                       ▼                         ▼
-                  ┌─────────┐               ┌─────────────────┐
-                  │   Yes   │               │       No        │
-                  └────┬────┘               └────────┬────────┘
-                       │                             │
-                       ▼                             ▼
-                ┌─────────────┐               ┌─────────────────┐
-                │ Retry       │               │ MaxRetries      │
-                │ (loop back) │               │ Exceeded Error  │
-                └─────────────┘               └─────────────────┘
-```
-
----
+`context_usage` in status/SSE payloads describes the current assembled provider prompt. `stored_context` describes replayable persisted context for future coding turns and drives the composer footer ctx meter.
 
 ## SSE Streaming Protocol
 
-### Event Format
+SSE events are appended to in-memory `_event_history[run_id]` and persisted in `run_events`. Each SSE subscriber has its own cursor, so reconnects and multiple clients do not steal events from one another.
 
-All SSE events follow this structure:
+Common chat events:
+- token / thinking token deltas
+- completion/failure/interruption terminal events
+- persisted `_STREAM_END` fallback for interrupted inactive runs
 
-```
-event: <event_name>
-data: <json_payload>
+Common agent events:
+- `agent_start`, `step_start`, `llm_request`, `llm_response`
+- `tool_call`, `tool_result`, `tool_approval_required`
+- `assistant_update`, `system_event`, `plan_doc_updated`
+- `agent_complete`, `agent_error`, `_STREAM_END`
 
-```
+Clients reconnect with `since_seq` and the per-run stream token returned by `POST /api/agent/runs`.
 
-### Chat Mode Events
+## Workspace and Rewind Flow
 
-| Event Type | When | Payload |
-|-----------|------|---------|
-| `data` | Token stream | `{type: "TOKEN", content: "..."}` or `{type: "THINKING_TOKEN", content: "..."}` |
-| `event: complete` | Stream end | Full `RunResponse` object |
-| `event: error` | Error occurred | `{error: "...", code: "..."}` |
-| `event: aborted` | User aborted | `{message: "Run aborted"}` |
-
-### Chat Event Flow
-
-```
-Connection opened
-        │
-        ▼
-┌─────────────────┐
-│ data: {type:    │
-│ "CHAT_STARTED"} │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐     (repeated for each token)
-│ data: {type:    │◄────────────────────────────┐
-│ "THINKING_TOKEN"│                             │
-│ content: "..."}│                              │
-└────────┬────────┘                             │
-         │                                      │
-         ▼                                      │
-┌─────────────────┐                             │
-│ data: {type:    │◄───────────────────────────┐│
-│ "TOKEN",        │                            ││
-│ content: "..."}│                             ││
-└────────┬────────┘                            ││
-         │                                     ││
-         ├─────────────────────────────────────┘│
-         │ (more tokens)                        │
-         ├──────────────────────────────────────┘
-         │
-         ▼
-┌─────────────────┐
-│ event: complete │
-│ data: {run_id,  │
-│ final_answer,   │
-│ ...}            │
-└────────┬────────┘
-         │
-         ▼
-   Connection closed
+```text
+New Workspace in desktop UI
+  -> native Tauri folder picker when available, web fallback otherwise
+  -> draft workspace stored client-side until first message
+  -> first send creates conversation with workspace_path
+  -> workspace_path is immutable for that conversation
+  -> backend best-effort ensures .fluxion/ in workspace .gitignore
 ```
 
-### Agent Mode Events
+Workspace file search uses `/api/workspaces/search-files` for `@file` mentions and excludes hidden/ignored/generated paths including `.fluxion` scratch artifacts.
 
-| Event Type | When | Payload |
-|-----------|------|---------|
-| `agent_state` | State change | `{state: "...", current_step: N, max_steps: M}` |
-| `step_start` | New step | `{step_number: N, steps_remaining: M, context_tokens: N, context_max: N, context_remaining: N, total_tokens_used: N}` |
-| `thinking` | Thinking token | `{content: "..."}` |
-| `tool_start` | Tool starting | `{tool_call_id, tool_name, arguments}` |
-| `tool_approval_required` | Approval needed | `{tool_call_id, tool_name, arguments}` |
-| `tool_result` | Tool finished | `{tool_call_id, success, result_summary}` |
-| `usage_update` | Live context/accounting update | `{usage, cost, context_usage, stored_context, context_profile, compaction_count, last_compacted_at_step}` |
-| `conversation_compacted` | Visible compaction system event | `{message, step_number, context_usage, stored_context, context_profile}` |
-| `answer` | Answer token | `{content: "..."}` |
-| `complete` | Agent done | `{final_answer, citations, total_steps, timing_ms}` |
-| `error` | Error occurred | `{error: "...", step: N}` |
-| `paused` | Agent paused between steps | `{step: N}` |
-| `resumed` | Agent resumed from pause | `{step: N}` |
-| `steer` | Steering message injected | `{message: "..."}` |
-| `cancelled` | User cancelled | `{message: "..."}` |
-| `heartbeat` | Keep-alive | `{}` |
+Rewind flow:
+1. Before each workspace run, `conversation_rewind_checkpoints` captures active transcript seq and `coding_sessions.state_json`.
+2. Rewind marks abandoned `runs` and `coding_session_entries` with `rewound_at`/`rewind_group_id` instead of deleting them.
+3. Normal conversation APIs and context builders read only the active branch.
+4. The selected prior prompt is returned to the composer for editing/resubmission.
 
-**Agent SSE Architecture** (cursor-based pub/sub):
-- Events are appended to an in-memory `_event_history[run_id]` list (append-only log)
-- Each SSE generator maintains its own read `cursor` index into the shared history
-- New events notify all waiting generators via `_event_notify[run_id]` (`asyncio.Event`)
-- Each generator reads `history[cursor:]` and advances its cursor independently
-- This allows multiple concurrent clients (reconnects, React StrictMode double-mount) to each receive ALL events without interference
-- Chat mode uses a simpler `asyncio.Queue` approach (single consumer per run)
+## Desktop Terminal and Browser Flow
 
-### Agent Event Flow
-
-```
-Connection opened
-        │
-        ▼
-┌──────────────────────┐
-│ agent_state          │
-│ {state: "init",      │
-│  current_step: 0,    │
-│  max_steps: 10}      │
-└──────────┬───────────┘
-           │
-           ▼
-┌────────────────────────────┐
-│ step_start                 │
-│ {step_number: 1,           │
-│  steps_remaining: 9,       │
-│  context_tokens: 2048,     │
-│  context_max: 131072,      │
-│  context_remaining: 129024,│
-│  total_tokens_used: 2048}  │
-└──────────┬─────────────────┘
-           │
-           ▼
-┌──────────────────────┐     (repeated)
-│ thinking             │◄────────────────────────┐
-│ {content: "..."}     │                         │
-└──────────┬───────────┘                         │
-           │                                     │
-           ├─────────────────────────────────────┘
-           │
-           ▼
-┌──────────────────────┐
-│ tool_start           │
-│ {tool_call_id: "...",│
-│  tool_name: "search",│
-│  arguments: {...}}   │
-└──────────┬───────────┘
-           │
-           ▼
-┌──────────────────────┐
-│ tool_result          │
-│ {tool_call_id: "...",│
-│  success: true,      │
-│  result_summary: "...│
-│  duration_ms: 1234}  │
-└──────────┬───────────┘
-           │
-           │ (may repeat for more steps/tools)
-           │
-           ▼
-┌──────────────────────┐
-│ agent_state          │
-│ {state: "synthesizing│
-│  current_step: 3}    │
-└──────────┬───────────┘
-           │
-           ▼
-┌──────────────────────┐     (repeated)
-│ answer               │◄────────────────────────┐
-│ {content: "..."}     │                         │
-└──────────┬───────────┘                         │
-           │                                     │
-           ├─────────────────────────────────────┘
-           │
-           ▼
-┌──────────────────────┐
-│ complete             │
-│ {final_answer: "...",│
-│  citations: [...],   │
-│  total_steps: 3,     │
-│  timing_ms: 5432}    │
-└──────────┬───────────┘
-           │
-           ▼
-   Connection closed
+Terminal sessions:
+```text
+UI opens terminal tab
+  -> GET/POST /api/terminal/conversations/{id}/sessions
+  -> services/browser_terminal.py starts PTY in workspace cwd
+  -> WebSocket /api/terminal/conversations/{id}/ws?session_id=...
+  -> input/resize/output/replay/status messages flow over WS
+  -> metadata persisted in terminal_sessions; PTY process remains in memory
 ```
 
-### SSE Resumption & Stream Token Auth
+Draft terminal sessions use `/api/terminal/draft/...` and attach to the created conversation with `/api/terminal/draft/attach/{conversation_id}` after the first message.
 
-Agent streams support resumption and token-authenticated reconnection:
+Desktop browser tabs are Tauri child WebViews controlled by the desktop shell. They hide while app dialogs/menus are open so native web content does not cover model/settings pickers. Browser tabs are capped by `terminal.max_browser_tabs_per_conversation`.
 
-```
-GET /api/agent/runs/{run_id}/stream?token=abc123&since_seq=15
-```
+## Model and Provider Flow
 
-**Stream Token Flow**:
-1. `POST /api/agent/runs` generates `secrets.token_urlsafe(16)` per run
-2. Frontend stores token in `localStorage` (`stream_token:{runId}`)
-3. On reconnect (page reload), frontend reads token from `localStorage`
-4. Token passed as `?token=` query parameter on SSE connection
-5. Server validates: rejects only if token provided but wrong (403)
-6. Token cleaned up from `localStorage` and server on complete/error
-
-**Reconnection Flow**:
-1. On page reload, `loadConversation()` detects running agent runs
-2. Reads stream token from `localStorage`
-3. Calls `subscribe(runId, 0, streamToken)` to reconnect (skipped if `subscribedRunRef` indicates `handleSubmit` already subscribed)
-4. Server creates a new SSE generator with its own read cursor into the append-only `_event_history[run_id]` log
-5. Generator reads all events from cursor position, advancing independently of other clients
-6. Events with `seq <= since_seq` are skipped (deduplication)
-7. Client receives full state: past steps, thinking, tool calls, then live stream
-8. `connectionIdRef` guard on the frontend drops events from any stale EventSource connections
-
----
-
-## Database Operations
-
-### Write Patterns
-
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                          DATABASE WRITE PATTERNS                                 │
-└─────────────────────────────────────────────────────────────────────────────────┘
-
-Chat Run Creation:
-├── 1. INSERT into runs (status='running')
-├── 2. For each LLM call:
-│   ├── INSERT trace_event (type='llm_request', status='pending')
-│   ├── INSERT trace_event (type='llm_response', status='success')
-│   └── (or INSERT trace_event type='error' if failed)
-├── 3. UPDATE runs (final_answer, thinking_summary, status='succeeded')
-└── 4. Commit
-
-Agent Run Creation:
-├── 1. INSERT into runs (status='running', agent_state='init')
-├── 2. For each step:
-│   ├── INSERT agent_steps
-│   ├── For each tool call:
-│   │   ├── INSERT agent_tool_calls (status='pending')
-│   │   ├── UPDATE agent_tool_calls (status='running')
-│   │   └── UPDATE agent_tool_calls (status='success', result_summary)
-│   └── UPDATE agent_steps (completed_at)
-├── 3. INSERT agent_citations (from synthesis)
-├── 4. UPDATE runs (final_answer, status='complete')
-└── 5. Commit
-
-Trace Event Sequence:
-├── Acquire class-level asyncio.Lock (_seq_lock)
-├── SELECT MAX(seq) FROM trace_events WHERE run_id = ?
-├── INSERT trace_event with seq = max + 1
-└── Release lock
+```text
+Model picker / API
+  -> /api/models lists registry providers and availability
+  -> provider keys are stored in app_settings via /api/models/provider-keys
+  -> /api/models/select resolves aliases/provider prefixes to ResolvedModel
+  -> explicit provider selections fail if credentials are missing
+  -> runs preserve X-Provider/X-Model routing through continuations
 ```
 
-### Read Patterns
-
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                          DATABASE READ PATTERNS                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-
-Conversation History (for chat):
-├── SELECT runs WHERE conversation_id = ? ORDER BY created_at
-├── For each run: deserialize model_config_snapshot, usage_stats
-└── Build message list: user_message + final_answer pairs
-
-Run Timeline:
-├── SELECT trace_events WHERE run_id = ? ORDER BY seq
-├── Deserialize content_json for each event
-└── Return as RunTimelineResponse
-
-Agent Trace:
-├── SELECT runs WHERE run_id = ?
-├── SELECT agent_steps WHERE run_id = ? ORDER BY step_number
-├── SELECT agent_tool_calls WHERE run_id = ? ORDER BY created_at
-├── SELECT agent_citations WHERE run_id = ?
-└── Assemble AgentRunTraceResponse
-
-Conversation List:
-├── SELECT conversations WHERE status = ? ORDER BY created_at DESC
-├── Optional: LIMIT ? OFFSET ?
-└── Return as list
+Local model flow:
+```text
+GET /api/models/local scans LM Studio folders
+POST /api/models/local/start
+  -> GGUF: launch llama-server on :8080 with local defaults
+  -> MLX: launch mlx_lm.server when model type is supported
+  -> set provider override in providers/factory.py
+POST /api/models/local/stop clears override and stops process
 ```
 
----
+Runtime reasoning settings are global persisted app settings merged with active provider/model capabilities. Request builders send only provider-supported reasoning fields.
 
-## Model Selection Flow
+## Auth Flows
 
-### Hot-Swap via Registry
-
-```
-Client (CLI Ctrl+M or API)
-    │
-    │ POST /api/models/select {"model": "qwen3-72b"}
-    ▼
-routes/models.py
-    │
-    │ ModelRegistry.resolve("qwen3-72b")
-    │   1. Check alias match → ModelPreset
-    │   2. Check provider:model_id prefix
-    │   3. Fallback: auto-detect provider from model string
-    ▼
-ResolvedModel (model_id, provider, base_url, api_key, context_window, ...)
-    │
-    │ Store in module state: _active_model, _active_model_name
-    ▼
-Next agent/chat run reads get_active_model()
-    │
-    │ create_provider_for_model(resolved) in factory.py
-    ▼
-New OpenAICompatProvider with resolved config
-    │
-    │ Used for this request only (per-request resolution)
-    ▼
-LLM call with new provider
+ChatGPT/Codex OAuth:
+```text
+GET /api/auth/chatgpt/login
+  -> PKCE verifier/challenge + browser auth URL
+GET /api/auth/chatgpt/callback
+  -> exchange code, persist tokens in chatgpt_tokens
+GET /api/auth/chatgpt/status/export
+POST /api/auth/chatgpt/restore/logout/cancel/refresh
 ```
 
-### Local Model Start/Stop
-
-```
-POST /api/models/local/start {"model_path": "/path/to/model.gguf"}
-    │
-    ▼
-local_models.start(model_path, ctx_size)
-    │
-    │ subprocess: llama-server --model X --port 8080 --jinja
-    │ Poll health until ready
-    ▼
-set_provider_override(OpenAICompatProvider(base_url=localhost:8080))
-    │
-    │ All subsequent LLM calls route to local server
-    ▼
-POST /api/models/local/stop
-    │
-    │ SIGTERM llama-server, clear provider override
-    ▼
-Reverts to cloud provider (config default or registry selection)
+Grok OAuth:
+```text
+POST /api/auth/grok/login
+  -> starts Grok auth helper flow
+POST /api/auth/grok/code
+  -> accepts fallback browser code when needed
+GET /api/auth/grok/status
+POST /api/auth/grok/cancel/logout
 ```
 
----
+## Database Write Patterns
 
-## ChatGPT OAuth Flow
-
-```
-CLI: /login command
-    │
-    │ GET /api/auth/chatgpt/login
-    ▼
-Backend generates PKCE pair (code_verifier, code_challenge)
-    │
-    │ Stores in _pending_auth[state]
-    │ Starts callback server on port 1455
-    ▼
-Redirect URL → auth.openai.com/oauth/authorize
-    │
-    │ User authenticates in browser
-    ▼
-OAuth callback → localhost:1455/auth/callback?code=XXX&state=YYY
-    │
-    │ Exchange code for tokens (access_token, refresh_token)
-    │ Store in chatgpt_tokens table
-    │ Backup to ~/.config/reasoner/chatgpt_auth.json
-    ▼
-ChatGPTProvider created with access_token
-    │
-    │ Translates chat completions → Codex Responses API
-    │ chatgpt.com/backend-api/codex/responses
-    ▼
-Token refresh: automatic on 401, or manual via POST /api/auth/chatgpt/refresh
-```
-
-ChatGPT OAuth does not bypass the backend context system. Agent runs using ChatGPT still go through the same model-context-profile resolution, prompt-history budgeting, visible compaction, approval flow, traces, and SSE telemetry as any other provider source.
-
----
-
-## Related Documentation
-
-- [Architecture](ARCHITECTURE.md) - System architecture overview
-- [Data Models](DATA_MODELS.md) - Complete data model reference
-- [Components](COMPONENTS.md) - Detailed component documentation
-- [API Reference](API_REFERENCE.md) - Complete API documentation
+- `runs` is the parent record for chat and agent turns.
+- `trace_events` stores granular backend/model/tool timeline events.
+- `run_events` stores replayable SSE payloads.
+- `agent_steps`, `agent_tool_calls`, and `agent_citations` store agent execution detail.
+- `run_artifacts` stores metadata for large command/web outputs saved under `.fluxion/runs/<run_id>/`.
+- `coding_sessions` and `coding_session_entries` store durable coding continuity.
+- `terminal_sessions` stores PTY metadata only; live PTY handles stay in memory.
+- `app_settings` stores provider keys and runtime settings as JSON.

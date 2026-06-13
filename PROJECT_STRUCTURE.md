@@ -1,341 +1,146 @@
 # Project Structure
 
-This document provides a complete overview of the folder and file structure for the Fluxion project.
+Current high-level structure for Fluxion.
 
 ## Root Directory
 
-```
+```text
 fluxion/
-├── dev.sh
-├── justfile
-├── Procfile
-├── PROJECT_STRUCTURE.md
-├── pyproject.toml
-├── README.md
-├── uv.lock
-├── docs/
-├── logs/
-├── orchestrator/
-├── scripts/
-├── tests/
-├── ui/
-└── var/
+├── AGENTS.md                 # Agent/project instructions
+├── README.md                 # User-facing overview and install/dev notes
+├── PROJECT_STRUCTURE.md      # This file
+├── dev.sh                    # Local service/dev helper
+├── justfile                  # Common development recipes
+├── pyproject.toml / uv.lock  # Python package metadata and lockfile
+├── src-tauri/                # macOS Tauri desktop shell
+├── ui/                       # React/Vite frontend
+├── orchestrator/             # FastAPI backend and agent runtime
+├── tests/                    # Python tests mirroring backend modules
+├── scripts/                  # Build, install, GAIA, sanity, and test-loop scripts
+├── docs/                     # Architecture/API/workflow/reference docs
+├── assets/                   # Brand assets
+├── site/                     # Landing/site assets
+├── logs/                     # Runtime logs, ignored by git
+└── var/                      # Runtime SQLite DB, run artifacts, scratch state
 ```
 
 ## Documentation (`docs/`)
 
-```
+```text
 docs/
 ├── API_REFERENCE.md
 ├── ARCHITECTURE.md
+├── BENCHMARKS.md             # Historical benchmark archive
+├── CHATGPT_OAUTH_INTEGRATION.md # Historical OAuth research/current notes
 ├── COMPONENTS.md
 ├── DATA_FLOW.md
 ├── DATA_MODELS.md
 ├── IMPLEMENTATION_LOG.md
-├── WORKFLOW.md
-└── archive/
-    ├── AGENT_IMPLEMENTATION_LOG_v1.md
-    └── DEPRECATED_*.md (6 files)
+├── RAILWAY_CLI.md
+└── WORKFLOW.md
 ```
 
-## Logs (`logs/`)
+## Backend (`orchestrator/`)
 
-```
-logs/
-├── api.log
-├── app.log
-├── test_run.log
-└── ui.log
-```
-
-## Orchestrator (`orchestrator/`)
-
-```
+```text
 orchestrator/
-├── __init__.py
-├── app.py
-├── chat_config.yaml
-├── config.py
-├── logging_config.py
-├── schemas.py
-├── agent/
-│   ├── __init__.py
-│   ├── agent_engine.py
-│   ├── context_pruner.py
-│   ├── factory.py
-│   ├── recovery.py
-│   ├── state_machine.py
-│   └── tools/
-│       ├── __init__.py
-│       ├── base.py
-│       ├── python_sandbox.py
-│       ├── registry.py
-│       ├── web_extract.py
-│       └── web_search.py
-├── engine/
-│   ├── __init__.py
-│   └── chat_engine.py
-├── monitoring/
-│   └── (empty or __pycache__ only)
-├── providers/
-│   ├── __init__.py
-│   ├── base.py
-│   ├── chain.py
-│   ├── circuit_breaker.py
-│   ├── factory.py
-│   ├── openai_compat.py
-│   ├── request_builders.py
-│   └── response_parsers.py
-├── reporting/
-│   ├── __init__.py
-│   └── report_builder.py
-├── routes/
-│   ├── __init__.py
-│   ├── agent_runs.py
-│   ├── conversations.py
-│   └── runs.py
-├── storage/
-│   ├── __init__.py
-│   ├── db.py
-│   ├── schema.sql
-│   └── repositories/
-│       ├── __init__.py
-│       ├── agent_repo.py
-│       ├── conversation_repo.py
-│       └── trace_repo.py
-├── thinking/
-│   ├── __init__.py
-│   ├── base.py
-│   ├── orchestrator.py
-│   └── strategies/
-│       ├── __init__.py
-│       └── direct.py
-├── tools/
-│   ├── builtin/
-│   └── providers/
-└── utils/
-    ├── __init__.py
-    └── tokens.py
+├── app.py                    # FastAPI app, middleware, router wiring, lifespan
+├── chat_config.yaml          # Runtime config source of truth
+├── config.py                 # Pydantic config loading/env resolution
+├── schemas.py                # API request/response models
+├── runtime_paths.py          # Desktop/package-aware runtime paths
+├── reasoning_controls.py     # Runtime reasoning-setting merge logic
+├── vision.py                 # Image attachment validation/formatting
+├── agent/                    # Coding agent loop, Plan Mode, session replay, tools
+│   └── tools/                # apply_patch, exec_command, read/edit/write, grep/glob, web, python, image, artifacts
+├── context/                  # Context profiles, budgets, history building, turn summaries
+├── engine/                   # ChatEngine for non-agent chat runs
+├── middleware/               # Session/rate-limit middleware
+├── models/                   # Provider/model registry and metadata
+├── providers/                # OpenAI-compatible, ChatGPT, failover, parsers/builders
+├── routes/                   # conversations, runs, agent, auth, Grok auth, models, terminal, workspaces, benchmarks
+├── services/                 # browser terminal, local models, provider keys, model catalog, reasoning settings, rewind, Grok auth
+├── storage/                  # SQLite schema, migrations, repositories
+├── thinking/                 # Direct thinking/reasoning stream parsing
+└── utils/                    # token counting, sanitization, Harmony parsing
+```
+
+## Frontend (`ui/`)
+
+```text
+ui/
+├── package.json / pnpm-lock.yaml
+├── vite.config.ts
+├── dist/                     # Built desktop/static bundle
+└── src/
+    ├── App.tsx               # App layout and routing
+    ├── api/client.ts         # REST/SSE API client
+    ├── assets/               # UI assets
+    ├── components/           # Conversation, messages, tools, terminal, desktop shell UI
+    │   ├── desktop/          # Tauri desktop panes/titlebar/composer/browser/terminal
+    │   └── ui/               # Shared UI primitives
+    ├── hooks/                # Zustand store and SSE hooks
+    ├── lib/                  # platform/retry/live-state/usage utilities
+    ├── styles/               # CSS modules/global styles
+    └── types/                # Shared TypeScript types
+```
+
+## Desktop Shell (`src-tauri/`)
+
+```text
+src-tauri/
+├── Cargo.toml / Cargo.lock
+├── tauri.conf.json
+├── src/main.rs / src/lib.rs  # Tauri commands, windows, Browser WebViews, backend process integration
+├── build.rs
+├── capabilities/             # Tauri permissions
+├── entitlements.plist
+├── Info.extend.plist
+├── icons/
+└── binaries/                 # Bundled backend binary placeholder/output
 ```
 
 ## Tests (`tests/`)
 
-```
+```text
 tests/
-├── __init__.py
-├── conftest.py
-├── agent/
-│   ├── __init__.py
-│   ├── test_agent_engine.py
-│   ├── test_agent_integration.py
-│   ├── test_context_pruner.py
-│   ├── test_recovery.py
-│   ├── test_state_machine.py
-│   └── tools/
-│       ├── __init__.py
-│       ├── test_base.py
-│       ├── test_python_sandbox.py
-│       ├── test_registry.py
-│       ├── test_web_extract.py
-│       └── test_web_search.py
+├── agent/                    # Agent engine, tools, permissions, Plan Mode, artifacts
 ├── config/
-│   ├── __init__.py
-│   └── test_config.py
+├── context/
 ├── engine/
-│   ├── __init__.py
-│   └── test_chat_engine.py
-├── integration/
-│   ├── __init__.py
-│   ├── test_agent_e2e.py
-│   ├── test_e2e_flow.py
-│   └── test_full_flow.py
+├── gaia/
+├── integration/              # Mock-provider HTTP/DB integration flows
+├── middleware/
+├── models/
 ├── providers/
-│   ├── __init__.py
-│   ├── test_circuit_breaker.py
-│   ├── test_openai_compat.py
-│   ├── test_provider_chain.py
-│   ├── test_request_builders.py
-│   └── test_response_parsers.py
 ├── routes/
-│   ├── __init__.py
-│   └── test_agent_runs.py
 ├── schemas/
-│   ├── __init__.py
-│   └── test_schemas.py
+├── services/
 ├── storage/
-│   ├── __init__.py
-│   ├── test_agent_repo.py
-│   ├── test_conversation_repo.py
-│   ├── test_database.py
-│   └── test_trace_repo.py
 ├── thinking/
-│   ├── __init__.py
-│   └── test_thinking_orchestrator.py
 ├── tools/
-│   └── providers/
 └── utils/
-    ├── __init__.py
-    └── test_tokens.py
-```
-
-## UI (`ui/`)
-
-```
-ui/
-├── index.html
-├── package.json
-├── pnpm-lock.yaml
-├── postcss.config.js
-├── tailwind.config.js
-├── tsconfig.json
-├── tsconfig.tsbuildinfo
-├── vite.config.ts
-├── dist/
-│   ├── index.html
-│   └── assets/
-│       └── (compiled assets: JS, CSS, fonts)
-├── node_modules/
-│   └── (dependencies)
-└── src/
-    ├── App.tsx
-    ├── index.css
-    ├── main.tsx
-    ├── api/
-    │   └── client.ts
-    ├── components/
-    │   ├── AgentRunMessage.tsx
-    │   ├── AgentStepsPanel.tsx
-    │   ├── AnswerMarkdown.tsx
-    │   ├── AnswerWithCitations.tsx
-    │   ├── CitationInline.tsx
-    │   ├── ConversationList.tsx
-    │   ├── ConversationView.tsx
-    │   ├── DetailPanel.tsx
-    │   ├── ThinkingPanel.tsx
-    │   ├── ToolCallCard.tsx
-    │   └── ui/
-    │       ├── badge.tsx
-    │       ├── button.tsx
-    │       ├── card.tsx
-    │       ├── dialog.tsx
-    │       ├── input.tsx
-    │       ├── scroll-area.tsx
-    │       ├── separator.tsx
-    │       ├── skeleton.tsx
-    │       └── textarea.tsx
-    ├── hooks/
-    │   ├── useAgentSSE.ts
-    │   ├── useSSE.ts
-    │   └── useStore.ts
-    ├── lib/
-    │   ├── retry.ts
-    │   └── utils.ts
-    └── types/
-        ├── agent.ts
-        └── index.ts
 ```
 
 ## Scripts (`scripts/`)
 
-```
+```text
 scripts/
-├── sanity_test.sh
-├── test_loop.py
-└── test_loop.sh
+├── build_macos_tauri.sh      # Local unsigned macOS .app build
+├── build_macos_app.sh        # Legacy/local app build helper
+├── ensure_sparkle_framework.sh
+├── install_local_service.sh
+├── sanity_test.sh            # Real-provider smoke test
+├── test_loop.py / test_loop.sh
+├── gaia/                     # GAIA loader/scorer/runner
+└── tauri-before-build.sh / tauri-before-dev.sh
 ```
 
-## Variable/Artifact Storage (`var/`)
+## Runtime Data
 
-```
-var/
-├── artifacts/
-│   ├── discriminator/
-│   │   └── (0001.json - 0009.json)
-│   ├── draft/
-│   │   ├── (0001.txt - 0015.txt, 0013.json)
-│   │   ├── candidate_A/
-│   │   │   └── (0001.txt - 0010.txt)
-│   │   ├── candidate_B/
-│   │   │   └── (0001.txt - 0010.txt)
-│   │   └── candidate_C/
-│   │       └── (0001.txt - 0010.txt)
-│   ├── model/
-│   │   ├── critic/
-│   │   │   └── (0001.json - 0060.json)
-│   │   ├── discriminator/
-│   │   │   └── (0001.json - 0009.json)
-│   │   ├── planner/
-│   │   │   └── (0001.json - 0057.json)
-│   │   ├── planner_fork/
-│   │   │   └── (0001.json - 0010.json)
-│   │   ├── router/
-│   │   │   └── (0001.json - 0065.json)
-│   │   ├── verifier/
-│   │   │   └── (17 JSON files)
-│   │   ├── worker_code/
-│   │   └── worker_general/
-│   │       └── (21 JSON files)
-│   ├── tool/
-│   │   ├── python/
-│   │   │   ├── in/
-│   │   │   │   └── (46 JSON files)
-│   │   │   └── out/
-│   │   │       └── (46 JSON files)
-│   │   └── tests/
-│   │       ├── in/
-│   │       └── out/
-│   └── verifier/
-│       ├── candidate_A/
-│       │   └── (8 JSON files)
-│       ├── candidate_B/
-│       │   └── (6 JSON files)
-│       └── candidate_C/
-│           └── (0001.json - 0003.json)
-├── scratch/
-├── tmp/
-└── traces.sqlite
-```
+- `var/traces.sqlite` — main local SQLite DB for conversations, runs, traces, settings, tokens, terminal metadata, and artifacts.
+- `.fluxion/runs/<run_id>/` — workspace-local run output artifacts created by agent tools.
+- `.fluxion/plans/<run_id>.md` — durable Plan Mode proposal/progress files.
+- `logs/app.log`, `logs/llama.log`, `logs/mlx.log` — JSON app logs and local-model startup logs.
 
-## Key Files Description
-
-### Root Level
-- `dev.sh` - Development script
-- `justfile` - Just command runner configuration
-- `Procfile` - Process configuration
-- `PROJECT_STRUCTURE.md` - This file
-- `pyproject.toml` - Python project configuration
-- `README.md` - Project readme
-- `uv.lock` - UV package manager lock file
-
-### Core Application
-- `orchestrator/app.py` - Main application entry point
-- `orchestrator/config.py` - Configuration management
-- `orchestrator/schemas.py` - Data schemas
-- `orchestrator/chat_config.yaml` - Chat configuration
-
-### Agent System
-- `orchestrator/agent/agent_engine.py` - Core agent engine
-- `orchestrator/agent/state_machine.py` - Agent state management
-- `orchestrator/agent/recovery.py` - Recovery mechanisms
-- `orchestrator/agent/context_pruner.py` - Context management
-- `orchestrator/agent/tools/` - Agent tool implementations
-
-### Storage
-- `orchestrator/storage/db.py` - Database connection
-- `orchestrator/storage/schema.sql` - Database schema
-- `orchestrator/storage/repositories/` - Data access layer
-
-### Frontend
-- `ui/src/App.tsx` - Main React application
-- `ui/src/components/` - React components
-- `ui/src/hooks/` - React hooks
-- `ui/src/api/client.ts` - API client
-
-## Notes
-
-- `__pycache__/` directories are Python bytecode cache (excluded from structure)
-- `node_modules/` contains npm/pnpm dependencies (excluded from detailed structure)
-- `dist/` contains compiled frontend assets (excluded from detailed structure)
-- `var/artifacts/` contains runtime artifacts and model outputs
-- Test files mirror the structure of the main application code
-
+Generated directories such as `.venv/`, `.uv-cache/`, `.pnpm-store/`, `ui/dist/`, `src-tauri/target/`, `__pycache__/`, and `node_modules/` are intentionally omitted from the structural inventory.

@@ -86,11 +86,15 @@ For local models, I use Qwen3.6 27B and Qwen3.6 35B-A3B downloaded through LM St
 
 ### Hosted providers
 
-Add model provider keys in the model picker for:
+Add model provider keys or connect accounts in the model picker for:
 
 - Fireworks
 - OpenRouter
 - DeepInfra
+- OpenAI API
+- ChatGPT / Codex OAuth
+- xAI API
+- Grok OAuth
 
 Add a [Parallel](https://parallel.ai/) key if you want web search and page extraction. Parallel is not a model provider in Fluxion; it is only used for web tools.
 
@@ -141,6 +145,7 @@ Fluxion ignores Ollama folders, `mmproj` files, and extra GGUF split shards.
 - switch models from the app
 - keep conversation history in local SQLite
 - attach multiple integrated terminal sessions per conversation
+- open app-managed browser tabs beside the agent in the desktop shell
 
 ## License
 

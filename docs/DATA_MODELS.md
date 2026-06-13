@@ -219,7 +219,7 @@ Granular timeline of all events in a run.
 
 #### terminal_sessions
 
-Persists lightweight browser-terminal metadata per conversation. Multiple rows per conversation are allowed (desktop panel terminal list). The live PTY process itself stays in memory.
+Persists lightweight desktop/browser-terminal metadata per conversation. Multiple rows per conversation are allowed (desktop panel terminal list; default cap is 10). The live PTY process itself stays in memory.
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -375,26 +375,41 @@ Persisted SSE events that survive in-memory cleanup. Provides durable event hist
 
 #### run_artifacts
 
-Tracks file changes and command executions made by agent tools. Enables auditing of what the agent modified.
+Tracks file changes plus large command/web outputs created by agent tools. Source reads/edits are audited, but large stdout/stderr and raw extracts are stored as files under `.fluxion/runs/<run_id>/` and referenced here.
 
 | Column | Type | Description |
 |--------|------|-------------|
 | `id` | TEXT PK | UUID identifier |
 | `run_id` | TEXT FK | Reference to runs |
-| `artifact_type` | TEXT | `file_write`, `file_edit`, `file_patch`, `command_run` |
-| `file_path` | TEXT | Path of affected file (NULL for commands) |
-| `action` | TEXT | Tool that created this: `write_file`, `edit_file`, `apply_patch`, `exec_command`, `write_stdin`, or legacy `bash` |
-| `detail` | TEXT | Change summary (diff for edits, output for commands) |
+| `artifact_type` | TEXT | `file_write`, `file_edit`, `file_patch`, `command_run`, `web_extract`, etc. |
+| `file_path` | TEXT | Affected source path when relevant; NULL for command/web output artifacts |
+| `action` | TEXT | Tool/action that created the artifact |
+| `detail` | TEXT | Short summary or preview |
 | `tool_call_id` | TEXT FK | Reference to agent_tool_calls |
+| `artifact_path` | TEXT | Workspace-relative artifact file path under `.fluxion/runs/<run_id>/` |
+| `byte_count` | INTEGER | Stored artifact size in bytes |
+| `sha256` | TEXT | Stored artifact checksum |
+| `content_type` | TEXT | MIME/content hint |
+| `metadata` | TEXT | JSON metadata for UI/replay |
 | `created_at` | TEXT | ISO 8601 timestamp |
 
-#### chatgpt_tokens
+#### app_settings
 
-Stores ChatGPT OAuth tokens per CLI session. Created via migration (not in schema.sql).
+Stores global JSON settings such as provider API keys and runtime reasoning settings.
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `session_id` | TEXT PK | CLI session identifier |
+| `setting_key` | TEXT PK | Setting identifier |
+| `value_json` | TEXT | JSON payload |
+| `updated_at` | TEXT | ISO 8601 timestamp |
+
+#### chatgpt_tokens
+
+Stores ChatGPT/Codex OAuth tokens per local OAuth session. Created via migration (not in `schema.sql`). Used by desktop/web auth flows and backup/restore APIs.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `session_id` | TEXT PK | OAuth/session identifier |
 | `access_token` | TEXT | OAuth access token |
 | `refresh_token` | TEXT | OAuth refresh token |
 | `account_id` | TEXT | OpenAI account ID |
