@@ -120,11 +120,14 @@ function AppLayout() {
   const startWorkspaceDraft = useCallback((workspacePath: string) => {
     const normalized = workspacePath.trim();
     if (!normalized || hasActiveRun) return;
+    // Navigate away from /conversations/:id before clearing selection. Zustand
+    // updates are synchronous, and the route sync effect on ConversationSync can
+    // otherwise re-select the old URL conversation before navigation commits.
+    navigate('/conversations', { flushSync: true });
     selectConversation(null);
     rememberWorkspacePath(normalized);
     setDraftWorkspacePath(normalized);
     bumpDraftConversation();
-    navigate('/conversations');
   }, [bumpDraftConversation, hasActiveRun, navigate, rememberWorkspacePath, selectConversation, setDraftWorkspacePath]);
 
   const handleOpenWorkspacePicker = useCallback(async () => {

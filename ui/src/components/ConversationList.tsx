@@ -230,6 +230,7 @@ export function ConversationList({
   const runsByConversation = useStore((s) => s.runsByConversation);
   const streamingRunId = useStore((s) => s.streamingRunId);
   const selectedConversationId = useStore((s) => s.selectedConversationId);
+  const selectConversation = useStore((s) => s.selectConversation);
   const setConversations = useStore((s) => s.setConversations);
   const updateConversation = useStore((s) => s.updateConversation);
   const removeConversation = useStore((s) => s.removeConversation);
@@ -366,11 +367,18 @@ export function ConversationList({
 
   const startWorkspaceDraft = (workspacePath: string) => {
     if (hasActiveRun) return;
-    rememberWorkspacePath(workspacePath);
-    setDraftWorkspacePath(workspacePath);
+    const normalized = workspacePath.trim();
+    if (!normalized) return;
+    // Navigate away from /conversations/:id before clearing selection. Zustand
+    // updates are synchronous, and ConversationSync can otherwise re-select the
+    // old URL conversation before navigation commits, which makes the old
+    // workspace overwrite this new draft.
+    navigate('/conversations', { flushSync: true });
+    selectConversation(null);
+    rememberWorkspacePath(normalized);
+    setDraftWorkspacePath(normalized);
     bumpDraftConversation();
-    setWorkspaceSectionsOpen((current) => ({ ...current, [workspacePath]: true }));
-    navigate('/conversations');
+    setWorkspaceSectionsOpen((current) => ({ ...current, [normalized]: true }));
   };
 
   const openWorkspacePicker = async () => {
@@ -677,10 +685,7 @@ export function ConversationList({
           onOpenChange={setWorkspacePickerOpen}
           value={draftWorkspacePath}
           onSelect={(workspacePath) => {
-            rememberWorkspacePath(workspacePath);
-            setDraftWorkspacePath(workspacePath);
-            bumpDraftConversation();
-            navigate('/conversations');
+            startWorkspaceDraft(workspacePath);
           }}
         />
       )}

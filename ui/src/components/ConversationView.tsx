@@ -2034,10 +2034,18 @@ export function ConversationView() {
   }, [collaborationMode]);
 
   useEffect(() => {
-    if (conversation?.workspace_path) {
-      setDraftWorkspacePath(conversation.workspace_path);
-    }
-  }, [conversation?.workspace_path, setDraftWorkspacePath]);
+    const conversationId = conversation?.conversation_id;
+    const workspacePath = conversation?.workspace_path?.trim();
+    if (!conversationId || !workspacePath) return;
+
+    // This effect is only allowed to mirror the workspace for the conversation
+    // that is still selected *at effect time*. Passive effects from the previous
+    // conversation can otherwise run after New Workspace clears the selection and
+    // overwrite the just-picked draft workspace with the old conversation folder.
+    if (useStore.getState().selectedConversationId !== conversationId) return;
+
+    setDraftWorkspacePath(workspacePath);
+  }, [conversation?.conversation_id, conversation?.workspace_path, setDraftWorkspacePath]);
 
   useEffect(() => {
     if (!selectedConversationId) {
@@ -3288,11 +3296,11 @@ export function ConversationView() {
       const selectedPath = await openNativeWorkspacePicker();
       const normalized = selectedPath?.trim();
       if (normalized) {
+        navigate('/conversations', { flushSync: true });
         selectConversation(null);
         rememberWorkspacePath(normalized);
         setDraftWorkspacePath(normalized);
         bumpDraftConversation();
-        navigate('/conversations');
       }
       return;
     }
@@ -3314,11 +3322,11 @@ export function ConversationView() {
       openWorkspacePickerForNewConversation();
       return;
     }
+    navigate('/conversations', { flushSync: true });
     selectConversation(null);
     rememberWorkspacePath(normalized);
     setDraftWorkspacePath(normalized);
     bumpDraftConversation();
-    navigate('/conversations');
   }, [
     hasActiveRun,
     navigate,
