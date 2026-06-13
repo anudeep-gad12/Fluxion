@@ -28,9 +28,24 @@ function ConversationSync() {
   const { conversationId } = useParams<{ conversationId: string }>();
   const navigate = useNavigate();
   const selectedConversationId = useStore((s) => s.selectedConversationId);
+  const routeSyncSuppressedConversationId = useStore((s) => s.routeSyncSuppressedConversationId);
   const selectConversation = useStore((s) => s.selectConversation);
+  const clearRouteSyncSuppression = useStore((s) => s.clearRouteSyncSuppression);
 
   useEffect(() => {
+    if (!conversationId) {
+      if (routeSyncSuppressedConversationId) {
+        clearRouteSyncSuppression();
+      }
+      if (selectedConversationId) {
+        selectConversation(null);
+      }
+      return;
+    }
+    if (conversationId === routeSyncSuppressedConversationId) {
+      navigate('/conversations', { replace: true });
+      return;
+    }
     if (conversationId && isConversationMissing(conversationId)) {
       if (selectedConversationId) {
         selectConversation(null);
@@ -38,12 +53,17 @@ function ConversationSync() {
       navigate('/conversations', { replace: true });
       return;
     }
-    if (conversationId && conversationId !== selectedConversationId) {
+    if (conversationId !== selectedConversationId) {
       selectConversation(conversationId);
-    } else if (!conversationId && selectedConversationId) {
-      selectConversation(null);
     }
-  }, [conversationId, navigate, selectedConversationId, selectConversation]);
+  }, [
+    clearRouteSyncSuppression,
+    conversationId,
+    navigate,
+    routeSyncSuppressedConversationId,
+    selectedConversationId,
+    selectConversation,
+  ]);
 
   return <ConversationView />;
 }
@@ -83,10 +103,7 @@ function AppLayout() {
   const conversationMode = useStore((s) => s.conversationMode);
   const selectedConversationId = useStore((s) => s.selectedConversationId);
   const draftWorkspacePath = useStore((s) => s.draftWorkspacePath);
-  const rememberWorkspacePath = useStore((s) => s.rememberWorkspacePath);
-  const setDraftWorkspacePath = useStore((s) => s.setDraftWorkspacePath);
-  const bumpDraftConversation = useStore((s) => s.bumpDraftConversation);
-  const selectConversation = useStore((s) => s.selectConversation);
+  const beginWorkspaceDraft = useStore((s) => s.beginWorkspaceDraft);
 
   const [isOwner, setIsOwner] = useState(() => {
     if (localDesktop) return true;
@@ -120,15 +137,9 @@ function AppLayout() {
   const startWorkspaceDraft = useCallback((workspacePath: string) => {
     const normalized = workspacePath.trim();
     if (!normalized || hasActiveRun) return;
-    // Navigate away from /conversations/:id before clearing selection. Zustand
-    // updates are synchronous, and the route sync effect on ConversationSync can
-    // otherwise re-select the old URL conversation before navigation commits.
-    navigate('/conversations', { flushSync: true });
-    selectConversation(null);
-    rememberWorkspacePath(normalized);
-    setDraftWorkspacePath(normalized);
-    bumpDraftConversation();
-  }, [bumpDraftConversation, hasActiveRun, navigate, rememberWorkspacePath, selectConversation, setDraftWorkspacePath]);
+    beginWorkspaceDraft(normalized);
+    navigate('/conversations', { replace: true });
+  }, [beginWorkspaceDraft, hasActiveRun, navigate]);
 
   const handleOpenWorkspacePicker = useCallback(async () => {
     if (hasActiveRun) return;

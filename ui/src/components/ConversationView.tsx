@@ -1951,8 +1951,8 @@ export function ConversationView() {
   const draftWorkspacePath = useStore((s) => s.draftWorkspacePath);
   const draftConversationNonce = useStore((s) => s.draftConversationNonce);
   const setDraftWorkspacePath = useStore((s) => s.setDraftWorkspacePath);
-  const bumpDraftConversation = useStore((s) => s.bumpDraftConversation);
   const rememberWorkspacePath = useStore((s) => s.rememberWorkspacePath);
+  const beginWorkspaceDraft = useStore((s) => s.beginWorkspaceDraft);
   const [message, setMessage] = useState('');
   const [imageAttachments, setImageAttachments] = useState<ImageAttachment[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -3296,23 +3296,17 @@ export function ConversationView() {
       const selectedPath = await openNativeWorkspacePicker();
       const normalized = selectedPath?.trim();
       if (normalized) {
-        navigate('/conversations', { flushSync: true });
-        selectConversation(null);
-        rememberWorkspacePath(normalized);
-        setDraftWorkspacePath(normalized);
-        bumpDraftConversation();
+        beginWorkspaceDraft(normalized);
+        navigate('/conversations', { replace: true });
       }
       return;
     }
     setWorkspacePickerMode('new-conversation');
     setWorkspacePickerOpen(true);
   }, [
+    beginWorkspaceDraft,
     hasActiveRun,
     navigate,
-    bumpDraftConversation,
-    rememberWorkspacePath,
-    selectConversation,
-    setDraftWorkspacePath,
   ]);
 
   const startWorkspaceDraftConversation = useCallback((workspacePath: string) => {
@@ -3322,19 +3316,13 @@ export function ConversationView() {
       openWorkspacePickerForNewConversation();
       return;
     }
-    navigate('/conversations', { flushSync: true });
-    selectConversation(null);
-    rememberWorkspacePath(normalized);
-    setDraftWorkspacePath(normalized);
-    bumpDraftConversation();
+    beginWorkspaceDraft(normalized);
+    navigate('/conversations', { replace: true });
   }, [
+    beginWorkspaceDraft,
     hasActiveRun,
     navigate,
     openWorkspacePickerForNewConversation,
-    bumpDraftConversation,
-    rememberWorkspacePath,
-    selectConversation,
-    setDraftWorkspacePath,
   ]);
 
   const clearPendingWorkspaceShortcut = useCallback(() => {

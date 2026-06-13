@@ -54,6 +54,7 @@ interface AppState {
   // Conversations
   conversations: Conversation[];
   selectedConversationId: string | null;
+  routeSyncSuppressedConversationId: string | null;
   draftWorkspacePath: string;
   draftConversationNonce: number;
   workspacePaths: string[];
@@ -92,6 +93,8 @@ interface AppState {
   updateConversation: (conversationId: string, updates: Partial<Conversation>) => void;
   removeConversation: (conversationId: string) => void;
   selectConversation: (conversationId: string | null) => void;
+  beginWorkspaceDraft: (workspacePath: string) => void;
+  clearRouteSyncSuppression: () => void;
   setDraftWorkspacePath: (workspacePath: string) => void;
   bumpDraftConversation: () => void;
   rememberWorkspacePath: (workspacePath: string) => void;
@@ -147,6 +150,7 @@ export const useStore = create<AppState>((set, get) => ({
   // Initial state
   conversations: [],
   selectedConversationId: null,
+  routeSyncSuppressedConversationId: null,
   draftWorkspacePath: typeof window !== 'undefined' ? (localStorage.getItem(WORKSPACE_STORAGE_KEY) || '') : '',
   draftConversationNonce: 0,
   workspacePaths: typeof window !== 'undefined'
@@ -190,6 +194,35 @@ export const useStore = create<AppState>((set, get) => ({
 
   selectConversation: (conversationId) => set({
     selectedConversationId: conversationId,
+    routeSyncSuppressedConversationId: null,
+  }),
+
+  beginWorkspaceDraft: (workspacePath) => {
+    const normalized = workspacePath.trim();
+    if (!normalized) return;
+    const previousConversationId = get().selectedConversationId;
+    void ensureWorkspaceFluxionGitignore(normalized).catch(() => undefined);
+    set((state) => {
+      const nextWorkspacePaths = [
+        normalized,
+        ...state.workspacePaths.filter((path) => path !== normalized),
+      ];
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(WORKSPACE_STORAGE_KEY, normalized);
+        localStorage.setItem(WORKSPACE_LIST_STORAGE_KEY, JSON.stringify(nextWorkspacePaths));
+      }
+      return {
+        selectedConversationId: null,
+        routeSyncSuppressedConversationId: previousConversationId,
+        draftWorkspacePath: normalized,
+        draftConversationNonce: state.draftConversationNonce + 1,
+        workspacePaths: nextWorkspacePaths,
+      };
+    });
+  },
+
+  clearRouteSyncSuppression: () => set({
+    routeSyncSuppressedConversationId: null,
   }),
 
   setDraftWorkspacePath: (workspacePath) => {
