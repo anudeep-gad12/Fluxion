@@ -1,5 +1,109 @@
 /* Desktop agent HUD — plan/permission/input blocks + idle status strip */
 
+/* Live status card — flat surface + cyan "spine" echoing the agent steps
+   progress spine, so running state has real presence without gradients/glow. */
+[data-app='desktop'] .desktop-hud-live {
+  position: relative;
+  overflow: hidden;
+  border-radius: 10px;
+  border: 1px solid var(--desktop-border-subtle);
+  background: var(--desktop-bg-2);
+}
+
+[data-app='desktop'] .desktop-hud-live::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--desktop-text-tertiary);
+  transition: background 0.2s ease;
+}
+
+[data-app='desktop'] .desktop-hud-live[data-active='true']::before {
+  background: var(--desktop-accent);
+}
+
+[data-app='desktop'] .desktop-hud-live-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px 8px 14px;
+  font-size: 12px;
+  color: var(--desktop-text-secondary);
+}
+
+/* Live status dot — cyan core with the same soft ring pulse used by the
+   agent steps spine, so the HUD reads as a sibling of that component. */
+[data-app='desktop'] .desktop-hud-dot.desktop-hud-dot-live {
+  background: var(--desktop-accent);
+}
+
+[data-app='desktop'] .desktop-hud-dot.desktop-hud-dot-live[data-active='false'] {
+  background: var(--desktop-text-tertiary);
+  box-shadow: none;
+}
+
+[data-app='desktop'] .desktop-hud-dot.desktop-hud-dot-live[data-active='true'] {
+  box-shadow: 0 0 0 3px rgba(121, 230, 255, 0.1);
+  animation: desktop-step-dot-pulse 1.8s ease-in-out infinite;
+}
+
+/* Rotating phase word — quick, quiet fade as it swaps */
+[data-app='desktop'] .desktop-hud-word-anim {
+  animation: hud-word-in 0.22s ease-out both;
+}
+
+/* Metric stats — flat chips, consistent across live + approval rows */
+[data-app='desktop'] .desktop-hud-stats {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+[data-app='desktop'] .desktop-hud-stat {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.04);
+  padding: 2px 7px;
+  font-size: 11px;
+  color: var(--desktop-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+[data-app='desktop'] .desktop-hud-stat[data-warn='true'] {
+  background: rgba(251, 191, 36, 0.1);
+  color: #fde68a;
+}
+
+/* Approval / plan / permission / input panel — quiet entrance + kind spine */
+[data-app='desktop'] .desktop-approval-panel {
+  position: relative;
+  overflow: hidden;
+  animation: hud-panel-enter 0.22s ease-out both;
+}
+
+[data-app='desktop'] .desktop-approval-panel::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--desktop-accent);
+}
+
+[data-app='desktop'] .desktop-approval-panel[data-kind='plan']::before,
+[data-app='desktop'] .desktop-approval-panel[data-kind='input']::before {
+  background: #a78bfa;
+}
+
+[data-app='desktop'] .desktop-approval-panel[data-kind='permission']::before {
+  background: #fbbf24;
+}
+
 [data-app='desktop'] .desktop-hud-header {
   display: flex;
   flex-wrap: wrap;
@@ -146,6 +250,21 @@
   max-height: 12rem;
 }
 
+/* Rendered-markdown plan document — inset scroll surface, markdown handles type */
+[data-app='desktop'] .desktop-hud-doc {
+  max-height: min(58vh, 42rem);
+  overflow: auto;
+  border-radius: 10px;
+  border: 1px solid var(--desktop-border-subtle);
+  background: var(--desktop-bg-2);
+  padding: 4px 14px;
+}
+
+[data-app='desktop'] .desktop-hud-doc .markdown {
+  font-size: 13px;
+  line-height: 1.7;
+}
+
 [data-app='desktop'] .desktop-hud-field {
   width: 100%;
   min-height: 4rem;
@@ -177,7 +296,8 @@
   padding-top: 12px;
 }
 
-[data-app='desktop'] .desktop-hud-actions .desktop-hud-metrics {
+[data-app='desktop'] .desktop-hud-actions .desktop-hud-metrics,
+[data-app='desktop'] .desktop-hud-actions .desktop-hud-stats {
   margin-left: auto;
 }
 

@@ -531,7 +531,10 @@ textarea:focus {
   .desktop-step-row,
   .desktop-step-dot[data-tone='live'],
   .desktop-step-dot[data-tone='success'],
-  .desktop-step-dot[data-tone='error'] {
+  .desktop-step-dot[data-tone='error'],
+  .desktop-hud-dot-live,
+  .desktop-hud-word-anim,
+  .desktop-approval-panel {
     animation: none !important;
   }
 
@@ -548,6 +551,17 @@ textarea:focus {
 
 .fluxion-trace {
   animation: fluxion-trace 4.5s ease-in-out infinite;
+}
+
+/* HUD motion — quiet entrance + word swap, matching the agent steps panel */
+@keyframes hud-panel-enter {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes hud-word-in {
+  from { opacity: 0; transform: translateY(2px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 /* -------------------------------------------------------------------------- */

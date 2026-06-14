@@ -8,6 +8,7 @@ import {
   rejectAgentPlan,
 } from '@/api/client';
 import { cn } from '@/lib/utils';
+import { AnswerMarkdown } from '@/components/AnswerMarkdown';
 import { formatArguments, UnifiedDiffView } from '@/components/ToolCallCard';
 import { formatAgentCost, formatAgentTokens, useDerivedAgentPhase } from '@/lib/agentLiveState';
 import { useStore } from '@/hooks/useStore';
@@ -233,18 +234,22 @@ export const AgentLiveHUD = memo(function AgentLiveHUD({
     || !!agentState.pendingUserInput
     || !!pendingApproval;
 
+  const panelKind: 'plan' | 'input' | 'permission' = agentState.pendingPlanApproval?.status === 'pending'
+    ? 'plan'
+    : agentState.pendingUserInput
+      ? 'input'
+      : 'permission';
+
   const metricsLine = isDesktop ? (
-    <span className="desktop-hud-metrics">
-      <span className={cn(phase.isContextWarning && 'desktop-hud-metrics-warn')}>
+    <span className="desktop-hud-stats">
+      <span className="desktop-hud-stat" data-warn={phase.isContextWarning ? 'true' : 'false'}>
         {currentContextPct} ctx
       </span>
-      <span className="desktop-hud-metrics-sep"> · </span>
-      <ElapsedClock startedAt={startedAt} />
+      <span className="desktop-hud-stat">
+        <ElapsedClock startedAt={startedAt} />
+      </span>
       {agentState.total_tokens ? (
-        <>
-          <span className="desktop-hud-metrics-sep"> · </span>
-          <span>{formatAgentTokens(agentState.total_tokens)} tok</span>
-        </>
+        <span className="desktop-hud-stat">{formatAgentTokens(agentState.total_tokens)} tok</span>
       ) : null}
     </span>
   ) : (
@@ -267,17 +272,25 @@ export const AgentLiveHUD = memo(function AgentLiveHUD({
   const denyBtnClass = isDesktop ? 'desktop-hud-btn-deny' : WEB_DENY_BTN;
 
   if (isDesktop && !hasBlockingState) {
+    const isActive = agentState.isActive;
     return (
-      <div className="desktop-status-bar mb-2 px-1">
-        <div className="flex min-w-0 flex-1 items-center gap-2">
-          <span className="desktop-hud-dot shrink-0" data-kind="live" />
-          <span className="desktop-hud-phase-word shrink-0">{phase.activeWord}</span>
-          <span className="desktop-hud-phase-summary min-w-0 truncate">{phase.detail.summary}</span>
-          {phase.detail.toolName ? (
-            <span className="desktop-hud-phase-extra">· {phase.detail.toolName}</span>
-          ) : null}
+      <div className="desktop-hud-live mb-2" data-active={isActive ? 'true' : 'false'}>
+        <div className="desktop-hud-live-row">
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <span
+              className="desktop-hud-dot desktop-hud-dot-live shrink-0"
+              data-active={isActive ? 'true' : 'false'}
+            />
+            <span key={phase.activeWord} className="desktop-hud-phase-word desktop-hud-word-anim shrink-0">
+              {phase.activeWord}
+            </span>
+            <span className="desktop-hud-phase-summary min-w-0 truncate">{phase.detail.summary}</span>
+            {phase.detail.toolName ? (
+              <span className="desktop-hud-phase-extra">· {phase.detail.toolName}</span>
+            ) : null}
+          </div>
+          <div className="shrink-0">{metricsLine}</div>
         </div>
-        <div className="shrink-0">{metricsLine}</div>
       </div>
     );
   }
@@ -292,7 +305,7 @@ export const AgentLiveHUD = memo(function AgentLiveHUD({
 
   return (
     <div className={cn('desktop-thread-column flex-shrink-0', isDesktop ? 'px-0 pb-0' : 'px-4 pb-2')}>
-      <div className={shellClassName}>
+      <div className={shellClassName} data-kind={isDesktop ? panelKind : undefined}>
         {agentState.pendingPlanApproval?.status === 'pending' ? (
           <div className="space-y-3">
             <div className={isDesktop ? 'desktop-hud-header' : 'flex flex-wrap items-start justify-between gap-3'}>
@@ -319,9 +332,9 @@ export const AgentLiveHUD = memo(function AgentLiveHUD({
             {agentState.pendingPlanApproval.markdown.includes('\n+++ ') ? (
               <UnifiedDiffView diff={agentState.pendingPlanApproval.markdown} />
             ) : (
-              <pre className={isDesktop ? 'desktop-hud-pre' : 'max-h-[min(58vh,42rem)] overflow-auto rounded-[1rem] border border-zinc-800/90 bg-zinc-950/92 px-4 py-4 whitespace-pre-wrap text-[12px] leading-6 text-zinc-300 md:text-[13px] md:leading-7'}>
-                {agentState.pendingPlanApproval.markdown}
-              </pre>
+              <div className={isDesktop ? 'desktop-hud-doc' : 'max-h-[min(58vh,42rem)] overflow-auto rounded-[1rem] border border-zinc-800/90 bg-zinc-950/92 px-4 py-3'}>
+                <AnswerMarkdown content={agentState.pendingPlanApproval.markdown} />
+              </div>
             )}
 
             {(agentState.pendingPlanApproval.plan_doc_path || agentState.planDoc?.file_path) ? (
@@ -501,7 +514,7 @@ export const AgentLiveHUD = memo(function AgentLiveHUD({
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0 flex-1">
                 <div className="flex min-w-0 flex-wrap items-center gap-2">
-                  <span className={cn('h-2 w-2 rounded-full', phase.indicatorClassName)} />
+                  <span className={cn('h-2 w-2 rounded-full', phase.indicatorClassName, agentState.isActive && 'animate-pulse')} />
                   <span className={cn('text-[11px] uppercase tracking-[0.18em]', phase.accentClassName)}>
                     {phase.activeWord}
                   </span>
