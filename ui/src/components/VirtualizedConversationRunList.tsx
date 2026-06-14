@@ -103,7 +103,7 @@ export const VirtualizedConversationRunList = memo(function VirtualizedConversat
   const [viewportHeight, setViewportHeight] = useState(0);
   const [measuredHeights, setMeasuredHeights] = useState<Record<string, number>>({});
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const container = scrollContainerRef.current;
     if (!container) return;
 

@@ -1,6 +1,6 @@
 // Conversation view - simple chat interface
 
-import { useEffect, useMemo, useRef, useState, useCallback, memo } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback, memo } from 'react';
 import type { KeyboardEvent, ChangeEvent, ClipboardEvent, MouseEvent as ReactMouseEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -1976,6 +1976,7 @@ export function ConversationView() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const verticalMoveColumnRef = useRef<number | null>(null);
   const composerFocusRafRef = useRef<number | null>(null);
+  const bottomScrollRafRef = useRef<number | null>(null);
   const pendingWorkspaceShortcutRef = useRef<'workspace-new' | 'workspace-picker' | null>(null);
   const pendingWorkspaceShortcutTimeoutRef = useRef<number | null>(null);
   const lastEscapeAtRef = useRef(0);
@@ -2365,6 +2366,40 @@ export function ConversationView() {
   // Get subscribe/unsubscribe functions from useAgentSSE (agent mode)
   const { subscribe: subscribeAgent } = useAgentSSE(null); // Manual subscription, not auto
 
+  const scrollConversationToBottom = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, []);
+
+  const scheduleConversationBottomScroll = useCallback((frames = 18) => {
+    if (typeof window === 'undefined') return;
+    if (bottomScrollRafRef.current !== null) {
+      window.cancelAnimationFrame(bottomScrollRafRef.current);
+      bottomScrollRafRef.current = null;
+    }
+
+    let framesRemaining = frames;
+    const tick = () => {
+      scrollConversationToBottom();
+      framesRemaining -= 1;
+      if (framesRemaining > 0) {
+        bottomScrollRafRef.current = window.requestAnimationFrame(tick);
+      } else {
+        bottomScrollRafRef.current = null;
+      }
+    };
+
+    bottomScrollRafRef.current = window.requestAnimationFrame(tick);
+  }, [scrollConversationToBottom]);
+
+  useEffect(() => () => {
+    if (bottomScrollRafRef.current !== null) {
+      window.cancelAnimationFrame(bottomScrollRafRef.current);
+      bottomScrollRafRef.current = null;
+    }
+  }, []);
+
   useEffect(() => {
     if (!selectedConversationId) return;
 
@@ -2409,11 +2444,18 @@ export function ConversationView() {
     loadConversation();
   }, [navigate, selectConversation, selectedConversationId, setRuns, updateConversation, subscribe, subscribeAgent]);
 
-  // Scroll on new runs
-  useEffect(() => {
-    if (!scrollRef.current) return;
-    scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [runs.length]);
+  const runListKey = useMemo(
+    () => runs.map((run) => run.run_id).join('|'),
+    [runs],
+  );
+
+  // Opening a conversation should land on the latest exchange. For long chats
+  // the virtualized list first renders from estimated row heights, then corrects
+  // height measurements over the next few frames; keep pinning to bottom during
+  // that initial measurement window so the scrollbar does not settle mid-thread.
+  useLayoutEffect(() => {
+    scheduleConversationBottomScroll();
+  }, [runListKey, scheduleConversationBottomScroll, selectedConversationId]);
 
   // Auto-scroll during streaming - watch streaming text length for active run
   const lastStreamLen = useStore((s) => {
