@@ -9,6 +9,7 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| main | Conversation history loading indicator — conversation switches now show an explicit loading state while message history is being fetched, guard stale fetch completions, and keep medium-sized histories out of the virtualized renderer so large-but-common chats do not appear as a blank thread body | done | 2026-06-14 |
 | main | Conversation open bottom-scroll fix — opening or switching chats now pins the thread to the latest exchange across initial virtualized-row measurement frames, and the virtualized run list samples scroll metrics in layout effects so programmatic bottom-scrolls cannot leave long chats stuck mid-thread | done | 2026-06-14 |
 | main | New Workspace route-sync root fix — workspace draft creation is now a single atomic store action that suppresses the previous `/conversations/:id` route while it clears selection, writes the chosen draft folder, remembers the workspace, and resets the blank draft, preventing stale route effects from reselecting the old workspace | done | 2026-06-13 |
 | main | Documentation source-of-truth refresh — surgically updated architecture, API, data flow, data models, component, workflow, README, project structure, and historical reference docs to match the current macOS/Tauri desktop coding-agent runtime, provider/model stack, Plan Mode, workspace/terminal/browser flows, SQLite schema, and local-model defaults | done | 2026-06-13 |

@@ -13,7 +13,7 @@ import type { Run } from '@/types';
 
 const DEFAULT_ESTIMATED_ROW_HEIGHT = 460;
 const DEFAULT_OVERSCAN = 6;
-const DEFAULT_THRESHOLD = 40;
+const DEFAULT_THRESHOLD = 100;
 const ROW_GAP_PX = 40;
 
 interface VirtualizedConversationRunListProps {

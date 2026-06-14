@@ -1956,6 +1956,7 @@ export function ConversationView() {
   const [message, setMessage] = useState('');
   const [imageAttachments, setImageAttachments] = useState<ImageAttachment[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [loadingConversationId, setLoadingConversationId] = useState<string | null>(null);
   const [mode, setMode] = useState<ChatMode>('agent');
   const localDesktop = isLocalDesktopApp();
   const [workspacePickerOpen, setWorkspacePickerOpen] = useState(false);
@@ -2401,11 +2402,18 @@ export function ConversationView() {
   }, []);
 
   useEffect(() => {
-    if (!selectedConversationId) return;
+    if (!selectedConversationId) {
+      setLoadingConversationId(null);
+      return;
+    }
+
+    setLoadingConversationId(selectedConversationId);
+    let cancelled = false;
 
     async function loadConversation() {
       try {
         const data = await getConversation(selectedConversationId!);
+        if (cancelled) return;
         updateConversation(selectedConversationId!, data.conversation);
         setRuns(selectedConversationId!, data.runs);
 
@@ -2428,6 +2436,7 @@ export function ConversationView() {
           }
         }
       } catch (error: unknown) {
+        if (cancelled) return;
         // Conversation might not exist anymore after deletes or stale URLs.
         // Clear the stale selected id so draft workspace state keeps working,
         // including @ file mentions in the composer.
@@ -2438,16 +2447,26 @@ export function ConversationView() {
           setRuns(selectedConversationId!, []);
           navigate('/conversations', { replace: true });
         }
+      } finally {
+        if (!cancelled) {
+          setLoadingConversationId((current) => (
+            current === selectedConversationId ? null : current
+          ));
+        }
       }
     }
 
     loadConversation();
+    return () => {
+      cancelled = true;
+    };
   }, [navigate, selectConversation, selectedConversationId, setRuns, updateConversation, subscribe, subscribeAgent]);
 
   const runListKey = useMemo(
     () => runs.map((run) => run.run_id).join('|'),
     [runs],
   );
+  const isLoadingSelectedConversation = loadingConversationId === selectedConversationId;
 
   // Opening a conversation should land on the latest exchange. For long chats
   // the virtualized list first renders from estimated row heights, then corrects
@@ -3925,11 +3944,24 @@ export function ConversationView() {
       <div className="relative flex min-h-0 flex-1 flex-col">
         <div className="flex-1 overflow-y-auto px-4 py-6" ref={scrollRef}>
           <div className="desktop-thread-column w-full">
-            <VirtualizedConversationRunList
-              runs={runs}
-              scrollContainerRef={scrollRef}
-              renderRun={renderRunCard}
-            />
+            {isLoadingSelectedConversation && runs.length === 0 ? (
+              <div className="flex min-h-[45vh] items-center justify-center">
+                <div className="flex items-center gap-3 rounded-full border border-white/[0.08] bg-white/[0.035] px-4 py-2 text-[13px] text-zinc-400">
+                  <span className="h-2 w-2 animate-pulse rounded-full bg-cyan-300/80" />
+                  Loading conversation…
+                </div>
+              </div>
+            ) : runs.length === 0 ? (
+              <div className="flex min-h-[45vh] items-center justify-center text-[13px] text-zinc-500">
+                No messages in this conversation.
+              </div>
+            ) : (
+              <VirtualizedConversationRunList
+                runs={runs}
+                scrollContainerRef={scrollRef}
+                renderRun={renderRunCard}
+              />
+            )}
           </div>
         </div>
 
