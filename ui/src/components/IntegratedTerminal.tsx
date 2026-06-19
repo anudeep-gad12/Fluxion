@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
 import { Terminal } from 'xterm';
-import type { ILink, ILinkProvider } from 'xterm';
+import type { ILink, ILinkProvider, ITheme } from 'xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import 'xterm/css/xterm.css';
 
@@ -15,11 +15,45 @@ import { DRAFT_TERMINAL_CONVERSATION_ID } from '@/hooks/useStore';
 import { useConversationTerminal, useStore } from '@/hooks/useStore';
 import { openExternalPath, openExternalUrl } from '@/lib/platform';
 import { cn } from '@/lib/utils';
+import { useTheme, type Theme } from '@/hooks/useTheme';
 
 const MIN_HEIGHT = 160;
 const MAX_HEIGHT = 520;
 const MIN_WIDTH = 320;
 const MAX_WIDTH = 760;
+
+const TERMINAL_THEMES: Record<Theme, ITheme> = {
+  dark: {
+    background: '#0c0c0e',
+    foreground: '#e4e4e7',
+    cursor: '#f5f7fb',
+    cursorAccent: '#0c0c0e',
+    selectionBackground: '#29464d',
+  },
+  light: {
+    background: '#fdfcfa',
+    foreground: '#26251e',
+    cursor: '#26251e',
+    cursorAccent: '#fdfcfa',
+    selectionBackground: '#c8e2e7',
+    black: '#3a382f',
+    red: '#b91c1c',
+    green: '#168052',
+    yellow: '#a16207',
+    blue: '#276d8a',
+    magenta: '#6d4e9c',
+    cyan: '#087b94',
+    white: '#dedbd4',
+    brightBlack: '#706c62',
+    brightRed: '#dc2626',
+    brightGreen: '#188c5a',
+    brightYellow: '#b77908',
+    brightBlue: '#327f9e',
+    brightMagenta: '#815daf',
+    brightCyan: '#0c8fa8',
+    brightWhite: '#f7f7f4',
+  },
+};
 
 type TerminalDock = 'bottom' | 'right';
 
@@ -131,6 +165,8 @@ export function IntegratedTerminal({
   onOpenUrl,
   chrome = 'full',
 }: IntegratedTerminalProps) {
+  const { theme } = useTheme();
+  const themeRef = useRef(theme);
   const terminalState = useConversationTerminal(conversationId);
   const updateTerminalState = useStore((s) => s.updateTerminalState);
   const appendTerminalBuffer = useStore((s) => s.appendTerminalBuffer);
@@ -250,11 +286,7 @@ export function IntegratedTerminal({
       convertEol: false,
       fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
       fontSize: 12,
-      theme: {
-        background: '#0c0c0e',
-        foreground: '#e4e4e7',
-        cursor: '#f5f7fb',
-      },
+      theme: TERMINAL_THEMES[themeRef.current],
       scrollback: 5000,
     });
     const fitAddon = new FitAddon();
@@ -325,6 +357,13 @@ export function IntegratedTerminal({
       fitAddonRef.current = null;
     };
   }, [active, connectSocket, conversationId, onOpenUrl, sessionId, terminalState?.isOpen, updateTerminalState, workspacePath]);
+
+  useEffect(() => {
+    themeRef.current = theme;
+    if (terminalRef.current) {
+      terminalRef.current.options.theme = TERMINAL_THEMES[theme];
+    }
+  }, [theme]);
 
   useEffect(() => {
     if (!terminalState?.isOpen || !active) {
@@ -490,7 +529,7 @@ export function IntegratedTerminal({
   return (
     <div
       className={cn(
-        'flex min-h-0 flex-shrink-0 overflow-hidden bg-[#0c0c0e]',
+        'flex min-h-0 flex-shrink-0 overflow-hidden bg-[var(--desktop-bg-2)]',
         isEmbedded
           ? 'h-full w-full'
           : isRightDock
@@ -584,7 +623,7 @@ export function IntegratedTerminal({
             ) : null}
           </div>
         </div>
-        <div className="min-h-0 min-w-0 flex-1 bg-[#0c0c0e]">
+        <div className="min-h-0 min-w-0 flex-1 bg-[var(--desktop-bg-2)]">
           <div
             ref={containerRef}
             className="h-full min-w-0 w-full px-3 py-2"

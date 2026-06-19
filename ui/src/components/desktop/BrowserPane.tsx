@@ -259,7 +259,7 @@ export function BrowserPane({
           />
         </form>
       </div>
-      <div className="relative min-h-0 flex-1 bg-[#141212]">
+      <div className="relative min-h-0 flex-1 bg-[var(--desktop-bg-1)]">
         <div ref={viewportRef} className="absolute inset-0" />
         {!tab.url ? (
           <div className="pointer-events-none absolute inset-0 flex items-start gap-2 px-5 py-5 text-[12px] text-zinc-600">

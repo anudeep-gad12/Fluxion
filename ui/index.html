@@ -2,6 +2,28 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      // Resolve the desktop theme before first paint. An explicit choice wins;
+      // otherwise Fluxion follows the current macOS appearance.
+      try {
+        var isDesktop =
+          location.protocol === "tauri:" ||
+          location.hostname === "tauri.localhost" ||
+          location.hostname.endsWith(".tauri.localhost") ||
+          ((location.hostname === "127.0.0.1" || location.hostname === "localhost") &&
+            location.port === "9000")
+        if (isDesktop) {
+          var savedTheme = localStorage.getItem("theme")
+          var resolvedTheme =
+            savedTheme === "light" || savedTheme === "dark"
+              ? savedTheme
+              : window.matchMedia("(prefers-color-scheme: dark)").matches
+                ? "dark"
+                : "light"
+          document.documentElement.dataset.theme = resolvedTheme
+        }
+      } catch (error) {}
+    </script>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
@@ -13,6 +35,7 @@
     <meta name="twitter:card" content="summary" />
     <meta name="twitter:title" content="Fluxion" />
     <meta name="twitter:description" content="Fluxion is a local coding agent for the models you choose." />
+    <meta name="theme-color" content="#09090b" />
     <title>Fluxion</title>
   </head>
   <body>

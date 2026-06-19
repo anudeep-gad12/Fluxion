@@ -53,7 +53,7 @@ export function DesktopChipMenu({
       </button>
       {open ? (
         <div
-          className="absolute bottom-full left-0 z-50 mb-1 min-w-[8rem] overflow-hidden rounded-lg border border-white/10 bg-[#1c1c1f] py-1 shadow-lg"
+          className="absolute bottom-full left-0 z-50 mb-1 min-w-[8rem] overflow-hidden rounded-lg border border-white/10 bg-[var(--desktop-bg-2)] py-1 shadow-lg"
           role="listbox"
         >
           {options.map((option) => (

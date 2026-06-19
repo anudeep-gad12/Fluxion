@@ -1919,6 +1919,17 @@ _EVENT_TYPE_MAP = {
 
 **Purpose**: Frameless macOS desktop layout, drag regions, sidebar/header controls, and provider/settings entry points.
 
+### `ui/src/hooks/useTheme.tsx` and `ui/src/components/ThemeToggle.tsx`
+
+**Purpose**: Desktop appearance management and the sidebar sun/moon control.
+
+**Behavior**:
+- Resolves the theme before first paint, following macOS until the user makes an explicit choice
+- Persists explicit `light` or `dark` choices in local storage under `theme`
+- Applies the resolved theme to desktop CSS tokens, syntax highlighting, xterm, Sonner, and native Tauri window chrome
+- Keeps the browser-served non-desktop UI on its existing dark appearance
+- Uses the landing site's warm-greige palette for light mode while preserving accessible Fluxion status/accent colors
+
 ### `ui/src/components/desktop/DesktopComposer.tsx` and controls
 
 **Purpose**: Desktop composer, run settings, capability/permission controls, and status footer.

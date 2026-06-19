@@ -7,6 +7,55 @@
 @layer base {
   :root {
     color-scheme: dark;
+    --ui-white-rgb: 255 255 255;
+    --ui-zinc-50: 250 250 250;
+    --ui-zinc-100: 244 244 245;
+    --ui-zinc-200: 228 228 231;
+    --ui-zinc-300: 212 212 216;
+    --ui-zinc-400: 161 161 170;
+    --ui-zinc-500: 113 113 122;
+    --ui-zinc-600: 82 82 91;
+    --ui-zinc-700: 63 63 70;
+    --ui-zinc-800: 39 39 42;
+    --ui-zinc-900: 24 24 27;
+    --ui-zinc-950: 9 9 11;
+    --ui-cyan-50: 236 254 255;
+    --ui-cyan-100: 207 250 254;
+    --ui-cyan-200: 165 243 252;
+    --ui-cyan-300: 103 232 249;
+    --ui-cyan-400: 34 211 238;
+    --ui-cyan-500: 6 182 212;
+    --ui-red-100: 254 226 226;
+    --ui-red-200: 254 202 202;
+    --ui-red-300: 252 165 165;
+    --ui-red-400: 248 113 113;
+    --ui-red-500: 239 68 68;
+    --ui-amber-100: 254 243 199;
+    --ui-amber-200: 253 230 138;
+    --ui-amber-300: 252 211 77;
+    --ui-amber-400: 251 191 36;
+    --ui-amber-500: 245 158 11;
+    --ui-amber-600: 217 119 6;
+    --ui-emerald-100: 209 250 229;
+    --ui-emerald-200: 167 243 208;
+    --ui-emerald-300: 110 231 183;
+    --ui-emerald-400: 52 211 153;
+    --ui-emerald-500: 16 185 129;
+    --ui-emerald-600: 5 150 105;
+    --ui-violet-100: 237 233 254;
+    --ui-violet-200: 221 214 254;
+    --ui-violet-300: 196 181 253;
+    --ui-violet-400: 167 139 250;
+    --ui-violet-500: 139 92 246;
+    --ui-orange-100: 255 237 213;
+    --ui-orange-200: 254 215 170;
+    --ui-orange-300: 253 186 116;
+    --ui-orange-500: 249 115 22;
+    --ui-accent-rgb: 121 230 255;
+    --ui-warning-rgb: 251 191 36;
+    --ui-danger-rgb: 239 68 68;
+    --ui-success-rgb: 52 211 153;
+    --ui-violet-rgb: 167 139 250;
     --background: 220 18% 3%;
     --foreground: 0 0% 100%;
     --card: 220 16% 7%;
@@ -30,8 +79,8 @@
     --fluxion-bg: #07080a;
     --fluxion-panel: rgba(18, 20, 24, 0.72);
     --fluxion-panel-strong: rgba(24, 27, 32, 0.9);
-    --fluxion-line: rgba(255, 255, 255, 0.1);
-    --fluxion-line-strong: rgba(255, 255, 255, 0.18);
+    --fluxion-line: rgb(var(--ui-white-rgb) / 0.1);
+    --fluxion-line-strong: rgb(var(--ui-white-rgb) / 0.18);
     --fluxion-text: #f5f7fb;
     --fluxion-muted: #9ba0aa;
     --fluxion-dim: #686d78;
@@ -42,6 +91,84 @@
     --duration-fast: 140ms;
     --duration-ui: 220ms;
     --duration-slow: 340ms;
+  }
+
+  html[data-app='desktop'][data-theme='light'] {
+    color-scheme: light;
+    --ui-white-rgb: 38 37 30;
+    --ui-zinc-50: 38 37 30;
+    --ui-zinc-100: 48 47 39;
+    --ui-zinc-200: 69 66 56;
+    --ui-zinc-300: 92 89 79;
+    --ui-zinc-400: 112 108 98;
+    --ui-zinc-500: 138 133 122;
+    --ui-zinc-600: 169 164 154;
+    --ui-zinc-700: 198 194 185;
+    --ui-zinc-800: 222 219 212;
+    --ui-zinc-900: 235 234 229;
+    --ui-zinc-950: 242 241 237;
+    --ui-cyan-50: 8 65 79;
+    --ui-cyan-100: 9 82 98;
+    --ui-cyan-200: 10 102 121;
+    --ui-cyan-300: 8 123 148;
+    --ui-cyan-400: 12 143 168;
+    --ui-cyan-500: 8 123 148;
+    --ui-red-100: 127 29 29;
+    --ui-red-200: 153 27 27;
+    --ui-red-300: 185 28 28;
+    --ui-red-400: 202 36 36;
+    --ui-red-500: 185 28 28;
+    --ui-amber-100: 113 63 18;
+    --ui-amber-200: 133 77 14;
+    --ui-amber-300: 161 98 7;
+    --ui-amber-400: 180 115 8;
+    --ui-amber-500: 161 98 7;
+    --ui-amber-600: 133 77 14;
+    --ui-emerald-100: 16 86 57;
+    --ui-emerald-200: 18 105 68;
+    --ui-emerald-300: 22 128 82;
+    --ui-emerald-400: 28 148 96;
+    --ui-emerald-500: 22 128 82;
+    --ui-emerald-600: 16 105 68;
+    --ui-violet-100: 82 55 125;
+    --ui-violet-200: 96 64 145;
+    --ui-violet-300: 109 78 156;
+    --ui-violet-400: 124 91 174;
+    --ui-violet-500: 109 78 156;
+    --ui-orange-100: 124 55 13;
+    --ui-orange-200: 154 67 12;
+    --ui-orange-300: 183 82 17;
+    --ui-orange-500: 183 82 17;
+    --ui-accent-rgb: 8 123 148;
+    --ui-warning-rgb: 161 98 7;
+    --ui-danger-rgb: 185 28 28;
+    --ui-success-rgb: 22 128 82;
+    --ui-violet-rgb: 109 78 156;
+    --background: 60 16% 96%;
+    --foreground: 52 12% 13%;
+    --card: 40 30% 99%;
+    --card-foreground: 52 12% 13%;
+    --popover: 40 30% 99%;
+    --popover-foreground: 52 12% 13%;
+    --primary: 191 90% 31%;
+    --primary-foreground: 60 16% 96%;
+    --secondary: 48 13% 91%;
+    --secondary-foreground: 52 12% 22%;
+    --muted: 48 13% 91%;
+    --muted-foreground: 42 7% 35%;
+    --accent: 191 42% 90%;
+    --accent-foreground: 52 12% 13%;
+    --destructive: 0 74% 42%;
+    --destructive-foreground: 60 16% 96%;
+    --border: 48 9% 82%;
+    --input: 48 9% 82%;
+    --ring: 191 90% 31%;
+    --fluxion-text: #26251e;
+    --fluxion-muted: #5c594f;
+    --fluxion-dim: #8a857a;
+    --fluxion-cyan: #087b94;
+    --fluxion-green: #168052;
+    --fluxion-violet: #6d4e9c;
   }
 }
 
@@ -69,9 +196,9 @@
     letter-spacing: -0.014em;
     background:
       radial-gradient(circle at 52% -16%, rgba(90, 126, 255, 0.16), transparent 34rem),
-      radial-gradient(circle at 86% 12%, rgba(121, 230, 255, 0.08), transparent 24rem),
-      linear-gradient(rgba(255,255,255,0.022) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(255,255,255,0.022) 1px, transparent 1px),
+      radial-gradient(circle at 86% 12%, rgb(var(--ui-accent-rgb) / 0.08), transparent 24rem),
+      linear-gradient(rgb(var(--ui-white-rgb) / 0.022) 1px, transparent 1px),
+      linear-gradient(90deg, rgb(var(--ui-white-rgb) / 0.022) 1px, transparent 1px),
       var(--fluxion-bg);
     background-size: auto, auto, 54px 54px, 54px 54px, auto;
   }
@@ -192,7 +319,8 @@
   }
 
   .markdown pre {
-    @apply rounded-2xl border border-zinc-800/90 bg-zinc-950/90 px-4 py-3.5 text-[12px] leading-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)];
+    @apply rounded-2xl border border-zinc-800/90 bg-zinc-950/90 px-4 py-3.5 text-[12px] leading-6;
+    box-shadow: inset 0 1px 0 rgb(var(--ui-white-rgb) / 0.02);
   }
 
   .markdown :not(pre) > code {
@@ -239,57 +367,57 @@
   .premium-chip {
     @apply ui-transition inline-flex items-center gap-2 rounded-full border px-3 py-1.5 font-mono text-[11px] text-zinc-300 hover:text-cyan-100;
     border-color: var(--fluxion-line);
-    background: rgba(255, 255, 255, 0.035);
+    background: rgb(var(--ui-white-rgb) / 0.035);
   }
 
   .premium-chip-active {
     @apply text-cyan-100;
-    border-color: rgba(121, 230, 255, 0.24);
-    background: rgba(121, 230, 255, 0.075);
+    border-color: rgb(var(--ui-accent-rgb) / 0.24);
+    background: rgb(var(--ui-accent-rgb) / 0.075);
   }
 
   .premium-chip-muted {
     @apply text-zinc-500 hover:text-zinc-200;
     border-color: var(--fluxion-line);
-    background: rgba(255, 255, 255, 0.024);
+    background: rgb(var(--ui-white-rgb) / 0.024);
   }
 
   .premium-field {
     @apply ui-transition w-full rounded-[1rem] border px-3.5 py-2.5 text-sm text-zinc-100 outline-none placeholder:text-zinc-500 focus:ring-1 disabled:text-zinc-500;
     border-color: var(--fluxion-line);
     background: rgba(5, 6, 8, 0.72);
-    box-shadow: inset 0 1px rgba(255, 255, 255, 0.035);
+    box-shadow: inset 0 1px rgb(var(--ui-white-rgb) / 0.035);
   }
 
   .premium-field:focus {
-    border-color: rgba(121, 230, 255, 0.28);
+    border-color: rgb(var(--ui-accent-rgb) / 0.28);
     background: rgba(5, 6, 8, 0.92);
-    --tw-ring-color: rgba(121, 230, 255, 0.16);
+    --tw-ring-color: rgb(var(--ui-accent-rgb) / 0.16);
   }
 
   .premium-panel {
     @apply rounded-[1.15rem] border;
     border-color: var(--fluxion-line);
     background: var(--fluxion-panel);
-    box-shadow: inset 0 1px rgba(255, 255, 255, 0.05);
+    box-shadow: inset 0 1px rgb(var(--ui-white-rgb) / 0.05);
   }
 
   .premium-subtle-button {
     @apply ui-transition inline-flex items-center justify-center rounded-full border px-3 py-1.5 font-mono text-[11px] text-zinc-300 hover:text-cyan-100 disabled:text-zinc-600;
     border-color: var(--fluxion-line);
-    background: rgba(255, 255, 255, 0.035);
+    background: rgb(var(--ui-white-rgb) / 0.035);
   }
 
   .premium-subtle-button:hover {
-    border-color: rgba(121, 230, 255, 0.22);
-    background: rgba(121, 230, 255, 0.065);
+    border-color: rgb(var(--ui-accent-rgb) / 0.22);
+    background: rgb(var(--ui-accent-rgb) / 0.065);
   }
 
   .premium-primary-button {
     @apply ui-transition inline-flex items-center justify-center rounded-full border px-4 py-1.5 font-mono text-[11px] font-semibold text-zinc-950 disabled:opacity-60;
     border-color: rgba(245, 247, 251, 0.92);
     background: #f6f7fb;
-    box-shadow: 0 14px 36px rgba(255, 255, 255, 0.08);
+    box-shadow: 0 14px 36px rgb(var(--ui-white-rgb) / 0.08);
   }
 
   .premium-primary-button:hover {
@@ -390,7 +518,7 @@ textarea:focus {
 .ui-elevated {
   box-shadow:
     0 24px 80px rgba(0, 0, 0, 0.34),
-    inset 0 1px rgba(255, 255, 255, 0.055);
+    inset 0 1px rgb(var(--ui-white-rgb) / 0.055);
 }
 
 .ui-panel {
@@ -406,17 +534,17 @@ textarea:focus {
 .fluxion-card {
   border-color: var(--fluxion-line);
   background: var(--fluxion-panel);
-  box-shadow: inset 0 1px rgba(255, 255, 255, 0.05);
+  box-shadow: inset 0 1px rgb(var(--ui-white-rgb) / 0.05);
 }
 
 .fluxion-card-strong {
   border-color: var(--fluxion-line-strong);
   background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.018)),
+    linear-gradient(135deg, rgb(var(--ui-white-rgb) / 0.045), rgb(var(--ui-white-rgb) / 0.018)),
     var(--fluxion-panel-strong);
   box-shadow:
     0 24px 70px rgba(0, 0, 0, 0.28),
-    inset 0 1px rgba(255, 255, 255, 0.065);
+    inset 0 1px rgb(var(--ui-white-rgb) / 0.065);
 }
 
 .fluxion-topbar {
@@ -428,32 +556,32 @@ textarea:focus {
 .fluxion-composer {
   border-color: var(--fluxion-line-strong);
   background:
-    radial-gradient(circle at 5% 0%, rgba(121, 230, 255, 0.055), transparent 18rem),
+    radial-gradient(circle at 5% 0%, rgb(var(--ui-accent-rgb) / 0.055), transparent 18rem),
     rgba(8, 9, 12, 0.88);
   box-shadow:
     0 20px 70px rgba(0, 0, 0, 0.32),
-    inset 0 1px rgba(255, 255, 255, 0.06);
+    inset 0 1px rgb(var(--ui-white-rgb) / 0.06);
 }
 
 .fluxion-composer:focus-within {
-  border-color: rgba(121, 230, 255, 0.3);
+  border-color: rgb(var(--ui-accent-rgb) / 0.3);
   box-shadow:
     0 22px 80px rgba(0, 0, 0, 0.34),
-    0 0 0 1px rgba(121, 230, 255, 0.1),
-    inset 0 1px rgba(255, 255, 255, 0.075);
+    0 0 0 1px rgb(var(--ui-accent-rgb) / 0.1),
+    inset 0 1px rgb(var(--ui-white-rgb) / 0.075);
 }
 
 .fluxion-pill {
   border-color: var(--fluxion-line);
-  background: rgba(255, 255, 255, 0.035);
+  background: rgb(var(--ui-white-rgb) / 0.035);
 }
 
 .fluxion-app-bg {
   background:
     radial-gradient(circle at 52% -20%, rgba(90, 126, 255, 0.12), transparent 34rem),
-    radial-gradient(circle at 86% 12%, rgba(121, 230, 255, 0.06), transparent 24rem),
-    linear-gradient(rgba(255,255,255,0.018) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255,255,255,0.018) 1px, transparent 1px),
+    radial-gradient(circle at 86% 12%, rgb(var(--ui-accent-rgb) / 0.06), transparent 24rem),
+    linear-gradient(rgb(var(--ui-white-rgb) / 0.018) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(var(--ui-white-rgb) / 0.018) 1px, transparent 1px),
     var(--fluxion-bg);
   background-size: auto, auto, 54px 54px, 54px 54px, auto;
 }
@@ -626,7 +754,7 @@ textarea:focus {
 }
 
 [data-app='desktop'] .desktop-list-item:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: rgb(var(--ui-white-rgb) / 0.05);
 }
 
 /* Legacy web composer on desktop build (non-Tauri) */
@@ -652,6 +780,6 @@ textarea:focus {
 }
 
 [data-app='desktop'] .desktop-send-button-stop {
-  background: rgba(239, 68, 68, 0.18);
+  background: rgb(var(--ui-danger-rgb) / 0.18);
   color: #fca5a5;
 }

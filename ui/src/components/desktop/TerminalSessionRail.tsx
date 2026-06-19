@@ -145,7 +145,7 @@ export function TerminalSessionRail({
           <ChevronDown className="h-3 w-3" />
         </button>
         {menuOpen ? (
-          <div className="desktop-tool-add-menu absolute right-0 top-8 z-[1000] w-36 overflow-hidden rounded-lg border border-white/[0.08] bg-[#14161a] p-1 shadow-xl shadow-black/35">
+          <div className="desktop-tool-add-menu absolute right-0 top-8 z-[1000] w-36 overflow-hidden rounded-lg border border-white/[0.08] bg-[var(--desktop-bg-2)] p-1 shadow-xl shadow-black/35">
             <button
               type="button"
               onClick={() => {

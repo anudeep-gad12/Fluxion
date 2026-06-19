@@ -117,7 +117,7 @@
   width: 100%;
   border: none;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.04);
+  background: rgb(var(--ui-white-rgb) / 0.04);
   padding: 8px 10px;
   font-size: 12px;
   line-height: 1.4;
@@ -127,11 +127,11 @@
 }
 
 [data-app='desktop'] .desktop-settings-field:focus {
-  box-shadow: 0 0 0 1px rgba(121, 230, 255, 0.18);
+  box-shadow: 0 0 0 1px rgb(var(--ui-accent-rgb) / 0.18);
 }
 
 [data-app='desktop'] .desktop-settings-field::placeholder {
-  color: #52525b;
+  color: var(--desktop-text-tertiary);
 }
 
 [data-app='desktop'] .desktop-settings-list-item {
@@ -151,12 +151,12 @@
 }
 
 [data-app='desktop'] .desktop-settings-list-item:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.05);
+  background: rgb(var(--ui-white-rgb) / 0.05);
 }
 
 [data-app='desktop'] .desktop-settings-list-item[data-active='true'] {
   background: var(--desktop-accent-muted);
-  box-shadow: 0 0 0 1px rgba(121, 230, 255, 0.1);
+  box-shadow: 0 0 0 1px rgb(var(--ui-accent-rgb) / 0.1);
 }
 
 [data-app='desktop'] .desktop-settings-list-title {
@@ -213,7 +213,7 @@
 
 [data-app='desktop'] .desktop-settings-btn-ghost:hover:not(:disabled) {
   color: var(--desktop-text-primary);
-  background: rgba(255, 255, 255, 0.04);
+  background: rgb(var(--ui-white-rgb) / 0.04);
 }
 
 [data-app='desktop'] .desktop-settings-btn-primary {
@@ -254,11 +254,11 @@
   margin-top: 0;
   padding: 8px 10px;
   border-radius: 8px;
-  border: 1px solid rgba(239, 68, 68, 0.2);
-  background: rgba(239, 68, 68, 0.06);
+  border: 1px solid rgb(var(--ui-danger-rgb) / 0.2);
+  background: rgb(var(--ui-danger-rgb) / 0.06);
   font-size: 11px;
   line-height: 1.45;
-  color: #fca5a5;
+  color: var(--desktop-danger-text);
 }
 
 [data-app='desktop'] .desktop-settings-workspace-locked {
@@ -327,7 +327,7 @@
 }
 
 [data-app='desktop'] .desktop-model-provider-tab:hover {
-  background: rgba(255, 255, 255, 0.045);
+  background: rgb(var(--ui-white-rgb) / 0.045);
   color: var(--desktop-text-primary);
 }
 
@@ -344,7 +344,7 @@
 }
 
 [data-app='desktop'] .desktop-model-provider-dot {
-  color: #fbbf24;
+  color: var(--desktop-warning);
 }
 
 [data-app='desktop'] .desktop-model-provider-divider {
@@ -440,7 +440,7 @@
 
 [data-app='desktop'] .desktop-model-detail-tags span {
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.05);
+  background: rgb(var(--ui-white-rgb) / 0.05);
   padding: 3px 7px;
   font-size: 11px;
   color: var(--desktop-text-secondary);

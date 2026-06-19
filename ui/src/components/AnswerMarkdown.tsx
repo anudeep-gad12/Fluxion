@@ -5,7 +5,8 @@ import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { useTheme } from '@/hooks/useTheme';
 
 /**
  * Fix common LaTeX issues that cause KaTeX parsing errors.
@@ -157,7 +158,7 @@ export function extractAnswer(rawAnswer: string): string {
 }
 
 /** Custom theme overriding oneDark to match zinc palette */
-const codeTheme = {
+const codeThemeDark = {
   ...oneDark,
   'pre[class*="language-"]': {
     ...oneDark['pre[class*="language-"]'],
@@ -175,6 +176,24 @@ const codeTheme = {
   },
 };
 
+const codeThemeLight = {
+  ...oneLight,
+  'pre[class*="language-"]': {
+    ...oneLight['pre[class*="language-"]'],
+    background: '#fdfcfa',
+    margin: 0,
+    padding: '1.1rem 1rem',
+    borderRadius: '0 0 1rem 1rem',
+    fontSize: '0.8125rem',
+    lineHeight: '1.75',
+  },
+  'code[class*="language-"]': {
+    ...oneLight['code[class*="language-"]'],
+    background: 'transparent',
+    fontSize: '0.8125rem',
+  },
+};
+
 function SyntaxCodeBlock({
   language,
   code,
@@ -183,6 +202,7 @@ function SyntaxCodeBlock({
   code: string;
 }) {
   const [copied, setCopied] = useState(false);
+  const { theme } = useTheme();
 
   const handleCopy = useCallback(() => {
     navigator.clipboard.writeText(code).then(() => {
@@ -207,7 +227,7 @@ function SyntaxCodeBlock({
         </button>
       </div>
       <SyntaxHighlighter
-        style={codeTheme}
+        style={theme === 'light' ? codeThemeLight : codeThemeDark}
         language={language || 'text'}
         PreTag="div"
         wrapLongLines

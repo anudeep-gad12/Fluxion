@@ -17,6 +17,8 @@ import { isLocalDesktopApp, openNativeWorkspacePicker } from '@/lib/platform';
 import { cn } from '@/lib/utils';
 import { PanelLeftClose, PanelLeft, GripVertical, FolderPlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { ThemeToggle } from '@/components/ThemeToggle';
+import { useTheme } from '@/hooks/useTheme';
 
 const OWNER_TOKEN_KEY = 'reasoner_owner_token';
 const SIDEBAR_PREF_KEY = 'reasoner_sidebar_pref';
@@ -276,19 +278,23 @@ function AppLayout() {
           >
             <DesktopSidebarBrand collapsed={sidebarCollapsed} />
             {!sidebarCollapsed ? (
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => handleSidebarToggle(true)}
-                className="desktop-no-drag desktop-sidebar-toggle relative z-10 h-8 w-8 shrink-0 text-zinc-500"
-                aria-label="Collapse sidebar"
-              >
-                <PanelLeftClose className="h-4 w-4" />
-              </Button>
+              <div className="desktop-no-drag flex items-center gap-1">
+                <ThemeToggle />
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => handleSidebarToggle(true)}
+                  className="desktop-no-drag desktop-sidebar-toggle relative z-10 h-8 w-8 shrink-0 text-zinc-500"
+                  aria-label="Collapse sidebar"
+                >
+                  <PanelLeftClose className="h-4 w-4" />
+                </Button>
+              </div>
             ) : null}
           </div>
           {sidebarCollapsed ? (
-            <div className="desktop-sidebar-toggle-row flex justify-center pb-3">
+            <div className="desktop-sidebar-toggle-row flex justify-center gap-1 pb-3">
+              <ThemeToggle />
               <Button
                 variant="ghost"
                 size="icon"
@@ -483,6 +489,7 @@ function AppLayout() {
 
 function App() {
   const desktop = isLocalDesktopApp();
+  const { theme } = useTheme();
 
   return (
     <>
@@ -491,7 +498,7 @@ function App() {
         richColors
         closeButton
         duration={4000}
-        theme="dark"
+        theme={desktop ? theme : 'dark'}
         toastOptions={{
           className: desktop ? 'sonner-toast border border-white/10 bg-zinc-900 text-zinc-100' : undefined,
         }}
