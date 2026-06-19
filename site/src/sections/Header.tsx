@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 import { Github } from "lucide-react"
 import { Logo } from "../components/Logo"
+import { ThemeToggle } from "../components/ThemeToggle"
 import { DOCS_URL, DOWNLOAD_URL, GITHUB_URL } from "../constants"
 
 export function Header() {
@@ -28,6 +29,7 @@ export function Header() {
             <Github size={15} aria-hidden />
             Star
           </a>
+          <ThemeToggle />
           <a className="navCta" href={DOWNLOAD_URL}>
             Download
           </a>

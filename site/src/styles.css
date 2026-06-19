@@ -1,15 +1,40 @@
 :root {
-  color-scheme: dark;
-  --bg: #000000;
-  --surface: #0a0a0a;
-  --panel: #111111;
-  --border: rgba(255, 255, 255, 0.1);
+  /* ─── DEFAULT THEME: warm greige (Cursor-style editorial neutral) ─── */
+  color-scheme: light;
+  --bg: #f7f7f4; /* warm off-white page */
+  --surface: #f2f1ed; /* greige card surface */
+  --panel: #ebeae5; /* deeper panel */
+  --border: rgba(38, 37, 30, 0.12);
   --line: var(--border);
-  --line-subtle: rgba(255, 255, 255, 0.06);
-  --text: #fafafa;
-  --muted: #a1a1aa;
-  --dim: #71717a;
-  --accent: #fafafa;
+  --line-subtle: rgba(38, 37, 30, 0.07);
+  --text: #26251e; /* warm near-black, olive cast */
+  --muted: #5c594f; /* warm gray */
+  --dim: #8a857a; /* lighter warm gray */
+  --accent: #26251e;
+
+  /* semantic color tokens (themeable) */
+  --btn-bg: #26251e;
+  --btn-fg: #f7f7f4;
+  --btn-hover: #3a382f;
+  --hover-overlay: rgba(38, 37, 30, 0.05);
+  --hover-overlay-strong: rgba(38, 37, 30, 0.08);
+  --nav-scrolled-bg: rgba(247, 247, 244, 0.72);
+  --code-bg: #efece5; /* light code / terminal chip */
+  --code-bg-translucent: rgba(239, 236, 229, 0.95);
+  --surface-raised: #fdfcfa; /* lifted, near-white warm surface */
+
+  /* elevation system (layered shadows + hairline ring, Cursor-style) */
+  --ring: rgba(38, 37, 30, 0.1); /* crisp warm hairline frame */
+  --ring-strong: rgba(38, 37, 30, 0.14);
+  --shadow-sm: 0 1px 2px rgba(38, 37, 30, 0.04), 0 4px 12px rgba(38, 37, 30, 0.05);
+  --shadow-md: 0 1px 2px rgba(38, 37, 30, 0.05), 0 14px 34px rgba(38, 37, 30, 0.1);
+  --shadow-lg: 0 28px 70px rgba(38, 37, 30, 0.14), 0 14px 32px rgba(38, 37, 30, 0.1);
+  --shadow-media: rgba(38, 37, 30, 0.14); /* hero ground shadow */
+  --shadow-soft: rgba(38, 37, 30, 0.08);
+  --hero-glow: rgba(255, 255, 255, 0.7); /* soft near-white spotlight behind headline */
+  --term-prompt: #128a3a;
+
+  /* layout tokens (theme-independent) */
   --nav-height: 64px;
   --max: 1080px;
   --max-wide: 1180px;
@@ -17,6 +42,41 @@
   --radius-lg: 14px;
   --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   --sans: "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+/* ─── SECONDARY THEME: original dark design (opt-in via toggle) ─── */
+[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #000000;
+  --surface: #0a0a0a;
+  --panel: #111111;
+  --border: rgba(255, 255, 255, 0.1);
+  --line-subtle: rgba(255, 255, 255, 0.06);
+  --text: #fafafa;
+  --muted: #a1a1aa;
+  --dim: #71717a;
+  --accent: #fafafa;
+
+  --btn-bg: #ffffff;
+  --btn-fg: #000000;
+  --btn-hover: #e5e5e5;
+  --hover-overlay: rgba(255, 255, 255, 0.05);
+  --hover-overlay-strong: rgba(255, 255, 255, 0.1);
+  --nav-scrolled-bg: rgba(0, 0, 0, 0.82);
+  --code-bg: #050505;
+  --code-bg-translucent: rgba(10, 10, 10, 0.95);
+  --surface-raised: #161616;
+
+  /* elevation system (dark keeps deep black shadows + faint light ring) */
+  --ring: rgba(255, 255, 255, 0.07);
+  --ring-strong: rgba(255, 255, 255, 0.12);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5), 0 8px 24px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 24px 60px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 40px 72px rgba(0, 0, 0, 0.8), 0 12px 28px rgba(0, 0, 0, 0.45);
+  --shadow-media: rgba(0, 0, 0, 0.8);
+  --shadow-soft: rgba(0, 0, 0, 0.4);
+  --hero-glow: rgba(255, 255, 255, 0.04);
+  --term-prompt: #4ade80;
 }
 
 * {
@@ -123,7 +183,7 @@ ul {
 
 .nav--scrolled {
   border-color: var(--line-subtle);
-  background: rgba(0, 0, 0, 0.82);
+  background: var(--nav-scrolled-bg);
   backdrop-filter: blur(20px) saturate(1.15);
 }
 
@@ -153,7 +213,7 @@ ul {
 
 .navLinks a:hover {
   color: var(--text);
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--hover-overlay);
 }
 
 .navStar {
@@ -162,15 +222,32 @@ ul {
   gap: 6px;
 }
 
+.themeToggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  margin-left: 2px;
+  border-radius: 8px;
+  color: var(--muted);
+  transition: color 0.15s, background 0.15s;
+}
+
+.themeToggle:hover {
+  color: var(--text);
+  background: var(--hover-overlay);
+}
+
 .navCta {
-  color: #000 !important;
-  background: #fff !important;
+  color: var(--btn-fg) !important;
+  background: var(--btn-bg) !important;
   font-weight: 600 !important;
   margin-left: 4px;
 }
 
 .navCta:hover {
-  background: #e5e5e5 !important;
+  background: var(--btn-hover) !important;
 }
 
 /* ─── Buttons ─── */
@@ -193,14 +270,16 @@ ul {
 }
 
 .btnPrimary {
-  background: #fff;
-  color: #000;
-  border-color: #fff;
+  background: var(--btn-bg);
+  color: var(--btn-fg);
+  border-color: var(--btn-bg);
+  box-shadow: var(--shadow-sm);
 }
 
 .btnPrimary:hover {
-  background: #e5e5e5;
-  border-color: #e5e5e5;
+  background: var(--btn-hover);
+  border-color: var(--btn-hover);
+  box-shadow: var(--shadow-md);
 }
 
 .btnPrimary--hero {
@@ -238,9 +317,14 @@ ul {
   transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
 }
 
+.installCmdInner {
+  box-shadow: var(--shadow-sm);
+}
+
 .installCmdInner:hover {
-  border-color: rgba(255, 255, 255, 0.18);
-  background: var(--panel);
+  border-color: var(--ring-strong);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-md);
 }
 
 .installCmdPrompt {
@@ -277,13 +361,14 @@ ul {
 
 .installCmd--hero .installCmdInner {
   padding: 16px 20px;
-  border-color: rgba(255, 255, 255, 0.14);
-  background: rgba(10, 10, 10, 0.95);
+  border-color: var(--border);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-sm);
 }
 
 .installCmd--hero .installCmdInner:hover {
-  border-color: rgba(255, 255, 255, 0.22);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  border-color: var(--ring-strong);
+  box-shadow: var(--shadow-md);
 }
 
 .installCmd--hero .installCmdInner code {
@@ -294,6 +379,7 @@ ul {
 .hero {
   padding: clamp(48px, 7vh, 72px) 0 clamp(64px, 10vh, 96px);
   overflow: hidden;
+  background: radial-gradient(62% 52% at 50% 4%, var(--hero-glow), transparent 72%);
 }
 
 .heroInner {
@@ -348,7 +434,7 @@ ul {
   bottom: 0;
   height: 48px;
   pointer-events: none;
-  background: radial-gradient(ellipse 80% 100% at 50% 0%, rgba(0, 0, 0, 0.55), transparent 72%);
+  background: radial-gradient(ellipse 80% 100% at 50% 0%, var(--shadow-media), transparent 72%);
   transform: rotateX(72deg);
   transform-origin: center top;
   filter: blur(8px);
@@ -361,11 +447,12 @@ ul {
   aspect-ratio: 1600 / 866;
   object-fit: cover;
   border-radius: 14px;
-  background: #050505;
-  filter: drop-shadow(0 40px 72px rgba(0, 0, 0, 0.8)) drop-shadow(0 12px 28px rgba(0, 0, 0, 0.45));
+  background: var(--code-bg);
   box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.07),
-    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    0 0 0 1px var(--ring-strong),
+    0 2px 8px rgba(38, 37, 30, 0.06),
+    0 30px 60px -16px var(--shadow-media),
+    inset 0 1px 0 var(--hover-overlay);
 }
 
 .heroNote {
@@ -416,10 +503,11 @@ ul {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 1px;
-  background: var(--border);
+  background: var(--line-subtle);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   overflow: hidden;
+  box-shadow: var(--shadow-sm);
 }
 
 .providerCard {
@@ -427,7 +515,7 @@ ul {
   flex-direction: column;
   gap: 4px;
   padding: 20px 18px;
-  background: var(--bg);
+  background: var(--surface-raised);
   transition: background 0.15s;
 }
 
@@ -502,7 +590,7 @@ ul {
   overflow: hidden;
   font-family: var(--mono);
   font-size: 13px;
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 0 0 1px var(--ring), var(--shadow-md);
 }
 
 .terminalHeader {
@@ -511,7 +599,7 @@ ul {
   gap: 12px;
   padding: 12px 16px;
   border-bottom: 1px solid var(--line-subtle);
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--hover-overlay);
 }
 
 .terminalDots {
@@ -551,7 +639,7 @@ ul {
 
 .terminalCopy:hover {
   color: var(--text);
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--hover-overlay-strong);
 }
 
 .terminalBody {
@@ -570,7 +658,7 @@ ul {
 }
 
 .terminalPrompt {
-  color: #4ade80;
+  color: var(--term-prompt);
   flex-shrink: 0;
   user-select: none;
 }
@@ -620,12 +708,14 @@ ul {
 
 .installPreCtaCmd .installCmdInner {
   padding: 18px 20px;
-  border-color: rgba(255, 255, 255, 0.12);
-  background: #050505;
+  border-color: var(--border);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-sm);
 }
 
 .installPreCtaCmd .installCmdInner:hover {
-  border-color: rgba(255, 255, 255, 0.18);
+  border-color: var(--ring-strong);
+  box-shadow: var(--shadow-md);
 }
 
 .installPreCtaCmd .installCmdInner code {
@@ -891,7 +981,10 @@ footer a:hover {
 
   .heroShot .heroMedia {
     border-radius: 12px;
-    filter: drop-shadow(0 24px 42px rgba(0, 0, 0, 0.78));
+    box-shadow:
+      0 0 0 1px var(--ring-strong),
+      var(--shadow-md),
+      inset 0 1px 0 var(--hover-overlay);
   }
 
   .providerStrip {

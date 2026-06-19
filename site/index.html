@@ -3,6 +3,17 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      // Apply theme before first paint to avoid a flash.
+      // A saved choice (toggle) always wins; otherwise follow the OS preference.
+      try {
+        var saved = localStorage.getItem("theme")
+        var dark =
+          saved === "dark" ||
+          (saved === null && window.matchMedia("(prefers-color-scheme: dark)").matches)
+        if (dark) document.documentElement.dataset.theme = "dark"
+      } catch (e) {}
+    </script>
     <title>Fluxion — Coding agent for the models you choose</title>
     <meta
       name="description"
@@ -23,7 +34,7 @@
       content="Native macOS coding agent with local and hosted models, repo workspaces, and integrated terminals."
     />
     <meta name="twitter:image" content="https://fluxion.cc/images/og.png" />
-    <meta name="theme-color" content="#000000" />
+    <meta name="theme-color" content="#f7f7f4" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />

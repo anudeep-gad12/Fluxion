@@ -19,9 +19,41 @@ export function HeroSection() {
 
     video.muted = true
     video.playsInline = true
-    void video.play().catch(() => {
-      // Keep native controls visible if the browser blocks autoplay.
-    })
+
+    const interactionEvents = ["pointerdown", "touchstart", "keydown", "scroll", "mousemove"] as const
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) tryPlay()
+      },
+      { threshold: 0.25 },
+    )
+
+    const cleanup = () => {
+      video.removeEventListener("loadeddata", tryPlay)
+      video.removeEventListener("canplay", tryPlay)
+      interactionEvents.forEach((evt) => window.removeEventListener(evt, tryPlay))
+      observer.disconnect()
+    }
+
+    function tryPlay() {
+      const attempt = video!.play()
+      if (attempt && typeof attempt.then === "function") {
+        attempt
+          .then(cleanup) // playing — drop all fallback listeners
+          .catch(() => {
+            // Autoplay blocked (e.g. Safari "Never Auto-Play", Low Power Mode).
+            // Listeners below retry on data ready / first interaction / visibility.
+          })
+      }
+    }
+
+    tryPlay()
+    video.addEventListener("loadeddata", tryPlay)
+    video.addEventListener("canplay", tryPlay)
+    interactionEvents.forEach((evt) => window.addEventListener(evt, tryPlay, { passive: true }))
+    observer.observe(video)
+
+    return cleanup
   }, [])
 
   return (
