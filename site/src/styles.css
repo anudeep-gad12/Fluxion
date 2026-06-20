@@ -173,6 +173,12 @@ ul {
     backdrop-filter 0.25s ease;
 }
 
+/* Keep the fixed header's stacking context above main content so dropdown
+   options remain clickable outside the nav's own height. */
+.page > header.nav--fixed {
+  z-index: 50;
+}
+
 .navInner {
   display: flex;
   align-items: center;
@@ -222,13 +228,18 @@ ul {
   gap: 6px;
 }
 
+.themeMenuRoot {
+  position: relative;
+  flex-shrink: 0;
+  margin-left: 2px;
+}
+
 .themeToggle {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 34px;
   height: 34px;
-  margin-left: 2px;
   border-radius: 8px;
   color: var(--muted);
   transition: color 0.15s, background 0.15s;
@@ -237,6 +248,57 @@ ul {
 .themeToggle:hover {
   color: var(--text);
   background: var(--hover-overlay);
+}
+
+.themeToggle:focus-visible {
+  outline: 2px solid var(--ring-strong);
+  outline-offset: 1px;
+}
+
+.themeMenu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 60;
+  width: 148px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-raised);
+  padding: 4px;
+  box-shadow: var(--shadow-md);
+}
+
+.themeMenuOption {
+  display: grid;
+  width: 100%;
+  grid-template-columns: 16px 1fr 14px;
+  align-items: center;
+  gap: 8px;
+  border-radius: 7px;
+  padding: 7px 8px;
+  color: var(--muted);
+  text-align: left;
+  font-size: 13px;
+}
+
+.themeMenuOption:hover,
+.themeMenuOption:focus-visible {
+  outline: none;
+  color: var(--text);
+  background: var(--hover-overlay);
+}
+
+.themeMenuOption[data-selected="true"] {
+  color: var(--text);
+}
+
+.themeMenuCheck {
+  opacity: 0;
+}
+
+.themeMenuOption[data-selected="true"] .themeMenuCheck {
+  opacity: 1;
 }
 
 .navCta {

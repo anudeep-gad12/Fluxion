@@ -1924,8 +1924,9 @@ _EVENT_TYPE_MAP = {
 **Purpose**: Desktop appearance management and the sidebar sun/moon control.
 
 **Behavior**:
-- Resolves the theme before first paint, following macOS until the user makes an explicit choice
-- Persists explicit `light` or `dark` choices in local storage under `theme`
+- Resolves the theme before first paint from a three-way Light, Dark, or System preference
+- Persists the selected preference under `theme`; missing or invalid legacy values resolve to System
+- Tracks live macOS appearance changes only while System is selected and releases native Tauri chrome back to system control
 - Applies the resolved theme to desktop CSS tokens, syntax highlighting, xterm, Sonner, and native Tauri window chrome
 - Keeps the browser-served non-desktop UI on its existing dark appearance
 - Uses the landing site's warm-greige palette for light mode while preserving accessible Fluxion status/accent colors

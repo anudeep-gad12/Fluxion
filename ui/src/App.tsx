@@ -294,7 +294,7 @@ function AppLayout() {
           </div>
           {sidebarCollapsed ? (
             <div className="desktop-sidebar-toggle-row flex justify-center gap-1 pb-3">
-              <ThemeToggle />
+              <ThemeToggle menuAlign="left" />
               <Button
                 variant="ghost"
                 size="icon"

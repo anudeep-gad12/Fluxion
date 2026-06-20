@@ -4,28 +4,29 @@ import {
   useContext,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type ReactNode,
 } from 'react';
 import { isLocalDesktopApp, isTauriRuntime } from '@/lib/platform';
 
 export type Theme = 'light' | 'dark';
+export type ThemePreference = Theme | 'system';
 
 interface ThemeContextValue {
+  preference: ThemePreference;
   theme: Theme;
-  toggleTheme: () => void;
+  setPreference: (preference: ThemePreference) => void;
 }
 
 const THEME_STORAGE_KEY = 'theme';
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
-function savedTheme(): Theme | null {
+function savedPreference(): ThemePreference {
   try {
     const value = localStorage.getItem(THEME_STORAGE_KEY);
-    return value === 'light' || value === 'dark' ? value : null;
+    return value === 'light' || value === 'dark' || value === 'system' ? value : 'system';
   } catch {
-    return null;
+    return 'system';
   }
 }
 
@@ -33,11 +34,10 @@ function systemTheme(): Theme {
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 }
 
-function initialTheme(): Theme {
-  if (!isLocalDesktopApp()) return 'dark';
+function initialResolvedTheme(preference: ThemePreference): Theme {
   const bootstrapped = document.documentElement.dataset.theme;
   if (bootstrapped === 'light' || bootstrapped === 'dark') return bootstrapped;
-  return savedTheme() ?? systemTheme();
+  return preference === 'system' ? systemTheme() : preference;
 }
 
 function applyTheme(theme: Theme): void {
@@ -51,8 +51,22 @@ function applyTheme(theme: Theme): void {
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const desktop = isLocalDesktopApp();
-  const [theme, setTheme] = useState<Theme>(initialTheme);
-  const explicitChoiceRef = useRef(savedTheme() !== null);
+  const [preference, setPreferenceState] = useState<ThemePreference>(() => (
+    desktop ? savedPreference() : 'dark'
+  ));
+  const [resolvedSystemTheme, setResolvedSystemTheme] = useState<Theme>(() => (
+    desktop ? initialResolvedTheme(preference) : 'dark'
+  ));
+  const theme = preference === 'system' ? resolvedSystemTheme : preference;
+
+  useEffect(() => {
+    if (!desktop) return;
+    const media = window.matchMedia('(prefers-color-scheme: dark)');
+    const handleChange = () => setResolvedSystemTheme(media.matches ? 'dark' : 'light');
+    handleChange();
+    media.addEventListener('change', handleChange);
+    return () => media.removeEventListener('change', handleChange);
+  }, [desktop]);
 
   useEffect(() => {
     if (!desktop) return;
@@ -60,38 +74,27 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
     if (isTauriRuntime()) {
       void import('@tauri-apps/api/window')
-        .then(({ getCurrentWindow }) => getCurrentWindow().setTheme(theme))
+        .then(({ getCurrentWindow }) => (
+          getCurrentWindow().setTheme(preference === 'system' ? null : preference)
+        ))
         .catch(() => undefined);
     }
-  }, [desktop, theme]);
+  }, [desktop, preference, theme]);
 
-  useEffect(() => {
-    if (!desktop || savedTheme()) return;
-    const media = window.matchMedia('(prefers-color-scheme: dark)');
-    const handleChange = () => {
-      if (!explicitChoiceRef.current) {
-        setTheme(media.matches ? 'dark' : 'light');
-      }
-    };
-    media.addEventListener('change', handleChange);
-    return () => media.removeEventListener('change', handleChange);
-  }, [desktop]);
-
-  const toggleTheme = useCallback(() => {
+  const setPreference = useCallback((nextPreference: ThemePreference) => {
     if (!desktop) return;
-    explicitChoiceRef.current = true;
-    setTheme((current) => {
-      const next = current === 'dark' ? 'light' : 'dark';
-      try {
-        localStorage.setItem(THEME_STORAGE_KEY, next);
-      } catch {
-        // Keep the in-memory choice when storage is unavailable.
-      }
-      return next;
-    });
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, nextPreference);
+    } catch {
+      // Keep the in-memory choice when storage is unavailable.
+    }
+    setPreferenceState(nextPreference);
   }, [desktop]);
 
-  const value = useMemo(() => ({ theme, toggleTheme }), [theme, toggleTheme]);
+  const value = useMemo(
+    () => ({ preference, theme, setPreference }),
+    [preference, setPreference, theme],
+  );
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
 

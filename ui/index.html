@@ -3,8 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <script>
-      // Resolve the desktop theme before first paint. An explicit choice wins;
-      // otherwise Fluxion follows the current macOS appearance.
+      // Resolve the desktop theme before first paint. Light and dark are fixed;
+      // system (and legacy missing preferences) follow macOS appearance.
       try {
         var isDesktop =
           location.protocol === "tauri:" ||

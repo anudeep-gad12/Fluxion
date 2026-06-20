@@ -4,13 +4,15 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <script>
-      // Apply theme before first paint to avoid a flash.
-      // A saved choice (toggle) always wins; otherwise follow the OS preference.
+      // Apply theme before first paint. Light and dark are fixed; system (and
+      // legacy missing preferences) follows the OS preference.
       try {
         var saved = localStorage.getItem("theme")
+        var preference =
+          saved === "light" || saved === "dark" || saved === "system" ? saved : "system"
         var dark =
-          saved === "dark" ||
-          (saved === null && window.matchMedia("(prefers-color-scheme: dark)").matches)
+          preference === "dark" ||
+          (preference === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches)
         if (dark) document.documentElement.dataset.theme = "dark"
       } catch (e) {}
     </script>

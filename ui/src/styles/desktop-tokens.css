@@ -159,6 +159,58 @@
   transition: color 0.12s ease, background 0.12s ease;
 }
 
+[data-app='desktop'] .desktop-theme-menu-root {
+  position: relative;
+  flex-shrink: 0;
+}
+
+[data-app='desktop'] .desktop-theme-menu {
+  position: fixed;
+  z-index: 2147482200;
+  width: 148px;
+  overflow: hidden;
+  border: 1px solid var(--desktop-border-strong);
+  border-radius: 10px;
+  background: var(--desktop-bg-2);
+  padding: 4px;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.22);
+}
+
+[data-app='desktop'] .desktop-theme-option {
+  display: grid;
+  width: 100%;
+  grid-template-columns: 16px 1fr 14px;
+  align-items: center;
+  gap: 8px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  padding: 7px 8px;
+  text-align: left;
+  font-size: 12px;
+  color: var(--desktop-text-secondary);
+}
+
+[data-app='desktop'] .desktop-theme-option:hover,
+[data-app='desktop'] .desktop-theme-option:focus-visible {
+  outline: none;
+  background: var(--desktop-hover);
+  color: var(--desktop-text-primary);
+}
+
+[data-app='desktop'] .desktop-theme-option[data-selected='true'] {
+  color: var(--desktop-text-primary);
+}
+
+[data-app='desktop'] .desktop-theme-option-check {
+  opacity: 0;
+  color: var(--desktop-accent);
+}
+
+[data-app='desktop'] .desktop-theme-option[data-selected='true'] .desktop-theme-option-check {
+  opacity: 1;
+}
+
 [data-app='desktop'] .desktop-theme-toggle:hover {
   color: var(--desktop-text-primary);
   background: var(--desktop-hover);
