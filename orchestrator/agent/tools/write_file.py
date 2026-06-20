@@ -11,6 +11,7 @@ from typing import Any
 from orchestrator.logging_config import get_logger
 
 from .base import ToolResult, ToolSchema
+from .path_utils import display_workspace_path, resolve_workspace_path
 
 logger = get_logger(__name__)
 
@@ -80,15 +81,7 @@ class WriteFileTool:
         Raises:
             ValueError: If path escapes working directory.
         """
-        path = Path(file_path)
-        if not path.is_absolute():
-            path = self._working_dir / path
-        path = path.resolve()
-
-        if not str(path).startswith(str(self._working_dir)):
-            raise ValueError(f"Path '{file_path}' is outside working directory")
-
-        return path
+        return resolve_workspace_path(self._working_dir, file_path)
 
     async def execute(
         self,
@@ -141,10 +134,7 @@ class WriteFileTool:
             byte_count = len(content.encode("utf-8"))
 
             duration_ms = int((time.perf_counter() - start_time) * 1000)
-            try:
-                display_path = str(path.relative_to(self._working_dir))
-            except ValueError:
-                display_path = str(path)
+            display_path = display_workspace_path(self._working_dir, path)
             action = "Overwrote" if existed else "Created"
 
             # Generate unified diff for creates and overwrites so browser UI

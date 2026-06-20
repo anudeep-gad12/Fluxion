@@ -128,6 +128,28 @@ class WebExtractTool:
 
             # 1-line summary for DB
             result_summary = f"Extracted {len(successful)}/{len(urls)} URLs successfully"
+            failure_items = [
+                {
+                    "url": item.get("url", "") if isinstance(item, dict) else "",
+                    "error": (
+                        item.get("error")
+                        or item.get("message")
+                        or item.get("status")
+                        or str(item)
+                    ) if isinstance(item, dict) else str(item),
+                    "status": item.get("status") if isinstance(item, dict) else None,
+                }
+                for item in failed
+            ]
+            if failure_items:
+                failed_preview = ", ".join(
+                    (
+                        f"{failure['url'] or 'unknown'}"
+                        + (f" {failure['status']}" if failure.get("status") else "")
+                    )[:80]
+                    for failure in failure_items[:3]
+                )
+                result_summary += f"; failed: {failed_preview}"
 
             # Full data for in-memory use - combine excerpts into content
             result_data = {
@@ -140,6 +162,7 @@ class WebExtractTool:
                     }
                     for r in results
                 ],
+                "failures": failure_items,
             }
 
             return ToolResult(

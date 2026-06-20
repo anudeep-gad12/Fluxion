@@ -5,47 +5,14 @@ Lists directory contents with tree-style output. Auto-approves (read-only, idemp
 
 import time
 from pathlib import Path
-from typing import Any, List, Set
+from typing import Any, List
 
 from orchestrator.logging_config import get_logger
 
 from .base import ToolResult, ToolSchema
+from .path_utils import GitIgnoreMatcher, display_workspace_path, resolve_workspace_path
 
 logger = get_logger(__name__)
-
-
-def _parse_gitignore(gitignore_path: Path) -> Set[str]:
-    """Parse .gitignore and return set of ignore patterns."""
-    patterns = set()
-    if not gitignore_path.exists():
-        return patterns
-    try:
-        for line in gitignore_path.read_text().splitlines():
-            line = line.strip()
-            if line and not line.startswith("#"):
-                patterns.add(line.rstrip("/"))
-    except Exception:
-        pass
-    return patterns
-
-
-def _should_ignore(path: Path, ignore_patterns: Set[str], base_dir: Path) -> bool:
-    """Check if path matches any gitignore pattern."""
-    name = path.name
-    rel = str(path.relative_to(base_dir))
-
-    # Always ignore these
-    if name in (".git", "__pycache__", "node_modules", ".venv", "venv", ".env"):
-        return True
-
-    for pattern in ignore_patterns:
-        if name == pattern or rel == pattern:
-            return True
-        # Simple glob matching
-        if pattern.startswith("*") and name.endswith(pattern[1:]):
-            return True
-
-    return False
 
 
 class ListDirectoryTool:
@@ -106,15 +73,7 @@ class ListDirectoryTool:
 
     def _resolve_path(self, dir_path: str) -> Path:
         """Resolve path relative to working directory."""
-        path = Path(dir_path)
-        if not path.is_absolute():
-            path = self._working_dir / path
-        path = path.resolve()
-
-        if not str(path).startswith(str(self._working_dir)):
-            raise ValueError(f"Path '{dir_path}' is outside working directory")
-
-        return path
+        return resolve_workspace_path(self._working_dir, dir_path)
 
     def _format_size(self, size: int) -> str:
         """Format byte size to human-readable string."""
@@ -130,7 +89,7 @@ class ListDirectoryTool:
         prefix: str,
         depth: int,
         max_depth: int,
-        ignore_patterns: Set[str],
+        ignore_matcher: GitIgnoreMatcher,
         lines: List[str],
         max_entries: int = 200,
         entry_count: List[int] = None,
@@ -149,7 +108,7 @@ class ListDirectoryTool:
             return
 
         # Filter ignored entries
-        entries = [e for e in entries if not _should_ignore(e, ignore_patterns, self._working_dir)]
+        entries = [e for e in entries if not ignore_matcher.is_ignored(e)]
 
         for i, entry in enumerate(entries):
             if entry_count[0] >= max_entries:
@@ -166,7 +125,7 @@ class ListDirectoryTool:
                 if depth < max_depth:
                     self._build_tree(
                         entry, prefix + extension, depth + 1, max_depth,
-                        ignore_patterns, lines, max_entries, entry_count,
+                        ignore_matcher, lines, max_entries, entry_count,
                     )
             else:
                 try:
@@ -215,25 +174,18 @@ class ListDirectoryTool:
                     duration_ms=int((time.perf_counter() - start_time) * 1000),
                 )
 
-            # Parse gitignore if recursive
-            ignore_patterns: Set[str] = set()
-            if recursive:
-                gitignore = self._working_dir / ".gitignore"
-                ignore_patterns = _parse_gitignore(gitignore)
+            ignore_matcher = GitIgnoreMatcher.from_workspace(self._working_dir)
 
-            try:
-                display_path = str(dir_path.relative_to(self._working_dir))
-            except ValueError:
-                display_path = str(dir_path)
+            display_path = display_workspace_path(self._working_dir, dir_path)
             if display_path == ".":
                 display_path = dir_path.name
 
             lines: List[str] = [f"{display_path}/"]
-            effective_depth = max_depth if recursive else 1
+            effective_depth = max(0, int(max_depth)) if recursive else 0
             entry_count = [0]
 
             self._build_tree(
-                dir_path, "", 0, effective_depth, ignore_patterns,
+                dir_path, "", 0, effective_depth, ignore_matcher,
                 lines, max_entries=200, entry_count=entry_count,
             )
 

@@ -190,6 +190,25 @@ async def test_path_traversal_blocked(tool):
 
 
 @pytest.mark.asyncio
+async def test_sibling_prefix_path_blocked(tmp_path: Path):
+    workspace = tmp_path / "work"
+    sibling = tmp_path / "work-evil"
+    workspace.mkdir()
+    sibling.mkdir()
+    (sibling / "secret.txt").write_text("secret")
+
+    result = await EditFileTool(working_dir=str(workspace)).execute(
+        file_path=str(sibling / "secret.txt"),
+        old_string="secret",
+        new_string="changed",
+    )
+
+    assert result.success is False
+    assert "outside" in result.error_message.lower()
+    assert (sibling / "secret.txt").read_text() == "secret"
+
+
+@pytest.mark.asyncio
 async def test_schema_properties(tool):
     schema = tool.schema
     assert schema.name == "edit_file"

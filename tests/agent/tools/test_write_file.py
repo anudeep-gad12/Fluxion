@@ -68,6 +68,23 @@ async def test_path_traversal_blocked(tool):
 
 
 @pytest.mark.asyncio
+async def test_sibling_prefix_path_blocked(tmp_path):
+    workspace = tmp_path / "work"
+    sibling = tmp_path / "work-evil"
+    workspace.mkdir()
+    sibling.mkdir()
+
+    result = await WriteFileTool(working_dir=str(workspace)).execute(
+        file_path=str(sibling / "evil.txt"),
+        content="hacked",
+    )
+
+    assert result.success is False
+    assert "outside" in result.error_message.lower()
+    assert not (sibling / "evil.txt").exists()
+
+
+@pytest.mark.asyncio
 async def test_schema_properties(tool):
     schema = tool.schema
     assert schema.name == "write_file"

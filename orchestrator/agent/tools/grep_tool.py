@@ -5,6 +5,7 @@ Auto-approves (read-only, idempotent).
 """
 
 import asyncio
+from collections import Counter
 import re
 import shutil
 import time
@@ -14,11 +15,14 @@ from typing import Any, List, Optional
 from orchestrator.logging_config import get_logger
 
 from .base import ToolResult, ToolSchema
+from .path_utils import (
+    DEFAULT_SKIP_DIRS,
+    GitIgnoreMatcher,
+    display_workspace_path,
+    resolve_workspace_path,
+)
 
 logger = get_logger(__name__)
-
-# Directories to always skip
-_SKIP_DIRS = {".git", "__pycache__", "node_modules", ".venv", "venv", ".env", ".tox", ".mypy_cache"}
 
 
 class GrepTool:
@@ -95,18 +99,7 @@ class GrepTool:
 
     def _resolve_path(self, search_path: Optional[str]) -> Path:
         """Resolve path relative to working directory."""
-        if search_path is None:
-            return self._working_dir
-
-        path = Path(search_path)
-        if not path.is_absolute():
-            path = self._working_dir / path
-        path = path.resolve()
-
-        if not str(path).startswith(str(self._working_dir)):
-            raise ValueError(f"Path '{search_path}' is outside working directory")
-
-        return path
+        return resolve_workspace_path(self._working_dir, search_path)
 
     def _is_binary(self, path: Path) -> bool:
         """Quick binary detection."""
@@ -116,10 +109,6 @@ class GrepTool:
                 return b"\x00" in chunk
         except Exception:
             return True
-
-    def _should_skip_dir(self, name: str) -> bool:
-        """Check if directory should be skipped."""
-        return name in _SKIP_DIRS
 
     async def _search_with_rg(
         self,
@@ -135,7 +124,6 @@ class GrepTool:
             "--no-heading",
             "--line-number",
             "--color=never",
-            f"--max-count={max_results}",
         ]
 
         if context > 0:
@@ -144,9 +132,12 @@ class GrepTool:
         if glob_filter:
             cmd.extend(["--glob", glob_filter])
 
-        # Skip common directories
-        for skip_dir in _SKIP_DIRS:
-            cmd.extend(["--glob", f"!{skip_dir}"])
+        gitignore = self._working_dir / ".gitignore"
+        if gitignore.exists():
+            cmd.extend(["--ignore-file", str(gitignore)])
+
+        for skip_dir in DEFAULT_SKIP_DIRS:
+            cmd.extend(["--glob", f"!**/{skip_dir}/**"])
 
         cmd.extend([pattern, str(search_path)])
 
@@ -159,6 +150,34 @@ class GrepTool:
 
         return stdout.decode("utf-8", errors="replace")
 
+    def _iter_result_files(
+        self,
+        search_path: Path,
+        glob_filter: Optional[str],
+        ignore_matcher: GitIgnoreMatcher,
+    ):
+        """Yield searchable files under a path."""
+        if search_path.is_file():
+            if not ignore_matcher.is_ignored(search_path):
+                yield search_path
+            return
+
+        def walk(directory: Path):
+            try:
+                for entry in sorted(directory.iterdir()):
+                    if ignore_matcher.is_ignored(entry):
+                        continue
+                    if entry.is_dir():
+                        yield from walk(entry)
+                    elif entry.is_file():
+                        if glob_filter and not entry.match(glob_filter):
+                            continue
+                        yield entry
+            except PermissionError:
+                return
+
+        yield from walk(search_path)
+
     def _search_with_python(
         self,
         pattern: str,
@@ -166,40 +185,21 @@ class GrepTool:
         glob_filter: Optional[str],
         context: int,
         max_results: int,
-    ) -> str:
+        ignore_matcher: GitIgnoreMatcher,
+    ) -> tuple[str, int, Counter[str], bool]:
         """Search using Python re module."""
         try:
             regex = re.compile(pattern)
         except re.error as e:
-            return f"Invalid regex: {e}"
+            return f"Invalid regex: {e}", 0, Counter(), False
 
         results: List[str] = []
         match_count = 0
-
-        def walk_files(directory: Path):
-            """Walk directory yielding files."""
-            try:
-                for entry in sorted(directory.iterdir()):
-                    if entry.is_dir():
-                        if not self._should_skip_dir(entry.name):
-                            yield from walk_files(entry)
-                    elif entry.is_file():
-                        # Apply glob filter
-                        if glob_filter and not entry.match(glob_filter):
-                            continue
-                        yield entry
-            except PermissionError:
-                pass
-
-        if search_path.is_file():
-            files = [search_path]
-        else:
-            files = walk_files(search_path)
+        file_counts: Counter[str] = Counter()
+        truncated = False
+        files = self._iter_result_files(search_path, glob_filter, ignore_matcher)
 
         for file_path in files:
-            if match_count >= max_results:
-                break
-
             if self._is_binary(file_path):
                 continue
 
@@ -208,17 +208,16 @@ class GrepTool:
             except Exception:
                 continue
 
-            try:
-                rel_path = str(file_path.relative_to(self._working_dir))
-            except ValueError:
-                rel_path = str(file_path)
+            rel_path = display_workspace_path(self._working_dir, file_path)
 
             for i, line in enumerate(lines):
                 if match_count >= max_results:
+                    truncated = True
                     break
 
                 if regex.search(line):
                     match_count += 1
+                    file_counts[rel_path] += 1
 
                     if context > 0:
                         start = max(0, i - context)
@@ -229,8 +228,65 @@ class GrepTool:
                         results.append("--")
                     else:
                         results.append(f"{rel_path}:{i + 1}: {line}")
+            if truncated:
+                break
 
-        return "\n".join(results)
+        return "\n".join(results), match_count, file_counts, truncated
+
+    def _normalize_rg_output(
+        self,
+        output: str,
+        max_results: int,
+    ) -> tuple[str, int, Counter[str], bool]:
+        """Enforce a global match cap over ripgrep line output."""
+        kept: list[str] = []
+        match_count = 0
+        file_counts: Counter[str] = Counter()
+        truncated = False
+
+        for line in output.splitlines():
+            is_separator = line == "--"
+            is_context = bool(re.match(r"^(.+?)-\d+-", line))
+            match = re.match(r"^(.+?):\d+:", line)
+            if match and not is_context:
+                if match_count >= max_results:
+                    truncated = True
+                    break
+                match_count += 1
+                file_path = match.group(1)
+                try:
+                    file_path = display_workspace_path(
+                        self._working_dir,
+                        Path(file_path).resolve(),
+                    )
+                except Exception:
+                    pass
+                file_counts[file_path] += 1
+            kept.append(line)
+            if is_separator and match_count >= max_results:
+                truncated = True
+                break
+        return "\n".join(kept), match_count, file_counts, truncated
+
+    def _summary(
+        self,
+        pattern: str,
+        returned_count: int,
+        file_counts: Counter[str],
+        truncated: bool,
+    ) -> str:
+        if returned_count == 0:
+            return f"No matches for pattern '{pattern[:40]}'"
+        top_files = ", ".join(f"{path} ({count})" for path, count in file_counts.most_common(5))
+        summary = (
+            f"Found {returned_count}{'+' if truncated else ''} matches for "
+            f"'{pattern[:40]}' across {len(file_counts)} files"
+        )
+        if truncated:
+            summary += f"; returned first {returned_count} matches"
+        if top_files:
+            summary += f"; top files: {top_files}"
+        return summary
 
     async def execute(
         self,
@@ -269,6 +325,7 @@ class GrepTool:
 
             context = min(max(0, context), 2)
             max_results = min(max(1, max_results), 75)
+            ignore_matcher = GitIgnoreMatcher.from_workspace(self._working_dir)
 
             # Try ripgrep first, fall back to Python
             if self._rg_path:
@@ -276,20 +333,19 @@ class GrepTool:
                     output = await self._search_with_rg(
                         pattern, search_path, glob, context, max_results
                     )
+                    output, match_count, file_counts, truncated = self._normalize_rg_output(
+                        output,
+                        max_results,
+                    )
                 except Exception as e:
                     logger.debug("ripgrep failed, falling back to Python", extra={"error": str(e)})
-                    output = self._search_with_python(
-                        pattern, search_path, glob, context, max_results
+                    output, match_count, file_counts, truncated = self._search_with_python(
+                        pattern, search_path, glob, context, max_results, ignore_matcher
                     )
             else:
-                output = self._search_with_python(
-                    pattern, search_path, glob, context, max_results
+                output, match_count, file_counts, truncated = self._search_with_python(
+                    pattern, search_path, glob, context, max_results, ignore_matcher
                 )
-
-            # Count matches
-            lines = output.strip().split("\n") if output.strip() else []
-            match_lines = [ln for ln in lines if ln and ln != "--"]
-            match_count = len(match_lines)
 
             duration_ms = int((time.perf_counter() - start_time) * 1000)
 
@@ -299,15 +355,20 @@ class GrepTool:
                     result_summary=f"No matches for pattern '{pattern[:40]}'",
                     result_data="No matches found.",
                     duration_ms=duration_ms,
-                    metadata={"count": 0},
+                    metadata={"count": 0, "returned": 0, "truncated": False},
                 )
 
             return ToolResult(
                 success=True,
-                result_summary=f"Found {match_count} matches for '{pattern[:40]}'",
+                result_summary=self._summary(pattern, match_count, file_counts, truncated),
                 result_data=output,
                 duration_ms=duration_ms,
-                metadata={"count": match_count},
+                metadata={
+                    "count": match_count,
+                    "returned": match_count,
+                    "truncated": truncated,
+                    "top_files": dict(file_counts.most_common(10)),
+                },
             )
 
         except ValueError as e:

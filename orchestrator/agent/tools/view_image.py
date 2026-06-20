@@ -11,6 +11,7 @@ from typing import Any
 from orchestrator.vision import MAX_IMAGE_BYTES
 
 from .base import ToolResult, ToolSchema
+from .path_utils import display_workspace_path, resolve_workspace_path
 
 
 class ViewImageTool:
@@ -53,19 +54,10 @@ class ViewImageTool:
         )
 
     def _resolve_path(self, file_path: str) -> Path:
-        path = Path(file_path)
-        if not path.is_absolute():
-            path = self._working_dir / path
-        path = path.resolve()
-        if not str(path).startswith(str(self._working_dir)):
-            raise ValueError(f"Path '{file_path}' is outside working directory")
-        return path
+        return resolve_workspace_path(self._working_dir, file_path)
 
     def _display_path(self, path: Path) -> str:
-        try:
-            return str(path.relative_to(self._working_dir))
-        except ValueError:
-            return str(path)
+        return display_workspace_path(self._working_dir, path)
 
     async def execute(self, paths: list[str], **kwargs: Any) -> ToolResult:
         start_time = time.perf_counter()

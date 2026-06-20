@@ -344,6 +344,44 @@ class TestAgentEngineHelpers:
         assert tool_result["result_data"] == diff
         state_machine.complete_tool_call.assert_awaited_once()
 
+    @pytest.mark.asyncio
+    async def test_finalize_glob_emits_result_paths_and_persists_detail(self):
+        """glob tool_result events expose matched paths instead of summary only."""
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=create_mock_repo(),
+            registry=create_mock_registry(),
+        )
+        state_machine = create_mock_state_machine()
+        paths = "src/App.tsx\nsrc/main.tsx\n"
+        events = []
+
+        await engine._finalize_tool_call(
+            tool_call=ParsedToolCall(
+                id="provider-tool-id",
+                name="glob",
+                arguments={"pattern": "*.tsx"},
+                raw_arguments='{"pattern":"*.tsx"}',
+            ),
+            result=ToolResult(
+                success=True,
+                result_summary="Found 2 files matching '*.tsx'",
+                result_data=paths,
+                duration_ms=4,
+            ),
+            tc_record={"id": "db-tool-id"},
+            tool_call_event_id=None,
+            state_machine=state_machine,
+            step_number=1,
+            event_callback=lambda event: events.append(event),
+            run_id="run-1",
+        )
+
+        tool_result = next(event for event in events if event["type"] == "tool_result")
+        assert tool_result["result_data"] == paths
+        kwargs = state_machine.complete_tool_call.await_args.kwargs
+        assert kwargs["result_detail"] == json.dumps(paths, ensure_ascii=False)
+
     async def test_build_initial_messages(self):
         """Build initial messages with system and user."""
         engine = AgentEngine(
@@ -3362,6 +3400,15 @@ class TestRedundancyDetection:
         assert len(redundant) == 1
         assert "Too broad" in redundant[0][1]
 
+    def test_detects_broad_recursive_basename_glob(self):
+        """Flags basename globs that are now recursive by default."""
+        engine = self._make_engine()
+        calls = [ParsedToolCall(id="tc-1", name="glob", arguments={"pattern": "*.md"}, raw_arguments='{"pattern": "*.md"}')]
+        redundant = engine._detect_redundant_calls(calls)
+
+        assert len(redundant) == 1
+        assert "Too broad" in redundant[0][1]
+
     def test_allows_targeted_glob(self):
         """Does not flag targeted glob patterns."""
         engine = self._make_engine()
@@ -3765,6 +3812,108 @@ class TestRedundancyDetection:
         redundant = engine._detect_redundant_calls(calls)
 
         assert len(redundant) == 0
+
+
+class TestToolArgumentValidation:
+    """Tests for pre-execution tool argument validation."""
+
+    def _make_engine(self):
+        return AgentEngine(
+            provider=create_mock_provider(),
+            repo=create_mock_repo(),
+            registry=create_mock_registry(),
+        )
+
+    def test_rejects_wrong_primitive_type(self):
+        engine = self._make_engine()
+        error = engine._validate_tool_arguments(
+            "grep",
+            {
+                "type": "object",
+                "properties": {"pattern": {"type": "string"}},
+                "required": ["pattern"],
+            },
+            {"pattern": 123},
+        )
+
+        assert error is not None
+        assert "expected string" in error
+
+    def test_rejects_array_item_type(self):
+        engine = self._make_engine()
+        error = engine._validate_tool_arguments(
+            "view_image",
+            {
+                "type": "object",
+                "properties": {
+                    "paths": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "minItems": 1,
+                        "maxItems": 2,
+                    }
+                },
+                "required": ["paths"],
+            },
+            {"paths": ["ok.png", 42]},
+        )
+
+        assert error is not None
+        assert "paths[1]" in error
+
+    def test_allows_unknown_extra_args_for_compatibility(self):
+        engine = self._make_engine()
+        error = engine._validate_tool_arguments(
+            "glob",
+            {
+                "type": "object",
+                "properties": {"pattern": {"type": "string"}},
+                "required": ["pattern"],
+            },
+            {"pattern": "*.py", "extra": object()},
+        )
+
+        assert error is None
+
+
+class TestToolPreparation:
+    """Tests for tool preparation behavior before execution."""
+
+    @pytest.mark.asyncio
+    async def test_cached_read_tool_is_reexecuted_to_preserve_payload(self, tmp_path: Path):
+        (tmp_path / "notes.txt").write_text("payload")
+        registry = create_mock_registry()
+        registry.get.return_value = ReadFileTool(str(tmp_path))
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=create_mock_repo(),
+            registry=registry,
+        )
+        engine._add_trace_event = AsyncMock(return_value="event-1")
+
+        state_machine = create_mock_state_machine()
+        state_machine.record_tool_call.return_value = {
+            "id": "cached-record",
+            "status": "success",
+            "result_summary": "cached summary only",
+        }
+
+        prep = await engine._prepare_tool_call(
+            ParsedToolCall(
+                id="new-call",
+                name="read_file",
+                arguments={"file_path": "notes.txt"},
+                raw_arguments='{"file_path":"notes.txt"}',
+            ),
+            state_machine,
+            step_number=1,
+            event_callback=None,
+            run_id="run-1",
+        )
+
+        assert "early_result" not in prep
+        assert prep["tool"].name == "read_file"
+        state_machine.start_tool_execution.assert_awaited_once_with("cached-record")
 
 
 # =============================================================================

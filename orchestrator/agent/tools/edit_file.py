@@ -9,6 +9,7 @@ from typing import Any, Callable, Optional
 from orchestrator.logging_config import get_logger
 
 from .base import ToolResult, ToolSchema
+from .path_utils import display_workspace_path, resolve_workspace_path
 
 logger = get_logger(__name__)
 
@@ -61,15 +62,7 @@ class EditFileTool:
         )
 
     def _resolve_path(self, file_path: str) -> Path:
-        path = Path(file_path)
-        if not path.is_absolute():
-            path = self._working_dir / path
-        path = path.resolve()
-
-        if not str(path).startswith(str(self._working_dir)):
-            raise ValueError(f"Path '{file_path}' is outside working directory")
-
-        return path
+        return resolve_workspace_path(self._working_dir, file_path)
 
     def _read_with_native_newlines(self, path: Path) -> tuple[str, str]:
         with path.open("r", encoding="utf-8", newline="") as handle:
@@ -388,10 +381,7 @@ class EditFileTool:
             normalized_old = self._normalize_newlines(old_string)
             normalized_new = self._normalize_newlines(new_string)
 
-            try:
-                display_path = str(path.relative_to(self._working_dir))
-            except ValueError:
-                display_path = str(path)
+            display_path = display_workspace_path(self._working_dir, path)
 
             if normalized_old == normalized_new:
                 return ToolResult(

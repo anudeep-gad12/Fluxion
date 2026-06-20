@@ -50,7 +50,7 @@ async def test_read_with_offset_and_limit(tool, working_dir):
 
 
 @pytest.mark.asyncio
-async def test_read_without_offset_auto_continues_after_partial_read(tool):
+async def test_read_without_offset_is_stable_after_partial_read(tool):
     first = await tool.execute(file_path="hello.txt", limit=2)
     second = await tool.execute(file_path="hello.txt", limit=2)
 
@@ -58,11 +58,23 @@ async def test_read_without_offset_auto_continues_after_partial_read(tool):
     assert "next_offset=3" in first.result_summary
     assert first.metadata["next_offset"] == 3
     assert second.success is True
-    assert "line 3" in second.result_data
-    assert "line 4" in second.result_data
-    assert "line 1" not in second.result_data
-    assert second.metadata["line_start"] == 3
-    assert second.metadata["line_end"] == 4
+    assert "line 1" in second.result_data
+    assert "line 2" in second.result_data
+    assert "line 3" not in second.result_data
+    assert second.metadata["line_start"] == 1
+    assert second.metadata["line_end"] == 2
+
+
+@pytest.mark.asyncio
+async def test_read_explicit_next_offset_continues(tool):
+    first = await tool.execute(file_path="hello.txt", limit=2)
+    result = await tool.execute(file_path="hello.txt", offset=first.metadata["next_offset"], limit=2)
+
+    assert result.success is True
+    assert "line 3" in result.result_data
+    assert "line 4" in result.result_data
+    assert "line 1" not in result.result_data
+    assert result.metadata["line_start"] == 3
 
 
 @pytest.mark.asyncio
@@ -77,10 +89,8 @@ async def test_read_explicit_offset_one_rereads_beginning(tool):
 
 
 @pytest.mark.asyncio
-async def test_read_auto_continue_reports_eof(tool):
-    await tool.execute(file_path="hello.txt", limit=4)
-    await tool.execute(file_path="hello.txt", limit=4)
-    result = await tool.execute(file_path="hello.txt", limit=4)
+async def test_read_explicit_offset_past_end_reports_eof(tool):
+    result = await tool.execute(file_path="hello.txt", offset=10, limit=4)
 
     assert result.success is True
     assert result.result_data == ""
@@ -120,6 +130,32 @@ async def test_path_traversal_blocked(tool, working_dir):
     result = await tool.execute(file_path="../../../etc/passwd")
     assert result.success is False
     assert "outside" in result.error_message.lower()
+
+
+@pytest.mark.asyncio
+async def test_sibling_prefix_path_blocked(tmp_path):
+    workspace = tmp_path / "work"
+    sibling = tmp_path / "work-evil"
+    workspace.mkdir()
+    sibling.mkdir()
+    (sibling / "secret.txt").write_text("secret")
+
+    result = await ReadFileTool(working_dir=str(workspace)).execute(
+        file_path=str(sibling / "secret.txt")
+    )
+
+    assert result.success is False
+    assert "outside" in result.error_message.lower()
+
+
+@pytest.mark.asyncio
+async def test_long_line_uses_explicit_head_tail_marker(tmp_path):
+    (tmp_path / "long.txt").write_text("a" * 1500 + "\n")
+    result = await ReadFileTool(working_dir=str(tmp_path)).execute(file_path="long.txt")
+
+    assert result.success is True
+    assert "[line truncated: 1500 chars, showing head/tail]" in result.result_data
+    assert result.metadata["truncated_lines"][0]["line"] == 1
 
 
 @pytest.mark.asyncio

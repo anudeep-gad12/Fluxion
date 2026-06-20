@@ -61,6 +61,70 @@ async def test_grep_glob_filter(tool):
 
 
 @pytest.mark.asyncio
+async def test_grep_global_max_results_and_top_files(tmp_path):
+    (tmp_path / "a.txt").write_text("\n".join("needle" for _ in range(10)))
+    (tmp_path / "b.txt").write_text("\n".join("needle" for _ in range(10)))
+    tool = GrepTool(working_dir=str(tmp_path))
+
+    result = await tool.execute(pattern="needle", context=0, max_results=5)
+
+    assert result.success is True
+    assert result.metadata["returned"] == 5
+    assert result.metadata["truncated"] is True
+    assert "top files:" in result.result_summary
+    assert len(result.result_data.splitlines()) == 5
+
+
+@pytest.mark.asyncio
+async def test_grep_context_lines_not_counted_as_matches(tmp_path):
+    (tmp_path / "a.txt").write_text("before\nneedle\nafter\n")
+    tool = GrepTool(working_dir=str(tmp_path))
+
+    result = await tool.execute(pattern="needle", context=1, max_results=5)
+
+    assert result.success is True
+    assert result.metadata["count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_sibling_prefix_path_blocked(tmp_path):
+    workspace = tmp_path / "work"
+    sibling = tmp_path / "work-evil"
+    workspace.mkdir()
+    sibling.mkdir()
+    (sibling / "secret.txt").write_text("SECRET")
+
+    result = await GrepTool(working_dir=str(workspace)).execute(
+        pattern="SECRET",
+        path=str(sibling),
+    )
+
+    assert result.success is False
+    assert "outside" in result.error_message.lower()
+
+
+@pytest.mark.asyncio
+async def test_grep_respects_gitignore(tmp_path):
+    (tmp_path / ".gitignore").write_text("ignored/\n*.log\n")
+    ignored = tmp_path / "ignored"
+    ignored.mkdir()
+    (ignored / "hidden.txt").write_text("needle")
+    (tmp_path / "debug.log").write_text("needle")
+    (tmp_path / "keep.txt").write_text("needle")
+
+    result = await GrepTool(working_dir=str(tmp_path)).execute(
+        pattern="needle",
+        context=0,
+        glob="*.txt",
+    )
+
+    assert result.success is True
+    assert "keep.txt" in result.result_data
+    assert "hidden.txt" not in result.result_data
+    assert "debug.log" not in result.result_data
+
+
+@pytest.mark.asyncio
 async def test_grep_skips_binary(tool):
     result = await tool.execute(pattern="pattern")
     assert result.success is True

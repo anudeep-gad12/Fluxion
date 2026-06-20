@@ -31,6 +31,7 @@ async def test_list_flat(tool):
     assert "file.txt" in result.result_data
     assert "script.py" in result.result_data
     assert "subdir" in result.result_data
+    assert "nested.txt" not in result.result_data
 
 
 @pytest.mark.asyncio
@@ -45,6 +46,36 @@ async def test_list_ignores_git(tool):
     result = await tool.execute(recursive=True)
     assert result.success is True
     assert ".git" not in result.result_data
+
+
+@pytest.mark.asyncio
+async def test_list_respects_gitignore(tmp_path):
+    (tmp_path / ".gitignore").write_text("ignored/\n*.log\n")
+    ignored = tmp_path / "ignored"
+    ignored.mkdir()
+    (ignored / "hidden.txt").write_text("hidden")
+    (tmp_path / "debug.log").write_text("debug")
+    (tmp_path / "keep.txt").write_text("keep")
+
+    result = await ListDirectoryTool(working_dir=str(tmp_path)).execute(recursive=True)
+
+    assert result.success is True
+    assert "keep.txt" in result.result_data
+    assert "hidden.txt" not in result.result_data
+    assert "debug.log" not in result.result_data
+
+
+@pytest.mark.asyncio
+async def test_sibling_prefix_path_blocked(tmp_path):
+    workspace = tmp_path / "work"
+    sibling = tmp_path / "work-evil"
+    workspace.mkdir()
+    sibling.mkdir()
+
+    result = await ListDirectoryTool(working_dir=str(workspace)).execute(path=str(sibling))
+
+    assert result.success is False
+    assert "outside" in result.error_message.lower()
 
 
 @pytest.mark.asyncio

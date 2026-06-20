@@ -113,6 +113,10 @@ class TestWebExtractToolExecution:
 
         assert result.success is True  # Partial success is OK
         assert "Extracted 1/2 URLs" in result.result_summary
+        assert "failed:" in result.result_summary
+        assert result.result_data["failures"] == [
+            {"url": "https://bad-url.com", "error": "URL not found", "status": None}
+        ]
         assert result.metadata["successful_count"] == 1
         assert result.metadata["failed_count"] == 1
         await tool.close()
@@ -209,6 +213,7 @@ class TestWebExtractToolExecution:
             result = await tool.execute(urls=["https://test.com"])
 
         assert "extractions" in result.result_data
+        assert "failures" in result.result_data
         extraction = result.result_data["extractions"][0]
         assert extraction["url"] == "https://test.com"
         assert extraction["title"] == "Test Page"

@@ -1456,6 +1456,86 @@ To provide your final answer, respond WITHOUT calling any tools."""
             )
         return parts
 
+    def _validate_tool_arguments(
+        self,
+        tool_name: str,
+        schema: Dict[str, Any],
+        arguments: Dict[str, Any],
+    ) -> Optional[str]:
+        """Return a validation error for tool arguments, or None when valid."""
+        required_args = schema.get("required", [])
+        missing_args = [arg for arg in required_args if arg not in arguments]
+        if missing_args:
+            return (
+                "Missing required argument(s): "
+                + ", ".join(f"'{arg}'" for arg in missing_args)
+                + f". The {tool_name} tool requires these parameters."
+            )
+
+        properties = schema.get("properties", {})
+        for name, value in arguments.items():
+            spec = properties.get(name)
+            if not isinstance(spec, dict):
+                continue
+            expected = spec.get("type")
+            if expected and not self._tool_argument_matches_type(value, expected):
+                return (
+                    f"Invalid argument '{name}' for {tool_name}: expected "
+                    f"{expected}, got {type(value).__name__}."
+                )
+            if expected == "array":
+                if "minItems" in spec and len(value) < int(spec["minItems"]):
+                    return (
+                        f"Invalid argument '{name}' for {tool_name}: expected at least "
+                        f"{spec['minItems']} item(s)."
+                    )
+                if "maxItems" in spec and len(value) > int(spec["maxItems"]):
+                    return (
+                        f"Invalid argument '{name}' for {tool_name}: expected at most "
+                        f"{spec['maxItems']} item(s)."
+                    )
+                item_spec = spec.get("items", {})
+                item_type = item_spec.get("type") if isinstance(item_spec, dict) else None
+                if item_type:
+                    for idx, item in enumerate(value):
+                        if not self._tool_argument_matches_type(item, item_type):
+                            return (
+                                f"Invalid argument '{name}[{idx}]' for {tool_name}: expected "
+                                f"{item_type}, got {type(item).__name__}."
+                            )
+            if expected in {"integer", "number"}:
+                if "minimum" in spec and value < spec["minimum"]:
+                    return (
+                        f"Invalid argument '{name}' for {tool_name}: expected >= "
+                        f"{spec['minimum']}."
+                    )
+                if "maximum" in spec and value > spec["maximum"]:
+                    return (
+                        f"Invalid argument '{name}' for {tool_name}: expected <= "
+                        f"{spec['maximum']}."
+                    )
+        return None
+
+    def _tool_argument_matches_type(self, value: Any, expected: str | list[str]) -> bool:
+        """Return whether a Python value matches a JSON-schema primitive type."""
+        expected_types = expected if isinstance(expected, list) else [expected]
+        for expected_type in expected_types:
+            if expected_type == "string" and isinstance(value, str):
+                return True
+            if expected_type == "integer" and isinstance(value, int) and not isinstance(value, bool):
+                return True
+            if expected_type == "number" and isinstance(value, (int, float)) and not isinstance(value, bool):
+                return True
+            if expected_type == "boolean" and isinstance(value, bool):
+                return True
+            if expected_type == "array" and isinstance(value, list):
+                return True
+            if expected_type == "object" and isinstance(value, dict):
+                return True
+            if expected_type == "null" and value is None:
+                return True
+        return False
+
     def _available_tool_schemas(self) -> List[Dict[str, Any]]:
         """Return tool schemas valid for the active model/provider."""
         tool_schemas = self._registry.get_openai_schemas()
@@ -6019,15 +6099,29 @@ To provide your final answer, respond WITHOUT calling any tools."""
         # Check if this was a duplicate (idempotent retry)
         if tc_record.get("id") != tool_call.id:
             if tc_record.get("status") == "success":
+                prompt_payload_tools = {
+                    "read_file",
+                    "view_image",
+                    "grep",
+                    "glob",
+                    "list_directory",
+                    "list_run_artifacts",
+                    "read_artifact",
+                }
+                if tool_call.name not in prompt_payload_tools:
+                    logger.debug(
+                        "Using cached tool result", extra={"key": idempotency_key}
+                    )
+                    prep["early_result"] = ToolResult(
+                        success=True,
+                        result_summary=tc_record.get("result_summary", ""),
+                        error_message=None,
+                    )
+                    return prep
                 logger.debug(
-                    "Using cached tool result", extra={"key": idempotency_key}
+                    "Re-executing cached read-only tool to preserve prompt payload",
+                    extra={"key": idempotency_key, "tool": tool_call.name},
                 )
-                prep["early_result"] = ToolResult(
-                    success=True,
-                    result_summary=tc_record.get("result_summary", ""),
-                    error_message=None,
-                )
-                return prep
             else:
                 logger.debug(
                     "Ignoring cached failure, re-executing tool",
@@ -6095,18 +6189,17 @@ To provide your final answer, respond WITHOUT calling any tools."""
             )
             return prep
 
-        # Validate required arguments
-        required_args = tool.schema.parameters.get("required", [])
-        missing_args = [arg for arg in required_args if arg not in tool_call.arguments]
-        if missing_args:
-            arg_list = ", ".join(f"'{a}'" for a in missing_args)
+        # Validate arguments before approval/execution.
+        validation_error = self._validate_tool_arguments(
+            tool_call.name,
+            tool.schema.parameters,
+            tool_call.arguments,
+        )
+        if validation_error:
             prep["early_result"] = ToolResult(
                 success=False,
-                result_summary=f"Missing required args: {arg_list}",
-                error_message=(
-                    f"Missing required argument(s): {arg_list}. "
-                    f"The {tool_call.name} tool requires these parameters."
-                ),
+                result_summary=f"Invalid arguments for {tool_call.name}",
+                error_message=validation_error,
                 duration_ms=0,
             )
             return prep
@@ -6522,6 +6615,9 @@ To provide your final answer, respond WITHOUT calling any tools."""
             "exec_command",
             "write_stdin",
             "update_plan_doc",
+            "grep",
+            "glob",
+            "list_directory",
             "web_extract",
         }
         if tool_call.name in detail_tools and result.result_data:
@@ -6619,6 +6715,8 @@ To provide your final answer, respond WITHOUT calling any tools."""
         diff_data = display_result_data(tool_call.name, result.result_data)
         if diff_data:
             emit_kwargs["result_data"] = diff_data
+        elif tool_call.name in {"grep", "glob", "list_directory"} and result.result_data:
+            emit_kwargs["result_data"] = str(result.result_data)[:10000]
         bash_output = bash_output_from_result_data(result.result_data)
         if tool_call.name in {"bash", "exec_command", "write_stdin"} and bash_output:
             emit_kwargs["bash_output"] = bash_output
@@ -6866,8 +6964,17 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     "excerpt": self._truncate_text_to_tokens(str(entry.get("content", "")), 1500),
                     "success": entry.get("success", True),
                 })
+            failures = []
+            for entry in (data.get("failures") or [])[:5]:
+                if not isinstance(entry, dict):
+                    continue
+                failures.append({
+                    "url": entry.get("url", ""),
+                    "error": str(entry.get("error", ""))[:300],
+                    "status": entry.get("status"),
+                })
             return self._bounded_json(
-                {"extractions": extractions, "artifacts": artifact_refs},
+                {"extractions": extractions, "failures": failures, "artifacts": artifact_refs},
                 4000,
             )
 
@@ -7370,7 +7477,18 @@ To provide your final answer, respond WITHOUT calling any tools."""
             # Overly broad glob patterns
             if tc.name == "glob":
                 pattern = tc.arguments.get("pattern", "")
-                if pattern in ("**/*.py", "**/*.md", "**/*.ts", "**/*.tsx", "**/*"):
+                if pattern in (
+                    "*.py",
+                    "*.md",
+                    "*.ts",
+                    "*.tsx",
+                    "**/*.py",
+                    "**/*.md",
+                    "**/*.ts",
+                    "**/*.tsx",
+                    "**/*",
+                    "*",
+                ):
                     redundant.append((tc, f"Too broad: glob '{pattern}' scans entire project"))
                     self._last_redundant_filter_codes[tc.id] = "broad_glob"
                     continue

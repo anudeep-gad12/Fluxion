@@ -10,6 +10,7 @@ from typing import Any, Optional
 from orchestrator.logging_config import get_logger
 
 from .base import ToolResult, ToolSchema
+from .path_utils import display_workspace_path, resolve_workspace_path
 
 logger = get_logger(__name__)
 
@@ -29,7 +30,6 @@ class ReadFileTool:
             working_dir: Base directory for resolving relative paths.
         """
         self._working_dir = Path(working_dir).resolve()
-        self._next_offsets: dict[str, int] = {}
 
     @property
     def name(self) -> str:
@@ -45,9 +45,8 @@ class ReadFileTool:
                 "Read the contents of a file with line numbers. "
                 "Reads up to 250 lines by default and 400 lines max. "
                 "For long files, continue with offset equal to the next_offset "
-                "reported in the previous result. If offset is omitted after a "
-                "partial read and limit is provided, this tool auto-continues "
-                "from the next unread line instead of rereading from line 1."
+                "reported in the previous result. If offset is omitted, reading "
+                "always starts from line 1."
             ),
             parameters={
                 "type": "object",
@@ -94,23 +93,21 @@ class ReadFileTool:
         Raises:
             ValueError: If path escapes working directory.
         """
-        path = Path(file_path)
-        if not path.is_absolute():
-            path = self._working_dir / path
-        path = path.resolve()
-
-        # Security: ensure path is within working directory
-        if not str(path).startswith(str(self._working_dir)):
-            raise ValueError(f"Path '{file_path}' is outside working directory")
-
-        return path
+        return resolve_workspace_path(self._working_dir, file_path)
 
     def _display_path(self, path: Path) -> str:
         """Get a display-friendly relative path."""
-        try:
-            return str(path.relative_to(self._working_dir))
-        except ValueError:
-            return str(path)
+        return display_workspace_path(self._working_dir, path)
+
+    def _format_line(self, line: str) -> tuple[str, Optional[dict[str, int]]]:
+        """Format one source line without silently destroying long content."""
+        line = line.rstrip()
+        if len(line) <= 1000:
+            return line, None
+        head = line[:600]
+        tail = line[-300:]
+        marker = f"... [line truncated: {len(line)} chars, showing head/tail] ..."
+        return f"{head}{marker}{tail}", {"original_length": len(line)}
 
     def _is_binary(self, path: Path) -> bool:
         """Check if file is binary by looking for null bytes in first 8KB."""
@@ -173,14 +170,8 @@ class ReadFileTool:
                 all_lines = f.readlines()
 
             total_lines = len(all_lines)
-            cursor_key = str(path)
-            explicit_limit = limit is not None
             if offset is None:
-                offset = (
-                    self._next_offsets.get(cursor_key, 1)
-                    if explicit_limit
-                    else 1
-                )
+                offset = 1
             offset = max(1, int(offset))
             limit = 250 if limit is None else int(limit)
             start_idx = max(0, offset - 1)
@@ -190,11 +181,12 @@ class ReadFileTool:
 
             # Format with line numbers
             numbered_lines = []
+            truncated_lines: list[dict[str, int]] = []
             for i, line in enumerate(selected_lines, start=start_idx + 1):
-                # Truncate very long lines
-                if len(line) > 300:
-                    line = line[:300] + "...\n"
-                numbered_lines.append(f"{i:>6}\t{line.rstrip()}")
+                formatted, truncation = self._format_line(line)
+                if truncation:
+                    truncated_lines.append({"line": i, **truncation})
+                numbered_lines.append(f"{i:>6}\t{formatted}")
 
             content = "\n".join(numbered_lines)
 
@@ -212,13 +204,14 @@ class ReadFileTool:
             }
             if end_idx < total_lines:
                 next_offset = end_idx + 1
-                self._next_offsets[cursor_key] = next_offset
                 metadata["next_offset"] = next_offset
                 summary += f" — next_offset={next_offset}"
             else:
-                self._next_offsets[cursor_key] = total_lines + 1
                 if not selected_lines and start_idx >= total_lines:
                     summary += " — already at end; set offset=1 to reread from the beginning"
+            if truncated_lines:
+                metadata["truncated_lines"] = truncated_lines
+                summary += f" — {len(truncated_lines)} long line(s) truncated with head/tail"
 
             return ToolResult(
                 success=True,
