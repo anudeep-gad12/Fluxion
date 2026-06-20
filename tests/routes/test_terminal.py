@@ -13,6 +13,7 @@ import orchestrator.storage.db as db_module
 from orchestrator.app import app
 from orchestrator.services import browser_terminal as terminal_module
 from orchestrator.storage.db import Database
+from orchestrator.storage.repositories.terminal_repo import TerminalSessionRepo
 
 _WS_RECEIVE_TIMEOUT_SECONDS = 8.0
 
@@ -313,6 +314,47 @@ def test_restart_terminal_session_by_id(client, tmp_path: Path):
     )
     assert restarted.status_code == 200
     assert restarted.json()["session_id"] != session_id
+
+    closed = client.post(f"/api/terminal/conversations/{conversation_id}/session/close")
+    assert closed.status_code == 200
+
+
+def test_stale_terminal_metadata_disables_reconnect_and_can_restart(client, test_db, tmp_path: Path):
+    conversation_id = _create_conversation(client)
+    workspace = str(tmp_path)
+
+    created = client.post(
+        f"/api/terminal/conversations/{conversation_id}/sessions",
+        json={"workspace_path": workspace},
+    )
+    assert created.status_code == 200
+    session_id = created.json()["session_id"]
+
+    manager = terminal_module.get_terminal_manager()
+    live = _run_async(manager.get_live(session_id))
+    assert live is not None
+    _run_async(live.close())
+    _run_async(asyncio.sleep(0.1))
+    manager._sessions_by_id.pop(session_id, None)
+    manager._session_ids_by_conversation.pop(conversation_id, None)
+    _run_async(TerminalSessionRepo(test_db).mark_status(session_id, status="running"))
+
+    listed = client.get(f"/api/terminal/conversations/{conversation_id}/sessions")
+    assert listed.status_code == 200
+    sessions = listed.json()["sessions"]
+    assert len(sessions) == 1
+    assert sessions[0]["session_id"] == session_id
+    assert sessions[0]["status"] == "stale"
+    assert sessions[0]["reconnect_supported"] is False
+    assert sessions[0]["replay_buffer"] == ""
+
+    restarted = client.post(
+        f"/api/terminal/conversations/{conversation_id}/sessions/{session_id}/restart",
+        json={"workspace_path": workspace},
+    )
+    assert restarted.status_code == 200
+    assert restarted.json()["session_id"] != session_id
+    assert restarted.json()["status"] == "running"
 
     closed = client.post(f"/api/terminal/conversations/{conversation_id}/session/close")
     assert closed.status_code == 200

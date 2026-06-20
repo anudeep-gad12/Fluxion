@@ -1730,13 +1730,13 @@ _EVENT_TYPE_MAP = {
 
 **Features**:
 - WebSocket attach to `/api/terminal/.../ws?session_id=`
-- Restart/clear/reconnect for the active session only
-- Per-session buffer in `bufferBySessionId` (not global per conversation)
+- Restart/clear for the active live session; stale/error/closed sessions show restart only
+- Per-session replay in `bufferBySessionId` (not global per conversation), hydrated from backend `replay_buffer` so stale sessions do not inherit old terminal output
 
 **Integration**:
 - `POST /api/terminal/conversations/{id}/sessions/{session_id}/restart` for restart
 - Panel loads/creates sessions via `GET/POST .../sessions`
-- Persists pane open state and width in localStorage
+- Persists pane open state and width in localStorage; right-panel drag writes width through an rAF-throttled gutter and hides native Browser webviews while resizing so the divider remains clickable/smooth
 
 ### `ui/src/components/ConversationList.tsx`
 

@@ -60,6 +60,8 @@ export function BrowserPane({
   const lastUrlRef = useRef(tab.url);
   const labelRef = useRef(tab.webviewLabel || browserLabel(conversationId, tab.id));
   const mountedRef = useRef(true);
+  const boundsRafRef = useRef<number | null>(null);
+  const lastBoundsRef = useRef<{ x: number; y: number; width: number; height: number } | null>(null);
   const [address, setAddress] = useState(tab.url);
 
   useEffect(() => {
@@ -73,14 +75,37 @@ export function BrowserPane({
     };
   }, []);
 
-  const syncBounds = useCallback(async () => {
-    const webview = webviewRef.current;
-    const node = viewportRef.current;
-    if (!webview || !node || !active || obscured) return;
-    const rect = node.getBoundingClientRect();
-    if (rect.width < 8 || rect.height < 8) return;
-    await webview.setPosition(new LogicalPosition(Math.round(rect.left), Math.round(rect.top)));
-    await webview.setSize(new LogicalSize(Math.round(rect.width), Math.round(rect.height)));
+  const syncBounds = useCallback(() => {
+    if (boundsRafRef.current !== null) return;
+    boundsRafRef.current = window.requestAnimationFrame(() => {
+      boundsRafRef.current = null;
+      const webview = webviewRef.current;
+      const node = viewportRef.current;
+      if (!webview || !node || !active || obscured) return;
+      const rect = node.getBoundingClientRect();
+      const nextBounds = {
+        x: Math.round(rect.left),
+        y: Math.round(rect.top),
+        width: Math.round(rect.width),
+        height: Math.round(rect.height),
+      };
+      if (nextBounds.width < 8 || nextBounds.height < 8) return;
+      const previous = lastBoundsRef.current;
+      if (
+        previous
+        && previous.x === nextBounds.x
+        && previous.y === nextBounds.y
+        && previous.width === nextBounds.width
+        && previous.height === nextBounds.height
+      ) {
+        return;
+      }
+      lastBoundsRef.current = nextBounds;
+      void webview
+        .setPosition(new LogicalPosition(nextBounds.x, nextBounds.y))
+        .then(() => webview.setSize(new LogicalSize(nextBounds.width, nextBounds.height)))
+        .catch(() => undefined);
+    });
   }, [active, obscured]);
 
   const hideWebview = useCallback(() => {
@@ -113,7 +138,7 @@ export function BrowserPane({
         webviewRef.current = webview;
         lastUrlRef.current = tab.url;
         onUpdate(tab.id, { status: 'ready', title: displayTitle(tab.url), error: null });
-        void syncBounds();
+        syncBounds();
       } catch (error) {
         if (!mountedRef.current) return;
         onUpdate(tab.id, {
@@ -124,7 +149,7 @@ export function BrowserPane({
       return;
     }
     await webviewRef.current.show();
-    await syncBounds();
+    syncBounds();
   }, [obscured, onUpdate, syncBounds, tab.id, tab.url]);
 
   useEffect(() => {
@@ -173,18 +198,19 @@ export function BrowserPane({
     const observer = new ResizeObserver(() => void syncBounds());
     if (viewportRef.current) observer.observe(viewportRef.current);
     window.addEventListener('resize', syncBounds);
-    const raf = requestAnimationFrame(() => void syncBounds());
-    const interval = window.setInterval(() => void syncBounds(), 250);
+    const raf = requestAnimationFrame(() => syncBounds());
     return () => {
       observer.disconnect();
       window.removeEventListener('resize', syncBounds);
       cancelAnimationFrame(raf);
-      window.clearInterval(interval);
     };
   }, [active, obscured, syncBounds]);
 
   useEffect(() => {
     return () => {
+      if (boundsRafRef.current !== null) {
+        window.cancelAnimationFrame(boundsRafRef.current);
+      }
       void webviewRef.current?.close().catch(() => undefined);
       webviewRef.current = null;
     };

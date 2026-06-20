@@ -170,6 +170,7 @@ export function IntegratedTerminal({
   const terminalState = useConversationTerminal(conversationId);
   const updateTerminalState = useStore((s) => s.updateTerminalState);
   const appendTerminalBuffer = useStore((s) => s.appendTerminalBuffer);
+  const replaceTerminalBuffer = useStore((s) => s.replaceTerminalBuffer);
   const clearTerminalBuffer = useStore((s) => s.clearTerminalBuffer);
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
@@ -183,13 +184,8 @@ export function IntegratedTerminal({
   const [isRestarting, setIsRestarting] = useState(false);
 
   useEffect(() => {
-    bufferRef.current =
-      terminalState?.bufferBySessionId[sessionId] ?? terminalState?.buffer ?? '';
-  }, [sessionId, terminalState?.buffer, terminalState?.bufferBySessionId]);
-
-  const replaceTerminalBuffer = useCallback((nextBuffer: string) => {
-    updateTerminalState(conversationId, { buffer: nextBuffer.slice(-120000) });
-  }, [conversationId, updateTerminalState]);
+    bufferRef.current = terminalState?.bufferBySessionId[sessionId] ?? '';
+  }, [sessionId, terminalState?.bufferBySessionId]);
 
   const connectSocket = useCallback((targetSessionId: string) => {
     if (!active || !terminalState?.isOpen) {
@@ -234,11 +230,12 @@ export function IntegratedTerminal({
         appendTerminalBuffer(conversationId, targetSessionId, payload.data);
       } else if (payload.type === 'replay') {
         const replay = payload.data || '';
+        terminalRef.current?.reset();
         terminalRef.current?.clear();
         if (replay) {
           terminalRef.current?.write(replay);
         }
-        replaceTerminalBuffer(replay);
+        replaceTerminalBuffer(conversationId, targetSessionId, replay);
       } else if (payload.type === 'status') {
         const nextStatus = normalizeStatus(payload.status);
         lastSocketStatusRef.current = nextStatus;
@@ -274,6 +271,7 @@ export function IntegratedTerminal({
     replaceTerminalBuffer,
     terminalState?.isOpen,
     updateTerminalState,
+    workspacePath,
   ]);
 
   useEffect(() => {
@@ -389,11 +387,6 @@ export function IntegratedTerminal({
     return () => cancelAnimationFrame(raf);
   }, [active, dock, terminalState?.height, terminalState?.isOpen, terminalState?.width]);
 
-  const handleReconnect = useCallback(() => {
-    updateTerminalState(conversationId, { status: 'connecting' });
-    connectSocket(sessionId);
-  }, [connectSocket, conversationId, sessionId, updateTerminalState]);
-
   const handleRestart = useCallback(async () => {
     if (!terminalState) return;
     setIsRestarting(true);
@@ -432,13 +425,11 @@ export function IntegratedTerminal({
         `reasoner_terminal_active_session:${conversationId}`,
         nextSession.session_id,
       );
-      connectSocket(nextSession.session_id);
     } finally {
       setIsRestarting(false);
     }
   }, [
     clearTerminalBuffer,
-    connectSocket,
     conversationId,
     sessionId,
     terminalState,
@@ -520,7 +511,7 @@ export function IntegratedTerminal({
   const isRightDock = dock === 'right';
   const isEmbedded = chrome === 'embedded';
   const pathLabel = terminalState.session?.workspace_path || workspacePath || '~';
-  const canReconnect = status === 'error' || status === 'stale' || status === 'closed';
+  const needsRestartOnly = status === 'error' || status === 'stale' || status === 'closed';
   const handleDockToggle = (nextDock: TerminalDock) => {
     updateTerminalState(conversationId, { dock: nextDock });
     requestAnimationFrame(() => fitAddonRef.current?.fit());
@@ -596,12 +587,9 @@ export function IntegratedTerminal({
                 <span className="text-zinc-800">|</span>
               </>
             ) : null}
-            <button onClick={handleClear} className="ui-transition hover:text-zinc-200" type="button">
-              clear
-            </button>
-            {canReconnect && (
-              <button onClick={handleReconnect} className="ui-transition text-amber-300/85 hover:text-amber-200" type="button">
-                reconnect
+            {!needsRestartOnly && (
+              <button onClick={handleClear} className="ui-transition hover:text-zinc-200" type="button">
+                clear
               </button>
             )}
             <button

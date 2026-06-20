@@ -140,6 +140,7 @@ interface AppState {
   initTerminalState: (conversationId: string, defaults?: Partial<TerminalUIState>) => void;
   updateTerminalState: (conversationId: string, updates: Partial<TerminalUIState>) => void;
   appendTerminalBuffer: (conversationId: string, sessionId: string, chunk: string) => void;
+  replaceTerminalBuffer: (conversationId: string, sessionId: string, buffer: string) => void;
   clearTerminalBuffer: (conversationId: string, sessionId?: string) => void;
   setActiveTerminalSession: (conversationId: string, sessionId: string) => void;
   setConversationMode: (mode: 'chat' | 'agent') => void;
@@ -660,6 +661,25 @@ export const useStore = create<AppState>((set, get) => ({
       };
       const buffer =
         current.activeSessionId === sessionId ? nextSessionBuffer : current.buffer;
+      return {
+        terminalByConversation: {
+          ...state.terminalByConversation,
+          [conversationId]: { ...current, bufferBySessionId, buffer },
+        },
+      };
+    }),
+
+  replaceTerminalBuffer: (conversationId, sessionId, nextBuffer) =>
+    set((state) => {
+      const current = state.terminalByConversation[conversationId];
+      if (!current) return state;
+      const boundedBuffer = nextBuffer.slice(-120000);
+      const bufferBySessionId = {
+        ...current.bufferBySessionId,
+        [sessionId]: boundedBuffer,
+      };
+      const buffer =
+        current.activeSessionId === sessionId ? boundedBuffer : current.buffer;
       return {
         terminalByConversation: {
           ...state.terminalByConversation,

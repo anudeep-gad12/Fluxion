@@ -2720,6 +2720,18 @@ export function ConversationView() {
           } catch {
             toast.error('Draft terminal could not attach to the new conversation');
           }
+          const bufferBySessionId = Object.fromEntries(
+            attachedSessions.map((session) => [
+              session.session_id,
+              session.replay_buffer || draftTerminalState.bufferBySessionId[session.session_id] || '',
+            ]),
+          );
+          const activeSessionId = attachedSessions.find(
+            (item) => item.session_id === draftTerminalState.activeSessionId
+          )?.session_id ?? attachedSessions[0]?.session_id ?? null;
+          const activeSession = activeSessionId
+            ? attachedSessions.find((item) => item.session_id === activeSessionId) ?? null
+            : null;
           initTerminalState(conversationId, {
             isOpen: true,
             dock: draftTerminalState.dock,
@@ -2728,14 +2740,10 @@ export function ConversationView() {
             activeToolTabId: draftTerminalState.activeToolTabId,
             browserTabs: draftTerminalState.browserTabs,
             sessions: attachedSessions,
-            activeSessionId: attachedSessions.find(
-              (item) => item.session_id === draftTerminalState.activeSessionId
-            )?.session_id ?? attachedSessions[0]?.session_id ?? null,
-            session: attachedSessions.find(
-              (item) => item.session_id === draftTerminalState.activeSessionId
-            ) ?? attachedSessions[0] ?? null,
-            bufferBySessionId: draftTerminalState.bufferBySessionId,
-            buffer: draftTerminalState.buffer,
+            activeSessionId,
+            session: activeSession,
+            bufferBySessionId,
+            buffer: activeSessionId ? (bufferBySessionId[activeSessionId] ?? '') : '',
             connected: false,
             status: attachedSessions.length > 0 ? 'running' : 'idle',
           });

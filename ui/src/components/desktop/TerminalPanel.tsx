@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { PointerEvent as ReactPointerEvent } from 'react';
 import { GripVertical, PanelRightClose } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -25,6 +26,7 @@ const LEGACY_TERMINAL_WIDTH_KEY = 'reasoner_terminal_panel_width';
 const DEFAULT_WIDTH = 460;
 const MIN_WIDTH = 340;
 const MAX_WIDTH = 860;
+const RESIZE_GUTTER_WIDTH = 10;
 
 function maxPanelWidth(): number {
   if (typeof window === 'undefined') return MAX_WIDTH;
@@ -42,6 +44,21 @@ function readPanelWidth(): number {
   );
   if (!Number.isFinite(stored)) return DEFAULT_WIDTH;
   return clampPanelWidth(stored);
+}
+
+function buffersFromSessions(sessions: TerminalSessionResponse[]): Record<string, string> {
+  return Object.fromEntries(
+    sessions.map((session) => [session.session_id, session.replay_buffer || '']),
+  );
+}
+
+function statusFromSession(session: TerminalSessionResponse | null): 'idle' | 'running' | 'stale' | 'closed' | 'error' {
+  if (!session) return 'idle';
+  if (session.status === 'running') return 'running';
+  if (session.status === 'stale' || session.status === 'closed' || session.status === 'error') {
+    return session.status;
+  }
+  return 'idle';
 }
 
 function workspaceFolderLabel(workspacePath: string): string {
@@ -148,7 +165,21 @@ export function TerminalPanel({ agentModeActive }: TerminalPanelProps) {
   const terminalState = useConversationTerminal(terminalKey);
   const [panelWidth, setPanelWidth] = useState(readPanelWidth);
   const [toolMenuOpen, setToolMenuOpen] = useState(false);
+  const [isPanelResizing, setIsPanelResizing] = useState(false);
+  const panelRef = useRef<HTMLElement | null>(null);
   const isResizing = useRef(false);
+  const panelWidthRef = useRef(panelWidth);
+  const pendingWidthRef = useRef(panelWidth);
+  const resizeFrameRef = useRef<number | null>(null);
+  const terminalOpenRef = useRef(false);
+
+  useEffect(() => {
+    panelWidthRef.current = panelWidth;
+    pendingWidthRef.current = panelWidth;
+    if (!isResizing.current) {
+      panelRef.current?.style.setProperty('width', `${panelWidth}px`);
+    }
+  }, [panelWidth]);
 
   const conversation = conversations.find(
     (item) => item.conversation_id === selectedConversationId,
@@ -170,6 +201,10 @@ export function TerminalPanel({ agentModeActive }: TerminalPanelProps) {
   const maxBrowserTabs = terminalState?.maxBrowserTabsPerConversation ?? 10;
   const terminalAtLimit = sessions.length >= maxSessions;
   const browserAtLimit = browserTabs.length >= maxBrowserTabs;
+
+  useEffect(() => {
+    terminalOpenRef.current = isOpen;
+  }, [isOpen]);
 
   const tabs = useMemo<ToolTab[]>(() => {
     const stateActive = terminalState?.activeToolTabId ?? null;
@@ -232,6 +267,7 @@ export function TerminalPanel({ agentModeActive }: TerminalPanelProps) {
         const activeSession =
           nextSessions.find((item) => item.session_id === activeId) ?? nextSessions[0] ?? null;
         const resolvedId = activeSession?.session_id ?? null;
+        const bufferBySessionId = buffersFromSessions(nextSessions);
         const storedTool = localStorage.getItem(`reasoner_tools_active_tab:${storageScope}`);
         const currentTool = currentState?.activeToolTabId;
         const fallbackTool = resolvedId
@@ -252,9 +288,10 @@ export function TerminalPanel({ agentModeActive }: TerminalPanelProps) {
           session: activeSession,
           maxSessionsPerConversation: listed.max_sessions_per_conversation,
           maxBrowserTabsPerConversation: listed.max_browser_tabs_per_conversation,
-          buffer: activeSession?.replay_buffer ?? '',
-          status: activeSession?.status === 'running' ? 'running' : 'idle',
-          width: panelWidth,
+          bufferBySessionId,
+          buffer: resolvedId ? (bufferBySessionId[resolvedId] ?? '') : '',
+          status: statusFromSession(activeSession),
+          width: panelWidthRef.current,
         });
         if (resolvedId) {
           localStorage.setItem(`reasoner_terminal_active_session:${storageScope}`, resolvedId);
@@ -273,7 +310,7 @@ export function TerminalPanel({ agentModeActive }: TerminalPanelProps) {
     return () => {
       cancelled = true;
     };
-  }, [isOpen, selectedConversationId, storageScope, terminalAvailable, terminalKey, updateTerminalState, workspacePath, panelWidth]);
+  }, [isOpen, selectedConversationId, storageScope, terminalAvailable, terminalKey, updateTerminalState, workspacePath]);
 
   const persistActiveTool = useCallback((toolId: string | null) => {
     const storageKey = `reasoner_tools_active_tab:${storageScope}`;
@@ -307,13 +344,19 @@ export function TerminalPanel({ agentModeActive }: TerminalPanelProps) {
         : await createDraftTerminalSession(request);
       const nextSessions = [...sessions, created];
       const nextTool = terminalTabId(created.session_id);
+      const current = useStore.getState().terminalByConversation[terminalKey];
+      const bufferBySessionId = {
+        ...(current?.bufferBySessionId ?? {}),
+        [created.session_id]: created.replay_buffer || '',
+      };
       updateTerminalState(terminalKey, {
         sessions: nextSessions,
         activeSessionId: created.session_id,
         activeToolTabId: nextTool,
         session: created,
+        bufferBySessionId,
         buffer: created.replay_buffer || '',
-        status: created.status === 'running' ? 'running' : 'stale',
+        status: statusFromSession(created),
       });
       localStorage.setItem(`reasoner_terminal_active_session:${storageScope}`, created.session_id);
       persistActiveTool(nextTool);
@@ -463,39 +506,86 @@ export function TerminalPanel({ agentModeActive }: TerminalPanelProps) {
     updateTerminalState(terminalKey, { isOpen: !terminalState?.isOpen });
   }, [terminalAvailable, terminalKey, terminalState?.isOpen, updateTerminalState]);
 
-  const handleMouseMove = useCallback((e: MouseEvent) => {
+  const schedulePanelWidthWrite = useCallback((nextWidth: number) => {
+    pendingWidthRef.current = nextWidth;
+    if (resizeFrameRef.current !== null) return;
+    resizeFrameRef.current = window.requestAnimationFrame(() => {
+      resizeFrameRef.current = null;
+      panelRef.current?.style.setProperty('width', `${pendingWidthRef.current}px`);
+    });
+  }, []);
+
+  const finishPanelResize = useCallback(() => {
     if (!isResizing.current) return;
-    const next = clampPanelWidth(window.innerWidth - e.clientX);
+    isResizing.current = false;
+    const next = pendingWidthRef.current;
+    panelWidthRef.current = next;
     setPanelWidth(next);
+    setIsPanelResizing(false);
     localStorage.setItem(PANEL_WIDTH_KEY, String(next));
-    if (terminalState?.isOpen) {
+    if (terminalOpenRef.current) {
       updateTerminalState(terminalKey, { width: next });
     }
-  }, [terminalKey, terminalState?.isOpen, updateTerminalState]);
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+  }, [terminalKey, updateTerminalState]);
 
-  const handleMouseUp = useCallback(() => {
-    isResizing.current = false;
-    document.removeEventListener('mousemove', handleMouseMove);
-    document.removeEventListener('mouseup', handleMouseUp);
-  }, [handleMouseMove]);
+  const handlePointerMove = useCallback((event: PointerEvent) => {
+    if (!isResizing.current) return;
+    schedulePanelWidthWrite(clampPanelWidth(window.innerWidth - event.clientX));
+  }, [schedulePanelWidthWrite]);
 
-  const handleMouseDown = useCallback(() => {
+  const handlePointerUp = useCallback(() => {
+    finishPanelResize();
+    document.removeEventListener('pointermove', handlePointerMove);
+    document.removeEventListener('pointerup', handlePointerUp);
+    document.removeEventListener('pointercancel', handlePointerUp);
+  }, [finishPanelResize, handlePointerMove]);
+
+  const handlePointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
     isResizing.current = true;
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-  }, [handleMouseMove, handleMouseUp]);
+    pendingWidthRef.current = panelWidthRef.current;
+    setIsPanelResizing(true);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    document.addEventListener('pointermove', handlePointerMove);
+    document.addEventListener('pointerup', handlePointerUp);
+    document.addEventListener('pointercancel', handlePointerUp);
+  }, [handlePointerMove, handlePointerUp]);
 
   useEffect(() => {
     const handleResize = () => {
       setPanelWidth((current) => {
         const next = clampPanelWidth(current);
-        if (next !== current) localStorage.setItem(PANEL_WIDTH_KEY, String(next));
+        if (next !== current) {
+          panelWidthRef.current = next;
+          pendingWidthRef.current = next;
+          panelRef.current?.style.setProperty('width', `${next}px`);
+          localStorage.setItem(PANEL_WIDTH_KEY, String(next));
+          if (terminalOpenRef.current) {
+            updateTerminalState(terminalKey, { width: next });
+          }
+        }
         return next;
       });
     };
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
-  }, []);
+  }, [terminalKey, updateTerminalState]);
+
+  useEffect(() => {
+    return () => {
+      if (resizeFrameRef.current !== null) {
+        window.cancelAnimationFrame(resizeFrameRef.current);
+      }
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      document.removeEventListener('pointermove', handlePointerMove);
+      document.removeEventListener('pointerup', handlePointerUp);
+      document.removeEventListener('pointercancel', handlePointerUp);
+    };
+  }, [handlePointerMove, handlePointerUp]);
 
   if (!localDesktop) return null;
 
@@ -505,8 +595,9 @@ export function TerminalPanel({ agentModeActive }: TerminalPanelProps) {
 
   return (
     <aside
+      ref={panelRef}
       className="desktop-shell-right ui-panel relative flex flex-shrink-0 flex-col"
-      style={{ width: panelWidth }}
+      style={{ width: panelWidth, paddingLeft: RESIZE_GUTTER_WIDTH }}
     >
       <DesktopTitlebar className="desktop-terminal-header flex h-[var(--titlebar-height)] items-center justify-between border-b border-white/[0.05] px-3">
         <div className="desktop-titlebar-content min-w-0">
@@ -562,7 +653,7 @@ export function TerminalPanel({ agentModeActive }: TerminalPanelProps) {
                   conversationId={terminalKey}
                   tab={tab}
                   active={activeToolTabId === browserTabId(tab.id)}
-                  obscured={toolMenuOpen || desktopOverlayOpen}
+                  obscured={toolMenuOpen || desktopOverlayOpen || isPanelResizing}
                   onUpdate={handleBrowserUpdate}
                   onOpenNewTab={handleOpenBrowserNewTab}
                 />
@@ -577,8 +668,9 @@ export function TerminalPanel({ agentModeActive }: TerminalPanelProps) {
         ) : null}
       </div>
       <div
-        className="group absolute bottom-0 left-0 top-0 w-1 cursor-col-resize hover:bg-white/10"
-        onMouseDown={handleMouseDown}
+        className="group absolute bottom-0 left-0 top-0 z-20 cursor-col-resize touch-none hover:bg-white/10"
+        style={{ width: RESIZE_GUTTER_WIDTH }}
+        onPointerDown={handlePointerDown}
       >
         <div className="absolute left-0 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100">
           <GripVertical className="h-6 w-6 text-zinc-600" />
