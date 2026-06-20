@@ -585,7 +585,6 @@ async def _run_agent_task(
     filesystem_enabled: bool = False,
     working_dir: Optional[str] = None,
     permission_policy: str = "strict",
-    python_provider: Optional[str] = None,
     agent_capabilities: Optional[dict] = None,
     reasoning_settings: Optional[ReasoningSettings] = None,
     image_attachments: Optional[list[dict]] = None,
@@ -606,7 +605,6 @@ async def _run_agent_task(
         filesystem_enabled: If True, register filesystem tools.
         working_dir: Working directory for filesystem tools.
         permission_policy: Permission policy ("strict", "relaxed", "yolo").
-        python_provider: Python execution provider ("local" or "daytona").
         agent_capabilities: Browser-owned tool capabilities for this run.
     """
     # Import here to avoid circular imports
@@ -842,7 +840,6 @@ async def _run_agent_task(
             working_dir=working_dir,
             approval_callback=approval_callback if permission_policy != "yolo" else None,
             permission_policy=permission_policy,
-            python_provider=python_provider,
             agent_capabilities=agent_capabilities,
             reasoning_settings=reasoning_settings,
             collaboration_mode=collaboration_mode,
@@ -1148,7 +1145,6 @@ async def create_agent_run(request: CreateAgentRunRequest, http_request: Request
                 filesystem_enabled=capabilities.get("filesystem", False),
                 working_dir=workspace_path,
                 permission_policy=request.permission_policy,
-                python_provider=request.python_provider,
                 agent_capabilities=capabilities,
                 reasoning_settings=reasoning_settings,
                 image_attachments=request.image_attachments,

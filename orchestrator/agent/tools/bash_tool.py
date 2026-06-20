@@ -4,6 +4,8 @@ Runs shell commands with timeout and output capture. Requires approval (dangerou
 """
 
 import asyncio
+import os
+import signal
 import time
 from pathlib import Path
 from typing import Any
@@ -22,8 +24,6 @@ _MAX_TIMEOUT = 1800
 
 class BashTool:
     """Execute shell commands with timeout and output capture.
-
-    Maintains a persistent working directory across calls.
 
     Attributes:
         name: "bash"
@@ -51,7 +51,7 @@ class BashTool:
             name="bash",
             description=(
                 "Execute a shell command. Captures stdout and stderr. "
-                "Working directory persists between calls. "
+                "Runs in the configured workspace directory. "
                 "Use for general local execution: git operations, running tests, build/dev commands, "
                 "one-off Python or Node scripts, scripted file edits, curl requests, quick calculations, "
                 "and runtime verification. For file edits, use short Python/Node scripts that read the "
@@ -103,6 +103,7 @@ class BashTool:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=self._cwd,
+                preexec_fn=os.setsid if hasattr(os, "setsid") else None,
             )
 
             stdout_buffer = bytearray()
@@ -126,11 +127,11 @@ class BashTool:
                 await asyncio.wait_for(proc.wait(), timeout=timeout)
                 await asyncio.gather(stdout_task, stderr_task)
             except asyncio.TimeoutError:
-                proc.terminate()
+                self._terminate_process_group(proc, signal.SIGTERM)
                 try:
                     await asyncio.wait_for(proc.wait(), timeout=2)
                 except asyncio.TimeoutError:
-                    proc.kill()
+                    self._terminate_process_group(proc, signal.SIGKILL)
                     await proc.wait()
                 await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
                 duration_ms = int((time.perf_counter() - start_time) * 1000)
@@ -252,11 +253,27 @@ class BashTool:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=self._cwd,
+                preexec_fn=os.setsid if hasattr(os, "setsid") else None,
             )
             stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5)
             return b"ok" in stdout
         except Exception:
             return False
+
+    @staticmethod
+    def _terminate_process_group(
+        proc: asyncio.subprocess.Process,
+        sig: signal.Signals,
+    ) -> None:
+        try:
+            if hasattr(os, "killpg"):
+                os.killpg(os.getpgid(proc.pid), sig)
+            elif sig == signal.SIGTERM:
+                proc.terminate()
+            else:
+                proc.kill()
+        except ProcessLookupError:
+            pass
 
     async def close(self) -> None:
         """No resources to clean up."""

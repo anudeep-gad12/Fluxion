@@ -83,7 +83,5 @@ def test_plan_mode_mutating_tools_still_block_source_mutation():
         "edit_file",
         "apply_patch",
         "exec_command",
-        "bash",
-        "python_execute",
     } <= PLAN_MODE_MUTATING_TOOLS
     assert "update_plan_doc" not in PLAN_MODE_MUTATING_TOOLS

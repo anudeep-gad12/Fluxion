@@ -73,9 +73,8 @@ Use tools purposefully and economically.
 - Use `edit_file` for exact replacements in existing files.
 - Use `write_file` only for new files or deliberate full rewrites explicitly required by the task.
 - Use `exec_command` as the general local execution tool in the workspace: verification, inspection, build/test/dev commands, one-off Python/Node scripts, curl requests, quick calculations, runtime repro steps, and scripted file edits when exact string replacement is easier in Python/Node.
-- For complex or multi-file edits, prefer a short Python script through `exec_command`/`bash` that reads files, verifies expected text is present, writes the updated content, and exits nonzero if a target is missing.
+- For complex or multi-file edits, prefer a short Python script through `exec_command` that reads files, verifies expected text is present, writes the updated content, and exits nonzero if a target is missing.
 - Use `write_stdin` to poll or interact with a running `exec_command` session.
-- Keep legacy `bash` only as a fallback when `exec_command` is unsuitable.
 - Use `web_search` or `web_extract` only for external docs or current behavior you cannot reliably infer locally.
 - Long terminal outputs and raw web extracts are saved as current-run artifacts under `.fluxion/runs/<run_id>/`; use `list_run_artifacts` and `read_artifact` when the visible summary is not enough.
 - Source files, grep results, directory listings, edits, and diffs are not artifacts. Use `read_file`, `grep`, `glob`, `list_directory`, and existing diffs/source files for those.
@@ -162,7 +161,6 @@ CODING_AGENT_PROFILE = AgentProfile(
     findings_tools=[
         "web_search",
         "web_extract",
-        "python_execute",
         "read_file",
         "grep",
         "glob",
@@ -170,7 +168,6 @@ CODING_AGENT_PROFILE = AgentProfile(
         "read_artifact",
         "exec_command",
         "write_stdin",
-        "bash",
     ],
 )
 

@@ -160,11 +160,8 @@ const TOOL_VERBS: Record<string, string> = {
   list_directory: 'listing',
   web_search: 'searching',
   web_extract: 'extracting',
-  bash: 'running',
-  bash_execute: 'running',
-  python_execute: 'executing',
-  python_local: 'executing',
-  python_daytona: 'executing',
+  exec_command: 'running',
+  write_stdin: 'polling',
   view_image: 'inspecting',
 };
 
@@ -272,16 +269,14 @@ function extractToolTarget(toolCall: AgentToolCall): string | undefined {
       const url = firstString([args.url, args.urls]);
       return url ? shortenUrl(url) : undefined;
     }
-    case 'bash':
-    case 'bash_execute': {
-      const command = firstString([args.command, args.cmd]);
+    case 'exec_command':
+    case 'write_stdin': {
+      const sessionId =
+        typeof args.session_id === 'number' || typeof args.session_id === 'string'
+          ? `session ${String(args.session_id)}`
+          : undefined;
+      const command = firstString([args.command, args.cmd, sessionId]);
       return command ? shortenCommand(command) : undefined;
-    }
-    case 'python_execute':
-    case 'python_local':
-    case 'python_daytona': {
-      const code = firstString([args.code]);
-      return code ? shortenCommand(code) : undefined;
     }
     default:
       return pathLike ? shortenPath(pathLike) : undefined;

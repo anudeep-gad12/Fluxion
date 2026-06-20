@@ -132,11 +132,10 @@ orchestrator/                     # Backend (FastAPI)
 │       ├── list_directory.py     # Tree-style directory listing (auto)
 │       ├── web_search.py         # Parallel.ai web search
 │       ├── web_extract.py        # Content extraction
-│       ├── python_local.py       # Local Python execution
+│       ├── command_session.py    # exec_command/write_stdin shell sessions
 │       ├── run_artifacts.py      # Read/list persisted run output artifacts
 │       ├── request_user_input.py # Plan Mode/user input bridge
 │       ├── update_plan_doc.py    # Plan Mode durable plan updates
-│       ├── python_daytona.py     # Legacy optional Daytona sandbox
 │       └── view_image.py         # Local image inspection
 │
 ├── models/
@@ -645,7 +644,8 @@ Live states are `init`, `planning`, `tool_calling`, `synthesizing`, `paused`, `c
 | `apply_patch` | Atomic add/update/delete/move patches | `confirm` | Workspace-safe; preferred for code edits |
 | `exec_command` | Resumable shell command session | `dangerous` | Returns `session_id` for long-running commands |
 | `write_stdin` | Poll/write to running command | `dangerous` | Paired with `exec_command` |
-| `bash` | Legacy single-shot shell command | `dangerous` | Kept for compatibility |
+| `exec_command`/`write_stdin` | Codex-style local command sessions | `dangerous` | Primary shell/script interface |
+| `bash` | Legacy single-shot shell command | `dangerous` | Kept for direct compatibility tests, not live-registered |
 | `read_file` | Read files with line numbers/pagination | `auto` | Tracks read spans/freshness |
 | `write_file` | Create/overwrite files | `confirm` | Overwrites require explicit argument |
 | `edit_file` | Exact string replacement fallback | `confirm` | Returns diffs |
@@ -654,7 +654,6 @@ Live states are `init`, `planning`, `tool_calling`, `synthesizing`, `paused`, `c
 | `list_directory` | Bounded tree listing | `auto` | Read-only |
 | `web_search` | Parallel.ai search | `auto` | Requires `PARALLEL_API_KEY` |
 | `web_extract` | Parallel.ai extraction | `auto` | Persists large extracts as artifacts |
-| `python_execute` | Local Python execution by default | `auto` | Daytona implementation remains optional/legacy |
 | `view_image` | Inspect local image files | `auto` | Vision-capable model support |
 | `list_run_artifacts`/`read_artifact` | Read persisted run outputs | `auto` | Exposes `.fluxion/runs/<run_id>/` outputs |
 | `request_user_input` | Ask structured user input | `auto` | Plan/collaboration support |
@@ -789,7 +788,7 @@ demo:
   message_limit: ${DEMO_MESSAGE_LIMIT:-10}
 ```
 
-`provider_chain` remains available but disabled by default. `query_classification` is disabled by default so the model decides tool usage. E2B/Daytona dependencies remain in the project for compatibility, but the current Python tool default is local subprocess execution.
+`provider_chain` remains available but disabled by default. `query_classification` is disabled by default so the model decides tool usage. Live command execution is handled by local `exec_command`/`write_stdin` sessions; Python work uses `python3` through that shell surface.
 
 ### Environment Variable Resolution
 
@@ -810,7 +809,6 @@ Variables are resolved before Pydantic validation.
 | `ThinkingConfig` | Mode mapping, ThinkingTracingConfig, ThinkingUIConfig |
 | `QueryClassificationConfig` | Legacy keyword enforcement controls; disabled by default |
 | `ParallelConfig` | Web search/extract with nested `ParallelSearchConfig`, `ParallelExtractConfig` |
-| `PythonConfig` | Local Python execution settings |
 | `SandboxConfig` | Legacy sandbox config retained for compatibility; not used by default |
 | `DemoConfig` | Demo mode with `RateLimitConfig`, owner bypass, and per-session message limits |
 

@@ -780,9 +780,8 @@ POST /api/agent/runs
     "web": true,
     "filesystem": true,
     "bash": true,
-    "python": true
+    "python": false
   },
-  "python_provider": "local",
   "image_attachments": []
 }
 ```
@@ -796,8 +795,7 @@ POST /api/agent/runs
 | `workspace_path` | string | No | null | Workspace to bind when auto-creating a conversation |
 | `working_dir` | string | No | null | Filesystem root for coding tools |
 | `filesystem_enabled` | bool | No | false | Enable filesystem tools |
-| `capabilities` | object | No | `{web:true, filesystem:false, bash:false, python:false}` | Browser-owned tool capability switches |
-| `python_provider` | string | No | env/config default | `"local"` by default; `"daytona"` remains legacy/optional |
+| `capabilities` | object | No | `{web:true, filesystem:false, bash:false, python:false}` | Browser-owned tool capability switches; `bash` registers `exec_command`/`write_stdin`; `python` is ignored for old clients |
 | `image_attachments` | array | No | `[]` | Optional multimodal image attachments |
 
 **Response** (200 OK):

@@ -120,7 +120,7 @@ def build_responses_request(
         tool_choice: Tool selection behavior. Options:
             - None or "auto": Model decides (default)
             - "required": Model MUST call a tool
-            - "tool_name": Force specific tool (e.g., "python_execute")
+            - "tool_name": Force specific tool (e.g., "exec_command")
         reasoning_effort: Native reasoning effort ("low", "medium", "high").
         max_output_tokens: Maximum tokens (responses API uses this, not max_tokens).
         stream: Whether to stream the response.
@@ -212,7 +212,7 @@ def build_chat_completions_request(
         tool_choice: Tool selection behavior. Options:
             - None or "auto": Model decides (default)
             - "required": Model MUST call a tool
-            - "tool_name": Force specific tool (e.g., "python_execute")
+            - "tool_name": Force specific tool (e.g., "exec_command")
         max_tokens: Maximum tokens to generate.
         temperature: Sampling temperature.
         stream: Whether to stream the response.

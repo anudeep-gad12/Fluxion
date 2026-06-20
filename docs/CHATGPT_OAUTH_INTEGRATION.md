@@ -47,7 +47,7 @@ User sends a query
 - `agent_engine.py` — agent loop stays exactly the same
 - Current agent planning/Plan Mode lives in `orchestrator/agent/plan_mode.py` and durable plan docs; the old standalone research planner is no longer current runtime architecture.
 - context handling remains backend-owned and provider-agnostic, but the current implementation now uses normalized model context profiles, bounded tool-result history, and 90%-threshold conversation compaction
-- Tool execution (web_search, web_extract, python_execute) — all the same
+- Tool execution (web_search, web_extract, exec_command/write_stdin) — all the same
 - SSE streaming and frontend — all the same
 - Citations, step tracking, forced synthesis — all the same
 

@@ -203,7 +203,7 @@ class AgentRepo:
         Args:
             run_id: The run ID.
             step_id: The step ID this tool call belongs to.
-            tool_name: Name of the tool (web_search, web_extract, python_execute).
+            tool_name: Name of the tool (web_search, web_extract, exec_command, etc.).
             arguments: Tool arguments as dict.
             idempotency_key: Unique key for retry detection.
             status: Initial status (default: pending).

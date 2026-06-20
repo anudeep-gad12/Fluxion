@@ -127,7 +127,6 @@ def create_browser_agent_tool_registry(
     config: "ChatConfig",
     capabilities: dict,
     working_dir: Optional[str] = None,
-    python_provider: Optional[str] = None,
     collaboration_mode: str = "default",
     user_input_callback: Optional[Any] = None,
     plan_doc_relative_path: Optional[str] = None,
@@ -188,23 +187,9 @@ def create_browser_agent_tool_registry(
         )
 
     if capabilities.get("python", False):
-        from .python_local import LocalPythonTool
-
-        python_config = getattr(config, "python", None)
-        timeout = getattr(python_config, "timeout_seconds", 30) if python_config else 30
-        resolved_provider = python_provider or os.environ.get("PYTHON_PROVIDER", "local")
-        if resolved_provider == "daytona":
-            from .python_daytona import DaytonaPythonTool
-
-            daytona_api_key = os.environ.get("DAYTONA_API_KEY") or os.environ.get("DAYTONA_API")
-            if daytona_api_key:
-                registry.register(
-                    DaytonaPythonTool(api_key=daytona_api_key, timeout_seconds=timeout)
-                )
-            else:
-                registry.register(LocalPythonTool(timeout_seconds=timeout))
-        else:
-            registry.register(LocalPythonTool(timeout_seconds=timeout))
+        logger.info(
+            "python_execute not registered: local coding agents use exec_command for Python"
+        )
 
     if capabilities.get("filesystem", False):
         wd = working_dir or os.getcwd()
@@ -226,13 +211,11 @@ def create_browser_agent_tool_registry(
 
     if capabilities.get("bash", False):
         wd = working_dir or os.getcwd()
-        from .bash_tool import BashTool
         from .command_session import CommandSessionManager, ExecCommandTool, WriteStdinTool
 
         command_manager = CommandSessionManager(working_dir=wd)
         registry.register(ExecCommandTool(command_manager))
         registry.register(WriteStdinTool(command_manager))
-        registry.register(BashTool(working_dir=wd))
 
     if collaboration_mode == "plan":
         from .request_user_input import RequestUserInputTool

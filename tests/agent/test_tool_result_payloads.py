@@ -33,6 +33,14 @@ def test_stored_result_detail_round_trips_edit_payload():
     assert display_result_data("edit_file", payload) == diff
 
 
+def test_artifact_payload_display_round_trips_json():
+    payload = {"artifact_path": ".fluxion/runs/run-1/output.txt", "content": "hello"}
+
+    result = display_result_data("read_artifact", payload)
+
+    assert json.loads(result) == payload
+
+
 def test_bash_output_extracts_structured_payload():
     output = bash_output_from_result_data(
         {"stdout": "ok\n", "stderr": "", "exit_code": 0, "timed_out": False}

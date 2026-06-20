@@ -342,7 +342,12 @@ try:
         tc for tc in data.get('tool_calls', [])
         if tc.get('tool_name') in ('exec_command', 'bash')
     ]
-    print(calls[-1].get('status', '') if calls else '')
+    if any(tc.get('status') == 'success' for tc in calls):
+        print('success')
+    elif calls:
+        print(calls[-1].get('status', ''))
+    else:
+        print('')
 except Exception:
     print('')
 ")

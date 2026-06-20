@@ -396,12 +396,6 @@ class QueryClassificationConfig(BaseModel):
     min_confidence_for_enforcement: int = 2
 
 
-class PythonConfig(BaseModel):
-    """Python execution settings."""
-
-    timeout_seconds: int = 30
-
-
 # =============================================================================
 # Demo Mode Configuration
 # =============================================================================
@@ -465,11 +459,10 @@ class ChatConfig(BaseModel):
 
     # Tool configurations
     parallel: Optional[ParallelConfig] = None  # Parallel.ai for web search/extract
-    sandbox: Optional[SandboxConfig] = None  # E2B for Python execution
+    sandbox: Optional[SandboxConfig] = None  # Legacy sandbox config
 
     # Query classification (disabled by default - let model decide when to use tools)
     query_classification: Optional[QueryClassificationConfig] = None
-    python: Optional[PythonConfig] = None
 
     # ChatGPT OAuth integration
     chatgpt: Optional[ChatGPTConfig] = None
@@ -508,8 +501,6 @@ class ChatConfig(BaseModel):
             snapshot["sandbox"] = self.sandbox.model_dump()
         if self.query_classification:
             snapshot["query_classification"] = self.query_classification.model_dump()
-        if self.python:
-            snapshot["python"] = self.python.model_dump()
         if self.chatgpt:
             snapshot["chatgpt"] = self.chatgpt.model_dump()
         if self.demo:

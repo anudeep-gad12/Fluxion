@@ -336,14 +336,14 @@ class AgentEngine:
     """
 
     # Default system prompt for agent (date context added dynamically in _build_messages)
-    DEFAULT_SYSTEM_PROMPT = """You are a research assistant that helps users find and analyze information. You have access to tools for web searching, extracting content from URLs, and running Python code for calculations.
+    DEFAULT_SYSTEM_PROMPT = """You are a research assistant that helps users find and analyze information. You have access to tools for web searching, extracting content from URLs, and local command execution when a workspace shell is available.
 
 {date_context}
 
-You have ONLY three tools available (no others exist):
+Use only the tools actually provided in this run. Common tools include:
 - web_search: Find URLs for information online
 - web_extract: Get full page content from URLs
-- python_execute: Run calculations and data analysis
+- exec_command: Run local shell commands, including Python heredocs for calculations, when available
 
 IMPORTANT: After using web_extract, you have the COMPLETE page content. Read through it directly to find what you need - do not try to call any "search within page" or "find" tools, they don't exist.
 
@@ -355,22 +355,11 @@ IMPORTANT: After using web_extract, you have the COMPLETE page content. Read thr
 
 3. EXTRACT WHEN NEEDED: Use web_extract to get full content when search snippets aren't sufficient.
 
-=== MANDATORY PYTHON PROTOCOL ===
+=== CALCULATION PROTOCOL ===
 
-For ANY calculation, you MUST use python_execute:
-- Math operations (addition, multiplication, percentages)
-- Date calculations (days between dates, years)
-- Unit conversions (miles to km, F to C)
-- Counting or aggregating data
+For non-trivial calculations, use exec_command with a short Python heredoc when that tool is available. Always print the result.
 
-CRITICAL: Always use print() to output results. The tool only captures stdout.
-Code without print() returns nothing and wastes a step.
-WRONG: x = 5 * 3          → returns "(no output)"
-RIGHT: x = 5 * 3; print(x) → returns "15"
-
-Don't use python_execute to verify values already stated in the content.
-
-NEVER compute mentally or in text.
+Do not run commands just to verify values already stated in extracted content.
 
 === RESPONSE FORMAT ===
 
@@ -387,15 +376,15 @@ When ready to give your final answer, respond without calling any tools."""
 
 {date_context}
 
-You have ONLY three tools (no others exist):
-- python_execute: Run Python code for calculations (USE THIS for any physics/math computation)
+Use only the tools actually provided in this run. Common tools include:
+- exec_command: Run Python heredocs for calculations when available
 - web_search: Search the web for reference data or constants
 - web_extract: Extract detailed content from URLs (then READ it directly, don't try to search within it)
 
 CRITICAL INSTRUCTIONS FOR CALCULATIONS:
-1. For ANY physics or mathematical calculation, you MUST use python_execute
+1. For ANY physics or mathematical calculation, you MUST use exec_command
 2. NEVER compute physics formulas mentally or in text - always use Python code
-3. Even "simple" physics calculations (like kinetic energy, velocity, etc.) MUST use python_execute
+3. Even "simple" physics calculations (like kinetic energy, velocity, etc.) MUST use exec_command
 4. Use Python for: unit conversions, formula evaluation, numerical computation
 5. Only answer directly for trivial arithmetic like "2+2" or "5*3"
 6. ALWAYS use print() to output results - the tool only captures stdout.
@@ -403,13 +392,13 @@ CRITICAL INSTRUCTIONS FOR CALCULATIONS:
 
 CALCULATION WORKFLOW:
 1. Identify the physics/math problem and relevant formula
-2. Use python_execute to compute the result with proper units
+2. Use exec_command to compute the result with proper units
 3. If you need reference data (constants, material properties), use web_search first
 4. Present the final answer with the computation result
 
 WEB EXTRACT: Use when you need reference data. Wikipedia and official sources are fine.
 
-NEVER answer with mental math like "KE = 0.5 * 5 * 100 = 250 J" - always use python_execute.
+NEVER answer with mental math like "KE = 0.5 * 5 * 100 = 250 J" - always use exec_command.
 
 RESPONSE FORMAT:
 - Do NOT include inline citation numbers like [1], [2] in your answer
@@ -468,7 +457,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
             keep_full_steps: Number of recent steps to keep detailed.
             tool_choice: Override tool selection behavior on first step.
                 - None: Use default "auto"
-                - "python_execute": Force python_execute on first step
+                - "exec_command": Force exec_command on first step
                 - "required": Force model to use some tool
             max_context_tokens: Maximum tokens for input context (default 100k).
                 Used to enforce context budget before LLM calls.
@@ -704,7 +693,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
 
     def _query_needs_calculation_evidence(self, query: str, tool_names: set[str]) -> bool:
         """Return whether the user asked for arithmetic/data aggregation work."""
-        if "python_execute" not in tool_names:
+        if "exec_command" not in tool_names:
             return False
         lowered = query.lower()
         calculation_terms = (
@@ -963,7 +952,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
             satisfied.append("command_execution")
         if tools & {"web_search", "web_extract"}:
             satisfied.append("web_evidence")
-        if tools & {"python_execute"}:
+        if tools & {"exec_command"}:
             satisfied.append("calculation_evidence")
         return satisfied
 
@@ -3623,6 +3612,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
             empty_no_tool_retries = 0
             completion_update_continuations = 0
             last_completion_update_key: Optional[str] = None
+            awaiting_malformed_tool_retry = False
 
             # Main agent loop
             while state_machine.can_continue():
@@ -3937,6 +3927,21 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     tool_schemas=tool_schemas,
                     working_memory=working_memory,
                 )
+                if (
+                    awaiting_malformed_tool_retry
+                    and not tool_calls
+                    and completion_gate.action == "accept_final"
+                ):
+                    completion_gate = CompletionGateResult(
+                        action="show_update_and_continue",
+                        reason="malformed_tool_retry_required",
+                        evidence_required=completion_gate.evidence_required,
+                        evidence_satisfied=completion_gate.evidence_satisfied,
+                        evidence_missing=[
+                            *completion_gate.evidence_missing,
+                            "valid_retry_after_malformed_tool_call",
+                        ],
+                    )
                 await self._add_trace_event(
                     run_id=run_id,
                     event_type="completion_gate",
@@ -4088,6 +4093,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                                 ephemeral_messages.append(retry_prompt)
                             else:
                                 messages = self._trim_scaffold_messages(messages)
+                            awaiting_malformed_tool_retry = True
                             await state_machine.complete_step(
                                 decision="malformed_tool_call",
                                 thinking_text=thinking_text,
@@ -4171,6 +4177,8 @@ To provide your final answer, respond WITHOUT calling any tools."""
                         if self._is_coding_profile():
                             ephemeral_messages.append(filtered_user_prompt)
                         continue
+
+                    awaiting_malformed_tool_retry = False
 
                     # Tool calling step
                     await state_machine.transition_to(AgentStepState.TOOL_CALLING)
@@ -5286,7 +5294,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     web_sources.append(str(url))
             elif tool_name == "web_search" and summary:
                 findings.append(summary)
-            if summary and tool_name in {"read_file", "grep", "python_execute", "web_extract"}:
+            if summary and tool_name in {"read_file", "grep", "exec_command", "web_extract"}:
                 findings.append(summary)
 
         def _uniq(items: List[str], limit: int) -> List[str]:
@@ -5712,7 +5720,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
 
         Supported formats:
         - {"query": "..."} -> web_search
-        - {"code": "..."} -> python_execute
+        - {"code": "..."} -> exec_command
         - {"url": "..."} or {"urls": [...]} -> web_extract
 
         Args:
@@ -5747,8 +5755,14 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     if "max_results" in obj:
                         arguments["max_results"] = obj["max_results"]
                 elif "code" in obj:
-                    tool_name = "python_execute"
-                    arguments = {"code": obj["code"]}
+                    tool_name = "exec_command"
+                    code = str(obj["code"])
+                    delimiter = "PYTHON"
+                    while delimiter in code:
+                        delimiter += "_END"
+                    arguments = {
+                        "cmd": f"python3 - <<'{delimiter}'\n{code}\n{delimiter}"
+                    }
                 elif "urls" in obj:
                     tool_name = "web_extract"
                     arguments = {"urls": obj["urls"]}
@@ -6167,7 +6181,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     f"Tool '{tool_call.name}' does not exist. "
                     f"Available tools: {', '.join(available_tools)}. "
                     f"Use web_search to find URLs, web_extract to get page content, "
-                    f"or python_execute to process/search text."
+                    f"or exec_command to process/search text."
                 ),
                 duration_ms=0,
             )
@@ -6618,6 +6632,8 @@ To provide your final answer, respond WITHOUT calling any tools."""
             "grep",
             "glob",
             "list_directory",
+            "list_run_artifacts",
+            "read_artifact",
             "web_extract",
         }
         if tool_call.name in detail_tools and result.result_data:
@@ -6715,8 +6731,20 @@ To provide your final answer, respond WITHOUT calling any tools."""
         diff_data = display_result_data(tool_call.name, result.result_data)
         if diff_data:
             emit_kwargs["result_data"] = diff_data
-        elif tool_call.name in {"grep", "glob", "list_directory"} and result.result_data:
-            emit_kwargs["result_data"] = str(result.result_data)[:10000]
+        elif tool_call.name in {
+            "grep",
+            "glob",
+            "list_directory",
+            "list_run_artifacts",
+            "read_artifact",
+        } and result.result_data:
+            if isinstance(result.result_data, (dict, list)):
+                emit_kwargs["result_data"] = json.dumps(
+                    result.result_data,
+                    ensure_ascii=False,
+                )[:10000]
+            else:
+                emit_kwargs["result_data"] = str(result.result_data)[:10000]
         bash_output = bash_output_from_result_data(result.result_data)
         if tool_call.name in {"bash", "exec_command", "write_stdin"} and bash_output:
             emit_kwargs["bash_output"] = bash_output
@@ -7152,7 +7180,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 })
 
         elif tool_name == "python_execute":
-            # For python, keep code and truncated output
+            # For legacy python tool results, keep code and truncated output
             try:
                 data = json.loads(content)
                 code = data.get("code", "")[:300]
@@ -7330,13 +7358,14 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 "content": f"Extracted from {url_str}: {summary}",
             }
 
-        # For python_execute, note the calculation result
-        if tool_name == "python_execute":
+        # For command tools, note concise output/evidence.
+        if tool_name in {"exec_command", "write_stdin", "python_execute"}:
             if "Error" not in result_summary and len(result_summary) < 500:
+                label = "Python result" if tool_name == "python_execute" else "Command result"
                 return {
                     "step": step_number,
                     "tool": tool_name,
-                    "content": f"Python result: {result_summary[:200]}",
+                    "content": f"{label}: {result_summary[:200]}",
                 }
 
         # For filesystem tools (coding profile), extract findings

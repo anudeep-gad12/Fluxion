@@ -27,7 +27,7 @@ def test_normalize_collaboration_mode_defaults_unknown_values():
 
 
 def test_mutating_tool_set_blocks_runtime_primitives():
-    assert {"apply_patch", "exec_command", "write_stdin", "bash", "python_execute"}.issubset(
+    assert {"apply_patch", "exec_command", "write_stdin"}.issubset(
         PLAN_MODE_MUTATING_TOOLS
     )
 
@@ -37,4 +37,3 @@ def test_build_plan_implementation_prompt_uses_codex_handoff():
 
     assert "A previous agent produced the plan below" in prompt
     assert "# Approved Plan" in prompt
-

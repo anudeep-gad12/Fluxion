@@ -6,6 +6,7 @@ import pytest_asyncio
 from orchestrator.agent.tools.command_session import (
     CommandSessionManager,
     ExecCommandTool,
+    HeadTailBuffer,
     WriteStdinTool,
 )
 
@@ -70,6 +71,7 @@ async def test_stdin_write_for_interactive_process(tools):
             "print(\"got:\" + line.strip(), flush=True)'"
         ),
         yield_time_ms=50,
+        tty=True,
     )
     session_id = result.result_data["session_id"]
     completed = await stdin_tool.execute(
@@ -79,6 +81,19 @@ async def test_stdin_write_for_interactive_process(tools):
     )
     assert completed.result_data["status"] == "completed"
     assert "got:hello" in completed.result_data["stdout"]
+
+
+@pytest.mark.asyncio
+async def test_non_tty_rejects_arbitrary_stdin(tools):
+    exec_tool, stdin_tool, _ = tools
+    result = await exec_tool.execute(
+        cmd="python3 -c 'import sys; sys.stdin.readline()'",
+        yield_time_ms=50,
+    )
+    session_id = result.result_data["session_id"]
+    written = await stdin_tool.execute(session_id=session_id, chars="hello\n")
+    assert written.success is False
+    assert "non-PTY" in written.error_message
 
 
 @pytest.mark.asyncio
@@ -93,6 +108,14 @@ async def test_max_output_truncation(tools):
     assert "output truncated" in result.result_data["output"]
 
 
+def test_head_tail_buffer_keeps_full_text_until_cap():
+    buffer = HeadTailBuffer(max_bytes=10)
+    buffer.extend(b"abcdef")
+    buffer.extend(b"ghij")
+    assert buffer.truncated is False
+    assert buffer.text() == "abcdefghij"
+
+
 @pytest.mark.asyncio
 async def test_cleanup_kills_running_process(tools):
     exec_tool, _, manager = tools
@@ -101,3 +124,13 @@ async def test_cleanup_kills_running_process(tools):
     assert manager.get(result.result_data["session_id"]) is not None
     await manager.cleanup()
     assert manager.get(result.result_data["session_id"]) is None
+
+
+@pytest.mark.asyncio
+async def test_exec_result_includes_codex_style_metadata(tools):
+    exec_tool, _, _ = tools
+    result = await exec_tool.execute(cmd="echo hello")
+    assert result.result_data["chunk_id"]
+    assert result.result_data["wall_time_seconds"] >= 0
+    assert result.result_data["original_token_count"] >= 1
+    assert "output" in result.result_data

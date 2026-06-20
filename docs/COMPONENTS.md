@@ -577,7 +577,6 @@ async def create_agent_engine(
     working_dir: Optional[str] = None,
     approval_callback: Optional[object] = None,
     permission_policy: str = "strict",
-    python_provider: Optional[str] = None,
     agent_capabilities: Optional[dict] = None,
     reasoning_settings: Optional[ReasoningSettings] = None,
     collaboration_mode: str = "default",
@@ -602,8 +601,7 @@ async def create_agent_engine(
 | `filesystem_enabled` | bool | false | Enable workspace filesystem tools |
 | `working_dir` | str | None | Workspace/tool root |
 | `permission_policy` | str | strict | Tool approval policy |
-| `python_provider` | str | None | Python backend selection; local by default |
-| `agent_capabilities` | dict | None | Per-run web/filesystem/bash/python tool switches |
+| `agent_capabilities` | dict | None | Per-run web/filesystem/bash tool switches |
 | `reasoning_settings` | ReasoningSettings | None | Runtime reasoning control snapshot |
 | `collaboration_mode` | str | default | Default or Plan Mode collaboration mode |
 
@@ -856,38 +854,15 @@ class BaseTool(Protocol):
 
 **Registration**: Requires `PARALLEL_API_KEY` to be set.
 
-### `orchestrator/agent/tools/python_local.py`
+### `orchestrator/agent/tools/command_session.py`
 
-**Purpose**: Local Python code execution (default provider).
+**Purpose**: Codex-style local shell sessions for commands, tests, dev servers, and Python/Node scripts.
 
-**Class: `LocalPythonTool`**
+**Tools**:
+- `exec_command`: start a workspace-scoped shell command.
+- `write_stdin`: poll or interact with a running `exec_command` session.
 
-**Schema**:
-```python
-{
-    "name": "python_execute",
-    "description": "Execute Python code",
-    "parameters": {
-        "code": {"type": "string", "description": "Python code to execute"}
-    }
-}
-```
-
-**Features**:
-- Subprocess execution via `python3 -c`
-- Configurable timeout (default 30s)
-- Stdout/stderr capture
-- No API key required
-
-**Registration**: Used when `PYTHON_PROVIDER=local` (default).
-
-### `orchestrator/agent/tools/python_daytona.py`
-
-**Purpose**: Legacy optional Daytona-backed Python execution.
-
-**Class: `DaytonaPythonTool`**
-
-**Current status**: The live default is `LocalPythonTool`. Daytona remains in the tree for compatibility/testing and is only used when explicitly selected/configured.
+**Current status**: `python_execute` and Daytona-backed Python are removed from live registration. Use `exec_command` with `python3` heredocs for calculations and scripted edits.
 
 ### `orchestrator/agent/tools/apply_patch_tool.py`
 

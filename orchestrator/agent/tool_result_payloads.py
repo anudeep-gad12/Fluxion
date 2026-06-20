@@ -24,8 +24,23 @@ def parse_stored_result_detail(result_detail: Optional[str]) -> Any:
 
 
 def display_result_data(tool_name: str, result_data: Any) -> Optional[str]:
-    """Return browser-displayable result_data for write/edit tools."""
-    if tool_name not in {"write_file", "edit_file", "apply_patch"} or result_data is None:
+    """Return browser-displayable result_data for persisted tool payloads."""
+    if result_data is None:
+        return None
+
+    if tool_name in {
+        "grep",
+        "glob",
+        "list_directory",
+        "list_run_artifacts",
+        "read_artifact",
+    }:
+        if isinstance(result_data, (dict, list)):
+            return json.dumps(result_data, ensure_ascii=False)[:MAX_DISPLAY_CHARS]
+        text = str(result_data)
+        return text[:MAX_DISPLAY_CHARS] if text else None
+
+    if tool_name not in {"write_file", "edit_file", "apply_patch"}:
         return None
 
     diff: Any

@@ -232,7 +232,7 @@ class TestBrowserAgentToolRegistry:
     """Tests for browser capability-based tool registration."""
 
     def test_filesystem_and_bash_capabilities_register_workspace_tools(self, tmp_path):
-        """Browser agent capabilities control filesystem and bash tools."""
+        """Browser agent capabilities expose unified exec, not legacy bash."""
         config = SimpleNamespace(parallel=None, python=SimpleNamespace(timeout_seconds=30))
 
         registry = create_browser_agent_tool_registry(
@@ -256,7 +256,6 @@ class TestBrowserAgentToolRegistry:
             "edit_file",
             "exec_command",
             "write_stdin",
-            "bash",
         }
 
     def test_run_artifact_tools_require_workspace_and_run_id(self, tmp_path):
@@ -299,8 +298,8 @@ class TestBrowserAgentToolRegistry:
 
         assert registry.tool_names == ["web_search", "web_extract"]
 
-    def test_python_is_disabled_by_default_for_browser_agent(self, tmp_path):
-        """Browser coding agent does not register python unless requested."""
+    def test_python_is_disabled_for_browser_agent(self, tmp_path):
+        """Browser coding agent does not register python_execute."""
         config = SimpleNamespace(parallel=None, python=SimpleNamespace(timeout_seconds=30))
 
         registry = create_browser_agent_tool_registry(
@@ -319,3 +318,15 @@ class TestBrowserAgentToolRegistry:
         assert "exec_command" not in registry.tool_names
         assert "write_stdin" not in registry.tool_names
         assert "apply_patch" not in registry.tool_names
+
+        requested = create_browser_agent_tool_registry(
+            config,
+            {
+                "web": False,
+                "filesystem": False,
+                "bash": False,
+                "python": True,
+            },
+            working_dir=str(tmp_path),
+        )
+        assert "python_execute" not in requested.tool_names

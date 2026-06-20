@@ -43,7 +43,7 @@ def should_retry_tool(
 
     Decision logic:
     - Idempotent tools (web_search, web_extract) can always be safely retried
-    - Non-idempotent tools (python_execute) in "pending" state never started,
+    - Non-idempotent tools in "pending" state never started,
       so they can be retried
     - Non-idempotent tools in "running" state were interrupted mid-execution,
       and cannot be safely retried - need hint injection instead

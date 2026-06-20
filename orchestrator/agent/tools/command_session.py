@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 import pty
+import signal
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -16,10 +17,18 @@ from .base import ToolResult, ToolSchema
 
 logger = get_logger(__name__)
 
-_DEFAULT_YIELD_MS = 1000
+_DEFAULT_YIELD_MS = 10000
+_DEFAULT_WRITE_YIELD_MS = 250
+_DEFAULT_POLL_YIELD_MS = 5000
+_MIN_YIELD_MS = 250
+_MAX_YIELD_MS = 30000
+_MAX_EMPTY_POLL_YIELD_MS = 300000
 _DEFAULT_TIMEOUT = 300
 _MAX_TIMEOUT = 1800
-_DEFAULT_MAX_OUTPUT_TOKENS = 6000
+_DEFAULT_MAX_OUTPUT_TOKENS = 10000
+_MAX_OUTPUT_BYTES = 1024 * 1024
+_MAX_SESSIONS = 64
+_INTERRUPT = "\x03"
 
 
 def _max_chars(max_output_tokens: Optional[int]) -> int:
@@ -44,6 +53,66 @@ def _truncate(text: str, max_output_tokens: Optional[int]) -> tuple[str, bool]:
     )
 
 
+def _approx_tokens(text: str) -> int:
+    return max(0, (len(text) + 3) // 4)
+
+
+def _chunk_id() -> str:
+    return f"chunk_{int(time.time() * 1000)}_{os.urandom(3).hex()}"
+
+
+def _clamp(value: Optional[int], default: int, minimum: int, maximum: int) -> int:
+    raw = default if value is None else int(value)
+    return max(minimum, min(raw, maximum))
+
+
+class HeadTailBuffer:
+    """Capped byte buffer that keeps stable head and latest tail."""
+
+    def __init__(self, max_bytes: int = _MAX_OUTPUT_BYTES) -> None:
+        self._max_bytes = max(1, max_bytes)
+        self._head_budget = max(1, self._max_bytes // 2)
+        self._tail_budget = max(0, self._max_bytes - self._head_budget)
+        self._head = bytearray()
+        self._tail = bytearray()
+        self._omitted_bytes = 0
+
+    @property
+    def truncated(self) -> bool:
+        return self._omitted_bytes > 0
+
+    def extend(self, chunk: bytes) -> None:
+        if not chunk:
+            return
+        if len(self._head) < self._head_budget:
+            head_room = self._head_budget - len(self._head)
+            self._head.extend(chunk[:head_room])
+            chunk = chunk[head_room:]
+        if not chunk:
+            return
+        if self._tail_budget <= 0:
+            self._omitted_bytes += len(chunk)
+            return
+        self._tail.extend(chunk)
+        if len(self._tail) > self._tail_budget:
+            excess = len(self._tail) - self._tail_budget
+            del self._tail[:excess]
+            self._omitted_bytes += excess
+
+    def text(self) -> str:
+        if not self.truncated:
+            return (bytes(self._head) + bytes(self._tail)).decode(
+                "utf-8",
+                errors="replace",
+            )
+        marker = (
+            f"\n\n... (output truncated at {_MAX_OUTPUT_BYTES} bytes; "
+            f"omitted {self._omitted_bytes} bytes; showing head and tail) ...\n\n"
+        ).encode("utf-8")
+        data = bytes(self._head) + marker + bytes(self._tail)
+        return data.decode("utf-8", errors="replace")
+
+
 @dataclass
 class CommandSession:
     """Running subprocess session."""
@@ -54,8 +123,8 @@ class CommandSession:
     proc: asyncio.subprocess.Process
     tty: bool = False
     started_at: float = field(default_factory=time.perf_counter)
-    stdout_buffer: bytearray = field(default_factory=bytearray)
-    stderr_buffer: bytearray = field(default_factory=bytearray)
+    stdout_buffer: HeadTailBuffer = field(default_factory=HeadTailBuffer)
+    stderr_buffer: HeadTailBuffer = field(default_factory=HeadTailBuffer)
     drain_tasks: list[asyncio.Task] = field(default_factory=list)
     timeout_task: Optional[asyncio.Task] = None
     timed_out: bool = False
@@ -99,6 +168,8 @@ class CommandSessionManager:
             raise ValueError("cmd is required")
         cwd = self.resolve_workdir(workdir)
         timeout = min(max(1, int(timeout or _DEFAULT_TIMEOUT)), _MAX_TIMEOUT)
+        if len(self._sessions) >= _MAX_SESSIONS:
+            raise ValueError(f"maximum running command sessions reached ({_MAX_SESSIONS})")
         session_id = self._next_id
         self._next_id += 1
 
@@ -146,7 +217,11 @@ class CommandSessionManager:
         session.timeout_task = asyncio.create_task(self._kill_after_timeout(session, timeout))
         return session
 
-    async def _drain_stream(self, stream: asyncio.StreamReader | None, buffer: bytearray) -> None:
+    async def _drain_stream(
+        self,
+        stream: asyncio.StreamReader | None,
+        buffer: HeadTailBuffer,
+    ) -> None:
         if stream is None:
             return
         while True:
@@ -187,7 +262,7 @@ class CommandSessionManager:
             return
 
     async def wait_briefly(self, session: CommandSession, yield_time_ms: int) -> bool:
-        timeout = max(0, int(yield_time_ms or 0)) / 1000
+        timeout = _clamp(yield_time_ms, _DEFAULT_YIELD_MS, _MIN_YIELD_MS, _MAX_YIELD_MS) / 1000
         try:
             await asyncio.wait_for(session.proc.wait(), timeout=timeout)
         except asyncio.TimeoutError:
@@ -215,13 +290,15 @@ class CommandSessionManager:
             return
         if not chars:
             return
+        if not session.tty:
+            if chars == _INTERRUPT:
+                await self._interrupt(session)
+                return
+            raise ValueError("stdin is closed for non-PTY sessions; start exec_command with tty=true")
         data = chars.encode("utf-8")
-        if session.tty and session.master_fd is not None:
+        if session.master_fd is not None:
             await asyncio.to_thread(os.write, session.master_fd, data)
             return
-        if session.proc.stdin is not None:
-            session.proc.stdin.write(data)
-            await session.proc.stdin.drain()
 
     async def remove_if_done(self, session: CommandSession) -> None:
         if session.proc.returncode is not None:
@@ -229,38 +306,65 @@ class CommandSessionManager:
             self._sessions.pop(session.session_id, None)
 
     def render(self, session: CommandSession, max_output_tokens: Optional[int]) -> dict[str, Any]:
-        stdout = session.stdout_buffer.decode("utf-8", errors="replace")
-        stderr = session.stderr_buffer.decode("utf-8", errors="replace")
+        stdout = session.stdout_buffer.text()
+        stderr = session.stderr_buffer.text()
         output = "\n".join(
             part for part in (stdout, f"STDERR:\n{stderr}" if stderr else "") if part
         )
+        original_token_count = _approx_tokens(output)
         output, output_truncated = _truncate(output or "", max_output_tokens)
         stdout_display, stdout_truncated = _truncate(stdout, max_output_tokens)
         stderr_display, stderr_truncated = _truncate(stderr, max_output_tokens)
         running = session.proc.returncode is None
         return {
             "session_id": session.session_id,
+            "chunk_id": _chunk_id(),
             "cmd": session.cmd,
             "workdir": str(session.cwd),
             "status": "running" if running else "completed",
             "running": running,
             "exit_code": session.proc.returncode,
+            "wall_time_seconds": round(time.perf_counter() - session.started_at, 3),
+            "original_token_count": original_token_count,
             "stdout": stdout_display,
             "stderr": stderr_display,
             "output": output if output else "(no output)",
-            "truncated": output_truncated or stdout_truncated or stderr_truncated,
+            "truncated": (
+                output_truncated
+                or stdout_truncated
+                or stderr_truncated
+                or session.stdout_buffer.truncated
+                or session.stderr_buffer.truncated
+            ),
             "timed_out": session.timed_out,
         }
+
+    async def _interrupt(self, session: CommandSession) -> None:
+        if session.proc.returncode is not None:
+            return
+        try:
+            if hasattr(os, "killpg"):
+                os.killpg(os.getpgid(session.proc.pid), signal.SIGINT)
+            else:
+                session.proc.send_signal(signal.SIGINT)
+        except ProcessLookupError:
+            return
 
     async def _terminate(self, session: CommandSession) -> None:
         if session.proc.returncode is not None:
             return
         try:
-            session.proc.terminate()
+            if hasattr(os, "killpg"):
+                os.killpg(os.getpgid(session.proc.pid), signal.SIGTERM)
+            else:
+                session.proc.terminate()
             await asyncio.wait_for(session.proc.wait(), timeout=2)
         except Exception:
             try:
-                session.proc.kill()
+                if hasattr(os, "killpg"):
+                    os.killpg(os.getpgid(session.proc.pid), signal.SIGKILL)
+                else:
+                    session.proc.kill()
             except ProcessLookupError:
                 pass
             try:
@@ -314,7 +418,8 @@ class ExecCommandTool:
                     "yield_time_ms": {
                         "type": "integer",
                         "description": (
-                            "Milliseconds to wait before returning a running session."
+                            "Milliseconds to wait before returning output or a running session "
+                            "(default 10000, effective range 250-30000)."
                         ),
                         "default": _DEFAULT_YIELD_MS,
                     },
@@ -378,8 +483,11 @@ class ExecCommandTool:
                 duration_ms=int((time.perf_counter() - start_time) * 1000),
                 metadata={
                     "session_id": data.get("session_id"),
+                    "chunk_id": data.get("chunk_id"),
                     "status": data.get("status"),
                     "exit_code": data.get("exit_code"),
+                    "wall_time_seconds": data.get("wall_time_seconds"),
+                    "original_token_count": data.get("original_token_count"),
                     "truncated": data.get("truncated"),
                     "timed_out": data.get("timed_out"),
                 },
@@ -432,8 +540,11 @@ class WriteStdinTool:
                     },
                     "yield_time_ms": {
                         "type": "integer",
-                        "description": "Milliseconds to wait for output or completion.",
-                        "default": _DEFAULT_YIELD_MS,
+                        "description": (
+                            "Milliseconds to wait for output or completion. Empty polls "
+                            "default to 5000ms and can wait up to 300000ms; non-empty "
+                            "writes default to 250ms and cap at 30000ms."
+                        ),
                     },
                     "max_output_tokens": {
                         "type": "integer",
@@ -451,7 +562,7 @@ class WriteStdinTool:
         self,
         session_id: int,
         chars: Optional[str] = None,
-        yield_time_ms: int = _DEFAULT_YIELD_MS,
+        yield_time_ms: Optional[int] = None,
         max_output_tokens: int = _DEFAULT_MAX_OUTPUT_TOKENS,
         **kwargs: Any,
     ) -> ToolResult:
@@ -467,7 +578,12 @@ class WriteStdinTool:
             )
         try:
             await self._manager.write(session, chars or "")
-            completed = await self._manager.poll(session, yield_time_ms)
+            effective_yield_time_ms = (
+                _clamp(yield_time_ms, _DEFAULT_POLL_YIELD_MS, _MIN_YIELD_MS, _MAX_EMPTY_POLL_YIELD_MS)
+                if not chars
+                else _clamp(yield_time_ms, _DEFAULT_WRITE_YIELD_MS, _MIN_YIELD_MS, _MAX_YIELD_MS)
+            )
+            completed = await self._manager.poll(session, effective_yield_time_ms)
             data = self._manager.render(session, max_output_tokens)
             if completed:
                 await self._manager.remove_if_done(session)
@@ -486,8 +602,11 @@ class WriteStdinTool:
                 duration_ms=int((time.perf_counter() - start_time) * 1000),
                 metadata={
                     "session_id": data.get("session_id"),
+                    "chunk_id": data.get("chunk_id"),
                     "status": data.get("status"),
                     "exit_code": data.get("exit_code"),
+                    "wall_time_seconds": data.get("wall_time_seconds"),
+                    "original_token_count": data.get("original_token_count"),
                     "truncated": data.get("truncated"),
                     "timed_out": data.get("timed_out"),
                 },

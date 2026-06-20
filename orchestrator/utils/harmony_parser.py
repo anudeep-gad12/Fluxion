@@ -36,18 +36,18 @@ class HarmonyParser:
     - recipient field - contains the target tool name
 
     Example input:
-        <|channel|>commentary to=python_execute code<|message|>print("hello")
+        <|channel|>commentary to=python code<|message|>print("hello")
 
     Parsed output:
         - channel: "commentary"
-        - recipient: "python_execute"
+        - recipient: "python"
         - content: 'print("hello")'
     """
 
     # Map of Harmony recipients to our tool names
     RECIPIENT_TO_TOOL: Dict[str, str] = {
-        "python": "python_execute",
-        "python_execute": "python_execute",
+        "python": "exec_command",
+        "python_execute": "exec_command",
         "web_search": "web_search",
         "web_extract": "web_extract",
     }
@@ -119,9 +119,14 @@ class HarmonyParser:
                     continue
 
                 # Build tool call in OpenAI format
-                if tool_name == "python_execute":
-                    # Code goes in the "code" argument
-                    arguments = json.dumps({"code": content_text.strip()})
+                if tool_name == "exec_command" and recipient in {"python", "python_execute"}:
+                    code = content_text.strip()
+                    delimiter = "PYTHON"
+                    while delimiter in code:
+                        delimiter += "_END"
+                    arguments = json.dumps({
+                        "cmd": f"python3 - <<'{delimiter}'\n{code}\n{delimiter}"
+                    })
                 elif tool_name == "web_search":
                     # Try to parse as JSON first, otherwise treat as query
                     try:

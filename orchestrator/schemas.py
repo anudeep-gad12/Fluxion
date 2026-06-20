@@ -271,6 +271,7 @@ class AgentCapabilities(BaseModel):
     web: bool = True
     filesystem: bool = False
     bash: bool = False
+    # Kept for old clients; ignored by the local coding agent.
     python: bool = False
 
 
@@ -417,9 +418,6 @@ class CreateAgentRunRequest(BaseModel):
     working_dir: Optional[str] = None
     permission_policy: str = "strict"
     collaboration_mode: Literal["default", "plan"] = "default"
-    python_provider: Optional[str] = (
-        None  # "local" or "daytona" — overrides PYTHON_PROVIDER env var
-    )
     image_attachments: list[dict[str, Any]] = Field(default_factory=list)
     plan_doc_path: Optional[str] = None
     source_plan_run_id: Optional[str] = None

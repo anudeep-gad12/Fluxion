@@ -18,6 +18,7 @@ class ViewImageTool:
     """Read local image files from the workspace for multimodal model input."""
 
     SUPPORTED_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}
+    SUPPORTED_MIME_TYPES = {"image/png", "image/jpeg", "image/webp"}
     MAX_IMAGES = 8
 
     def __init__(self, working_dir: str = ".") -> None:
@@ -91,6 +92,8 @@ class ViewImageTool:
                 mime_type = mimetypes.guess_type(path.name)[0] or "image/png"
                 if mime_type == "image/jpg":
                     mime_type = "image/jpeg"
+                if mime_type not in self.SUPPORTED_MIME_TYPES:
+                    raise ValueError(f"Unsupported image MIME type {mime_type}: {raw_path}")
                 data = base64.b64encode(path.read_bytes()).decode("ascii")
                 images.append(
                     {

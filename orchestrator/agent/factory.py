@@ -35,7 +35,6 @@ async def create_agent_engine(
     working_dir: Optional[str] = None,
     approval_callback: Optional[object] = None,
     permission_policy: str = "strict",
-    python_provider: Optional[str] = None,
     agent_capabilities: Optional[dict] = None,
     reasoning_settings: Optional[ReasoningSettings] = None,
     collaboration_mode: str = "default",
@@ -81,14 +80,13 @@ async def create_agent_engine(
         "web": True,
         "filesystem": bool(filesystem_enabled or working_dir),
         "bash": bool(filesystem_enabled or working_dir),
-        "python": True,
+        "python": False,
     }
     resolved_collaboration_mode = normalize_collaboration_mode(collaboration_mode)
     registry = create_browser_agent_tool_registry(
         config,
         capabilities,
         working_dir,
-        python_provider=python_provider,
         collaboration_mode=resolved_collaboration_mode,
         user_input_callback=user_input_callback,
         plan_doc_relative_path=plan_doc_relative_path,

@@ -235,7 +235,10 @@ class WebExtractTool:
                         extra={"status": response.status_code, "attempt": attempt},
                     )
                 else:
-                    response.raise_for_status()
+                    body = response.text[:500]
+                    raise ToolExecutionError(
+                        f"HTTP {response.status_code}: {body or response.reason_phrase}"
+                    )
 
             except httpx.TimeoutException:
                 last_error = "Timeout"
@@ -247,8 +250,10 @@ class WebExtractTool:
                     extra={"attempt": attempt, "error": str(e)},
                 )
             except httpx.HTTPStatusError as e:
-                # Non-retryable HTTP error
-                raise ToolExecutionError(f"HTTP error: {e.response.status_code}")
+                body = e.response.text[:500]
+                raise ToolExecutionError(
+                    f"HTTP {e.response.status_code}: {body or e.response.reason_phrase}"
+                )
 
             # Backoff before retry
             if attempt < self._max_retries:

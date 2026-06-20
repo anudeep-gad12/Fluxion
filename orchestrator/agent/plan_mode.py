@@ -47,8 +47,6 @@ PLAN_MODE_MUTATING_TOOLS = {
     "write_file",
     "exec_command",
     "write_stdin",
-    "bash",
-    "python_execute",
 }
 
 _PROPOSED_PLAN_RE = re.compile(

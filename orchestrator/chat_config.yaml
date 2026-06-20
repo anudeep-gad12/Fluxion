@@ -197,18 +197,9 @@ parallel:
     max_urls_per_request: 3
 
 # =============================================================================
-# Python Execution
-# =============================================================================
-# Used by python_execute tool for calculations.
-# Currently uses local subprocess (fast, reliable).
-
-python:
-  timeout_seconds: 30  # Execution timeout
-
-# =============================================================================
 # Query Classification (Tool Usage Policy)
 # =============================================================================
-# Controls when python_execute is required vs. optional for calculations.
+# Controls whether the app enforces tool usage vs. letting the model decide.
 # Uses keyword-based detection (not LLM-based).
 
 query_classification:

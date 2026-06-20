@@ -124,20 +124,25 @@ class AgentArtifactManager:
         limit: int = 200,
     ) -> dict[str, Any]:
         path = self._resolve_read_path(artifact_path)
-        text = path.read_text(encoding="utf-8", errors="replace")
-        lines = text.splitlines()
         offset = max(1, int(offset or 1))
         limit = min(max(1, int(limit or 200)), 1000)
-        start = offset - 1
-        end = min(len(lines), start + limit)
-        selected = lines[start:end]
+        selected: list[tuple[int, str]] = []
+        total_lines = 0
+        wanted_end = offset + limit - 1
+        with path.open("r", encoding="utf-8", errors="replace") as handle:
+            for line_number, line in enumerate(handle, start=1):
+                total_lines = line_number
+                if offset <= line_number <= wanted_end:
+                    selected.append((line_number, line.rstrip("\n\r")))
+        line_end = selected[-1][0] if selected else None
+        next_offset = (line_end + 1) if line_end is not None and line_end < total_lines else None
         return {
             "artifact_path": self._relative_to_workspace(path),
-            "line_start": start + 1,
-            "line_end": end if selected else None,
-            "total_lines": len(lines),
-            "next_offset": end + 1 if end < len(lines) else None,
-            "content": "\n".join(f"{idx:>6}\t{line}" for idx, line in enumerate(selected, start + 1)),
+            "line_start": offset,
+            "line_end": line_end,
+            "total_lines": total_lines,
+            "next_offset": next_offset,
+            "content": "\n".join(f"{idx:>6}\t{line}" for idx, line in selected),
         }
 
     def _append_manifest(self, artifact: ArtifactWrite) -> None:

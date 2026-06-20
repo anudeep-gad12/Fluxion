@@ -1,7 +1,7 @@
 """Base types and protocols for agent tools.
 
 All tools must implement the BaseTool protocol to ensure consistent
-behavior across web_search, web_extract, and python_execute tools.
+behavior across the agent tool registry.
 """
 
 from dataclasses import dataclass, field
@@ -61,7 +61,7 @@ class ToolSchema:
     """OpenAI function schema for tool.
 
     Attributes:
-        name: Tool name (web_search, web_extract, python_execute).
+        name: Tool name (web_search, web_extract, exec_command, etc.).
         description: Tool description for LLM.
         parameters: JSON Schema for parameters.
         is_idempotent: Whether tool is safe to retry on crash.

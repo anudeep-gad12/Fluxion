@@ -22,21 +22,19 @@ const STATUS_MARKERS: Record<AgentToolCallStatus, { marker: string; color: strin
 const TOOL_PREFIXES: Record<string, string> = {
   web_search: 'search',
   web_extract: 'extract',
-  python_execute: 'python',
   read_file: 'read',
   list_directory: 'list',
   write_file: 'write',
   edit_file: 'edit',
   grep: 'grep',
   glob: 'glob',
-  bash: 'bash',
   exec_command: 'exec',
   write_stdin: 'stdin',
   list_run_artifacts: 'artifacts',
   read_artifact: 'artifact',
 };
 
-const COMMAND_TOOL_NAMES = new Set(['bash', 'exec_command', 'write_stdin']);
+const COMMAND_TOOL_NAMES = new Set(['exec_command', 'write_stdin']);
 
 function normalizeToolArguments(
   rawArgs: Record<string, unknown> | string | null | undefined,
@@ -75,11 +73,17 @@ export function formatArguments(
   const args = normalizeToolArguments(rawArgs);
 
   if (toolName === 'write_stdin') {
+    if (typeof args.chars === 'string' && args.chars.trim()) {
+      return args.chars;
+    }
     if (typeof args.text === 'string' && args.text.trim()) {
       return args.text;
     }
-    if (typeof args.session_id === 'string' && args.session_id.trim()) {
-      return args.session_id;
+    if (
+      (typeof args.session_id === 'string' && args.session_id.trim()) ||
+      typeof args.session_id === 'number'
+    ) {
+      return `session ${String(args.session_id)}`;
     }
     return '';
   }
@@ -96,23 +100,7 @@ export function formatArguments(
   if (args.pattern) return args.pattern as string;
   if (typeof args.cmd === 'string') return args.cmd;
   if (typeof args.command === 'string') return args.command;
-  if (toolName === 'python_execute') return '';
   return JSON.stringify(args);
-}
-
-function PythonCodeBlock({ code, output }: { code: string; output?: string }) {
-  return (
-    <div className="space-y-1 ml-4">
-      <pre className="overflow-x-auto border-l border-zinc-800/90 pl-3 text-xs font-mono leading-relaxed text-zinc-300">
-        <code>{code}</code>
-      </pre>
-      {output && (
-        <pre className="overflow-x-auto whitespace-pre-wrap border-l border-zinc-900/90 pl-3 text-xs font-mono leading-relaxed text-zinc-400">
-          <code>{output}</code>
-        </pre>
-      )}
-    </div>
-  );
 }
 
 type DiffRow = {
@@ -332,13 +320,11 @@ export function ToolCallCard({ toolCall }: ToolCallCardProps) {
   const status = STATUS_MARKERS[toolCall.status];
   const prefix = TOOL_PREFIXES[toolCall.tool_name] || toolCall.tool_name;
   const isRunning = toolCall.status === 'running';
-  const isPython = toolCall.tool_name === 'python_execute';
   const isCommandTool = COMMAND_TOOL_NAMES.has(toolCall.tool_name);
   const hasResult =
     toolCall.result_summary && toolCall.result_summary.length > 0;
   const unifiedDiff = resolveUnifiedDiff(toolCall);
 
-  const pythonOutput = isPython && hasResult ? toolCall.result_summary : undefined;
   const argStr = formatArguments(toolCall.tool_name, toolCall.arguments);
   const needsApproval = toolCall.status === 'pending' && toolCall.approval_required;
 
@@ -360,14 +346,6 @@ export function ToolCallCard({ toolCall }: ToolCallCardProps) {
         )}
       </div>
 
-      {/* Python code block */}
-      {isPython && typeof toolCall.arguments.code === 'string' && (
-        <PythonCodeBlock
-          code={toolCall.arguments.code}
-          output={pythonOutput}
-        />
-      )}
-
       {/* Approval prompt */}
       {needsApproval && (
         <div className="ml-4 border-l border-amber-500/24 pl-3">
@@ -381,8 +359,8 @@ export function ToolCallCard({ toolCall }: ToolCallCardProps) {
         </div>
       )}
 
-      {/* Result (non-python) */}
-      {hasResult && !isPython && (
+      {/* Result */}
+      {hasResult && (
         <div className="ml-4">
           <div className="text-zinc-400 whitespace-pre-wrap">
             {toolCall.result_summary}
