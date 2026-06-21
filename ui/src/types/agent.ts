@@ -153,7 +153,7 @@ export interface CreateAgentRunRequest {
   capabilities?: {
     web: boolean;
     filesystem: boolean;
-    bash: boolean;
+    command: boolean;
     python: boolean;
   };
   image_attachments?: Array<{

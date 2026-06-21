@@ -1071,6 +1071,9 @@ async def create_agent_run(request: CreateAgentRunRequest, http_request: Request
         )
 
         capabilities = request.capabilities.model_dump()
+        capabilities["command"] = bool(
+            capabilities.get("command") or capabilities.pop("bash", False)
+        )
         if workspace_path and request.filesystem_enabled:
             capabilities["filesystem"] = True
         reasoning_settings, _, _ = await get_runtime_reasoning_settings()

@@ -2792,7 +2792,7 @@ export function ConversationView() {
             capabilities: {
               web: true,
               filesystem: !!effectiveWorkspacePath,
-              bash: !!effectiveWorkspacePath,
+              command: !!effectiveWorkspacePath,
               python: false,
             },
           },

@@ -79,7 +79,7 @@ async def create_agent_engine(
     capabilities = agent_capabilities or {
         "web": True,
         "filesystem": bool(filesystem_enabled or working_dir),
-        "bash": bool(filesystem_enabled or working_dir),
+        "command": bool(filesystem_enabled or working_dir),
         "python": False,
     }
     resolved_collaboration_mode = normalize_collaboration_mode(collaboration_mode)

@@ -21,3 +21,14 @@ async def test_sibling_prefix_path_blocked(tmp_path):
 
     assert result.success is False
     assert "outside" in result.error_message.lower()
+
+
+@pytest.mark.asyncio
+async def test_rejects_extension_only_fake_image(tmp_path):
+    image = tmp_path / "fake.png"
+    image.write_text("not actually a png")
+
+    result = await ViewImageTool(working_dir=str(tmp_path)).execute(paths=["fake.png"])
+
+    assert result.success is False
+    assert "unrecognized image data" in result.error_message

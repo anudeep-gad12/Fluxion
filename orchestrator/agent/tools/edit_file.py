@@ -9,7 +9,7 @@ from typing import Any, Callable, Optional
 from orchestrator.logging_config import get_logger
 
 from .base import ToolResult, ToolSchema
-from .path_utils import display_workspace_path, resolve_workspace_path
+from .path_utils import atomic_write_text, display_workspace_path, resolve_workspace_path
 
 logger = get_logger(__name__)
 
@@ -376,6 +376,7 @@ class EditFileTool:
                     duration_ms=int((time.perf_counter() - start_time) * 1000),
                 )
 
+            expected_bytes = path.read_bytes()
             raw_content, file_newline = self._read_with_native_newlines(path)
             content = self._normalize_newlines(raw_content)
             normalized_old = self._normalize_newlines(old_string)
@@ -439,8 +440,7 @@ class EditFileTool:
             start, end = match_span
             new_content = content[:start] + normalized_new + content[end:]
             final_content = self._restore_newlines(new_content, file_newline)
-            with path.open("w", encoding="utf-8", newline="") as handle:
-                handle.write(final_content)
+            atomic_write_text(path, final_content, expected_bytes=expected_bytes)
 
             old_lines = raw_content.splitlines(keepends=True)
             new_lines = final_content.splitlines(keepends=True)

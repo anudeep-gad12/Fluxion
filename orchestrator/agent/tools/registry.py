@@ -209,7 +209,7 @@ def create_browser_agent_tool_registry(
         registry.register(WriteFileTool(working_dir=wd))
         registry.register(EditFileTool(working_dir=wd))
 
-    if capabilities.get("bash", False):
+    if capabilities.get("command", capabilities.get("bash", False)):
         wd = working_dir or os.getcwd()
         from .command_session import CommandSessionManager, ExecCommandTool, WriteStdinTool
 

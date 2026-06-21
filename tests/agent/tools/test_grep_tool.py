@@ -132,6 +132,13 @@ async def test_grep_skips_binary(tool):
 
 
 @pytest.mark.asyncio
+async def test_invalid_regex_is_error_not_no_matches(tool):
+    result = await tool.execute(pattern="[unterminated")
+    assert result.success is False
+    assert "regex" in result.error_message.lower()
+
+
+@pytest.mark.asyncio
 async def test_schema_properties(tool):
     schema = tool.schema
     assert schema.name == "grep"

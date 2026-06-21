@@ -124,6 +124,22 @@ async def test_glob_respects_gitignore(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_glob_respects_nested_gitignore(tmp_path):
+    package = tmp_path / "package"
+    package.mkdir()
+    (package / ".gitignore").write_text("generated/\n")
+    generated = package / "generated"
+    generated.mkdir()
+    (generated / "hidden.py").write_text("hidden")
+    (package / "keep.py").write_text("keep")
+
+    result = await GlobTool(working_dir=str(tmp_path)).execute(pattern="*.py")
+
+    assert "package/keep.py" in result.result_data
+    assert "hidden.py" not in result.result_data
+
+
+@pytest.mark.asyncio
 async def test_glob_sorted_by_mtime(tool, working_dir):
     # Touch a.py to make it newer
     import time

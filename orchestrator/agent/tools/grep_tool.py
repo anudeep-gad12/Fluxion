@@ -14,7 +14,7 @@ from typing import Any, List, Optional
 
 from orchestrator.logging_config import get_logger
 
-from .base import ToolResult, ToolSchema
+from .base import ToolExecutionError, ToolResult, ToolSchema
 from .path_utils import (
     DEFAULT_SKIP_DIRS,
     GitIgnoreMatcher,
@@ -146,7 +146,18 @@ class GrepTool:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
+        try:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+            raise ToolExecutionError("ripgrep timed out after 30 seconds")
+
+        if proc.returncode not in (0, 1):
+            detail = stderr.decode("utf-8", errors="replace").strip()
+            raise ToolExecutionError(
+                f"ripgrep failed with exit {proc.returncode}: {detail[:500] or 'unknown error'}"
+            )
 
         return stdout.decode("utf-8", errors="replace")
 
@@ -191,7 +202,7 @@ class GrepTool:
         try:
             regex = re.compile(pattern)
         except re.error as e:
-            return f"Invalid regex: {e}", 0, Counter(), False
+            raise ToolExecutionError(f"Invalid regex: {e}") from e
 
         results: List[str] = []
         match_count = 0
@@ -337,14 +348,18 @@ class GrepTool:
                         output,
                         max_results,
                     )
+                except ToolExecutionError:
+                    raise
                 except Exception as e:
-                    logger.debug("ripgrep failed, falling back to Python", extra={"error": str(e)})
-                    output, match_count, file_counts, truncated = self._search_with_python(
-                        pattern, search_path, glob, context, max_results, ignore_matcher
+                    logger.debug("ripgrep unavailable, falling back to Python", extra={"error": str(e)})
+                    output, match_count, file_counts, truncated = await asyncio.to_thread(
+                        self._search_with_python,
+                        pattern, search_path, glob, context, max_results, ignore_matcher,
                     )
             else:
-                output, match_count, file_counts, truncated = self._search_with_python(
-                    pattern, search_path, glob, context, max_results, ignore_matcher
+                output, match_count, file_counts, truncated = await asyncio.to_thread(
+                    self._search_with_python,
+                    pattern, search_path, glob, context, max_results, ignore_matcher,
                 )
 
             duration_ms = int((time.perf_counter() - start_time) * 1000)
@@ -371,7 +386,7 @@ class GrepTool:
                 },
             )
 
-        except ValueError as e:
+        except (ValueError, ToolExecutionError) as e:
             return ToolResult(
                 success=False,
                 result_summary=f"Path error: {str(e)[:80]}",

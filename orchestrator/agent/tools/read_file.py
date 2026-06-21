@@ -3,6 +3,7 @@
 Reads file contents with line numbers. Auto-approves (read-only, idempotent).
 """
 
+import asyncio
 import time
 from pathlib import Path
 from typing import Any, Optional
@@ -118,6 +119,17 @@ class ReadFileTool:
         except Exception:
             return False
 
+    def _read_page(self, path: Path, start_idx: int, limit: int) -> tuple[list[str], int]:
+        """Stream a bounded page while counting total lines without loading the file."""
+        selected: list[str] = []
+        total_lines = 0
+        with path.open("r", encoding="utf-8", errors="replace") as handle:
+            for index, line in enumerate(handle):
+                total_lines = index + 1
+                if start_idx <= index < start_idx + limit:
+                    selected.append(line)
+        return selected, total_lines
+
     async def execute(
         self,
         file_path: str,
@@ -165,19 +177,16 @@ class ReadFileTool:
                     duration_ms=int((time.perf_counter() - start_time) * 1000),
                 )
 
-            # Read file with line numbers
-            with open(path, "r", encoding="utf-8", errors="replace") as f:
-                all_lines = f.readlines()
-
-            total_lines = len(all_lines)
             if offset is None:
                 offset = 1
             offset = max(1, int(offset))
             limit = 250 if limit is None else int(limit)
             start_idx = max(0, offset - 1)
             limit = min(max(1, limit), 400)
+            selected_lines, total_lines = await asyncio.to_thread(
+                self._read_page, path, start_idx, limit
+            )
             end_idx = min(total_lines, start_idx + limit)
-            selected_lines = all_lines[start_idx:end_idx]
 
             # Format with line numbers
             numbered_lines = []

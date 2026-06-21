@@ -60,6 +60,7 @@ async def test_write_stdin_polls_running_output(tools):
     polled = await stdin_tool.execute(session_id=session_id, yield_time_ms=1000)
     assert polled.result_data["status"] == "completed"
     assert "done" in polled.result_data["stdout"]
+    assert "start" not in polled.result_data["stdout"]
 
 
 @pytest.mark.asyncio
@@ -127,10 +128,23 @@ async def test_cleanup_kills_running_process(tools):
 
 
 @pytest.mark.asyncio
+async def test_write_stdin_can_terminate_session(tools):
+    exec_tool, stdin_tool, _ = tools
+    result = await exec_tool.execute(cmd="sleep 20", yield_time_ms=50)
+    stopped = await stdin_tool.execute(
+        session_id=result.result_data["session_id"],
+        terminate=True,
+    )
+    assert stopped.result_data["status"] == "completed"
+    assert stopped.result_data["exit_code"] != 0
+
+
+@pytest.mark.asyncio
 async def test_exec_result_includes_codex_style_metadata(tools):
     exec_tool, _, _ = tools
     result = await exec_tool.execute(cmd="echo hello")
     assert result.result_data["chunk_id"]
+    assert result.result_data["chunk_id"] == "session_1_chunk_1"
     assert result.result_data["wall_time_seconds"] >= 0
     assert result.result_data["original_token_count"] >= 1
     assert "output" in result.result_data

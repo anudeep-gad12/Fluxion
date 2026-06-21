@@ -81,15 +81,18 @@ class WebSearchTool:
                     "query": {
                         "type": "string",
                         "description": "Search query",
+                        "minLength": 1,
                     },
                     "num_results": {
                         "type": "integer",
                         "description": "Number of results (max 10)",
                         "default": 10,
                         "maximum": 10,
+                        "minimum": 1,
                     },
                 },
                 "required": ["query"],
+                "additionalProperties": False,
             },
             is_idempotent=True,
         )
@@ -108,7 +111,15 @@ class WebSearchTool:
             ToolResult with search results.
         """
         start_time = time.perf_counter()
-        num_results = min(num_results, self._max_results)
+        query = str(query or "").strip()
+        if not query:
+            return ToolResult(
+                success=False,
+                result_summary="Search query is empty",
+                error_message="query must contain non-whitespace text",
+                duration_ms=0,
+            )
+        num_results = min(max(1, num_results), self._max_results)
 
         try:
             response_data = await self._request_with_retry(

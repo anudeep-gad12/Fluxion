@@ -601,7 +601,7 @@ async def create_agent_engine(
 | `filesystem_enabled` | bool | false | Enable workspace filesystem tools |
 | `working_dir` | str | None | Workspace/tool root |
 | `permission_policy` | str | strict | Tool approval policy |
-| `agent_capabilities` | dict | None | Per-run web/filesystem/bash tool switches |
+| `agent_capabilities` | dict | None | Per-run web/filesystem/command tool switches |
 | `reasoning_settings` | ReasoningSettings | None | Runtime reasoning control snapshot |
 | `collaboration_mode` | str | default | Default or Plan Mode collaboration mode |
 
@@ -913,32 +913,6 @@ class BaseTool(Protocol):
 ### `orchestrator/agent/tools/update_plan_doc.py`
 
 **Purpose**: Plan Mode-only tool that updates `.fluxion/plans/<run_id>.md` and emits `plan_doc_updated` events/artifacts.
-
-### `orchestrator/agent/tools/bash_tool.py`
-
-**Purpose**: Legacy shell command execution with persistent working directory.
-
-**Class: `BashTool`**
-
-**Permission**: `dangerous` (always requires approval unless yolo mode)
-
-**Schema**:
-```python
-{
-    "name": "bash",
-    "parameters": {
-        "command": {"type": "string", "description": "Shell command to execute"},
-        "timeout": {"type": "integer", "description": "Timeout in seconds (max 600)"}
-    }
-}
-```
-
-**Features**:
-- Persistent working directory across calls
-- Configurable timeout (default 120s, max 600s)
-- Output truncated at 30,000 chars
-- Returns exit code, stdout, stderr in metadata
-- Prompt guidance now prefers `exec_command` for local execution and keeps `bash` as a compatibility fallback
 
 ### `orchestrator/agent/tools/read_file.py`
 
@@ -1530,7 +1504,7 @@ async with self._seq_lock:
 - Agent engine creates a Future when a tool needs approval, emits `tool_approval_required` SSE event
 - `/approve` resolves the Future with `True`, `/deny` resolves with `False`
 - Approval timeout: 5 minutes (tool is denied if no response)
-- `relaxed` policy is tool-aware, not blanket: read-only filesystem/web tools auto-run, write/edit/patch operations still require approval, and exec/bash commands are classified before auto-approval
+- `relaxed` policy auto-runs proven read-only filesystem, web, and command operations; mutations and unprovable shell syntax require approval
 
 **Pause/Resume Flow**:
 - Agent checks `pause_signal` (asyncio.Event) between steps

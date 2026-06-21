@@ -86,6 +86,7 @@ class WebExtractTool:
                     },
                 },
                 "required": ["urls"],
+                "additionalProperties": False,
             },
             is_idempotent=True,
         )

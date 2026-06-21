@@ -5,7 +5,6 @@ from __future__ import annotations
 import re
 import shlex
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 READ_ONLY_TOOLS = {
@@ -126,7 +125,8 @@ DESTRUCTIVE_PATTERNS = (
 
 WRITE_OPERATOR_RE = re.compile(r"(^|[^<])>>?|2>|&>|<\(|\btee\b")
 INPLACE_EDIT_RE = re.compile(r"\bsed\s+-i\b|\bperl\s+-pi\b|\bawk\b.*\binplace\b")
-ABSOLUTE_PATH_RE = re.compile(r"(?<![\w./~-])(/[^ \t\n\r;|&]+)")
+SHELL_OPERATOR_RE = re.compile(r"\|\||&&|[|;\n]")
+UNSAFE_SHELL_SYNTAX_RE = re.compile(r"`|\$\(|<\(|>\(|<<|\$\{")
 
 
 @dataclass(frozen=True)
@@ -189,9 +189,6 @@ def classify_bash_command(command: str, workspace_path: str | None) -> Permissio
     if WRITE_OPERATOR_RE.search(stripped) or INPLACE_EDIT_RE.search(lowered):
         return PermissionDecision(True, "dangerous", "shell redirection or in-place editing can write files")
 
-    if _references_outside_workspace(stripped, workspace_path):
-        return PermissionDecision(True, "dangerous", "command references paths outside the workspace")
-
     for pattern in DESTRUCTIVE_PATTERNS:
         if re.search(pattern, lowered):
             return PermissionDecision(True, "destructive", "destructive shell command")
@@ -205,10 +202,53 @@ def classify_bash_command(command: str, workspace_path: str | None) -> Permissio
 
 
 def _split_shell_segments(command: str) -> list[str]:
-    return [segment.strip() for segment in re.split(r"&&|\|\||;", command) if segment.strip()]
+    """Split compound shell commands without treating quoted operators as syntax."""
+    segments: list[str] = []
+    current: list[str] = []
+    quote: str | None = None
+    escaped = False
+    index = 0
+    while index < len(command):
+        char = command[index]
+        if escaped:
+            current.append(char)
+            escaped = False
+            index += 1
+            continue
+        if char == "\\" and quote != "'":
+            current.append(char)
+            escaped = True
+            index += 1
+            continue
+        if char in {"'", '"'}:
+            quote = None if quote == char else char if quote is None else quote
+            current.append(char)
+            index += 1
+            continue
+        if quote is None:
+            match = SHELL_OPERATOR_RE.match(command, index)
+            if match:
+                segment = "".join(current).strip()
+                if segment:
+                    segments.append(segment)
+                current = []
+                index = match.end()
+                continue
+        current.append(char)
+        index += 1
+    segment = "".join(current).strip()
+    if segment:
+        segments.append(segment)
+    return segments
 
 
 def _classify_bash_segment(segment: str) -> PermissionDecision | None:
+    if UNSAFE_SHELL_SYNTAX_RE.search(segment):
+        return PermissionDecision(
+            True,
+            "dangerous",
+            "shell expansion or unsupported syntax cannot be proven read-only",
+        )
     try:
         tokens = shlex.split(segment, posix=True)
     except ValueError:
@@ -238,6 +278,9 @@ def _classify_bash_segment(segment: str) -> PermissionDecision | None:
             return PermissionDecision(True, "dangerous", "git remote command modifies repository state")
         return PermissionDecision(True, "dangerous", "git command modifies repository state")
 
+    if cmd == "find" and any(token in tokens for token in ("-delete", "-exec", "-execdir", "-ok", "-okdir")):
+        return PermissionDecision(True, "dangerous", "find action may modify files or run commands")
+
     if cmd in MUTATING_BASH_COMMANDS:
         return PermissionDecision(True, "dangerous", f"{cmd} may modify files, processes, or the system")
 
@@ -245,27 +288,3 @@ def _classify_bash_segment(segment: str) -> PermissionDecision | None:
         return PermissionDecision(True, "dangerous", f"{cmd} is not in the read-only allowlist")
 
     return None
-
-
-def _references_outside_workspace(command: str, workspace_path: str | None) -> bool:
-    if not workspace_path:
-        return False
-
-    workspace = Path(workspace_path).resolve()
-    for match in ABSOLUTE_PATH_RE.findall(command):
-        path = Path(match).expanduser()
-        try:
-            resolved = path.resolve(strict=False)
-        except RuntimeError:
-            return True
-        if not _is_within_workspace(resolved, workspace):
-            return True
-    return False
-
-
-def _is_within_workspace(path: Path, workspace: Path) -> bool:
-    try:
-        path.relative_to(workspace)
-        return True
-    except ValueError:
-        return False

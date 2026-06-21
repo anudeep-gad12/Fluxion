@@ -270,6 +270,8 @@ class AgentCapabilities(BaseModel):
 
     web: bool = True
     filesystem: bool = False
+    command: bool = False
+    # Deprecated input alias retained for older clients.
     bash: bool = False
     # Kept for old clients; ignored by the local coding agent.
     python: bool = False

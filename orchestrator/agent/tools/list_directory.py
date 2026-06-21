@@ -3,6 +3,7 @@
 Lists directory contents with tree-style output. Auto-approves (read-only, idempotent).
 """
 
+import asyncio
 import time
 from pathlib import Path
 from typing import Any, List
@@ -184,9 +185,10 @@ class ListDirectoryTool:
             effective_depth = max(0, int(max_depth)) if recursive else 0
             entry_count = [0]
 
-            self._build_tree(
+            await asyncio.to_thread(
+                self._build_tree,
                 dir_path, "", 0, effective_depth, ignore_matcher,
-                lines, max_entries=200, entry_count=entry_count,
+                lines, 200, entry_count,
             )
 
             content = "\n".join(lines)

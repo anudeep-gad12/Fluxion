@@ -779,7 +779,7 @@ POST /api/agent/runs
   "capabilities": {
     "web": true,
     "filesystem": true,
-    "bash": true,
+    "command": true,
     "python": false
   },
   "image_attachments": []
@@ -795,7 +795,7 @@ POST /api/agent/runs
 | `workspace_path` | string | No | null | Workspace to bind when auto-creating a conversation |
 | `working_dir` | string | No | null | Filesystem root for coding tools |
 | `filesystem_enabled` | bool | No | false | Enable filesystem tools |
-| `capabilities` | object | No | `{web:true, filesystem:false, bash:false, python:false}` | Browser-owned tool capability switches; `bash` registers `exec_command`/`write_stdin`; `python` is ignored for old clients |
+| `capabilities` | object | No | `{web:true, filesystem:false, command:false, python:false}` | `command` registers `exec_command`/`write_stdin`; legacy `bash` is accepted as an input alias; `python` is ignored for old clients |
 | `image_attachments` | array | No | `[]` | Optional multimodal image attachments |
 
 **Response** (200 OK):

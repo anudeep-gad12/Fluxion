@@ -59,14 +59,30 @@ def test_relaxed_bash_destructive_command_is_marked_destructive(tmp_path):
     assert decision.permission_level == "destructive"
 
 
-def test_relaxed_bash_outside_workspace_requires_approval(tmp_path):
+def test_relaxed_read_outside_workspace_is_auto_allowed(tmp_path):
     decision = classify_bash_command(
         command="cat /etc/hosts",
         workspace_path=str(tmp_path),
     )
 
+    assert decision.needs_approval is False
+    assert decision.permission_level == "auto"
+
+
+def test_relaxed_pipeline_hidden_mutation_requires_approval(tmp_path):
+    decision = classify_bash_command(
+        command="cat README.md | touch changed.txt",
+        workspace_path=str(tmp_path),
+    )
     assert decision.needs_approval is True
-    assert decision.permission_level == "dangerous"
+
+
+def test_relaxed_find_mutation_requires_approval(tmp_path):
+    decision = classify_bash_command(
+        command="find . -delete",
+        workspace_path=str(tmp_path),
+    )
+    assert decision.needs_approval is True
 
 
 def test_yolo_auto_approves_mutating_tool(tmp_path):

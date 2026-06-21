@@ -3,10 +3,12 @@
 Finds files matching glob patterns. Auto-approves (read-only, idempotent).
 """
 
+import asyncio
+import os
 import time
 import fnmatch
 from pathlib import Path, PurePosixPath
-from typing import Any, Iterable, List, Optional
+from typing import Any, List, Optional
 
 from orchestrator.logging_config import get_logger
 
@@ -90,24 +92,52 @@ class GlobTool:
         normalized = pattern.replace("\\", "/")
         return "/" not in normalized and "**" not in normalized
 
-    def _case_insensitive_matches(
+    def _collect_matches(
         self,
         search_dir: Path,
-        effective_pattern: str,
-    ) -> Iterable[Path]:
-        """Yield files matching a glob pattern without case sensitivity."""
-        normalized_pattern = effective_pattern.replace("\\", "/")
-        pattern_lower = normalized_pattern.lower()
-        root_pattern = pattern_lower[3:] if pattern_lower.startswith("**/") else None
-        for candidate in search_dir.rglob("*"):
-            if not candidate.is_file():
+        pattern: str,
+        *,
+        recursive: bool,
+        case_sensitive: bool,
+        ignore_matcher: GitIgnoreMatcher,
+        scan_cap: int,
+    ) -> tuple[list[Path], bool]:
+        """Collect matches while pruning ignored directories before traversal."""
+        matches: list[Path] = []
+        normalized_pattern = pattern.replace("\\", "/")
+        compare_pattern = normalized_pattern if case_sensitive else normalized_pattern.lower()
+
+        def matches_pattern(candidate: Path) -> bool:
+            rel = candidate.relative_to(search_dir).as_posix()
+            compare = rel if case_sensitive else rel.lower()
+            posix = PurePosixPath(compare)
+            if posix.match(compare_pattern):
+                return True
+            if compare_pattern.startswith("**/"):
+                return fnmatch.fnmatchcase(compare, compare_pattern[3:])
+            return False
+
+        if not recursive and "**" not in normalized_pattern and "/" not in normalized_pattern:
+            candidates = [entry for entry in search_dir.iterdir() if entry.is_file()]
+        else:
+            candidates = []
+            for root, dirs, files in os.walk(search_dir):
+                root_path = Path(root)
+                dirs[:] = [
+                    name for name in dirs
+                    if not ignore_matcher.is_ignored(root_path / name)
+                ]
+                candidates.extend(root_path / name for name in files)
+
+        scan_truncated = False
+        for candidate in candidates:
+            if ignore_matcher.is_ignored(candidate) or not matches_pattern(candidate):
                 continue
-            rel_path = candidate.relative_to(search_dir).as_posix().lower()
-            rel_posix = PurePosixPath(rel_path)
-            if rel_posix.match(pattern_lower):
-                yield candidate
-            elif root_pattern and fnmatch.fnmatchcase(rel_path, root_pattern):
-                yield candidate
+            matches.append(candidate)
+            if len(matches) >= scan_cap:
+                scan_truncated = True
+                break
+        return matches, scan_truncated
 
     async def execute(
         self,
@@ -150,23 +180,16 @@ class GlobTool:
             if recursive_search and not pattern.startswith("**/"):
                 effective_pattern = f"**/{pattern}"
 
-            total_seen = 0
-            scan_truncated = False
-            candidates: Iterable[Path]
-            if case_sensitive:
-                candidates = search_dir.glob(effective_pattern)
-            else:
-                candidates = self._case_insensitive_matches(search_dir, effective_pattern)
-
-            for match in candidates:
-                if ignore_matcher.is_ignored(match):
-                    continue
-                if match.is_file():
-                    total_seen += 1
-                    matches.append(match)
-                    if total_seen >= scan_cap:
-                        scan_truncated = True
-                        break
+            matches, scan_truncated = await asyncio.to_thread(
+                self._collect_matches,
+                search_dir,
+                effective_pattern,
+                recursive=recursive_search,
+                case_sensitive=case_sensitive,
+                ignore_matcher=ignore_matcher,
+                scan_cap=scan_cap,
+            )
+            total_seen = len(matches)
 
             # Sort by mtime (most recent first)
             matches.sort(key=lambda p: p.stat().st_mtime, reverse=True)

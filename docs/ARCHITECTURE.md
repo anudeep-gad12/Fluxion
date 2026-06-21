@@ -68,7 +68,7 @@ Fluxion is a macOS coding-agent application. A Tauri desktop shell hosts the Rea
 
 - **macOS Desktop + REST API**: Tauri desktop surface, app-managed browser tabs, integrated terminals, plus backend APIs
 - **Chat + Coding Agent**: Plain chat runs and workspace-bound coding-agent runs
-- **Filesystem Tools**: apply_patch, exec_command/write_stdin, bash, glob, grep, read_file, edit_file, write_file, list_directory
+- **Filesystem Tools**: apply_patch, exec_command/write_stdin, glob, grep, read_file, edit_file, write_file, list_directory
 - **Tool Approval Flow**: Permission-gated tool execution (strict/relaxed/yolo policies)
 - **Multi-Provider Support**: Fireworks, OpenAI API, ChatGPT/Codex OAuth, Grok OAuth, xAI, OpenRouter, DeepInfra, and local GGUF/MLX
 - **Streaming-First**: Real-time token streaming via Server-Sent Events (SSE)
@@ -123,7 +123,6 @@ orchestrator/                     # Backend (FastAPI)
 │       ├── registry.py           # Tool registry
 │       ├── apply_patch_tool.py   # Atomic Codex-style patches (confirm)
 │       ├── command_session.py    # exec_command/write_stdin sessions (dangerous)
-│       ├── bash_tool.py          # Legacy shell command execution (dangerous)
 │       ├── read_file.py          # File reading with line numbers (auto)
 │       ├── write_file.py         # File creation/overwrite (confirm)
 │       ├── edit_file.py          # Exact string replacement fallback (confirm)
@@ -645,7 +644,6 @@ Live states are `init`, `planning`, `tool_calling`, `synthesizing`, `paused`, `c
 | `exec_command` | Resumable shell command session | `dangerous` | Returns `session_id` for long-running commands |
 | `write_stdin` | Poll/write to running command | `dangerous` | Paired with `exec_command` |
 | `exec_command`/`write_stdin` | Codex-style local command sessions | `dangerous` | Primary shell/script interface |
-| `bash` | Legacy single-shot shell command | `dangerous` | Kept for direct compatibility tests, not live-registered |
 | `read_file` | Read files with line numbers/pagination | `auto` | Tracks read spans/freshness |
 | `write_file` | Create/overwrite files | `confirm` | Overwrites require explicit argument |
 | `edit_file` | Exact string replacement fallback | `confirm` | Returns diffs |

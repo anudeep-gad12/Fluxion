@@ -23,7 +23,6 @@ from orchestrator.agent.coding_session import (
 from orchestrator.agent.plan_mode import PlanDecision
 from orchestrator.agent.state_machine import RecoveryContext
 from orchestrator.agent.tools.base import ToolResult, ToolSchema
-from orchestrator.agent.tools.bash_tool import BashTool
 from orchestrator.agent.tools.command_session import (
     CommandSessionManager,
     ExecCommandTool,
@@ -3861,7 +3860,7 @@ class TestToolArgumentValidation:
         assert error is not None
         assert "paths[1]" in error
 
-    def test_allows_unknown_extra_args_for_compatibility(self):
+    def test_rejects_unknown_extra_args(self):
         engine = self._make_engine()
         error = engine._validate_tool_arguments(
             "glob",
@@ -3873,7 +3872,7 @@ class TestToolArgumentValidation:
             {"pattern": "*.py", "extra": object()},
         )
 
-        assert error is None
+        assert "Unknown argument" in error
 
 
 class TestToolPreparation:
@@ -4254,9 +4253,10 @@ class TestPermissionPolicies:
     """Tests for tool approval policy handling."""
 
     @pytest.mark.asyncio
-    async def test_relaxed_bash_read_only_command_auto_approves(self, tmp_path):
+    async def test_relaxed_exec_read_only_command_auto_approves(self, tmp_path):
         registry = create_mock_registry()
-        registry.get.side_effect = lambda name: BashTool(str(tmp_path)) if name == "bash" else None
+        manager = CommandSessionManager(str(tmp_path))
+        registry.get.side_effect = lambda name: ExecCommandTool(manager) if name == "exec_command" else None
 
         approval_callback = AsyncMock(return_value=True)
         state_machine = create_mock_state_machine()
@@ -4273,9 +4273,9 @@ class TestPermissionPolicies:
         prep = await engine._prepare_tool_call(
             ParsedToolCall(
                 id="tc-1",
-                name="bash",
-                arguments={"command": "git status && rg permission_policy orchestrator"},
-                raw_arguments='{"command":"git status && rg permission_policy orchestrator"}',
+                name="exec_command",
+                arguments={"cmd": "git status && rg permission_policy orchestrator"},
+                raw_arguments='{"cmd":"git status && rg permission_policy orchestrator"}',
             ),
             state_machine=state_machine,
             step_number=1,
@@ -4293,9 +4293,10 @@ class TestPermissionPolicies:
         )
 
     @pytest.mark.asyncio
-    async def test_relaxed_bash_mutating_command_requires_approval(self, tmp_path):
+    async def test_relaxed_exec_mutating_command_requires_approval(self, tmp_path):
         registry = create_mock_registry()
-        registry.get.side_effect = lambda name: BashTool(str(tmp_path)) if name == "bash" else None
+        manager = CommandSessionManager(str(tmp_path))
+        registry.get.side_effect = lambda name: ExecCommandTool(manager) if name == "exec_command" else None
 
         approval_callback = AsyncMock(return_value=True)
         state_machine = create_mock_state_machine()
@@ -4312,9 +4313,9 @@ class TestPermissionPolicies:
         await engine._prepare_tool_call(
             ParsedToolCall(
                 id="tc-2",
-                name="bash",
-                arguments={"command": "mkdir -p src && touch src/new.py"},
-                raw_arguments='{"command":"mkdir -p src && touch src/new.py"}',
+                name="exec_command",
+                arguments={"cmd": "mkdir -p src && touch src/new.py"},
+                raw_arguments='{"cmd":"mkdir -p src && touch src/new.py"}',
             ),
             state_machine=state_machine,
             step_number=1,

@@ -52,7 +52,7 @@ UI/desktop task
   -> repeat until final assistant text, cancel, failure, or max_steps
 ```
 
-Agent runs are capability-driven. `capabilities.web/filesystem/bash/python` decide which tools are registered for that run. `permission_policy` (`strict`, `relaxed`, `yolo`) decides which `confirm`/`dangerous` tools block for approval.
+Agent runs are capability-driven. `capabilities.web/filesystem/command/python` decide which tools are registered; legacy `bash` input aliases `command`. `permission_policy` (`strict`, `relaxed`, `yolo`) decides which tools block for approval.
 
 Completion gating is structured around tool calls and observed evidence. A no-tool assistant response can be accepted as final; missing expected evidence is traced for debugging instead of forcing synthetic continuation loops.
 

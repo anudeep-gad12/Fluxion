@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import fnmatch
+import os
+import tempfile
 from pathlib import Path
 from typing import Iterable
 
@@ -40,6 +42,33 @@ def display_workspace_path(base: Path, path: Path) -> str:
         return str(path)
 
 
+def atomic_write_text(path: Path, content: str, *, expected_bytes: bytes | None = None) -> None:
+    """Atomically replace a text file, optionally rejecting concurrent changes."""
+    if expected_bytes is not None:
+        try:
+            current = path.read_bytes()
+        except FileNotFoundError as exc:
+            raise ValueError(f"File changed before write: {path}") from exc
+        if current != expected_bytes:
+            raise ValueError(f"File changed before write: {path}")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    existing_mode = path.stat().st_mode if path.exists() else None
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(path.parent))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        if existing_mode is not None:
+            os.chmod(tmp_name, existing_mode)
+        os.replace(tmp_name, path)
+    finally:
+        try:
+            os.unlink(tmp_name)
+        except FileNotFoundError:
+            pass
+
+
 class GitIgnoreMatcher:
     """Small gitignore-style matcher for common workspace ignore patterns.
 
@@ -61,13 +90,32 @@ class GitIgnoreMatcher:
     @classmethod
     def from_workspace(cls, base: Path) -> "GitIgnoreMatcher":
         patterns: list[str] = []
-        gitignore = base / ".gitignore"
-        if gitignore.exists():
+        ignore_files = [base / ".gitignore", base / ".git" / "info" / "exclude"]
+        try:
+            for root, dirs, files in os.walk(base):
+                dirs[:] = [name for name in dirs if name not in DEFAULT_SKIP_DIRS]
+                candidate = Path(root) / ".gitignore"
+                if ".gitignore" in files and candidate != base / ".gitignore":
+                    ignore_files.append(candidate)
+        except OSError:
+            pass
+        for gitignore in ignore_files:
+            if not gitignore.is_file():
+                continue
             try:
+                parent = gitignore.parent
+                if gitignore.parts[-3:] == (".git", "info", "exclude"):
+                    parent = base
+                prefix = parent.relative_to(base).as_posix()
                 for raw_line in gitignore.read_text(encoding="utf-8", errors="replace").splitlines():
                     line = raw_line.strip()
                     if line and not line.startswith("#"):
-                        patterns.append(line)
+                        if prefix == ".":
+                            patterns.append(line)
+                            continue
+                        negation = "!" if line.startswith("!") else ""
+                        clean = line.removeprefix("!").lstrip("/")
+                        patterns.append(f"{negation}{prefix}/{clean}")
             except Exception:
                 pass
         return cls(base, patterns)

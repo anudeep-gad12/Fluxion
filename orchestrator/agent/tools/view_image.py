@@ -60,6 +60,18 @@ class ViewImageTool:
     def _display_path(self, path: Path) -> str:
         return display_workspace_path(self._working_dir, path)
 
+    def _detected_mime_type(self, path: Path) -> str | None:
+        """Detect supported image formats from their file signatures."""
+        with path.open("rb") as handle:
+            header = handle.read(16)
+        if header.startswith(b"\x89PNG\r\n\x1a\n"):
+            return "image/png"
+        if header.startswith(b"\xff\xd8\xff"):
+            return "image/jpeg"
+        if len(header) >= 12 and header[:4] == b"RIFF" and header[8:12] == b"WEBP":
+            return "image/webp"
+        return None
+
     async def execute(self, paths: list[str], **kwargs: Any) -> ToolResult:
         start_time = time.perf_counter()
         if not paths:
@@ -94,6 +106,13 @@ class ViewImageTool:
                     mime_type = "image/jpeg"
                 if mime_type not in self.SUPPORTED_MIME_TYPES:
                     raise ValueError(f"Unsupported image MIME type {mime_type}: {raw_path}")
+                detected_mime = self._detected_mime_type(path)
+                if detected_mime is None:
+                    raise ValueError(f"Corrupt or unrecognized image data: {raw_path}")
+                if detected_mime != mime_type:
+                    raise ValueError(
+                        f"Image extension does not match its contents: {raw_path}"
+                    )
                 data = base64.b64encode(path.read_bytes()).decode("ascii")
                 images.append(
                     {

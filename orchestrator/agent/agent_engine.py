@@ -935,7 +935,18 @@ To provide your final answer, respond WITHOUT calling any tools."""
             str(entry.get("tool_name"))
             for entry in self._tool_call_log
             if bool(entry.get("success"))
+            and not (
+                entry.get("tool_name") in {"exec_command", "write_stdin"}
+                and (entry.get("result_metadata") or {}).get("status") != "completed"
+            )
         }
+
+    def _running_command_session_ids(self) -> list[int]:
+        """Return command sessions that must be resolved before finalization."""
+        tool = self._registry.get("exec_command")
+        manager = getattr(tool, "_manager", None)
+        getter = getattr(manager, "unresolved_session_ids", None)
+        return list(getter()) if callable(getter) else []
 
     def _satisfied_completion_evidence(
         self,
@@ -978,6 +989,14 @@ To provide your final answer, respond WITHOUT calling any tools."""
             return CompletionGateResult(
                 action="execute_tools",
                 reason="structured_tool_calls_present",
+            )
+
+        running_sessions = self._running_command_session_ids()
+        if running_sessions:
+            return CompletionGateResult(
+                action="show_update_and_continue",
+                reason="running_command_sessions",
+                evidence_missing=[f"command_session:{item}" for item in running_sessions],
             )
 
         final_answer = self._clean_answer(llm_response.text)
@@ -1452,6 +1471,8 @@ To provide your final answer, respond WITHOUT calling any tools."""
         arguments: Dict[str, Any],
     ) -> Optional[str]:
         """Return a validation error for tool arguments, or None when valid."""
+        if not isinstance(schema, dict):
+            return None
         required_args = schema.get("required", [])
         missing_args = [arg for arg in required_args if arg not in arguments]
         if missing_args:
@@ -1461,7 +1482,16 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 + f". The {tool_name} tool requires these parameters."
             )
 
-        properties = schema.get("properties", {})
+        properties = schema.get("properties")
+        if not isinstance(properties, dict):
+            properties = {}
+        unknown_args = [name for name in arguments if properties and name not in properties]
+        if unknown_args:
+            return (
+                f"Unknown argument(s) for {tool_name}: "
+                + ", ".join(f"'{name}'" for name in unknown_args)
+                + ". Use only arguments declared by the tool schema."
+            )
         for name, value in arguments.items():
             spec = properties.get(name)
             if not isinstance(spec, dict):
@@ -1492,6 +1522,23 @@ To provide your final answer, respond WITHOUT calling any tools."""
                                 f"Invalid argument '{name}[{idx}]' for {tool_name}: expected "
                                 f"{item_type}, got {type(item).__name__}."
                             )
+                        if item_type == "object" and isinstance(item, dict):
+                            nested_error = self._validate_tool_arguments(
+                                f"{tool_name}.{name}[{idx}]", item_spec, item
+                            )
+                            if nested_error:
+                                return nested_error
+            if expected == "object" and isinstance(value, dict):
+                nested_error = self._validate_tool_arguments(
+                    f"{tool_name}.{name}", spec, value
+                )
+                if nested_error:
+                    return nested_error
+            if expected == "string":
+                if "minLength" in spec and len(value) < int(spec["minLength"]):
+                    return f"Invalid argument '{name}' for {tool_name}: value is too short."
+                if "maxLength" in spec and len(value) > int(spec["maxLength"]):
+                    return f"Invalid argument '{name}' for {tool_name}: value is too long."
             if expected in {"integer", "number"}:
                 if "minimum" in spec and value < spec["minimum"]:
                     return (
@@ -4392,6 +4439,22 @@ To provide your final answer, respond WITHOUT calling any tools."""
                                 ephemeral_messages.append(update_message)
                         if not self._is_coding_profile():
                             messages = self._trim_scaffold_messages(messages)
+                        if completion_gate.reason == "running_command_sessions":
+                            session_ids = ", ".join(
+                                item.split(":", 1)[-1]
+                                for item in completion_gate.evidence_missing
+                            )
+                            instruction = {
+                                "role": "system",
+                                "content": (
+                                    "You still have running command session(s): "
+                                    f"{session_ids}. Use write_stdin to poll or terminate each "
+                                    "session before giving the final answer."
+                                ),
+                            }
+                            messages.append(instruction)
+                            if self._is_coding_profile():
+                                ephemeral_messages.append(instruction)
                         completion_update_continuations += 1
                         last_completion_update_key = update_key
                         await state_machine.complete_step(
@@ -6046,6 +6109,11 @@ To provide your final answer, respond WITHOUT calling any tools."""
             else:
                 serial_indices.append(i)
 
+        mixed_pre_mutation_snapshot = bool(parallel_indices) and any(
+            parsed_calls[i].name in {"write_file", "edit_file", "exec_command", "write_stdin"}
+            for i in serial_indices
+        )
+
         if parallel_indices:
             tasks = [
                 asyncio.create_task(_safe_execute(i, prepared[i]))
@@ -6053,6 +6121,9 @@ To provide your final answer, respond WITHOUT calling any tools."""
             ]
             for task in asyncio.as_completed(tasks):
                 idx, result = await task
+                if mixed_pre_mutation_snapshot:
+                    result.metadata["snapshot_phase"] = "pre_mutation"
+                    result.result_summary += " — pre-mutation snapshot for this mixed tool batch"
                 prepared[idx]["result"] = result
                 await _finalize_prepared(idx, prepared[idx], result)
 
@@ -6463,7 +6534,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
         Source reads/edits are intentionally excluded: source files and diffs are
         already the durable evidence.
         """
-        if not result.success or tool_call.name not in {"bash", "exec_command", "write_stdin", "web_extract"}:
+        if tool_call.name not in {"bash", "exec_command", "write_stdin", "web_extract"}:
             return []
         if not isinstance(result.result_data, dict):
             return []
@@ -6527,7 +6598,16 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 ("stderr", "stderr.txt"),
                 ("output", "output.txt"),
             ):
+                spool_key = f"_full_{key}_path"
+                spool_path = result.result_data.get(spool_key)
                 text = str(result.result_data.get(key) or "")
+                if result.result_data.get("status") == "completed" and spool_path:
+                    try:
+                        text = Path(str(spool_path)).read_text(
+                            encoding="utf-8", errors="replace"
+                        )
+                    except OSError:
+                        pass
                 if not text:
                     continue
                 artifact = manager.write_text(
@@ -6541,6 +6621,8 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     file_path=command,
                     detail=f"{key} for {tool_call.name}",
                 )
+            result.result_data.pop("_full_stdout_path", None)
+            result.result_data.pop("_full_stderr_path", None)
             artifact = manager.write_json(
                 f"{base}/result.json",
                 result.result_data,
@@ -6861,9 +6943,27 @@ To provide your final answer, respond WITHOUT calling any tools."""
         if not old_string:
             return None
 
+        preview_old = old_string
+        preview_new = new_string
+        try:
+            tool = self._registry.get("edit_file")
+            path = tool._resolve_path(file_path) if tool else None
+            if path and path.is_file() and hasattr(tool, "_resolve_match"):
+                raw_content, newline = tool._read_with_native_newlines(path)
+                normalized = tool._normalize_newlines(raw_content)
+                normalized_old = tool._normalize_newlines(old_string)
+                span, _ = tool._resolve_match(normalized, normalized_old)
+                if span is not None:
+                    replacement = tool._normalize_newlines(new_string)
+                    changed = normalized[: span[0]] + replacement + normalized[span[1] :]
+                    preview_old = raw_content
+                    preview_new = tool._restore_newlines(changed, newline)
+        except Exception:
+            pass
+
         diff_lines = difflib.unified_diff(
-            old_string.splitlines(keepends=True),
-            new_string.splitlines(keepends=True),
+            preview_old.splitlines(keepends=True),
+            preview_new.splitlines(keepends=True),
             fromfile=f"a/{file_path}",
             tofile=f"b/{file_path}",
             n=3,

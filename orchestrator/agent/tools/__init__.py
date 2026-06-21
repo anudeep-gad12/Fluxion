@@ -8,7 +8,6 @@ from orchestrator.agent.tools.base import (
     ToolSchema,
     ToolTimeoutError,
 )
-from orchestrator.agent.tools.bash_tool import BashTool
 from orchestrator.agent.tools.edit_file import EditFileTool
 from orchestrator.agent.tools.glob_tool import GlobTool
 from orchestrator.agent.tools.grep_tool import GrepTool
@@ -41,5 +40,4 @@ __all__ = [
     "GrepTool",
     "WriteFileTool",
     "EditFileTool",
-    "BashTool",
 ]

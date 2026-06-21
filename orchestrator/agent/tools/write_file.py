@@ -11,7 +11,7 @@ from typing import Any
 from orchestrator.logging_config import get_logger
 
 from .base import ToolResult, ToolSchema
-from .path_utils import display_workspace_path, resolve_workspace_path
+from .path_utils import atomic_write_text, display_workspace_path, resolve_workspace_path
 
 logger = get_logger(__name__)
 
@@ -120,17 +120,16 @@ class WriteFileTool:
 
             # Read existing content for diff generation
             old_content = ""
+            expected_bytes = None
             if existed:
                 try:
-                    old_content = path.read_text(encoding="utf-8")
+                    expected_bytes = path.read_bytes()
+                    old_content = expected_bytes.decode("utf-8")
                 except Exception:
                     old_content = ""
 
             # Create parent directories
-            path.parent.mkdir(parents=True, exist_ok=True)
-
-            # Write content
-            path.write_text(content, encoding="utf-8")
+            atomic_write_text(path, content, expected_bytes=expected_bytes)
             byte_count = len(content.encode("utf-8"))
 
             duration_ms = int((time.perf_counter() - start_time) * 1000)

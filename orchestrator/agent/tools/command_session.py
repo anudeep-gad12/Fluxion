@@ -6,6 +6,7 @@ import asyncio
 import os
 import pty
 import signal
+import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -55,10 +56,6 @@ def _truncate(text: str, max_output_tokens: Optional[int]) -> tuple[str, bool]:
 
 def _approx_tokens(text: str) -> int:
     return max(0, (len(text) + 3) // 4)
-
-
-def _chunk_id() -> str:
-    return f"chunk_{int(time.time() * 1000)}_{os.urandom(3).hex()}"
 
 
 def _clamp(value: Optional[int], default: int, minimum: int, maximum: int) -> int:
@@ -129,6 +126,11 @@ class CommandSession:
     timeout_task: Optional[asyncio.Task] = None
     timed_out: bool = False
     master_fd: Optional[int] = None
+    stdout_spool: Optional[Path] = None
+    stderr_spool: Optional[Path] = None
+    chunk_sequence: int = 0
+    stdout_offset: int = 0
+    stderr_offset: int = 0
 
 
 class CommandSessionManager:
@@ -139,6 +141,7 @@ class CommandSessionManager:
         self._cwd = self._working_dir
         self._next_id = 1
         self._sessions: dict[int, CommandSession] = {}
+        self._spool_paths: set[Path] = set()
 
     def resolve_workdir(self, workdir: Optional[str]) -> Path:
         if not workdir:
@@ -168,7 +171,7 @@ class CommandSessionManager:
             raise ValueError("cmd is required")
         cwd = self.resolve_workdir(workdir)
         timeout = min(max(1, int(timeout or _DEFAULT_TIMEOUT)), _MAX_TIMEOUT)
-        if len(self._sessions) >= _MAX_SESSIONS:
+        if len(self.running_session_ids()) >= _MAX_SESSIONS:
             raise ValueError(f"maximum running command sessions reached ({_MAX_SESSIONS})")
         session_id = self._next_id
         self._next_id += 1
@@ -203,16 +206,34 @@ class CommandSessionManager:
             tty=tty,
             master_fd=master_fd,
         )
+        for stream_name in ("stdout", "stderr"):
+            fd, raw_path = tempfile.mkstemp(prefix=f"fluxion-{session_id}-{stream_name}-")
+            os.close(fd)
+            spool_path = Path(raw_path)
+            setattr(session, f"{stream_name}_spool", spool_path)
+            self._spool_paths.add(spool_path)
         self._sessions[session_id] = session
 
         if tty:
             session.drain_tasks.append(asyncio.create_task(self._drain_pty(session)))
         else:
             session.drain_tasks.append(
-                asyncio.create_task(self._drain_stream(proc.stdout, session.stdout_buffer))
+                asyncio.create_task(
+                    self._drain_stream(
+                        proc.stdout,
+                        session.stdout_buffer,
+                        session.stdout_spool,
+                    )
+                )
             )
             session.drain_tasks.append(
-                asyncio.create_task(self._drain_stream(proc.stderr, session.stderr_buffer))
+                asyncio.create_task(
+                    self._drain_stream(
+                        proc.stderr,
+                        session.stderr_buffer,
+                        session.stderr_spool,
+                    )
+                )
             )
         session.timeout_task = asyncio.create_task(self._kill_after_timeout(session, timeout))
         return session
@@ -221,6 +242,7 @@ class CommandSessionManager:
         self,
         stream: asyncio.StreamReader | None,
         buffer: HeadTailBuffer,
+        spool: Optional[Path],
     ) -> None:
         if stream is None:
             return
@@ -229,6 +251,9 @@ class CommandSessionManager:
             if not chunk:
                 break
             buffer.extend(chunk)
+            if spool is not None:
+                with spool.open("ab") as handle:
+                    handle.write(chunk)
 
     async def _drain_pty(self, session: CommandSession) -> None:
         if session.master_fd is None:
@@ -243,6 +268,9 @@ class CommandSessionManager:
                 if not chunk:
                     break
                 session.stdout_buffer.extend(chunk)
+                if session.stdout_spool is not None:
+                    with session.stdout_spool.open("ab") as handle:
+                        handle.write(chunk)
                 if session.proc.returncode is not None:
                     break
         finally:
@@ -279,6 +307,14 @@ class CommandSessionManager:
     def get(self, session_id: int) -> Optional[CommandSession]:
         return self._sessions.get(int(session_id))
 
+    def running_session_ids(self) -> list[int]:
+        """Return processes that are still running."""
+        return [item.session_id for item in self._sessions.values() if item.proc.returncode is None]
+
+    def unresolved_session_ids(self) -> list[int]:
+        """Return sessions whose terminal result has not been collected."""
+        return list(self._sessions)
+
     async def poll(self, session: CommandSession, yield_time_ms: int) -> bool:
         if session.proc.returncode is None:
             return await self.wait_briefly(session, yield_time_ms)
@@ -306,8 +342,16 @@ class CommandSessionManager:
             self._sessions.pop(session.session_id, None)
 
     def render(self, session: CommandSession, max_output_tokens: Optional[int]) -> dict[str, Any]:
-        stdout = session.stdout_buffer.text()
-        stderr = session.stderr_buffer.text()
+        def read_delta(path: Optional[Path], offset: int) -> tuple[str, int]:
+            if path is None:
+                return "", offset
+            with path.open("rb") as handle:
+                handle.seek(offset)
+                data = handle.read()
+                return data.decode("utf-8", errors="replace"), offset + len(data)
+
+        stdout, session.stdout_offset = read_delta(session.stdout_spool, session.stdout_offset)
+        stderr, session.stderr_offset = read_delta(session.stderr_spool, session.stderr_offset)
         output = "\n".join(
             part for part in (stdout, f"STDERR:\n{stderr}" if stderr else "") if part
         )
@@ -316,9 +360,10 @@ class CommandSessionManager:
         stdout_display, stdout_truncated = _truncate(stdout, max_output_tokens)
         stderr_display, stderr_truncated = _truncate(stderr, max_output_tokens)
         running = session.proc.returncode is None
+        session.chunk_sequence += 1
         return {
             "session_id": session.session_id,
-            "chunk_id": _chunk_id(),
+            "chunk_id": f"session_{session.session_id}_chunk_{session.chunk_sequence}",
             "cmd": session.cmd,
             "workdir": str(session.cwd),
             "status": "running" if running else "completed",
@@ -336,7 +381,10 @@ class CommandSessionManager:
                 or session.stdout_buffer.truncated
                 or session.stderr_buffer.truncated
             ),
+            "has_more_output": False,
             "timed_out": session.timed_out,
+            "_full_stdout_path": str(session.stdout_spool) if session.stdout_spool else None,
+            "_full_stderr_path": str(session.stderr_spool) if session.stderr_spool else None,
         }
 
     async def _interrupt(self, session: CommandSession) -> None:
@@ -373,11 +421,21 @@ class CommandSessionManager:
                 pass
         await self._settle_drains(session)
 
+    async def terminate(self, session: CommandSession) -> None:
+        """Terminate a running session and retain its final output for rendering."""
+        await self._terminate(session)
+
     async def cleanup(self) -> None:
         sessions = list(self._sessions.values())
         for session in sessions:
             await self._terminate(session)
         self._sessions.clear()
+        for path in self._spool_paths:
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                pass
+        self._spool_paths.clear()
 
 
 class ExecCommandTool:
@@ -396,7 +454,7 @@ class ExecCommandTool:
         return ToolSchema(
             name="exec_command",
             description=(
-                "Run a shell command in the workspace. Prefer this over bash for tests, "
+                "Run a shell command in the workspace for tests, "
                 "builds, dev servers, inspection commands, focused verification, and "
                 "scripted file edits. For edits, use short Python/Node scripts that read "
                 "files, assert expected text exists, write updated content, and exit "
@@ -410,6 +468,7 @@ class ExecCommandTool:
                     "cmd": {
                         "type": "string",
                         "description": "Shell command to execute.",
+                        "minLength": 1,
                     },
                     "workdir": {
                         "type": "string",
@@ -427,11 +486,15 @@ class ExecCommandTool:
                         "type": "integer",
                         "description": "Approximate maximum output tokens to return.",
                         "default": _DEFAULT_MAX_OUTPUT_TOKENS,
+                        "minimum": 1,
+                        "maximum": 100000,
                     },
                     "timeout": {
                         "type": "integer",
                         "description": "Maximum runtime in seconds (default 300, max 1800).",
                         "default": _DEFAULT_TIMEOUT,
+                        "minimum": 1,
+                        "maximum": _MAX_TIMEOUT,
                     },
                     "tty": {
                         "type": "boolean",
@@ -440,6 +503,7 @@ class ExecCommandTool:
                     },
                 },
                 "required": ["cmd"],
+                "additionalProperties": False,
             },
             is_idempotent=False,
             permission_level="dangerous",
@@ -550,9 +614,17 @@ class WriteStdinTool:
                         "type": "integer",
                         "description": "Approximate maximum output tokens to return.",
                         "default": _DEFAULT_MAX_OUTPUT_TOKENS,
+                        "minimum": 1,
+                        "maximum": 100000,
+                    },
+                    "terminate": {
+                        "type": "boolean",
+                        "description": "Terminate the session before collecting final output.",
+                        "default": False,
                     },
                 },
                 "required": ["session_id"],
+                "additionalProperties": False,
             },
             is_idempotent=False,
             permission_level="dangerous",
@@ -564,6 +636,7 @@ class WriteStdinTool:
         chars: Optional[str] = None,
         yield_time_ms: Optional[int] = None,
         max_output_tokens: int = _DEFAULT_MAX_OUTPUT_TOKENS,
+        terminate: bool = False,
         **kwargs: Any,
     ) -> ToolResult:
         del kwargs
@@ -577,7 +650,10 @@ class WriteStdinTool:
                 duration_ms=int((time.perf_counter() - start_time) * 1000),
             )
         try:
-            await self._manager.write(session, chars or "")
+            if terminate:
+                await self._manager.terminate(session)
+            else:
+                await self._manager.write(session, chars or "")
             effective_yield_time_ms = (
                 _clamp(yield_time_ms, _DEFAULT_POLL_YIELD_MS, _MIN_YIELD_MS, _MAX_EMPTY_POLL_YIELD_MS)
                 if not chars
