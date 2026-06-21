@@ -212,6 +212,7 @@ class TestAgentEngineInit:
         assert engine._max_steps == 1000
         assert engine._max_tokens == 32768
         assert engine._temperature == 0.7
+        assert engine._top_p is None
 
     def test_init_with_custom_settings(self):
         """Initialize with custom settings."""
@@ -223,11 +224,13 @@ class TestAgentEngineInit:
             max_steps=5,
             max_tokens=2048,
             temperature=0.5,
+            top_p=0.9,
             system_prompt="Custom prompt",
         )
 
         assert engine._model_name == "gpt-4"
         assert engine._max_steps == 5
+        assert engine._top_p == 0.9
         assert engine._system_prompt == "Custom prompt"
 
 
@@ -4352,7 +4355,8 @@ class TestAgentFactoryPermissionPolicy:
             mock_config.return_value = MagicMock(
                 model=MagicMock(
                     name="accounts/fireworks/models/kimi-k2p6",
-                    temperature=0.7,
+                    temperature=0.2,
+                    top_p=0.9,
                     max_tokens=32768,
                     reasoning_effort=None,
                 ),

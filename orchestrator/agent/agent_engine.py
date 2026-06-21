@@ -421,6 +421,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
         max_steps: int = 1000,
         max_tokens: int = 32768,
         temperature: float = 0.7,
+        top_p: Optional[float] = None,
         system_prompt: Optional[str] = None,
         keep_full_steps: int = 10,
         tool_choice: Optional[str] = None,
@@ -453,6 +454,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
             max_steps: Maximum steps before forcing synthesis.
             max_tokens: Max tokens for LLM response.
             temperature: Sampling temperature.
+            top_p: Nucleus sampling cutoff.
             system_prompt: Custom system prompt (or use default).
             keep_full_steps: Number of recent steps to keep detailed.
             tool_choice: Override tool selection behavior on first step.
@@ -484,6 +486,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
         self._max_steps = max_steps
         self._max_tokens = max_tokens
         self._temperature = temperature
+        self._top_p = top_p
         self._system_prompt = system_prompt or self.DEFAULT_SYSTEM_PROMPT
         self._pruner = ContextPruner(keep_full_steps=keep_full_steps)
         self._tool_choice = tool_choice
@@ -5746,6 +5749,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 tool_choice=tool_choice,
                 max_tokens=effective_max_tokens,
                 temperature=self._temperature,
+                top_p=self._top_p,
                 **extra_kwargs,
             )
         finally:
@@ -8215,6 +8219,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
             tools=None,  # No tools - force text response
             max_tokens=synthesis_max_tokens,
             temperature=self._temperature,
+            top_p=self._top_p,
             **extra_kwargs,
         )
 

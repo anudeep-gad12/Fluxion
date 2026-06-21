@@ -28,6 +28,7 @@ async def create_agent_engine(
     max_steps: Optional[int] = None,
     max_tokens: Optional[int] = None,
     temperature: Optional[float] = None,
+    top_p: Optional[float] = None,
     system_prompt: Optional[str] = None,
     query: Optional[str] = None,
     provider_override: Optional[object] = None,
@@ -133,7 +134,8 @@ async def create_agent_engine(
 
     if resolved_model:
         effective_model = resolved_model.model_id
-        effective_temp = temperature or resolved_model.temperature
+        effective_temp = temperature if temperature is not None else config.model.temperature
+        effective_top_p = top_p if top_p is not None else config.model.top_p
         effective_max_tokens = (
             max_tokens
             or (reasoning_settings.max_output_tokens if reasoning_settings else None)
@@ -151,7 +153,8 @@ async def create_agent_engine(
             or getattr(provider_override, "_context_profile_model_id", None)
             or config.model.name
         )
-        effective_temp = temperature or config.model.temperature
+        effective_temp = temperature if temperature is not None else config.model.temperature
+        effective_top_p = top_p if top_p is not None else config.model.top_p
         provider_max_output = getattr(provider_override, "_max_output_tokens", None)
         effective_max_tokens = (
             max_tokens
@@ -176,6 +179,7 @@ async def create_agent_engine(
         max_steps=effective_max_steps,
         max_tokens=effective_max_tokens,
         temperature=effective_temp,
+        top_p=effective_top_p,
         system_prompt=system_prompt,
         max_context_tokens=max_context,
         context_profile=context_profile,
