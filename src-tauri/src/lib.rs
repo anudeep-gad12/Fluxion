@@ -440,6 +440,7 @@ fn show_main_window_on_main_thread(app: AppHandle) {
         if let Some(window) = target.get_webview_window("main") {
             let _ = window.show();
             let _ = window.set_focus();
+            activate_fluxion_for_full_window();
         }
     });
 }
@@ -479,6 +480,19 @@ fn configure_menu_bar_app_activation_policy() {
 
 #[cfg(not(target_os = "macos"))]
 fn configure_menu_bar_app_activation_policy() {}
+
+#[cfg(target_os = "macos")]
+fn activate_fluxion_for_full_window() {
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+    let app = NSApplication::sharedApplication(mtm);
+    #[allow(deprecated)]
+    app.activateIgnoringOtherApps(true);
+}
+
+#[cfg(not(target_os = "macos"))]
+fn activate_fluxion_for_full_window() {}
 
 #[cfg(target_os = "macos")]
 fn position_native_floating_window(ns_window: &NSWindow) {
@@ -881,6 +895,8 @@ fn start_backend_in_background(handle: AppHandle) {
                 if let Err(error) = navigation_result {
                     let _ = show_splash_window(&handle_for_ui);
                     show_splash_error(&handle_for_ui, &error);
+                } else {
+                    show_main_window_on_main_thread(handle_for_ui.clone());
                 }
             }
             Ok(Err(message)) => {
@@ -981,10 +997,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.show();
-                let _ = window.set_focus();
-            }
+            show_main_window_on_main_thread(app.clone());
         }))
         .manage(BackendState::default())
         .setup(|app| {

@@ -63,9 +63,9 @@ function isConversationPinned(conversation: Conversation): boolean {
   return Boolean(conversation.metadata?.pinned_at);
 }
 
-function isTemporaryOverlayConversation(conversation: Conversation): boolean {
-  return conversation.metadata?.surface === 'floating_overlay'
-    || conversation.metadata?.temporary === true;
+function isHiddenConversation(conversation: Conversation): boolean {
+  return conversation.metadata?.hidden === true
+    || conversation.metadata?.hide_from_sidebar === true;
 }
 
 type WorkspaceGroup = {
@@ -264,7 +264,7 @@ export function ConversationList({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkDeleteModalOpen, setBulkDeleteModalOpen] = useState(false);
   const visibleConversations = useMemo(
-    () => conversations.filter((conversation) => !isTemporaryOverlayConversation(conversation)),
+    () => conversations.filter((conversation) => !isHiddenConversation(conversation)),
     [conversations]
   );
 

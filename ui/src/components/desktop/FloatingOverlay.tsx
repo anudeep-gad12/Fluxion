@@ -28,7 +28,7 @@ import { cn } from '@/lib/utils';
 
 const MAX_IMAGE_ATTACHMENTS = 20;
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
-const OVERLAY_METADATA = { surface: 'floating_overlay', temporary: true };
+const OVERLAY_METADATA = { surface: 'floating_overlay' };
 const CONVERSATION_MODEL_METADATA_KEY = 'model_selection';
 
 type CapturePayload = {
@@ -50,6 +50,8 @@ export function FloatingOverlay() {
   const search = new URLSearchParams(window.location.search);
   const nonce = search.get('nonce') || '';
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const threadRef = useRef<HTMLDivElement | null>(null);
+  const threadBottomRef = useRef<HTMLDivElement | null>(null);
 
   const [homeDir, setHomeDir] = useState('');
   const [message, setMessage] = useState('');
@@ -76,6 +78,7 @@ export function FloatingOverlay() {
   const addRun = useStore((s) => s.addRun);
   const updateRun = useStore((s) => s.updateRun);
   const hasActiveRun = useHasActiveRun();
+  const liveAgentState = useStore((s) => (activeRunId ? s.agentRunState[activeRunId] : undefined));
   const { subscribe } = useAgentSSE(null);
 
   const refreshReasoningSettings = useCallback(async () => {
@@ -356,6 +359,26 @@ export function FloatingOverlay() {
     return storeRuns?.find((run) => run.run_id === activeRunId) || activeRun;
   }, [activeRun, activeRunId, conversationId, hasActiveRun]);
 
+  const scrollThreadToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
+    window.requestAnimationFrame(() => {
+      threadBottomRef.current?.scrollIntoView({ block: 'end', behavior });
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!currentRun) return;
+    scrollThreadToBottom(currentRun.status === 'running' ? 'smooth' : 'auto');
+  }, [
+    currentRun,
+    liveAgentState?.answerBuffer,
+    liveAgentState?.assistantUpdates.length,
+    liveAgentState?.currentStep,
+    liveAgentState?.steps.length,
+    liveAgentState?.thinkingBuffer,
+    liveAgentState?.toolCalls.length,
+    scrollThreadToBottom,
+  ]);
+
   useEffect(() => {
     if (!activeRunId) return;
     const interval = window.setInterval(() => {
@@ -497,7 +520,7 @@ export function FloatingOverlay() {
           </div>
         </header>
 
-        <main className="floating-overlay-thread">
+        <main className="floating-overlay-thread" ref={threadRef}>
           {capturing ? (
             <div className="floating-overlay-hint">Drag an area to attach a screenshot…</div>
           ) : currentRun ? (
@@ -505,6 +528,7 @@ export function FloatingOverlay() {
           ) : (
             <div className="floating-overlay-hint">Ask Fluxion anything. This agent starts in your Home folder.</div>
           )}
+          <div ref={threadBottomRef} aria-hidden className="h-px" />
         </main>
 
         <div className="floating-overlay-composer">

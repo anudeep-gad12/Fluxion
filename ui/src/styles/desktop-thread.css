@@ -418,7 +418,9 @@
 }
 
 .floating-overlay-root {
-  min-height: 100dvh;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
   background: transparent;
   color: var(--desktop-text-primary, #f4f4f5);
   padding: 10px;
@@ -426,7 +428,8 @@
 
 .floating-overlay-card {
   display: flex;
-  min-height: calc(100dvh - 20px);
+  height: calc(100dvh - 20px);
+  min-height: 0;
   flex-direction: column;
   overflow: hidden;
   border: 1px solid var(--desktop-border-subtle, rgba(255, 255, 255, 0.1));
@@ -485,8 +488,9 @@
 
 .floating-overlay-thread {
   min-height: 0;
-  flex: 1;
+  flex: 1 1 auto;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 8px 20px 14px;
 }
 
@@ -509,8 +513,11 @@
 }
 
 .floating-overlay-composer {
-  flex-shrink: 0;
+  position: relative;
+  z-index: 2;
+  flex: 0 0 auto;
   padding: 0 18px 16px;
+  background: color-mix(in srgb, var(--desktop-bg-0, #101012) 88%, transparent);
 }
 
 .floating-overlay-composer .desktop-prompt-shell {
