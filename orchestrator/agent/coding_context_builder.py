@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+from orchestrator.agent.coding_context_manager import CodingContextManager
 from orchestrator.agent.coding_session import CodingSessionEntry, CodingSessionState
 from orchestrator.context.budget import ContextBudget
 from orchestrator.context.history_builder import HistoryBuilder
@@ -24,6 +25,7 @@ class CodingSessionContext:
     preserved_tail_count: int = 0
     restored_file_count: int = 0
     replay_source_ranges: dict[str, Any] = field(default_factory=dict)
+    normalization_stats: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass
@@ -44,10 +46,12 @@ class CodingSessionContextBuilder:
         token_counter: TokenCounter,
         max_context_tokens: int,
         reserve_for_response: int,
+        supports_vision: bool = False,
     ) -> None:
         self._counter = token_counter
         self._max_context_tokens = max_context_tokens
         self._reserve_for_response = reserve_for_response
+        self._context_manager = CodingContextManager(supports_vision=supports_vision)
 
     def build(
         self,
@@ -84,8 +88,9 @@ class CodingSessionContextBuilder:
         if restored_messages:
             messages.extend(restored_messages)
 
+        normalized_tail = self._context_manager.normalize_entries(tail_entries)
         if transcript_entries:
-            messages.extend(self._entries_to_messages(tail_entries))
+            messages.extend(normalized_tail.messages)
         elif current_query is not None:
             if current_query:
                 budget.current_query_tokens = (
@@ -109,6 +114,7 @@ class CodingSessionContextBuilder:
             preserved_tail_count=len(tail_entries),
             restored_file_count=self._restored_file_count(restored_messages),
             replay_source_ranges=self._replay_source_ranges(checkpoint_entry, tail_entries),
+            normalization_stats=normalized_tail.stats.to_dict(),
         )
 
     def estimate_tokens(self, messages: list[dict[str, Any]]) -> int:
@@ -142,7 +148,8 @@ class CodingSessionContextBuilder:
         restored_messages = restored_file_messages or []
         if restored_messages:
             messages.extend(restored_messages)
-        messages.extend(self._entries_to_messages(tail_entries))
+        normalized_tail = self._context_manager.normalize_entries(tail_entries)
+        messages.extend(normalized_tail.messages)
         return CodingStoredContext(
             messages=messages,
             token_count=self.estimate_tokens(messages),
@@ -205,17 +212,58 @@ class CodingSessionContextBuilder:
     def _render_neutral_metadata(self, session_state: CodingSessionState) -> str:
         session_state.normalize()
         lines: list[str] = []
+        window = session_state.context_window
+        lines.append(
+            "- context_window: "
+            f"#{window.window_number} id={window.window_id}"
+            + (
+                f" prefill_tokens={window.prefill_input_tokens}"
+                if window.prefill_input_tokens is not None
+                else ""
+            )
+            + (
+                " pending_new_window=true"
+                if window.pending_new_window_request
+                else ""
+            )
+        )
         if session_state.objective:
-            lines.append("- current_request: " + session_state.objective)
+            lines.append("- objective: " + session_state.objective)
         if session_state.modified_files:
             lines.append("- changed_files: " + ", ".join(session_state.modified_files[-8:]))
         if session_state.read_files:
             lines.append("- referenced_files: " + ", ".join(session_state.read_files[-8:]))
+        evidence_lines: list[str] = []
+        for path in dict.fromkeys(
+            session_state.modified_files[-4:]
+            + session_state.read_files[-4:]
+            + list(session_state.file_evidence.keys())[-4:]
+        ):
+            file_state = session_state.file_evidence.get(path)
+            if file_state is None:
+                continue
+            summary_parts = [path]
+            if file_state.summary:
+                summary_parts.append(file_state.summary)
+            if file_state.content_hash:
+                summary_parts.append("hash=" + file_state.content_hash[:12])
+            if file_state.spans:
+                span = file_state.spans[-1]
+                if span.line_start and span.line_end:
+                    summary_parts.append(f"lines={span.line_start}-{span.line_end}")
+                elif span.line_start:
+                    summary_parts.append(f"line_start={span.line_start}")
+                if span.excerpt:
+                    summary_parts.append("excerpt=" + span.excerpt[:220])
+            evidence_lines.append(" | ".join(summary_parts)[:700])
+        if evidence_lines:
+            lines.append("- fresh_file_evidence:")
+            lines.extend(f"  - {line}" for line in evidence_lines)
         if session_state.recent_commands:
             lines.append("- recent_commands: " + " | ".join(session_state.recent_commands[-4:]))
         if not lines:
             return ""
-        return "CODING SESSION CURRENT STATE\n" + "\n".join(lines)
+        return "CODING SESSION CURRENT STATE\nCODING CONTEXT STATE\n" + "\n".join(lines)
 
     def _entries_to_messages(
         self,
@@ -261,15 +309,7 @@ class CodingSessionContextBuilder:
 
     def _is_replay_eligible(self, entry: CodingSessionEntry) -> bool:
         """Return whether a persisted entry should be replayed into prompts."""
-        if entry.entry_type not in {
-            "user",
-            "assistant_tool_calls",
-            "tool_result",
-            "assistant",
-            "compaction_summary",
-        }:
-            return False
-        return entry.content_json.get("replay_eligible", True) is not False
+        return self._context_manager.is_replay_eligible(entry)
 
     def _restored_file_count(self, restored_file_messages: list[dict[str, Any]]) -> int:
         return sum(

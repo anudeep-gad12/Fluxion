@@ -8,6 +8,10 @@ from orchestrator.agent.tools.base import (
     ToolSchema,
     ToolTimeoutError,
 )
+from orchestrator.agent.tools.context_window import (
+    GetContextRemainingTool,
+    NewContextWindowTool,
+)
 from orchestrator.agent.tools.edit_file import EditFileTool
 from orchestrator.agent.tools.glob_tool import GlobTool
 from orchestrator.agent.tools.grep_tool import GrepTool
@@ -27,6 +31,9 @@ __all__ = [
     "ToolResult",
     "ToolSchema",
     "ToolTimeoutError",
+    # Context tools
+    "GetContextRemainingTool",
+    "NewContextWindowTool",
     # Registry
     "ToolRegistry",
     "create_browser_agent_tool_registry",

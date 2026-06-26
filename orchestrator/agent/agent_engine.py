@@ -568,6 +568,96 @@ To provide your final answer, respond WITHOUT calling any tools."""
         self._last_stored_context: Optional[Dict[str, Any]] = None
         self._active_conversation_id: Optional[str] = None
         self._active_coding_session_state: Optional[CodingSessionState] = None
+        self._register_context_window_tools()
+
+    def _register_context_window_tools(self) -> None:
+        """Register coding-profile context tools on the active registry."""
+        if not self._is_coding_profile():
+            return
+        register = getattr(self._registry, "register", None)
+        get_tool = getattr(self._registry, "get", None)
+        if not callable(register) or not callable(get_tool):
+            return
+        try:
+            if get_tool("get_context_remaining") is None:
+                from orchestrator.agent.tools.context_window import GetContextRemainingTool
+
+                register(GetContextRemainingTool(self._context_remaining_payload))
+            if get_tool("new_context_window") is None:
+                from orchestrator.agent.tools.context_window import NewContextWindowTool
+
+                register(NewContextWindowTool(self._request_new_context_window))
+        except Exception as exc:
+            logger.warning(
+                "Context-window tools not registered",
+                extra={"error": str(exc)},
+            )
+
+    def _tokens_until_compaction(
+        self,
+        *,
+        active_context_tokens: Optional[int] = None,
+        session_state: Optional[CodingSessionState] = None,
+    ) -> Optional[int]:
+        """Return estimated tokens left before the active compaction threshold."""
+        if active_context_tokens is None:
+            active_context_tokens = (
+                int(self._last_context_usage.get("prompt_tokens_current_call", 0))
+                if self._last_context_usage
+                else None
+            )
+        if active_context_tokens is None:
+            return None
+        effective_budget = self._context_profile.effective_input_budget
+        threshold = self._coding_pressure_threshold_tokens()
+        limit = min(effective_budget, threshold)
+        window = (session_state or self._active_coding_session_state).context_window if (
+            session_state or self._active_coding_session_state
+        ) else None
+        if window and window.prefill_input_tokens is not None:
+            body_growth = max(0, active_context_tokens - window.prefill_input_tokens)
+            body_limit = min(limit, max(1, effective_budget))
+            return max(0, body_limit - body_growth)
+        return max(0, limit - active_context_tokens)
+
+    def _context_remaining_payload(self) -> Dict[str, Any]:
+        """Build the payload returned by get_context_remaining."""
+        session_state = self._active_coding_session_state
+        active_context_tokens = (
+            int(self._last_context_usage.get("prompt_tokens_current_call", 0))
+            if self._last_context_usage
+            else None
+        )
+        window = session_state.context_window if session_state else None
+        if active_context_tokens is None and window:
+            active_context_tokens = window.last_active_context_tokens
+        tokens_left = self._tokens_until_compaction(
+            active_context_tokens=active_context_tokens,
+            session_state=session_state,
+        )
+        return {
+            "tokens_left": tokens_left,
+            "active_context_tokens": active_context_tokens,
+            "effective_input_budget": self._context_profile.effective_input_budget,
+            "pressure_threshold_tokens": self._coding_pressure_threshold_tokens(),
+            "window_number": window.window_number if window else 0,
+            "window_id": window.window_id if window else None,
+            "prefill_input_tokens": window.prefill_input_tokens if window else None,
+            "pending_new_window_request": (
+                window.pending_new_window_request if window else False
+            ),
+        }
+
+    def _request_new_context_window(self) -> Dict[str, Any]:
+        """Mark the active coding session for compaction before the next prompt."""
+        if self._active_coding_session_state is not None:
+            self._active_coding_session_state.context_window.request_new_window()
+        return {
+            **self._context_remaining_payload(),
+            "message": (
+                "A new compacted context window will start before the next model call."
+            ),
+        }
 
     def _reasoning_provider_kwargs(self) -> tuple[int, Dict[str, Any]]:
         """Resolve provider-specific reasoning kwargs for the active model."""
@@ -2408,6 +2498,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
             token_counter=get_token_counter(),
             max_context_tokens=self._max_context_tokens,
             reserve_for_response=self._max_tokens,
+            supports_vision=bool(self._context_profile.supports_vision),
         )
 
     def _has_coding_session_state(self, session_state: Optional[CodingSessionState]) -> bool:
@@ -2686,6 +2777,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
             "preserved_tail_count": context.preserved_tail_count,
             "restored_file_count": context.restored_file_count,
             "replay_source_ranges": context.replay_source_ranges,
+            "normalization_stats": context.normalization_stats,
         }
         return (
             context.messages,
@@ -3300,6 +3392,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
         prompt_tokens_before_reduction: Optional[int] = None,
         raw_replay_counts: Optional[Dict[str, int]] = None,
         reduction_stages_applied: Optional[List[str]] = None,
+        force_new_window: bool = False,
     ) -> bool:
         """Compact coding-session history into a replayable checkpoint plus raw tail."""
         entry_records = await self._call_repo_async_method(
@@ -3316,7 +3409,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
 
         total_raw_tokens = sum(entry.token_estimate for entry in active_entries)
         tail_target = self._coding_tail_target_tokens()
-        if total_raw_tokens <= tail_target:
+        if total_raw_tokens <= tail_target and not force_new_window:
             return False
 
         tail_entries = self._tail_entries_after_checkpoint(active_entries)
@@ -3342,6 +3435,8 @@ To provide your final answer, respond WITHOUT calling any tools."""
             (seq for seq in preferred_candidates if suffix_tokens.get(seq, 0) <= tail_target),
             None,
         )
+        if candidate_seq is None and force_new_window and preferred_candidates:
+            candidate_seq = preferred_candidates[-1]
         if candidate_seq is None:
             split_candidates = [seq for seq in safe_candidates if seq >= keep_two_start]
             candidate_seq = next(
@@ -3405,6 +3500,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
             conversation_id,
             through_seq=candidate_seq - 1,
         )
+        session_state.context_window.advance_window(prefill_input_tokens=None)
         await self._call_repo_async_method(
             "upsert_coding_session_state",
             conversation_id,
@@ -3425,6 +3521,9 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 "tail_target_tokens": tail_target,
                 "compacted_entry_count": len(compacted_entries),
                 "kept_last_two_turns_raw": candidate_seq <= keep_two_start,
+                "force_new_window": force_new_window,
+                "window_number": session_state.context_window.window_number,
+                "window_id": session_state.context_window.window_id,
                 "restorable_read_files": checkpoint_payload["read_files"],
                 "restorable_modified_files": checkpoint_payload["modified_files"],
                 "prompt_tokens_before_reduction": prompt_tokens_before_reduction,
@@ -4832,6 +4931,13 @@ To provide your final answer, respond WITHOUT calling any tools."""
             else prompt_tokens_before_reduction
         )
         pressure_threshold_tokens = self._coding_pressure_threshold_tokens()
+        session_state = self._active_coding_session_state
+        window = session_state.context_window if session_state else None
+        body_after_prefill_tokens = (
+            max(0, prompt_tokens_current_call - window.prefill_input_tokens)
+            if window and window.prefill_input_tokens is not None
+            else None
+        )
         payload = {
             "context_window": self._context_profile.context_window,
             "reserved_output_tokens": self._context_profile.max_output_tokens,
@@ -4845,6 +4951,20 @@ To provide your final answer, respond WITHOUT calling any tools."""
             "pressure_threshold_tokens": pressure_threshold_tokens,
             "next_compaction_at_tokens": pressure_threshold_tokens,
             "remaining_tokens": remaining,
+            "tokens_until_compaction": self._tokens_until_compaction(
+                active_context_tokens=prompt_tokens_current_call,
+                session_state=session_state,
+            ),
+            "context_window_state": {
+                "window_number": window.window_number if window else 0,
+                "window_id": window.window_id if window else None,
+                "previous_window_id": window.previous_window_id if window else None,
+                "prefill_input_tokens": window.prefill_input_tokens if window else None,
+                "body_after_prefill_tokens": body_after_prefill_tokens,
+                "pending_new_window_request": (
+                    window.pending_new_window_request if window else False
+                ),
+            },
             "compactions_so_far": self._compaction_count,
             "compaction_count": self._compaction_count,
             "last_compacted_at_step": self._last_compacted_at_step,
@@ -5185,9 +5305,50 @@ To provide your final answer, respond WITHOUT calling any tools."""
         reduction_stages_applied: List[str] = []
         reduction_stage = "stage0_full_raw_replay"
         checkpoint_fallback_activated = False
+        explicit_new_window_requested = (
+            session_state.context_window.pending_new_window_request
+        )
 
         prompt_messages = raw_prompt_messages
         prompt_tokens = raw_prompt_tokens
+        if explicit_new_window_requested:
+            checkpoint_fallback_activated = await self._compact_coding_session_history(
+                conversation_id=conversation_id,
+                run_id=run_id,
+                step_number=step_number,
+                session_state=session_state,
+                working_memory=working_memory,
+                prompt_tokens_before_reduction=raw_prompt_tokens,
+                raw_replay_counts=replay_counts,
+                reduction_stages_applied=reduction_stages_applied,
+                force_new_window=True,
+            )
+            if checkpoint_fallback_activated:
+                reduction_stage = "stage4_explicit_new_context_window"
+                reduction_stages_applied.append(reduction_stage)
+                (
+                    scaffold_messages,
+                    budget,
+                    transcript_entries,
+                    stored_payload,
+                    context_payload,
+                ) = await self._build_coding_session_context_from_entries(
+                    conversation_id=conversation_id,
+                    system_prompt=system_prompt,
+                    query=query,
+                    session_state=session_state,
+                    working_memory=working_memory,
+                )
+                prompt_messages = self._build_prompt_messages(
+                    scaffold_messages=scaffold_messages,
+                    working_memory=working_memory,
+                )
+                replay_counts = self._coding_replay_counts(
+                    transcript_entries,
+                    prompt_messages,
+                )
+                prompt_tokens = self._pruner.estimate_tokens(prompt_messages)
+
         if prompt_tokens >= threshold_tokens:
             stage1_messages, stage1_changed = self._reduce_coding_tool_payloads(prompt_messages)
             if stage1_changed:
@@ -5513,7 +5674,32 @@ To provide your final answer, respond WITHOUT calling any tools."""
             }
         add_usage(self._usage_totals, usage)
         self._total_tokens = self._usage_totals.get("total_tokens", 0)
+        self._record_coding_context_window_usage(usage, prompt_messages)
         return usage
+
+    def _record_coding_context_window_usage(
+        self,
+        usage: dict[str, int],
+        prompt_messages: Optional[List[Dict[str, Any]]],
+    ) -> None:
+        """Persist the latest active-context usage into coding window state."""
+        session_state = self._active_coding_session_state
+        if session_state is None:
+            return
+        active_context_tokens = int(
+            usage.get("input_tokens")
+            or (
+                self._pruner.estimate_tokens(prompt_messages)
+                if prompt_messages is not None
+                else 0
+            )
+        )
+        if active_context_tokens <= 0:
+            return
+        window = session_state.context_window
+        window.last_active_context_tokens = active_context_tokens
+        if window.prefill_input_tokens is None:
+            window.prefill_input_tokens = active_context_tokens
 
     def _current_cost(self) -> Optional[dict[str, Any]]:
         """Return estimated cost for accumulated usage, if pricing is known."""

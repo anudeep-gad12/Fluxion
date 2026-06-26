@@ -1793,6 +1793,28 @@ class TestCodingSessionPersistence:
                 seq=2,
                 run_id="run-1",
                 step_number=1,
+                entry_type="assistant_tool_calls",
+                role="assistant",
+                content_json={
+                    "content": "Reading file.",
+                    "tool_calls": [
+                        {
+                            "id": "tc-1",
+                            "type": "function",
+                            "function": {
+                                "name": "read_file",
+                                "arguments": '{"file_path":"src/app.ts"}',
+                            },
+                        }
+                    ],
+                },
+                token_estimate=20,
+            ).to_dict(),
+            CodingSessionEntry(
+                conversation_id="conv-1",
+                seq=3,
+                run_id="run-1",
+                step_number=1,
                 entry_type="tool_result",
                 role="tool",
                 content_json={
@@ -1804,7 +1826,7 @@ class TestCodingSessionPersistence:
             ).to_dict(),
             CodingSessionEntry(
                 conversation_id="conv-1",
-                seq=3,
+                seq=4,
                 run_id="run-1",
                 step_number=2,
                 entry_type="assistant",
@@ -5473,3 +5495,43 @@ class TestCodingContinuationBehavior:
             for schema in engine._available_tool_schemas()
         }
         assert "final_answer" not in tool_names
+
+    @pytest.mark.asyncio
+    async def test_coding_profile_registers_context_window_tools(self):
+        registry = ToolRegistry()
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=create_mock_repo(),
+            registry=registry,
+            profile=self._coding_profile(),
+        )
+        engine._active_coding_session_state = CodingSessionState()
+        engine._last_context_usage = engine._current_context_usage_payload(1000)
+
+        tool_names = {schema["function"]["name"] for schema in registry.get_openai_schemas()}
+        assert {"get_context_remaining", "new_context_window"}.issubset(tool_names)
+
+        result = await registry.get("get_context_remaining").execute()
+        assert result.success is True
+        assert result.result_data["active_context_tokens"] == 1000
+        assert result.result_data["tokens_left"] is not None
+
+    @pytest.mark.asyncio
+    async def test_new_context_window_tool_marks_session_state_pending(self):
+        registry = ToolRegistry()
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=create_mock_repo(),
+            registry=registry,
+            profile=self._coding_profile(),
+        )
+        engine._active_coding_session_state = CodingSessionState()
+
+        result = await registry.get("new_context_window").execute()
+
+        assert result.success is True
+        assert (
+            engine._active_coding_session_state.context_window.pending_new_window_request
+            is True
+        )
+        assert result.result_data["pending_new_window_request"] is True

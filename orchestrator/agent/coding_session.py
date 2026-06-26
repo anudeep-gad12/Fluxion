@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 import json
+import uuid
+from dataclasses import dataclass, field
 from typing import Any, Iterable, Optional
 
 
@@ -48,6 +49,87 @@ def _dedupe_tail(items: Iterable[Any], limit: int, max_len: int = _MAX_LIST_ITEM
 def _json_clone(value: Any) -> Any:
     """Return a JSON-safe deep clone."""
     return json.loads(json.dumps(value, ensure_ascii=False))
+
+
+@dataclass
+class CodingContextWindowState:
+    """Durable context-window bookkeeping for a coding conversation."""
+
+    window_number: int = 0
+    first_window_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    previous_window_id: Optional[str] = None
+    window_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    prefill_input_tokens: Optional[int] = None
+    pending_new_window_request: bool = False
+    budget_reminder_delivered: bool = False
+    last_active_context_tokens: Optional[int] = None
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "CodingContextWindowState":
+        """Deserialize stored window state, filling missing IDs safely."""
+        first_window_id = _trim_text(data.get("first_window_id")) or str(uuid.uuid4())
+        window_id = _trim_text(data.get("window_id")) or first_window_id
+        state = cls(
+            window_number=max(0, int(data.get("window_number") or 0)),
+            first_window_id=first_window_id,
+            previous_window_id=_trim_text(data.get("previous_window_id")) or None,
+            window_id=window_id,
+            prefill_input_tokens=(
+                max(0, int(data["prefill_input_tokens"]))
+                if data.get("prefill_input_tokens") is not None
+                else None
+            ),
+            pending_new_window_request=bool(data.get("pending_new_window_request")),
+            budget_reminder_delivered=bool(data.get("budget_reminder_delivered")),
+            last_active_context_tokens=(
+                max(0, int(data["last_active_context_tokens"]))
+                if data.get("last_active_context_tokens") is not None
+                else None
+            ),
+        )
+        if not state.first_window_id:
+            state.first_window_id = state.window_id or str(uuid.uuid4())
+        if not state.window_id:
+            state.window_id = state.first_window_id
+        return state
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize context-window state."""
+        return {
+            "window_number": max(0, int(self.window_number or 0)),
+            "first_window_id": _trim_text(self.first_window_id),
+            "previous_window_id": _trim_text(self.previous_window_id) or None,
+            "window_id": _trim_text(self.window_id),
+            "prefill_input_tokens": (
+                max(0, int(self.prefill_input_tokens))
+                if self.prefill_input_tokens is not None
+                else None
+            ),
+            "pending_new_window_request": bool(self.pending_new_window_request),
+            "budget_reminder_delivered": bool(self.budget_reminder_delivered),
+            "last_active_context_tokens": (
+                max(0, int(self.last_active_context_tokens))
+                if self.last_active_context_tokens is not None
+                else None
+            ),
+        }
+
+    def request_new_window(self) -> None:
+        """Mark that the next prompt should start a fresh compacted window."""
+        self.pending_new_window_request = True
+
+    def advance_window(self, *, prefill_input_tokens: Optional[int] = None) -> None:
+        """Advance to a fresh context window after compaction."""
+        self.window_number = max(0, int(self.window_number or 0)) + 1
+        self.previous_window_id = self.window_id
+        self.window_id = str(uuid.uuid4())
+        self.pending_new_window_request = False
+        self.budget_reminder_delivered = False
+        self.prefill_input_tokens = (
+            max(0, int(prefill_input_tokens))
+            if prefill_input_tokens is not None
+            else None
+        )
 
 
 @dataclass
@@ -284,6 +366,9 @@ class CodingSessionState:
     modified_files: list[str] = field(default_factory=list)
     file_evidence: dict[str, CodingFileState] = field(default_factory=dict)
     recent_commands: list[str] = field(default_factory=list)
+    context_window: CodingContextWindowState = field(
+        default_factory=CodingContextWindowState
+    )
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "CodingSessionState":
@@ -308,6 +393,9 @@ class CodingSessionState:
                 if isinstance(file_state, dict) and _trim_text(path)
             },
             recent_commands=list(data.get("recent_commands") or []),
+            context_window=CodingContextWindowState.from_dict(
+                data.get("context_window") if isinstance(data.get("context_window"), dict) else {}
+            ),
         )
         state.normalize()
         return state
@@ -318,6 +406,9 @@ class CodingSessionState:
         self.read_files = _dedupe_ordered(self.read_files, max_len=_MAX_TEXT)
         self.modified_files = _dedupe_ordered(self.modified_files, max_len=_MAX_TEXT)
         self.recent_commands = _dedupe_ordered(self.recent_commands)
+        self.context_window = CodingContextWindowState.from_dict(
+            self.context_window.to_dict()
+        )
         self.file_evidence = {
             path: CodingFileState.from_dict(file_state.to_dict())
             for path, file_state in self.file_evidence.items()
@@ -354,4 +445,5 @@ class CodingSessionState:
                 for path, file_state in self.file_evidence.items()
             },
             "recent_commands": self.recent_commands,
+            "context_window": self.context_window.to_dict(),
         }
