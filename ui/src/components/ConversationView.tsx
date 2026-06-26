@@ -283,7 +283,7 @@ function selectionFromRegistryModel(
 }
 
 /** Model picker component shown in the status bar */
-function ModelPicker({
+export function ModelPicker({
   open,
   onOpenChange,
   modelStatus,
@@ -1278,7 +1278,7 @@ function ModelPicker({
   );
 }
 
-function ReasoningSettingsDialog({
+export function ReasoningSettingsDialog({
   open,
   onOpenChange,
   settingsResponse,

@@ -26,6 +26,7 @@ function uiBuildStampPlugin(buildAt: string): Plugin {
 }
 
 export default defineConfig({
+  base: "./",
   define: {
     __UI_BUILD_AT__: JSON.stringify(uiBuildAt),
   },
@@ -34,6 +35,9 @@ export default defineConfig({
     alias: {
       "@": path.resolve(projectRoot, "./src"),
     },
+  },
+  build: {
+    chunkSizeWarningLimit: 2000,
   },
   server: {
     host: "127.0.0.1",

@@ -18,11 +18,13 @@ path = "src/main.rs"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["macos-private-api", "unstable"] }
+tauri = { version = "2", features = ["macos-private-api", "tray-icon", "unstable"] }
 tauri-plugin-dialog = "2"
+tauri-plugin-global-shortcut = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-shell = "2"
 tauri-plugin-single-instance = "2"
+base64 = "0.22"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 dirs = "6"
@@ -30,6 +32,9 @@ ureq = { version = "3", default-features = false, features = ["json"] }
 url = "2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["NSApplication", "NSEvent", "NSRunningApplication", "NSScreen", "NSWindow"] }
+objc2-core-graphics = { version = "0.3", default-features = false, features = ["CGWindow"] }
 tauri-plugin-sparkle-updater = "0.2"
 
 [profile.release]

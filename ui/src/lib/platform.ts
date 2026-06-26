@@ -30,6 +30,21 @@ export function applyDesktopPlatformClass(forceDesktop = false): void {
   delete document.documentElement.dataset.app;
 }
 
+function apiBaseForPlatformProbe(): string {
+  if (typeof window === 'undefined') return '/api';
+  const { protocol, hostname, port } = window.location;
+  if ((hostname === '127.0.0.1' || hostname === 'localhost') && port === '9000') {
+    return '/api';
+  }
+  if ((hostname === '127.0.0.1' || hostname === 'localhost') && port === '3000') {
+    return `${protocol}//${hostname}:9000/api`;
+  }
+  if (isTauriWebview()) {
+    return 'http://127.0.0.1:9000/api';
+  }
+  return '/api';
+}
+
 /** Also enable desktop styling when the API reports a local packaged app (e.g. after config fetch). */
 export async function syncDesktopPlatformClassFromApi(): Promise<void> {
   if (isLocalDesktopApp()) {
@@ -37,8 +52,7 @@ export async function syncDesktopPlatformClassFromApi(): Promise<void> {
     return;
   }
   try {
-    const { getApiBase } = await import('@/api/client');
-    const response = await fetch(`${getApiBase()}/config`);
+    const response = await fetch(`${apiBaseForPlatformProbe()}/config`);
     if (!response.ok) return;
     const data = (await response.json()) as { local_app?: boolean };
     if (data.local_app) {

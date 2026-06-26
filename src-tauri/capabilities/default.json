@@ -1,7 +1,7 @@
 {
   "identifier": "default",
   "description": "Default Fluxion desktop capabilities",
-  "windows": ["main"],
+  "windows": ["main", "floating"],
   "permissions": [
     "core:default",
     "core:event:default",

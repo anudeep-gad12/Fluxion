@@ -63,6 +63,11 @@ function isConversationPinned(conversation: Conversation): boolean {
   return Boolean(conversation.metadata?.pinned_at);
 }
 
+function isTemporaryOverlayConversation(conversation: Conversation): boolean {
+  return conversation.metadata?.surface === 'floating_overlay'
+    || conversation.metadata?.temporary === true;
+}
+
 type WorkspaceGroup = {
   workspacePath: string;
   label: string;
@@ -258,6 +263,10 @@ export function ConversationList({
   const [isSelectMode, setIsSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkDeleteModalOpen, setBulkDeleteModalOpen] = useState(false);
+  const visibleConversations = useMemo(
+    () => conversations.filter((conversation) => !isTemporaryOverlayConversation(conversation)),
+    [conversations]
+  );
 
   useEffect(() => {
     async function fetchConversations() {
@@ -297,7 +306,7 @@ export function ConversationList({
     const groups = new Map<string, WorkspaceGroup>();
     const generalConversations: Conversation[] = [];
 
-    for (const conversation of conversations) {
+    for (const conversation of visibleConversations) {
       const workspacePath = conversation.workspace_path?.trim();
       if (!workspacePath) {
         generalConversations.push(conversation);
@@ -346,7 +355,7 @@ export function ConversationList({
         }),
       }))
       .sort((a, b) => b.latestCreatedAt.localeCompare(a.latestCreatedAt));
-  }, [conversations]);
+  }, [visibleConversations]);
 
   useEffect(() => {
     setWorkspaceSectionsOpen((current) => {
@@ -568,20 +577,20 @@ export function ConversationList({
                 size="sm"
                 variant="ghost"
                 onClick={() => {
-                  if (selectedIds.size === conversations.length) {
+                  if (selectedIds.size === visibleConversations.length) {
                     setSelectedIds(new Set());
                   } else {
                     setSelectedIds(
                       new Set(
-                        conversations.map((conversation) => conversation.conversation_id)
+                        visibleConversations.map((conversation) => conversation.conversation_id)
                       )
                     );
                   }
                 }}
-                title={selectedIds.size === conversations.length ? 'Deselect all' : 'Select all'}
+                title={selectedIds.size === visibleConversations.length ? 'Deselect all' : 'Select all'}
                 className="h-9 rounded-lg px-2 text-zinc-300 hover:bg-white/[0.055] hover:text-zinc-100 sm:h-8"
               >
-                {selectedIds.size === conversations.length ? 'None' : 'All'}
+                {selectedIds.size === visibleConversations.length ? 'None' : 'All'}
               </Button>
             )}
             <Button
@@ -613,7 +622,7 @@ export function ConversationList({
       )}
 
       <div className="flex-1 space-y-3 overflow-y-auto p-2">
-        {isLoading && conversations.length === 0 ? (
+        {isLoading && visibleConversations.length === 0 ? (
           <div className="text-sm text-muted-foreground">Loading conversations...</div>
         ) : workspaceGroups.length === 0 ? (
           <div className="space-y-3 rounded-[1rem] border border-dashed border-white/14 bg-white/[0.025] px-4 py-6 text-sm text-zinc-300">

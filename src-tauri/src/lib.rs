@@ -2,24 +2,53 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
+use base64::{engine::general_purpose, Engine as _};
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, Manager, RunEvent};
+use tauri::menu::MenuBuilder;
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri::{
+    AppHandle, Emitter, LogicalSize, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder, WindowEvent,
+};
 use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_shell::process::CommandChild;
 use tauri_plugin_shell::ShellExt;
+use tauri_plugin_global_shortcut::ShortcutState;
 use url::Url;
+
+#[cfg(target_os = "macos")]
+use objc2::MainThreadMarker;
+#[cfg(target_os = "macos")]
+use objc2_app_kit::{
+    NSApplication, NSApplicationActivationPolicy, NSEvent, NSPopUpMenuWindowLevel, NSScreen, NSWindow,
+    NSWindowCollectionBehavior, NSWindowStyleMask,
+};
+#[cfg(target_os = "macos")]
+use objc2_core_graphics::{CGPreflightScreenCaptureAccess, CGRequestScreenCaptureAccess};
 
 const APP_NAME: &str = "Fluxion";
 const APP_LABEL: &str = "io.fluxion.local";
 const DEFAULT_HOST: &str = "127.0.0.1";
 const DEFAULT_PORT: u16 = 9000;
+const FLOATING_WINDOW_LABEL: &str = "floating";
+const FLOATING_WIDTH: f64 = 920.0;
+const FLOATING_HEIGHT: f64 = 360.0;
+const FLOATING_HOTKEY: &str = "ctrl+alt+f";
+static SCREEN_CAPTURE_PERMISSION_REQUESTED: AtomicBool = AtomicBool::new(false);
 
 #[derive(Default)]
 struct BackendState {
     child: Mutex<Option<CommandChild>>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct CapturePayload {
+    name: String,
+    mime_type: String,
+    data_url: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -113,6 +142,35 @@ fn service_url() -> String {
 
 fn health_url() -> String {
     format!("{}/api/health", service_url())
+}
+
+fn floating_query(capture: bool) -> String {
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or_default();
+    format!(
+        "floating=1&new=1&capture={}&nonce={nonce}",
+        if capture { "1" } else { "0" }
+    )
+}
+
+fn floating_webview_url(capture: bool) -> Result<WebviewUrl, String> {
+    let query = floating_query(capture);
+    if cfg!(debug_assertions) {
+        let url = format!("{}/?{query}", service_url())
+            .parse()
+            .map_err(|error| format!("invalid floating URL: {error}"))?;
+        Ok(WebviewUrl::External(url))
+    } else {
+        Ok(WebviewUrl::App(format!("index.html?{query}").into()))
+    }
+}
+
+fn home_dir_string() -> Result<String, String> {
+    dirs::home_dir()
+        .map(|path| path.to_string_lossy().into_owned())
+        .ok_or_else(|| "Home directory not available".to_string())
 }
 
 fn bootout_legacy_launch_agent() {
@@ -322,6 +380,225 @@ fn fluxion_browser_go_forward(app: AppHandle, label: String) -> Result<(), Strin
     webview
         .eval("history.forward()")
         .map_err(|error| error.to_string())
+}
+
+fn show_floating_overlay(app: &AppHandle, capture: bool) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window(FLOATING_WINDOW_LABEL) {
+        window
+            .set_size(LogicalSize::new(FLOATING_WIDTH, FLOATING_HEIGHT))
+            .map_err(|error| error.to_string())?;
+        if cfg!(debug_assertions) {
+            let url: Url = format!("{}/?{}", service_url(), floating_query(capture))
+                .parse()
+                .map_err(|error| format!("invalid floating URL: {error}"))?;
+            window
+                .navigate(url)
+                .map_err(|error| format!("failed to navigate floating window: {error}"))?;
+        } else {
+            let script = format!("window.location.replace('index.html?{}')", floating_query(capture));
+            window
+                .eval(&script)
+                .map_err(|error| format!("failed to reset floating window: {error}"))?;
+        }
+        configure_floating_window_for_spaces(&window);
+        window.show().map_err(|error| error.to_string())?;
+        configure_floating_window_for_spaces(&window);
+        return Ok(());
+    }
+
+    let window = WebviewWindowBuilder::new(app, FLOATING_WINDOW_LABEL, floating_webview_url(capture)?)
+        .title("Fluxion")
+        .inner_size(FLOATING_WIDTH, FLOATING_HEIGHT)
+        .min_inner_size(520.0, 180.0)
+        .decorations(false)
+        .transparent(true)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .resizable(true)
+        .focused(false)
+        .visible(false)
+        .build()
+        .map_err(|error| format!("failed to create floating window: {error}"))?;
+    configure_floating_window_for_spaces(&window);
+    window.show().map_err(|error| error.to_string())?;
+    configure_floating_window_for_spaces(&window);
+    Ok(())
+}
+
+fn show_floating_overlay_on_main_thread(app: AppHandle, capture: bool) {
+    let target = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        if let Err(error) = show_floating_overlay(&target, capture) {
+            eprintln!("[fluxion] failed to show floating overlay: {error}");
+        }
+    });
+}
+
+fn show_main_window_on_main_thread(app: AppHandle) {
+    let target = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        if let Some(window) = target.get_webview_window("main") {
+            let _ = window.show();
+            let _ = window.set_focus();
+        }
+    });
+}
+
+#[cfg(target_os = "macos")]
+fn configure_floating_window_for_spaces(window: &tauri::WebviewWindow) {
+    if let Ok(ns_window_ptr) = window.ns_window() {
+        if ns_window_ptr.is_null() {
+            return;
+        }
+        let ns_window: &NSWindow = unsafe { &*ns_window_ptr.cast() };
+        let behavior = NSWindowCollectionBehavior::CanJoinAllSpaces
+            | NSWindowCollectionBehavior::Transient
+            | NSWindowCollectionBehavior::IgnoresCycle
+            | NSWindowCollectionBehavior::FullScreenAuxiliary;
+        ns_window.setCollectionBehavior(behavior);
+        ns_window.setLevel(NSPopUpMenuWindowLevel);
+        ns_window.setStyleMask(ns_window.styleMask() | NSWindowStyleMask::NonactivatingPanel);
+        ns_window.setCanHide(false);
+        ns_window.setHidesOnDeactivate(false);
+        position_native_floating_window(ns_window);
+        ns_window.orderFrontRegardless();
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn configure_floating_window_for_spaces(_window: &tauri::WebviewWindow) {}
+
+#[cfg(target_os = "macos")]
+fn configure_menu_bar_app_activation_policy() {
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+    let app = NSApplication::sharedApplication(mtm);
+    let _ = app.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
+}
+
+#[cfg(not(target_os = "macos"))]
+fn configure_menu_bar_app_activation_policy() {}
+
+#[cfg(target_os = "macos")]
+fn position_native_floating_window(ns_window: &NSWindow) {
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+    let mouse = NSEvent::mouseLocation();
+    let screens = NSScreen::screens(mtm);
+    let mut selected = None;
+    for index in 0..screens.count() {
+        let screen = screens.objectAtIndex(index);
+        let frame = screen.frame();
+        let within_x = mouse.x >= frame.origin.x && mouse.x <= frame.origin.x + frame.size.width;
+        let within_y = mouse.y >= frame.origin.y && mouse.y <= frame.origin.y + frame.size.height;
+        if within_x && within_y {
+            selected = Some(screen);
+            break;
+        }
+    }
+    let screen = selected
+        .or_else(|| NSScreen::mainScreen(mtm))
+        .or_else(|| {
+            if screens.count() > 0 {
+                Some(screens.objectAtIndex(0))
+            } else {
+                None
+            }
+        });
+    let Some(screen) = screen else {
+        return;
+    };
+
+    let visible = screen.frame();
+    let margin = 16.0;
+    let width = FLOATING_WIDTH;
+    let height = FLOATING_HEIGHT;
+    let max_x = visible.origin.x + visible.size.width - width - margin;
+    let min_x = visible.origin.x + margin;
+    let max_y = visible.origin.y + visible.size.height - height - margin;
+    let min_y = visible.origin.y + margin;
+    let mut frame = visible;
+    frame.size.width = width;
+    frame.size.height = height;
+    frame.origin.x = (mouse.x - width / 2.0).clamp(min_x, max_x.max(min_x));
+    frame.origin.y = (mouse.y - height / 2.0).clamp(min_y, max_y.max(min_y));
+    ns_window.setFrame_display(frame, true);
+}
+
+#[tauri::command]
+fn fluxion_show_floating_overlay(app: AppHandle, capture: Option<bool>) -> Result<(), String> {
+    show_floating_overlay_on_main_thread(app, capture.unwrap_or(false));
+    Ok(())
+}
+
+#[tauri::command]
+fn fluxion_hide_floating_overlay(app: AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window(FLOATING_WINDOW_LABEL) {
+        window.hide().map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn fluxion_home_dir() -> Result<String, String> {
+    home_dir_string()
+}
+
+#[tauri::command]
+fn fluxion_capture_area(app: AppHandle) -> Result<Option<CapturePayload>, String> {
+    #[cfg(target_os = "macos")]
+    {
+        if !CGPreflightScreenCaptureAccess() {
+            if !SCREEN_CAPTURE_PERMISSION_REQUESTED.swap(true, Ordering::SeqCst) {
+                let _ = CGRequestScreenCaptureAccess();
+            }
+            return Err(
+                "Screen Recording access is required. If you just granted it in System Settings, fully quit and reopen Fluxion once before capturing."
+                    .to_string(),
+            );
+        }
+    }
+
+    if let Some(window) = app.get_webview_window(FLOATING_WINDOW_LABEL) {
+        let _ = window.hide();
+    }
+    std::thread::sleep(Duration::from_millis(180));
+
+    let output_path = std::env::temp_dir().join(format!(
+        "fluxion-capture-{}-{}.png",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_millis())
+            .unwrap_or_default()
+    ));
+
+    let status = std::process::Command::new("/usr/sbin/screencapture")
+        .args(["-i", "-x", &output_path.to_string_lossy()])
+        .status()
+        .map_err(|error| format!("failed to start screencapture: {error}"))?;
+
+    if !status.success() || !output_path.exists() {
+        let _ = std::fs::remove_file(&output_path);
+        return Ok(None);
+    }
+
+    let bytes = std::fs::read(&output_path).map_err(|error| error.to_string())?;
+    let _ = std::fs::remove_file(&output_path);
+    if bytes.is_empty() {
+        return Ok(None);
+    }
+
+    Ok(Some(CapturePayload {
+        name: "screenshot.png".to_string(),
+        mime_type: "image/png".to_string(),
+        data_url: format!(
+            "data:image/png;base64,{}",
+            general_purpose::STANDARD.encode(bytes)
+        ),
+    }))
 }
 
 fn strip_terminal_path_suffix(value: &str) -> String {
@@ -602,26 +879,93 @@ fn start_backend_in_background(handle: AppHandle) {
                     navigate_main_to_app_index(&handle_for_ui)
                 };
                 if let Err(error) = navigation_result {
+                    let _ = show_splash_window(&handle_for_ui);
                     show_splash_error(&handle_for_ui, &error);
                 }
             }
             Ok(Err(message)) => {
                 eprintln!("[fluxion] backend startup failed: {message}");
+                let _ = show_splash_window(&handle_for_ui);
                 show_splash_error(&handle_for_ui, &message);
             }
             Err(join_error) => {
                 let message = format!("Startup failed: {join_error}");
+                let _ = show_splash_window(&handle_for_ui);
                 show_splash_error(&handle_for_ui, &message);
             }
         });
     });
 }
 
+fn install_tray(handle: &AppHandle) -> Result<(), String> {
+    let menu = MenuBuilder::new(handle)
+        .text("new-floating", "New Floating Chat")
+        .text("open-main", "Open Full Fluxion")
+        .separator()
+        .text("quit", "Quit Fluxion")
+        .build()
+        .map_err(|error| error.to_string())?;
+
+    let mut builder = TrayIconBuilder::new()
+        .tooltip("Fluxion")
+        .menu(&menu)
+        .icon_as_template(false)
+        .show_menu_on_left_click(false)
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            "new-floating" => {
+                show_floating_overlay_on_main_thread(app.clone(), false);
+            }
+            "open-main" => {
+                show_main_window_on_main_thread(app.clone());
+            }
+            "quit" => {
+                app.exit(0);
+            }
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                show_floating_overlay_on_main_thread(tray.app_handle().clone(), false);
+            }
+        });
+
+    if let Some(icon) = handle.default_window_icon() {
+        builder = builder.icon(icon.clone());
+    } else {
+        builder = builder.title("Fluxion");
+    }
+
+    builder.build(handle).map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+fn install_global_shortcut(handle: &AppHandle) -> Result<(), String> {
+    handle
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_shortcut(FLOATING_HOTKEY)
+                .map_err(|error| error.to_string())?
+                .with_handler(move |app, _shortcut, event| {
+                    if event.state == ShortcutState::Pressed {
+                        show_floating_overlay_on_main_thread(app.clone(), false);
+                    }
+                })
+                .build(),
+        )
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
 #[cfg(target_os = "macos")]
 fn check_sparkle_updates(handle: &AppHandle) {
     use tauri_plugin_sparkle_updater::SparkleUpdaterExt;
 
-    if cfg!(debug_assertions) {
+    if cfg!(debug_assertions) || build_id() == "source" || build_id().contains("-dirty-") {
         return;
     }
 
@@ -645,7 +989,13 @@ pub fn run() {
         .manage(BackendState::default())
         .setup(|app| {
             let handle = app.handle().clone();
-            show_splash_window(&handle)?;
+            configure_menu_bar_app_activation_policy();
+            if let Err(error) = install_tray(&handle) {
+                eprintln!("[fluxion] failed to install menu bar icon: {error}");
+            }
+            if let Err(error) = install_global_shortcut(&handle) {
+                eprintln!("[fluxion] failed to register {FLOATING_HOTKEY}: {error}");
+            }
             start_backend_in_background(handle.clone());
             #[cfg(target_os = "macos")]
             check_sparkle_updates(&handle);
@@ -665,14 +1015,41 @@ pub fn run() {
             fluxion_browser_go_back,
             fluxion_browser_go_forward,
             fluxion_open_terminal_path,
+            fluxion_show_floating_overlay,
+            fluxion_hide_floating_overlay,
+            fluxion_home_dir,
+            fluxion_capture_area,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Fluxion")
         .run(|app_handle, event| {
-            if let RunEvent::Exit = event {
-                if let Some(state) = app_handle.try_state::<BackendState>() {
-                    stop_sidecar(&state);
+            match event {
+                RunEvent::WindowEvent {
+                    label,
+                    event: WindowEvent::CloseRequested { api, .. },
+                    ..
+                } => {
+                    api.prevent_close();
+                    if let Some(window) = app_handle.get_webview_window(&label) {
+                        let _ = window.hide();
+                    }
                 }
+                RunEvent::ExitRequested {
+                    code: None, api, ..
+                } => {
+                    api.prevent_exit();
+                    for label in ["main", FLOATING_WINDOW_LABEL] {
+                        if let Some(window) = app_handle.get_webview_window(label) {
+                            let _ = window.hide();
+                        }
+                    }
+                }
+                RunEvent::Exit => {
+                    if let Some(state) = app_handle.try_state::<BackendState>() {
+                        stop_sidecar(&state);
+                    }
+                }
+                _ => {}
             }
         });
 }

@@ -10,6 +10,7 @@ import { TerminalPanel } from '@/components/desktop/TerminalPanel';
 import { DesktopTitlebar } from '@/components/desktop/DesktopTitlebar';
 import { AppBrandIcon } from '@/components/AppBrandIcon';
 import { DesktopSidebarBrand } from '@/components/desktop/DesktopSidebarBrand';
+import { FloatingOverlay } from '@/components/desktop/FloatingOverlay';
 import { startWindowDrag } from '@/lib/windowDrag';
 import { useStore, useHasActiveRun } from '@/hooks/useStore';
 import { getApiBase } from '@/api/client';
@@ -380,7 +381,7 @@ function AppLayout() {
           !isMobile && !localDesktop && sidebarCollapsed && 'w-0 overflow-hidden',
           localDesktop &&
             !isMobile &&
-            'transition-[width] duration-200 ease-[cubic-bezier(0.4,0,0.2,1)]',
+            'transition-[width] duration-200 ease-in-out',
           localDesktop && !isMobile && sidebarCollapsed && 'desktop-sidebar-collapsed overflow-hidden'
         )}
         style={
@@ -490,6 +491,7 @@ function AppLayout() {
 function App() {
   const desktop = isLocalDesktopApp();
   const { theme } = useTheme();
+  const floating = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('floating') === '1';
 
   return (
     <>
@@ -503,9 +505,13 @@ function App() {
           className: desktop ? 'sonner-toast border border-white/10 bg-zinc-900 text-zinc-100' : undefined,
         }}
       />
-      <Routes>
-        <Route path="/*" element={<AppLayout />} />
-      </Routes>
+      {floating ? (
+        <FloatingOverlay key={typeof window !== 'undefined' ? window.location.search : 'floating'} />
+      ) : (
+        <Routes>
+          <Route path="/*" element={<AppLayout />} />
+        </Routes>
+      )}
     </>
   );
 }
