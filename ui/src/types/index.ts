@@ -36,6 +36,7 @@ export interface Run {
   context_usage?: ContextUsage;
   stored_context?: StoredContextUsage;
   context_profile?: ModelContextProfile;
+  image_attachments?: ImageAttachment[];
 }
 
 export interface Event {

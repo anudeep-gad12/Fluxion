@@ -54,7 +54,13 @@ async def create_agent_engine(
     if provider_override is not None:
         override_model_name = getattr(provider_override, "_context_profile_model_id", None) or getattr(provider_override, "_default_model", None)
     resolve_name = model_name or override_model_name or config.model.name
-    if resolve_name:
+    if provider_override is not None:
+        # A provider override has already been resolved from the explicit UI
+        # selection, OAuth session, or active local model. Do not re-resolve an
+        # unqualified model id here: aliases like "grok-build" can collide
+        # across providers and make the context profile lie about vision/tools.
+        resolved_model = None
+    elif resolve_name:
         try:
             from orchestrator.models.registry import _ALIAS_INDEX, _MODEL_ID_INDEX, ModelRegistry
             lower_name = resolve_name.strip().lower()

@@ -686,6 +686,62 @@ class TestRunAgentTaskFailureHandling:
         assert end_event["result"]["success"] is False
         assert end_event["result"]["error_message"] == "provider exploded"
 
+    @pytest.mark.asyncio
+    async def test_explicit_agent_model_selection_overrides_active_local_provider(self, test_db):
+        """Per-run model headers must win over a running local provider override."""
+        run_id = "explicit-model-selection-run"
+        await self._seed_run(test_db, run_id)
+
+        local_provider = MagicMock(name="local_provider")
+        selected_provider = MagicMock(name="selected_provider")
+        captured_kwargs = {}
+
+        async def successful_run(*args, **kwargs):
+            return AgentResult(
+                run_id=run_id,
+                success=True,
+                final_answer="ok",
+                citations=[],
+                total_steps=1,
+                error_message=None,
+                timing_ms=10,
+            )
+
+        async def create_engine(**kwargs):
+            captured_kwargs.update(kwargs)
+            return self._mock_engine(successful_run)
+
+        async def cleanup_now(*args, **kwargs):
+            return None
+
+        resolved = MagicMock()
+        resolved.model_id = "grok-build"
+
+        agent_runs_module._active_runs[run_id] = True
+        agent_runs_module._abort_signals[run_id] = asyncio.Event()
+        agent_runs_module._event_history[run_id] = []
+        agent_runs_module._event_notify[run_id] = asyncio.Event()
+
+        with patch("orchestrator.providers.factory.get_provider_override", return_value=local_provider):
+            with patch(
+                "orchestrator.providers.factory.create_provider_for_model",
+                return_value=(selected_provider, resolved),
+            ) as create_provider:
+                with patch("orchestrator.agent.factory.create_agent_engine", create_engine):
+                    with patch("orchestrator.routes.agent_runs._cleanup_run", cleanup_now):
+                        await agent_runs_module._run_agent_task(
+                            run_id=run_id,
+                            query="what is in this image?",
+                            conversation_id=f"{run_id}-conv",
+                            max_steps=10,
+                            provider_preference="grok",
+                            model_override="grok-build",
+                        )
+
+        create_provider.assert_called_once_with("grok:grok-build")
+        assert captured_kwargs["provider_override"] is selected_provider
+        assert captured_kwargs["model_name"] == "grok-build"
+
 
 class TestAgentStreamRecovery:
     """Tests for terminal SSE fallback after in-memory state is gone."""
@@ -1105,6 +1161,42 @@ class TestAgentFactory:
 
                 assert engine is not None
                 assert engine._model_name == "Qwen3.6-35B-A3B-Q4_K_M"
+
+    @pytest.mark.asyncio
+    async def test_factory_uses_provider_override_context_profile_for_colliding_alias(self, test_db):
+        """A resolved provider override must not be re-resolved through another provider alias."""
+        from orchestrator.agent import create_agent_engine
+
+        mock_provider = MagicMock()
+        mock_provider._context_profile_provider_name = "grok"
+        mock_provider._context_profile_model_id = "grok-build"
+        mock_provider._context_profile_display_name = "Grok Build"
+        mock_provider._context_profile_source = "registry"
+        mock_provider._context_window = 256000
+        mock_provider._max_output_tokens = 32768
+        mock_provider._supports_tools = True
+        mock_provider._supports_reasoning = False
+        mock_provider._supports_vision = True
+        mock_provider._input_cost_per_million = 0.0
+        mock_provider._cached_input_cost_per_million = 0.0
+        mock_provider._output_cost_per_million = 0.0
+        mock_registry = MagicMock()
+        mock_registry.tool_names = []
+
+        with patch("orchestrator.agent.factory.create_provider", return_value=MagicMock()):
+            with patch(
+                "orchestrator.agent.factory.create_browser_agent_tool_registry",
+                return_value=mock_registry,
+            ):
+                engine = await create_agent_engine(
+                    model_name="grok-build",
+                    provider_override=mock_provider,
+                    filesystem_enabled=True,
+                )
+
+        assert engine._context_profile.provider_name == "grok"
+        assert engine._context_profile.model_id == "grok-build"
+        assert engine._context_profile.supports_vision is True
 
     async def test_factory_uses_coding_profile_max_steps(self, test_db):
         """Factory uses coding profile max_steps when filesystem mode is enabled."""

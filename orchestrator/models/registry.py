@@ -351,6 +351,7 @@ MODEL_PRESETS: list[ModelPreset] = [
         context_window=256000,
         max_output_tokens=32768,
         supports_reasoning=False,
+        supports_vision=True,
         input_cost_per_million=0.0,
         cached_input_cost_per_million=0.0,
         output_cost_per_million=0.0,

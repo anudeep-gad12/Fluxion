@@ -19,7 +19,7 @@ class ViewImageTool:
 
     SUPPORTED_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}
     SUPPORTED_MIME_TYPES = {"image/png", "image/jpeg", "image/webp"}
-    MAX_IMAGES = 8
+    MAX_IMAGES = 20
 
     def __init__(self, working_dir: str = ".") -> None:
         self._working_dir = Path(working_dir).resolve()

@@ -80,6 +80,12 @@ export interface AgentToolCall {
     detail?: string;
     metadata?: Record<string, unknown>;
   }>;
+  images?: Array<{
+    id?: string;
+    name: string;
+    mime_type: string;
+    data_url: string;
+  }>;
 }
 
 export interface RunArtifact {
@@ -129,6 +135,7 @@ export interface ModelContextProfile {
   effective_input_budget: number;
   supports_tools: boolean;
   supports_reasoning: boolean;
+  supports_vision: boolean;
   pricing?: ModelPricing;
   source: string;
 }
@@ -370,6 +377,7 @@ export interface ToolResultEvent extends AgentSSEEventBase {
     truncated?: boolean;
   };
   artifacts?: AgentToolCall['artifacts'];
+  images?: AgentToolCall['images'];
   duration_ms?: number;
 }
 

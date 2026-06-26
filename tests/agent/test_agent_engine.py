@@ -2140,6 +2140,75 @@ class TestAgentEngineRun:
         assert any(e["type"] == "agent_complete" for e in events)
 
     @pytest.mark.asyncio
+    async def test_coding_profile_attaches_initial_user_images_to_provider_call(self):
+        """Coding-session prompt rebuild must not drop current-turn image inputs."""
+        provider = create_mock_provider(response_text="I can see the image.")
+        provider._supports_vision = True
+        repo = create_mock_repo()
+        stored_entries = []
+
+        async def append_entries(conversation_id, entries):
+            next_seq = len(stored_entries) + 1
+            appended = []
+            for offset, entry in enumerate(entries):
+                stored = {
+                    **entry,
+                    "id": f"entry-{next_seq + offset}",
+                    "conversation_id": conversation_id,
+                    "seq": next_seq + offset,
+                }
+                appended.append(stored)
+                stored_entries.append(stored)
+            return appended
+
+        repo.append_coding_session_entries = AsyncMock(side_effect=append_entries)
+        repo.list_coding_session_entries = AsyncMock(side_effect=lambda *args, **kwargs: list(stored_entries))
+        repo.get_latest_coding_session_entry_seq = AsyncMock(return_value=1)
+        registry = create_mock_registry()
+        profile = MagicMock()
+        profile.name = "coding"
+        profile.max_steps = 5
+        mock_sm = create_mock_state_machine()
+
+        with patch(
+            "orchestrator.agent.agent_engine.AgentStateMachine",
+            return_value=mock_sm,
+        ):
+            engine = AgentEngine(
+                provider=provider,
+                repo=repo,
+                registry=registry,
+                profile=profile,
+            )
+            result = await engine.run(
+                run_id="coding-image-run",
+                query="read this image",
+                conversation_id="coding-image-conversation",
+                image_attachments=[
+                    {
+                        "name": "shot.png",
+                        "mime_type": "image/png",
+                        "data_url": "data:image/png;base64,QUFBQQ==",
+                    }
+                ],
+            )
+
+        assert result.success is True
+        sent_messages = provider.complete_streaming.call_args.kwargs["messages"]
+        user_message = next(
+            message for message in reversed(sent_messages) if message["role"] == "user"
+        )
+        assert user_message["content"] == [
+            {"type": "text", "text": "read this image"},
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64,QUFBQQ=="}},
+        ]
+        assert any(
+            message["role"] == "system"
+            and "attached image input" in str(message.get("content") or "")
+            for message in sent_messages
+        )
+
+    @pytest.mark.asyncio
     async def test_plan_mode_does_not_persist_coding_session_context(self, tmp_path: Path):
         """Plan exploration reads must not replay as implementation file evidence."""
         (tmp_path / "src").mkdir()

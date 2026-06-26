@@ -54,6 +54,7 @@ def create_chatgpt_provider(
 
     configured_default = chatgpt_config.default_model if chatgpt_config else "gpt-5.5"
     default_model = model or configured_default
+    resolved_model = None
     if chatgpt_config:
         available_ids = {
             str(item.get("id"))
@@ -62,6 +63,12 @@ def create_chatgpt_provider(
         }
         if available_ids and default_model not in available_ids:
             default_model = configured_default
+    try:
+        from orchestrator.models.registry import ModelRegistry
+
+        resolved_model = ModelRegistry.resolve(f"chatgpt:{default_model}")
+    except Exception:
+        resolved_model = None
 
     async def on_auth_error() -> None:
         if not auth_session_id:
@@ -82,6 +89,16 @@ def create_chatgpt_provider(
     )
     provider._reasoning_provider_family = "chatgpt"
     provider._supports_reasoning = True
+    provider._supports_tools = True
+    provider._supports_vision = (
+        bool(resolved_model.supports_vision) if resolved_model is not None else True
+    )
+    if resolved_model is not None:
+        provider._context_window = resolved_model.context_window
+        provider._max_output_tokens = resolved_model.max_output_tokens
+        provider._context_profile_provider_name = resolved_model.provider_name
+        provider._context_profile_model_id = resolved_model.model_id
+        provider._context_profile_display_name = resolved_model.display_name
     return provider
 
 

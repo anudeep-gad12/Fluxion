@@ -4,6 +4,7 @@
  */
 
 import { cn } from '@/lib/utils';
+import { ImagePreviewStrip } from '@/components/ImagePreviewStrip';
 import type { AgentToolCall, AgentToolCallStatus } from '@/types/agent';
 
 interface ToolCallCardProps {
@@ -372,6 +373,15 @@ export function ToolCallCard({ toolCall }: ToolCallCardProps) {
 
       {toolCall.artifacts && toolCall.artifacts.length > 0 && (
         <ArtifactRefs artifacts={toolCall.artifacts} runId={toolCall.run_id} />
+      )}
+
+      {toolCall.images && toolCall.images.length > 0 && (
+        <div className="ml-4">
+          <ImagePreviewStrip
+            images={toolCall.images}
+            thumbnailClassName="h-16 w-16"
+          />
+        </div>
       )}
 
       {/* Full write/edit diff after execution */}

@@ -116,6 +116,7 @@ function loadHistoricalAgentRun(runId: string): Promise<AgentUIState> {
       result_detail: tc.result_detail,
       result_data: resultDataFromTraceToolCall(tc),
       bash_output: bashOutputFromTraceToolCall(tc),
+      images: tc.images,
     }));
 
     const citations: AgentCitation[] = trace.citations.map((c) => ({

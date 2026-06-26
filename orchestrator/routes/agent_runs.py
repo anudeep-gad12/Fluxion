@@ -674,13 +674,14 @@ async def _run_agent_task(
                 ),
             )
 
-        provider_override = get_provider_override()
+        explicit_model_selection = bool(provider_preference or model_override)
+        provider_override = None if explicit_model_selection else get_provider_override()
         from orchestrator.routes.auth import get_chatgpt_auth_session_id
 
         auth_session_id = get_chatgpt_auth_session_id(session_id=session_id, is_owner=is_owner)
 
         if provider_override is not None:
-            pass  # Local model is active, use it
+            pass  # No per-run selection was sent; use the active local/default override.
         elif auth_session_id and provider_preference == "chatgpt":
             # ChatGPT path: use stored OAuth tokens
             try:
@@ -1091,6 +1092,7 @@ async def create_agent_run(request: CreateAgentRunRequest, http_request: Request
             "collaboration_mode": collaboration_mode,
             "reasoning_settings": reasoning_settings.model_dump(),
             "image_attachments_count": len(request.image_attachments),
+            "image_attachments": request.image_attachments,
             "selected_provider": provider_preference,
             "selected_model": model_override,
             "plan_doc_path": request.plan_doc_path,
@@ -1829,6 +1831,11 @@ async def get_agent_run_trace(run_id: str, http_request: Request):
             if isinstance(stored_result_data, dict)
             else []
         )
+        stored_images = (
+            stored_result_data.get("images", [])
+            if tool_name == "view_image" and isinstance(stored_result_data, dict)
+            else []
+        )
         tool_calls.append(
             AgentToolCallResponse(
                 id=tc["id"],  # DB column is 'id', not 'tool_call_id'
@@ -1863,6 +1870,7 @@ async def get_agent_run_trace(run_id: str, http_request: Request):
                     tc["id"],
                     stored_artifacts if isinstance(stored_artifacts, list) else [],
                 ),
+                images=stored_images if isinstance(stored_images, list) else [],
             )
         )
 

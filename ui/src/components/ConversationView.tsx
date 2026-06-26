@@ -9,6 +9,7 @@ import { ThinkingPanel } from '@/components/ThinkingPanel';
 import { AgentRunMessage } from '@/components/AgentRunMessage';
 import { AgentLiveHUD } from '@/components/AgentLiveHUD';
 import { MessageActions } from '@/components/MessageActions';
+import { ImagePreviewStrip } from '@/components/ImagePreviewStrip';
 import { ShimmerSkeleton, ThinkingTimer } from '@/components/StreamingIndicator';
 import { ScrollToBottom } from '@/components/ScrollToBottom';
 import { WorkspacePickerDialog } from '@/components/WorkspacePickerDialog';
@@ -95,7 +96,7 @@ type ChatGPTLoginState = {
   loginUrl: string;
   status: 'waiting' | 'timed_out';
 };
-const MAX_IMAGE_ATTACHMENTS = 8;
+const MAX_IMAGE_ATTACHMENTS = 20;
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 
 /** Mode: 'chat' for regular conversation, 'agent' for agent */
@@ -1656,6 +1657,11 @@ const RunMessage = memo(function RunMessage({
             <span className="whitespace-pre-wrap text-[14px] leading-[1.9] text-zinc-50">
               {run.user_message || run.prompt}
             </span>
+            <ImagePreviewStrip
+              images={run.image_attachments}
+              className="mt-3"
+              thumbnailClassName="h-20 w-20"
+            />
           </div>
           <p className="desktop-run-meta mt-2 px-1 text-[11px] text-zinc-500">
             {formatRelativeTime(run.created_at)}
@@ -2819,6 +2825,7 @@ export function ConversationView() {
           user_message: messageToSend,
           conversation_id: conversationId!,
           conversation_summary: conversation?.summary || '',
+          image_attachments: attachmentsToSend,
         };
 
         addRun(conversationId!, run);
@@ -2856,6 +2863,7 @@ export function ConversationView() {
           user_message: messageToSend,
           conversation_id: conversationId!,
           conversation_summary: conversation?.summary || '',
+          image_attachments: attachmentsToSend,
         };
 
         addRun(conversationId!, run);
@@ -3640,19 +3648,12 @@ export function ConversationView() {
 
   const imageAttachmentsRow =
     imageAttachments.length > 0 ? (
-      <div className="flex flex-wrap gap-1.5 px-1 text-[12px]">
-        {imageAttachments.map((attachment, index) => (
-          <button
-            key={attachment.id || index}
-            type="button"
-            onClick={() => removeImageAttachment(attachment.id)}
-            className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-0.5 text-zinc-400 hover:border-cyan-400/25 hover:text-zinc-200"
-            title="Remove image"
-          >
-            Image {index + 1} ×
-          </button>
-        ))}
-      </div>
+      <ImagePreviewStrip
+        images={imageAttachments}
+        onRemove={removeImageAttachment}
+        className="px-1"
+        thumbnailClassName="h-14 w-14"
+      />
     ) : null;
 
   const terminalAvailable = localDesktop && mode === 'agent';

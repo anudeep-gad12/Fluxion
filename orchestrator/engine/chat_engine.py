@@ -29,7 +29,11 @@ from orchestrator.reasoning_controls import (
     apply_reasoning_settings,
     infer_provider_family,
 )
-from orchestrator.vision import build_multimodal_user_content, validate_image_attachments
+from orchestrator.vision import (
+    build_multimodal_user_content,
+    validate_image_attachments,
+    validate_image_attachments_for_provider,
+)
 
 logger = get_logger(__name__)
 from orchestrator.providers import create_provider, LLMProvider
@@ -175,11 +179,19 @@ class ChatEngine:
             )
 
         validated_images = validate_image_attachments(image_attachments)
-        image_error = (
-            "Active model does not support image inputs. Select a vision model."
-            if validated_images and not bool(getattr(self._provider, "_supports_vision", False))
-            else None
-        )
+        image_error = None
+        try:
+            validate_image_attachments_for_provider(
+                validated_images,
+                infer_provider_family(
+                    base_url=getattr(self._provider, "_base_url", None),
+                    provider_obj=self._provider,
+                ),
+            )
+        except ValueError as exc:
+            image_error = str(exc)
+        if validated_images and not bool(getattr(self._provider, "_supports_vision", False)):
+            image_error = "Active model does not support image inputs. Select a vision model."
 
         # Load conversation history from runs table
         prior_runs = await trace_repo.list_runs_for_conversation(conversation_id)
@@ -205,6 +217,9 @@ class ChatEngine:
                 "_context_profile_provider_name",
                 None,
             )
+        if validated_images:
+            model_config_snapshot["image_attachments"] = validated_images
+            model_config_snapshot["image_attachments_count"] = len(validated_images)
         if reasoning_settings is not None:
             model_config_snapshot["reasoning_settings"] = reasoning_settings.model_dump()
         await trace_repo.create_conversation_trace(

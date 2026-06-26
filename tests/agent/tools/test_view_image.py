@@ -32,3 +32,19 @@ async def test_rejects_extension_only_fake_image(tmp_path):
 
     assert result.success is False
     assert "unrecognized image data" in result.error_message
+
+
+def test_schema_allows_twenty_images(tmp_path):
+    tool = ViewImageTool(working_dir=str(tmp_path))
+
+    assert tool.schema.parameters["properties"]["paths"]["maxItems"] == 20
+
+
+@pytest.mark.asyncio
+async def test_rejects_more_than_twenty_images(tmp_path):
+    tool = ViewImageTool(working_dir=str(tmp_path))
+
+    result = await tool.execute(paths=[f"{index}.png" for index in range(21)])
+
+    assert result.success is False
+    assert "at most 20 images" in result.error_message

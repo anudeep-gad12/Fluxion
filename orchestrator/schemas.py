@@ -53,6 +53,7 @@ class RunResponse(BaseModel):
     context_usage: Optional[dict[str, Any]] = None
     stored_context: Optional[dict[str, Any]] = None
     context_profile: Optional[dict[str, Any]] = None
+    image_attachments: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class RunListResponse(BaseModel):
@@ -349,6 +350,7 @@ class AgentToolCallResponse(BaseModel):
     result_data: Optional[str] = None
     bash_output: Optional[dict[str, Any]] = None
     artifacts: list[dict[str, Any]] = Field(default_factory=list)
+    images: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class AgentCitationResponse(BaseModel):
@@ -385,6 +387,7 @@ class ModelContextProfileResponse(BaseModel):
     effective_input_budget: int
     supports_tools: bool
     supports_reasoning: bool
+    supports_vision: bool = False
     pricing: ModelPricingResponse = Field(default_factory=ModelPricingResponse)
     source: str
 
@@ -611,6 +614,10 @@ class UpdateReasoningSettingsRequest(BaseModel):
 def trace_to_run(trace: dict) -> RunResponse:
     """Convert a trace dict to RunResponse."""
     usage_stats = trace.get("usage") or {}
+    model_config = trace.get("model_config") or {}
+    image_attachments = model_config.get("image_attachments") or []
+    if not isinstance(image_attachments, list):
+        image_attachments = []
     normalized_usage = usage_stats.get("usage")
     if normalized_usage is None and "total_tokens" in usage_stats:
         normalized_usage = {
@@ -637,4 +644,5 @@ def trace_to_run(trace: dict) -> RunResponse:
         context_usage=usage_stats.get("context_usage"),
         stored_context=usage_stats.get("stored_context"),
         context_profile=usage_stats.get("context_profile"),
+        image_attachments=image_attachments,
     )

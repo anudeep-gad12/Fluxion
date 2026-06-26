@@ -54,7 +54,11 @@ from orchestrator.providers.usage import add_usage, estimate_cost, normalize_usa
 from orchestrator.reasoning_controls import ReasoningSettings, apply_reasoning_settings
 from orchestrator.schemas import AgentStepState
 from orchestrator.utils.sanitize import sanitize_harmony_tokens
-from orchestrator.vision import build_multimodal_user_content, validate_image_attachments
+from orchestrator.vision import (
+    build_multimodal_user_content,
+    validate_image_attachments,
+    validate_image_attachments_for_provider,
+)
 
 if TYPE_CHECKING:
     from orchestrator.agent.profile import AgentProfile
@@ -1545,7 +1549,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
         """Convert view_image result data into multimodal message parts."""
         data = result.result_data if isinstance(result.result_data, dict) else {}
         parts: List[Dict[str, Any]] = []
-        for image in (data.get("images") or [])[:8]:
+        for image in (data.get("images") or [])[:20]:
             data_url = image.get("data_url")
             if not data_url:
                 continue
@@ -3656,6 +3660,10 @@ To provide your final answer, respond WITHOUT calling any tools."""
         self._last_context_usage = None
         self._last_stored_context = None
         validated_images = validate_image_attachments(image_attachments)
+        validate_image_attachments_for_provider(
+            validated_images,
+            self._context_profile.provider_name,
+        )
         if validated_images and not bool(getattr(self._provider, "_supports_vision", False)):
             raise ValueError("Active model does not support image inputs. Select a vision model.")
 
@@ -3685,6 +3693,18 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 if validated_images
                 else query
             )
+            current_turn_vision_instruction: Optional[Dict[str, Any]] = None
+            if validated_images:
+                current_turn_vision_instruction = {
+                    "role": "system",
+                    "content": (
+                        "The current user turn includes pasted/attached image input. "
+                        "Inspect those image parts directly. Do not list, glob, grep, or search "
+                        "the workspace for the pasted image; it is already in the prompt. "
+                        "If the user is asking what is in the image, answer from the image."
+                    ),
+                    "_vision_from_user": True,
+                }
             working_memory = WorkingMemory(objective=query)
             self._active_conversation_id = conversation_id
             self._active_coding_session_state = None
@@ -3736,9 +3756,26 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 working_memory=working_memory,
                 coding_session_use_entries=coding_session_had_entries,
             )
+            if validated_images:
+                for message in reversed(messages):
+                    if message.get("role") == "user":
+                        message["content"] = current_user_content
+                        message["_vision_from_user"] = True
+                        break
+                else:
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": current_user_content,
+                            "_vision_from_user": True,
+                        }
+                    )
+                if current_turn_vision_instruction is not None:
+                    if self._is_coding_profile():
+                        ephemeral_messages.append(current_turn_vision_instruction)
+                    else:
+                        messages.append(current_turn_vision_instruction)
             if not self._is_coding_profile():
-                if validated_images and messages and messages[-1].get("role") == "user":
-                    messages[-1]["content"] = current_user_content
                 working_memory.prior_outcomes = self._prior_outcomes_from_scaffold(messages)
 
             # Handle recovery if needed
@@ -3917,6 +3954,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                     content={
                         "model": self._model_name,
                         "messages_count": len(pruned_messages),
+                        "image_parts_count": self._count_prompt_image_parts(pruned_messages),
                         "tools_count": len(tool_schemas) if tool_schemas else 0,
                         "tool_choice": self._tool_choice if step_number == 1 else None,
                     },
@@ -5063,6 +5101,18 @@ To provide your final answer, respond WITHOUT calling any tools."""
     ) -> List[Dict[str, Any]]:
         """Return a JSON-safe clone of prompt messages for transient reduction."""
         return json.loads(json.dumps(messages, ensure_ascii=False))
+
+    def _count_prompt_image_parts(self, messages: List[Dict[str, Any]]) -> int:
+        """Count image parts that will be sent in the next provider prompt."""
+        count = 0
+        for message in messages:
+            content = message.get("content")
+            if not isinstance(content, list):
+                continue
+            for part in content:
+                if isinstance(part, dict) and part.get("type") in {"image_url", "input_image"}:
+                    count += 1
+        return count
 
     async def _refresh_coding_stored_context(
         self,
@@ -7020,6 +7070,20 @@ To provide your final answer, respond WITHOUT calling any tools."""
         bash_output = bash_output_from_result_data(result.result_data)
         if tool_call.name in {"bash", "exec_command", "write_stdin"} and bash_output:
             emit_kwargs["bash_output"] = bash_output
+        if tool_call.name == "view_image" and result.success and isinstance(result.result_data, dict):
+            images = []
+            for image in (result.result_data.get("images") or [])[:20]:
+                if not isinstance(image, dict) or not image.get("data_url"):
+                    continue
+                images.append(
+                    {
+                        "name": image.get("name") or "image",
+                        "mime_type": image.get("mime_type") or "image/png",
+                        "data_url": image.get("data_url"),
+                    }
+                )
+            if images:
+                emit_kwargs["images"] = images
         if artifacts:
             emit_kwargs["artifacts"] = artifacts
         self._emit(event_callback, "tool_result", **emit_kwargs)
@@ -7256,7 +7320,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
                             "name": image.get("name"),
                             "mime_type": image.get("mime_type"),
                         }
-                        for image in (data.get("images") or [])[:8]
+                        for image in (data.get("images") or [])[:20]
                     ],
                     "instruction": "Images are attached to the following user message for visual inspection.",
                 },

@@ -128,12 +128,14 @@ class TestExplicitProviderPrefix:
         assert resolved.endpoint == "responses"
         assert resolved.api_key == "grok-token"
         assert resolved.reasoning_effort is None
+        assert resolved.supports_vision is True
 
         composer = ModelRegistry.resolve("grok:grok-composer-2.5-fast")
         assert composer.provider_name == "grok"
         assert composer.model_id == "grok-composer-2.5-fast"
         assert composer.display_name == "Composer 2.5"
         assert composer.api_key == "grok-token"
+        assert composer.supports_vision is False
 
         composer_alias = ModelRegistry.resolve("grok:composer-2.5-fast")
         assert composer_alias.model_id == "grok-composer-2.5-fast"
@@ -168,6 +170,7 @@ class TestExplicitProviderPrefix:
         assert provider._client.headers["x-grok-model-override"] == "grok-build"  # noqa: SLF001
         assert provider._client.headers["x-grok-client-version"]  # noqa: SLF001
         assert provider._client.headers["x-grok-client-identifier"] == "fluxion"  # noqa: SLF001
+        assert provider._supports_vision is True  # noqa: SLF001
         asyncio.run(provider.close())
 
     @patch.dict(os.environ, {"DEEPINFRA_API_KEY": "di-key"})

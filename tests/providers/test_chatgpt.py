@@ -274,6 +274,42 @@ class TestRequestTranslation:
         assert provider._default_model == "gpt-5.5"
         await provider.close()
 
+    @pytest.mark.asyncio
+    async def test_factory_marks_chatgpt_models_as_vision_capable(self):
+        """ChatGPT OAuth providers should pass backend image validation."""
+        provider = create_chatgpt_provider(
+            {
+                "access_token": "test-token",
+                "account_id": "test-account",
+            },
+            chatgpt_config=ChatGPTConfig(),
+            model="gpt-5.5",
+        )
+
+        assert provider._supports_vision is True
+        assert provider._supports_tools is True
+        assert provider._context_profile_provider_name == "chatgpt"
+        await provider.close()
+
+    def test_multimodal_message_becomes_responses_input_image(self):
+        """ChatGPT provider forwards image data URLs in Responses format."""
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "Describe this"},
+                    {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
+                ],
+            }
+        ]
+
+        payload = self.provider._build_request_payload(messages=messages, model="gpt-5.5")
+
+        assert payload["input"][0]["content"] == [
+            {"type": "input_text", "text": "Describe this"},
+            {"type": "input_image", "image_url": "data:image/png;base64,AAAA"},
+        ]
+
 
 class TestResponseTranslation:
     """Tests for Codex SSE -> Standard format translation."""

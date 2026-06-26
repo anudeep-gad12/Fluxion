@@ -6,6 +6,7 @@ import { memo, useCallback } from 'react';
 import { cn, formatRelativeTime } from '@/lib/utils';
 import { AgentStepsPanel } from '@/components/AgentStepsPanel';
 import { AnswerWithCitations } from '@/components/AnswerWithCitations';
+import { ImagePreviewStrip } from '@/components/ImagePreviewStrip';
 import { MessageActions } from '@/components/MessageActions';
 import { useAgentRunDetails } from '@/hooks/useAgentRunDetails';
 import { deriveAgentPhase, formatAgentCost, formatAgentDuration, formatAgentTokens } from '@/lib/agentLiveState';
@@ -64,6 +65,11 @@ export const AgentRunMessage = memo(function AgentRunMessage({
             <span className="whitespace-pre-wrap text-[14px] leading-[1.9] text-zinc-50">
               {run.user_message || run.prompt}
             </span>
+            <ImagePreviewStrip
+              images={run.image_attachments}
+              className="mt-3"
+              thumbnailClassName="h-20 w-20"
+            />
           </div>
           <p className="desktop-run-meta mt-2 px-1 text-[11px] text-zinc-500">
             {formatRelativeTime(run.created_at)}
