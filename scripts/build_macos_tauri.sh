@@ -73,7 +73,11 @@ fi
 log "Building frontend"
 (
   cd "$ROOT_DIR/ui"
-  pnpm install --frozen-lockfile
+  if [[ -x node_modules/.bin/tsc && -x node_modules/.bin/vite ]]; then
+    log "Using existing UI dependencies"
+  else
+    pnpm install --frozen-lockfile
+  fi
   pnpm build
 )
 
@@ -137,6 +141,20 @@ if [[ -f "$INFO_PLIST" ]]; then
   /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$INFO_PLIST"
   /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" "$INFO_PLIST"
 fi
+
+# PlistBuddy writes happen after Tauri's bundle signing pass. Re-seal the app
+# so macOS TCC sees a valid code identity when remembering Screen Recording
+# consent. A Developer ID / Apple Development identity is stable across builds;
+# ad-hoc local builds are stable only for that exact build.
+if [[ -n "${APPLE_SIGNING_IDENTITY:-}" ]]; then
+  codesign --force --options runtime --entitlements "$TAURI_DIR/entitlements.plist" \
+    --sign "$APPLE_SIGNING_IDENTITY" "$DIST_ROOT/${APP_NAME}.app"
+else
+  codesign --force --entitlements "$TAURI_DIR/entitlements.plist" \
+    --sign - "$DIST_ROOT/${APP_NAME}.app"
+  log "Ad-hoc signed local build; Screen Recording consent applies to this exact build only"
+fi
+codesign --verify --deep --strict "$DIST_ROOT/${APP_NAME}.app"
 
 if [[ -f "$TAURI_DIR/target/release/bundle/dmg/${APP_NAME}_${VERSION}_${SIDEcar_TRIPLE}.dmg" ]]; then
   cp "$TAURI_DIR/target/release/bundle/dmg/${APP_NAME}_${VERSION}_${SIDEcar_TRIPLE}.dmg" "$DMG_PATH"

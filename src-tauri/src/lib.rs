@@ -23,8 +23,8 @@ use url::Url;
 use objc2::MainThreadMarker;
 #[cfg(target_os = "macos")]
 use objc2_app_kit::{
-    NSApplication, NSApplicationActivationPolicy, NSEvent, NSPopUpMenuWindowLevel, NSScreen, NSWindow,
-    NSWindowCollectionBehavior, NSWindowStyleMask,
+    NSApplication, NSApplicationActivationPolicy, NSEvent, NSScreen, NSStatusWindowLevel, NSWindow,
+    NSWindowCollectionBehavior,
 };
 #[cfg(target_os = "macos")]
 use objc2_core_graphics::{CGPreflightScreenCaptureAccess, CGRequestScreenCaptureAccess};
@@ -383,6 +383,12 @@ fn fluxion_browser_go_forward(app: AppHandle, label: String) -> Result<(), Strin
 }
 
 fn show_floating_overlay(app: &AppHandle, capture: bool) -> Result<(), String> {
+    // A regular app with a hidden main window is anchored to that window's
+    // Space. Activating it would switch Spaces before MoveToActiveSpace can
+    // move the overlay. Spotify Tray avoids this by presenting its panel as an
+    // accessory app; do the same for every overlay presentation.
+    configure_menu_bar_app_activation_policy();
+
     if let Some(window) = app.get_webview_window(FLOATING_WINDOW_LABEL) {
         window
             .set_size(LogicalSize::new(FLOATING_WIDTH, FLOATING_HEIGHT))
@@ -402,7 +408,11 @@ fn show_floating_overlay(app: &AppHandle, capture: bool) -> Result<(), String> {
         }
         configure_floating_window_for_spaces(&window);
         window.show().map_err(|error| error.to_string())?;
+        // Tauri/winit can restore a cached primary-display frame during show.
+        // Reapply both the active-Space behavior and mouse-display position
+        // after the native window is visible.
         configure_floating_window_for_spaces(&window);
+        present_floating_window_on_active_space(&window);
         return Ok(());
     }
 
@@ -422,6 +432,7 @@ fn show_floating_overlay(app: &AppHandle, capture: bool) -> Result<(), String> {
     configure_floating_window_for_spaces(&window);
     window.show().map_err(|error| error.to_string())?;
     configure_floating_window_for_spaces(&window);
+    present_floating_window_on_active_space(&window);
     Ok(())
 }
 
@@ -438,9 +449,9 @@ fn show_main_window_on_main_thread(app: AppHandle) {
     let target = app.clone();
     let _ = app.run_on_main_thread(move || {
         if let Some(window) = target.get_webview_window("main") {
+            activate_fluxion_for_full_window();
             let _ = window.show();
             let _ = window.set_focus();
-            activate_fluxion_for_full_window();
         }
     });
 }
@@ -452,22 +463,47 @@ fn configure_floating_window_for_spaces(window: &tauri::WebviewWindow) {
             return;
         }
         let ns_window: &NSWindow = unsafe { &*ns_window_ptr.cast() };
-        let behavior = NSWindowCollectionBehavior::CanJoinAllSpaces
+        // Match a native command-palette panel: move the existing window to
+        // whichever Space is active instead of pinning it to every Space.
+        // FullScreenAuxiliary allows that active Space to belong to a
+        // full-screen application.
+        let behavior = NSWindowCollectionBehavior::MoveToActiveSpace
             | NSWindowCollectionBehavior::Transient
             | NSWindowCollectionBehavior::IgnoresCycle
             | NSWindowCollectionBehavior::FullScreenAuxiliary;
         ns_window.setCollectionBehavior(behavior);
-        ns_window.setLevel(NSPopUpMenuWindowLevel);
-        ns_window.setStyleMask(ns_window.styleMask() | NSWindowStyleMask::NonactivatingPanel);
+        ns_window.setLevel(NSStatusWindowLevel);
         ns_window.setCanHide(false);
         ns_window.setHidesOnDeactivate(false);
         position_native_floating_window(ns_window);
-        ns_window.orderFrontRegardless();
     }
 }
 
 #[cfg(not(target_os = "macos"))]
 fn configure_floating_window_for_spaces(_window: &tauri::WebviewWindow) {}
+
+#[cfg(target_os = "macos")]
+fn present_floating_window_on_active_space(window: &tauri::WebviewWindow) {
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+    let app = NSApplication::sharedApplication(mtm);
+    app.activate();
+
+    if let Ok(ns_window_ptr) = window.ns_window() {
+        if ns_window_ptr.is_null() {
+            return;
+        }
+        let ns_window: &NSWindow = unsafe { &*ns_window_ptr.cast() };
+        // makeKeyAndOrderFront is the operation that applies
+        // MoveToActiveSpace. orderFrontRegardless alone can leave a reused
+        // window attached to the Space where it was originally created.
+        ns_window.makeKeyAndOrderFront(None);
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn present_floating_window_on_active_space(_window: &tauri::WebviewWindow) {}
 
 #[cfg(target_os = "macos")]
 fn configure_menu_bar_app_activation_policy() {
@@ -482,13 +518,36 @@ fn configure_menu_bar_app_activation_policy() {
 fn configure_menu_bar_app_activation_policy() {}
 
 #[cfg(target_os = "macos")]
+fn restore_activation_policy_after_overlay(app_handle: &AppHandle) {
+    let main_is_visible = app_handle
+        .get_webview_window("main")
+        .and_then(|window| window.is_visible().ok())
+        .unwrap_or(false);
+    if main_is_visible {
+        let Some(mtm) = MainThreadMarker::new() else {
+            return;
+        };
+        let app = NSApplication::sharedApplication(mtm);
+        let _ = app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
+    } else {
+        configure_menu_bar_app_activation_policy();
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn restore_activation_policy_after_overlay(_app_handle: &AppHandle) {}
+
+#[cfg(target_os = "macos")]
 fn activate_fluxion_for_full_window() {
     let Some(mtm) = MainThreadMarker::new() else {
         return;
     };
     let app = NSApplication::sharedApplication(mtm);
-    #[allow(deprecated)]
-    app.activateIgnoringOtherApps(true);
+    // Fluxion starts as an accessory/menu-bar app. Promote it while the full
+    // window is in use so the Dock can deliver applicationShouldHandleReopen
+    // after the user closes (hides) that window.
+    let _ = app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
+    app.activate();
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -552,6 +611,7 @@ fn fluxion_hide_floating_overlay(app: AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window(FLOATING_WINDOW_LABEL) {
         window.hide().map_err(|error| error.to_string())?;
     }
+    restore_activation_policy_after_overlay(&app);
     Ok(())
 }
 
@@ -565,13 +625,18 @@ fn fluxion_capture_area(app: AppHandle) -> Result<Option<CapturePayload>, String
     #[cfg(target_os = "macos")]
     {
         if !CGPreflightScreenCaptureAccess() {
-            if !SCREEN_CAPTURE_PERMISSION_REQUESTED.swap(true, Ordering::SeqCst) {
-                let _ = CGRequestScreenCaptureAccess();
+            let newly_granted = if !SCREEN_CAPTURE_PERMISSION_REQUESTED.swap(true, Ordering::SeqCst)
+            {
+                CGRequestScreenCaptureAccess()
+            } else {
+                false
+            };
+            if !newly_granted && !CGPreflightScreenCaptureAccess() {
+                return Err(
+                    "Screen Recording access is required. Enable Fluxion in System Settings > Privacy & Security > Screen & System Audio Recording, then choose Quit Fluxion from the menu bar and reopen this same app build once."
+                        .to_string(),
+                );
             }
-            return Err(
-                "Screen Recording access is required. If you just granted it in System Settings, fully quit and reopen Fluxion once before capturing."
-                    .to_string(),
-            );
         }
     }
 
@@ -1046,6 +1111,11 @@ pub fn run() {
                     if let Some(window) = app_handle.get_webview_window(&label) {
                         let _ = window.hide();
                     }
+                    if label == "main" {
+                        configure_menu_bar_app_activation_policy();
+                    } else if label == FLOATING_WINDOW_LABEL {
+                        restore_activation_policy_after_overlay(app_handle);
+                    }
                 }
                 RunEvent::ExitRequested {
                     code: None, api, ..
@@ -1056,6 +1126,9 @@ pub fn run() {
                             let _ = window.hide();
                         }
                     }
+                }
+                RunEvent::Reopen { .. } => {
+                    show_main_window_on_main_thread(app_handle.clone());
                 }
                 RunEvent::Exit => {
                     if let Some(state) = app_handle.try_state::<BackendState>() {
