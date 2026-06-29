@@ -475,6 +475,10 @@ fn configure_floating_window_for_spaces(window: &tauri::WebviewWindow) {
         ns_window.setLevel(NSStatusWindowLevel);
         ns_window.setCanHide(false);
         ns_window.setHidesOnDeactivate(false);
+        // WKWebView windows retain a rectangular AppKit shadow even when the
+        // page itself has rounded transparent corners. The card draws its own
+        // alpha-aware shadow inside the transparent window instead.
+        ns_window.setHasShadow(false);
         position_native_floating_window(ns_window);
     }
 }

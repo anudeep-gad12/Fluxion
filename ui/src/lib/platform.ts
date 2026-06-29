@@ -23,6 +23,13 @@ export function isTauriRuntime(): boolean {
 /** Apply desktop dataset on <html> for scoped CSS. */
 export function applyDesktopPlatformClass(forceDesktop = false): void {
   if (typeof document === 'undefined') return;
+  const floating = typeof window !== 'undefined'
+    && new URLSearchParams(window.location.search).get('floating') === '1';
+  if (floating) {
+    document.documentElement.dataset.surface = 'floating';
+  } else {
+    delete document.documentElement.dataset.surface;
+  }
   if (forceDesktop || isLocalDesktopApp()) {
     document.documentElement.dataset.app = 'desktop';
     return;
