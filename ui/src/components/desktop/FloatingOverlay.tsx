@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import { Brain, Camera, ChevronDown, X } from 'lucide-react';
 import { AgentRunMessage } from '@/components/AgentRunMessage';
 import { ImagePreviewStrip } from '@/components/ImagePreviewStrip';
-import { ReasoningSettingsDialog } from '@/components/ConversationView';
+import { ReasoningSettingsDialog } from '@/components/ReasoningSettingsDialog';
 import { DesktopComposer } from '@/components/desktop/DesktopComposer';
 import {
   createAgentRun,

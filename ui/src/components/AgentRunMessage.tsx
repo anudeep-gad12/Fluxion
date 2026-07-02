@@ -3,11 +3,12 @@
  */
 
 import { memo, useCallback } from 'react';
-import { cn, formatRelativeTime } from '@/lib/utils';
+import { cn } from '@/lib/utils';
 import { AgentStepsPanel } from '@/components/AgentStepsPanel';
 import { AnswerWithCitations } from '@/components/AnswerWithCitations';
-import { ImagePreviewStrip } from '@/components/ImagePreviewStrip';
 import { MessageActions } from '@/components/MessageActions';
+import { RunFooter } from '@/components/transcript/RunFooter';
+import { UserTurn } from '@/components/transcript/UserTurn';
 import { useAgentRunDetails } from '@/hooks/useAgentRunDetails';
 import { deriveAgentPhase, formatAgentCost, formatAgentDuration, formatAgentTokens } from '@/lib/agentLiveState';
 import { normalizeTokenUsage } from '@/lib/usageMetrics';
@@ -59,23 +60,7 @@ export const AgentRunMessage = memo(function AgentRunMessage({
 
   return (
     <div className="animate-in fade-in slide-in-from-bottom-2 space-y-5 duration-200">
-      <div className="desktop-run">
-        <div className="min-w-0 flex-1">
-          <div className="desktop-message-card fluxion-card rounded-[1.35rem] border px-6 py-5">
-            <span className="whitespace-pre-wrap text-[14px] leading-[1.9] text-zinc-50">
-              {run.user_message || run.prompt}
-            </span>
-            <ImagePreviewStrip
-              images={run.image_attachments}
-              className="mt-3"
-              thumbnailClassName="h-20 w-20"
-            />
-          </div>
-          <p className="desktop-run-meta mt-2 px-1 text-[11px] text-zinc-500">
-            {formatRelativeTime(run.created_at)}
-          </p>
-        </div>
-      </div>
+      <UserTurn run={run} />
 
       <div className="desktop-run group/msg">
         <div className="min-w-0 flex-1">
@@ -106,53 +91,54 @@ export const AgentRunMessage = memo(function AgentRunMessage({
           </div>
 
           {!isActive && (
-            <div className="desktop-run-meta mt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-1 font-mono text-[11px]">
-              <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-zinc-500">
-                <span
-                  className={cn(
-                    'desktop-run-meta-pill rounded-full border border-zinc-900/90 bg-transparent px-2.5 py-1',
-                    phase?.accentClassName || 'text-zinc-300',
-                    run.status === 'failed' && 'border-red-500/15 text-red-400/85',
-                    run.status === 'cancelled' && 'border-amber-500/15 text-amber-300/85',
-                    run.status === 'interrupted' && 'border-orange-500/15 text-orange-300/85'
-                  )}
-                  data-status={metaStatus}
-                >
-                  {phase?.label || (run.status === 'succeeded' ? 'done' : run.status === 'cancelled' ? 'stopped' : run.status)}
-                </span>
-                {agentState?.timing_ms && (
-                  <span>{formatAgentDuration(agentState.timing_ms)}</span>
-                )}
-                {totalTokens ? (
-                  <span>{formatAgentTokens(totalTokens)} tok</span>
-                ) : null}
-                {usage ? (
-                  <span>
-                    in {formatAgentTokens(usage.input_tokens)} / out {formatAgentTokens(usage.output_tokens)}
-                  </span>
-                ) : null}
-                {cost && typeof cost.total_cost === 'number' ? (
-                  <span>est {formatAgentCost(cost.total_cost)}</span>
-                ) : usage ? (
-                  <span>cost n/a</span>
-                ) : null}
-                {contextUsage && (
-                  <span>
-                    ctx {Math.round(contextUsage.utilization_pct_effective)}
-                    %
-                    {typeof compactionCount === 'number' ? ` · compact ${compactionCount}` : ''}
-                  </span>
-                )}
-              </div>
-              {finalAnswer && (
-                <MessageActions
-                  content={finalAnswer}
-                  onRetry={onRetry ? handleRetryClick : undefined}
-                  canRetry={canRetry}
-                  className="shrink-0 opacity-100 md:opacity-0 md:group-hover/msg:opacity-100"
-                />
+            <RunFooter
+              pillClassName={cn(
+                'desktop-run-meta-pill rounded-full border border-zinc-900/90 bg-transparent px-2.5 py-1',
+                phase?.accentClassName || 'text-zinc-300',
+                run.status === 'failed' && 'border-red-500/15 text-red-400/85',
+                run.status === 'cancelled' && 'border-amber-500/15 text-amber-300/85',
+                run.status === 'interrupted' && 'border-orange-500/15 text-orange-300/85'
               )}
-            </div>
+              dataStatus={metaStatus}
+              statusLabel={phase?.label || (run.status === 'succeeded' ? 'done' : run.status === 'cancelled' ? 'stopped' : run.status)}
+              metrics={
+                <>
+                  {agentState?.timing_ms && (
+                    <span>{formatAgentDuration(agentState.timing_ms)}</span>
+                  )}
+                  {totalTokens ? (
+                    <span>{formatAgentTokens(totalTokens)} tok</span>
+                  ) : null}
+                  {usage ? (
+                    <span>
+                      in {formatAgentTokens(usage.input_tokens)} / out {formatAgentTokens(usage.output_tokens)}
+                    </span>
+                  ) : null}
+                  {cost && typeof cost.total_cost === 'number' ? (
+                    <span>est {formatAgentCost(cost.total_cost)}</span>
+                  ) : usage ? (
+                    <span>cost n/a</span>
+                  ) : null}
+                  {contextUsage && (
+                    <span>
+                      ctx {Math.round(contextUsage.utilization_pct_effective)}
+                      %
+                      {typeof compactionCount === 'number' ? ` · compact ${compactionCount}` : ''}
+                    </span>
+                  )}
+                </>
+              }
+              actions={
+                finalAnswer ? (
+                  <MessageActions
+                    content={finalAnswer}
+                    onRetry={onRetry ? handleRetryClick : undefined}
+                    canRetry={canRetry}
+                    className="shrink-0 opacity-100 md:opacity-0 md:group-hover/msg:opacity-100"
+                  />
+                ) : undefined
+              }
+            />
           )}
         </div>
       </div>
