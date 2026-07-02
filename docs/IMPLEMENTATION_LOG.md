@@ -9,6 +9,7 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| main | Workflow simplification — rewrote `docs/WORKFLOW.md` as a trunk-based flow (main only, checks matched to changed files, branch only for risky multi-day work, releases as `v*` tags), removed dead Railway deployment (railway.toml, nixpacks.toml, RAILWAY_CLI.md), and deleted the stale `test` branch plus 15 merged feature branches | done | 2026-07-02 |
 | main | Overlay screenshot fixes — stable local-build code signing plus stale-TCC self-reset so Screen Recording consent survives rebuilds and re-prompts instead of dead-ending, and post-capture overlay re-show no longer reloads the webview, so captured screenshots stay attached in the composer | done | 2026-07-02 |
 | main | Grok provider-profile alias fix — stopped agent factory from re-resolving already-created provider overrides through unqualified aliases like `grok-build`, preserving Grok OAuth vision metadata so coding-session image parts are not stripped before the provider call | done | 2026-06-26 |
 | main | Grok pasted-image agent routing fix — made explicit per-run model selection override any active local provider in agent mode, added a current-turn image instruction so coding agents inspect attached images instead of searching the workspace, and traced prompt image-part counts on LLM requests | done | 2026-06-26 |

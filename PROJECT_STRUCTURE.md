@@ -36,7 +36,6 @@ docs/
 ├── DATA_FLOW.md
 ├── DATA_MODELS.md
 ├── IMPLEMENTATION_LOG.md
-├── RAILWAY_CLI.md
 └── WORKFLOW.md
 ```
 

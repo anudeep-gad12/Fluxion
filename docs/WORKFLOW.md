@@ -1,198 +1,130 @@
 # Development Workflow
 
-> Quick reference for feature development with Claude Code.
+> Trunk-based workflow for Fluxion, the macOS desktop app.
+> One branch (`main`), effort scaled to the size of the change.
 
 ---
 
-## TL;DR - Quick Commands
+## The Rules
+
+1. **`main` is the only long-lived branch.** Work directly on it.
+2. **Branch only for risky or multi-day work** (engine rewrites, schema migrations). Merge back within days, delete the branch.
+3. **Run the checks that match what you changed** — not a fixed checklist.
+4. **Push after every commit.** GitHub `main` is the backup.
+5. **One-line entry in `docs/IMPLEMENTATION_LOG.md` per commit.** Update other docs only when the feature actually changed what they describe.
+6. **Releases are tags** (`v*`), not branches.
+
+---
+
+## Everyday Flow (fixes, small features)
 
 ```bash
-# Start work
-git checkout test && git pull && git checkout -b feature/xxx
+# 1. Implement on main
+# 2. Run the matching checks (see table below)
+# 3. Commit + log + push
+git add <files>                        # never `git add .` — pick files
+git commit -m "Fix overlay screenshot attachment"
+# add one line to docs/IMPLEMENTATION_LOG.md (fold into the commit)
+git push origin main
+```
 
-# During development
-uv run pytest tests/xxx/ -v           # Unit tests for module
-./dev.sh debug                         # Check for errors
-./dev.sh traces                        # View recent runs
+## Risky / Multi-Day Flow
 
-# Desktop development
-./dev.sh desktop                       # API + built UI on :9000
+```bash
+git checkout -b feature/<name>         # branch from main
+# ... implement, commit as you go ...
+uv run pytest                          # full gate before merging
+git checkout main && git merge feature/<name>
+git branch -d feature/<name>
+git push origin main
+```
+
+---
+
+## Checks by Change Type
+
+Run what matches the files you touched. Nothing more.
+
+| You changed | Run |
+|-------------|-----|
+| `orchestrator/` (Python) | `uv run pytest tests/<module>/ -v -x`, then `uv run pytest` before commit; `uv run ruff check orchestrator` |
+| Agent/tool/provider behavior | the above, plus `./scripts/sanity_test.sh --debug` (real LLM smoke test) |
+| `ui/` (React) | `cd ui && ./node_modules/.bin/tsc --noEmit && pnpm build` |
+| `src-tauri/` (Rust) | `cd src-tauri && cargo check`, then a real build if it touches windows/permissions |
+| `scripts/`, config | run the script / start the app once |
+| `docs/` only | nothing |
+
+**Verify behavior, not just compilation.** For agent changes, make a real
+request and inspect it:
+
+```bash
+./dev.sh traces                        # recent runs
+./dev.sh explore <run_id>              # step-by-step detail
+./dev.sh debug                         # recent errors in logs
+```
+
+---
+
+## Running the App
+
+```bash
+# Web dev loop (fastest iteration on UI + backend)
+./dev.sh start                         # API :9000 + Vite UI :3000
+
+# Desktop shell against local backend
+./dev.sh desktop                       # API :9000 + built UI bundle
 cd src-tauri && SPARKLE_FRAMEWORK_PATH=$PWD/Frameworks cargo tauri dev
-./scripts/build_macos_tauri.sh         # Unsigned local release .app
 
-# Before merge
-uv run pytest                          # Unit + integration (mocks LLM)
-./scripts/sanity_test.sh --debug       # Real-provider browser coding smoke test
-
-# Merge
-git checkout test && git merge feature/xxx
-# Update docs/IMPLEMENTATION_LOG.md
+# Full local .app (signed with your Developer ID automatically)
+./scripts/build_macos_tauri.sh         # → dist/macos/Fluxion.app
 ```
+
+The build script signs local builds with a stable identity so macOS
+permission grants (Screen Recording etc.) survive rebuilds. Local builds use
+bundle id `io.fluxion.local.dev`; releases use `io.fluxion.local`.
 
 ---
 
-## Feature Development Flow
+## Releases
 
-### Step 1: Branch Setup
-
-```bash
-git checkout test
-git pull origin test
-git checkout -b feature/<name>
-```
-
-### Step 2: Implement Feature
-
-- Write code following patterns in existing files
-- Reference `docs/COMPONENTS.md` for architecture
-- Check `docs/DATA_MODELS.md` for schemas
-
-### Step 3: Write Tests
+A release is a tag on `main`. The build script derives the version from the
+latest `v*` tag.
 
 ```bash
-# Create test file mirroring source structure
-# tests/<module>/test_<file>.py
+# 1. Make sure main is green and pushed
+uv run pytest && git push origin main
 
-# Run tests incrementally
-uv run pytest tests/<module>/test_<file>.py -v -x
+# 2. Tag
+git tag v0.6.0 && git push origin v0.6.0
+
+# 3. Build the release artifacts (requires APPLE_SIGNING_IDENTITY for
+#    Developer ID signing + dmg; notarize before public distribution)
+APPLE_SIGNING_IDENTITY="Developer ID Application: Anudeep Gadige (3GHJTM7AV7)" \
+  ./scripts/build_macos_tauri.sh       # → dist/macos/Fluxion.app, .dmg, .zip, SHA256SUMS
 ```
 
-### Step 4: Validate with Traces
-
-```bash
-# Start services
-./dev.sh start
-
-# Make test requests via UI or API
-curl -X POST http://localhost:9000/api/conversations \
-  -H "Content-Type: application/json" \
-  -d '{"title": "Test"}'
-
-# Check traces for errors
-./dev.sh traces                        # Recent runs
-./dev.sh explore <run_id>              # Specific run detail
-```
-
-### Step 5: Check Logs for Errors
-
-```bash
-./dev.sh debug                         # Recent errors/warnings
-grep '"level":"ERROR"' logs/app.log | jq .
-```
-
-### Step 6: Full Test Suite
-
-```bash
-uv run pytest                          # Unit + integration tests (mocks LLM, fast)
-./scripts/sanity_test.sh --debug       # Browser coding smoke test (real provider + traces/tools)
-```
-
-**Test types:**
-- `pytest`: Fast feedback, mocks LLM/provider behavior, tests internal flow
-- `sanity_test.sh`: Real-provider browser coding smoke test for the current workspace-backed agent path
-
-### Step 7: Commit and Merge
-
-```bash
-git add .
-git commit -m "feat(<scope>): <description>"
-
-# Merge to test
-git checkout test
-git merge feature/<name>
-git push origin test
-```
-
-### Step 8: Update Documentation
-
-Update `docs/IMPLEMENTATION_LOG.md` and every affected source-of-truth doc:
-- `docs/ARCHITECTURE.md`
-- `docs/COMPONENTS.md`
-- `docs/DATA_MODELS.md`
-- `docs/DATA_FLOW.md`
-- `docs/API_REFERENCE.md`
-- any topic-specific doc changed by the feature
-
-Document:
-- behavior changes
-- new or changed API fields
-- data model changes
-- SSE / trace / permission changes
-- operator-facing caveats
-
----
-
-## PR Workflow (Every Few Features)
-
-After several features merged to `test`:
-
-```bash
-# Ensure test is up to date
-git checkout test
-git push origin test
-
-# Create PR via gh CLI
-gh pr create --base main --head test \
-  --title "Feature batch: X, Y, Z" \
-  --body "## Summary
-- Feature X: description
-- Feature Y: description
-- Feature Z: description
-
-## Verification
-- pytest passes (unit + integration)
-- sanity_test.sh passes (browser coding smoke test with a real provider)
-- Traces show no errors"
-
-# Request Claude Code review
-/code-review
-```
+The zip + SHA256SUMS feed Sparkle auto-updates and Homebrew.
 
 ---
 
 ## Error Investigation
 
-### Trace Error Pattern
-
 ```bash
-# Find failed runs
-sqlite3 var/traces.sqlite "
-  SELECT run_id, status, error_message
-  FROM runs
-  WHERE status='failed'
-  ORDER BY created_at DESC
-  LIMIT 10;
-"
-
-# Explore failed run
+# Failed runs
+sqlite3 var/traces.sqlite "SELECT run_id, status, error_message FROM runs
+  WHERE status='failed' ORDER BY created_at DESC LIMIT 10;"
 ./dev.sh explore <run_id>
 
-# Find error events
-sqlite3 var/traces.sqlite "
-  SELECT * FROM trace_events
-  WHERE run_id='<id>'
-  AND event_status='error';
-"
-```
-
-### Log Error Pattern
-
-```bash
-# Recent errors
+# Logs
 ./dev.sh debug
-
-# Find by request ID
-grep '<request_id>' logs/app.log | jq .
-
-# All errors with context
 grep '"level":"ERROR"' logs/app.log | tail -20 | jq '{ts: .timestamp, msg: .message, err: .error}'
 ```
 
+More trace queries: see the Traces DB section in `.claude/CLAUDE.md`.
+
 ---
 
-## Quick Reference
-
-### Key Files by Task
+## Key Files by Task
 
 | Task | Files to Read |
 |------|---------------|
@@ -201,25 +133,5 @@ grep '"level":"ERROR"' logs/app.log | tail -20 | jq '{ts: .timestamp, msg: .mess
 | API change | `orchestrator/routes/`, `orchestrator/schemas.py` |
 | Agent change | `orchestrator/agent/agent_engine.py`, `orchestrator/agent/tools/` |
 | UI change | `ui/src/components/`, `ui/src/hooks/` |
+| Tauri/macOS shell | `src-tauri/src/lib.rs`, `scripts/build_macos_tauri.sh` |
 | Config change | `orchestrator/chat_config.yaml`, `orchestrator/config.py` |
-
-### Service Commands
-
-| Command | Purpose |
-|---------|---------|
-| `./dev.sh start` | Start API + UI |
-| `./dev.sh stop` | Stop all services |
-| `./dev.sh debug` | Show recent errors |
-| `./dev.sh traces` | View SQLite traces |
-| `./dev.sh explore <id>` | Explore specific run |
-
-### Desktop Commands
-
-| Command | Purpose |
-|---------|---------|
-| `./dev.sh desktop` | Start FastAPI on `:9000`, rebuild `ui/dist`, and serve the desktop UI bundle |
-| `cd src-tauri && SPARKLE_FRAMEWORK_PATH=$PWD/Frameworks cargo tauri dev` | Start the macOS Tauri shell against the local backend |
-| `./scripts/build_macos_tauri.sh` | Build an unsigned local macOS `.app` release |
-| `./scripts/install_local_service.sh` | Install the local browser-app service helper |
-
-Provider/model switching, ChatGPT/Grok OAuth, local model startup, permissions, workspace selection, and reasoning settings are controlled from the desktop model/settings UI and the REST endpoints in `docs/API_REFERENCE.md`.
