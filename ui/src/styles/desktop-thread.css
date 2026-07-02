@@ -430,19 +430,20 @@ html[data-surface='floating'] #root {
   overflow: hidden;
   background: transparent;
   color: var(--desktop-text-primary, #f4f4f5);
-  padding: 12px;
+  /* No padding: the card must fill the window so drag/resize hit zones
+     line up with the visible edge. */
+  padding: 0;
 }
 
 .floating-overlay-card {
   display: flex;
-  height: calc(100dvh - 24px);
+  height: 100dvh;
   min-height: 0;
   flex-direction: column;
   overflow: hidden;
   border: 1px solid var(--desktop-border-subtle, rgba(255, 255, 255, 0.1));
   border-radius: 28px;
   background: color-mix(in srgb, var(--desktop-bg-0, #101012) 94%, transparent);
-  box-shadow: 0 5px 10px rgba(0, 0, 0, 0.24), 0 1px 3px rgba(0, 0, 0, 0.18);
   backdrop-filter: blur(24px);
 }
 

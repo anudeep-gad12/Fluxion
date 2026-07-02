@@ -35,7 +35,8 @@ const DEFAULT_HOST: &str = "127.0.0.1";
 const DEFAULT_PORT: u16 = 9000;
 const FLOATING_WINDOW_LABEL: &str = "floating";
 const FLOATING_WIDTH: f64 = 920.0;
-const FLOATING_HEIGHT: f64 = 360.0;
+const FLOATING_HEIGHT_COMPACT: f64 = 360.0;
+const FLOATING_HEIGHT_EXPANDED: f64 = 640.0;
 const FLOATING_HOTKEY: &str = "ctrl+alt+f";
 static SCREEN_CAPTURE_PERMISSION_REQUESTED: AtomicBool = AtomicBool::new(false);
 
@@ -390,12 +391,15 @@ fn show_floating_overlay(app: &AppHandle, capture: bool, reset: bool) -> Result<
     configure_menu_bar_app_activation_policy();
 
     if let Some(window) = app.get_webview_window(FLOATING_WINDOW_LABEL) {
-        window
-            .set_size(LogicalSize::new(FLOATING_WIDTH, FLOATING_HEIGHT))
-            .map_err(|error| error.to_string())?;
         // Re-navigating reloads the page and wipes composer state (draft text,
-        // captured screenshots), so only do it when a fresh chat is requested.
+        // captured screenshots), so only reset size/content/position when a
+        // fresh chat is requested. Non-reset re-shows (e.g. after an area
+        // capture) keep the window exactly where and how big it was.
+        let saved_frame = if reset { None } else { floating_window_frame(&window) };
         if reset {
+            window
+                .set_size(LogicalSize::new(FLOATING_WIDTH, FLOATING_HEIGHT_COMPACT))
+                .map_err(|error| error.to_string())?;
             if cfg!(debug_assertions) {
                 let url: Url = format!("{}/?{}", service_url(), floating_query(capture))
                     .parse()
@@ -410,19 +414,23 @@ fn show_floating_overlay(app: &AppHandle, capture: bool, reset: bool) -> Result<
                     .map_err(|error| format!("failed to reset floating window: {error}"))?;
             }
         }
-        configure_floating_window_for_spaces(&window);
+        configure_floating_window_for_spaces(&window, reset);
         window.show().map_err(|error| error.to_string())?;
         // Tauri/winit can restore a cached primary-display frame during show.
-        // Reapply both the active-Space behavior and mouse-display position
-        // after the native window is visible.
-        configure_floating_window_for_spaces(&window);
+        // Reapply both the active-Space behavior and the frame (mouse-display
+        // position on reset, the pre-hide frame otherwise) after the native
+        // window is visible.
+        configure_floating_window_for_spaces(&window, reset);
+        if let Some(frame) = saved_frame {
+            restore_floating_window_frame(&window, frame);
+        }
         present_floating_window_on_active_space(&window);
         return Ok(());
     }
 
     let window = WebviewWindowBuilder::new(app, FLOATING_WINDOW_LABEL, floating_webview_url(capture)?)
         .title("Fluxion")
-        .inner_size(FLOATING_WIDTH, FLOATING_HEIGHT)
+        .inner_size(FLOATING_WIDTH, FLOATING_HEIGHT_COMPACT)
         .min_inner_size(520.0, 180.0)
         .decorations(false)
         .transparent(true)
@@ -433,9 +441,9 @@ fn show_floating_overlay(app: &AppHandle, capture: bool, reset: bool) -> Result<
         .visible(false)
         .build()
         .map_err(|error| format!("failed to create floating window: {error}"))?;
-    configure_floating_window_for_spaces(&window);
+    configure_floating_window_for_spaces(&window, true);
     window.show().map_err(|error| error.to_string())?;
-    configure_floating_window_for_spaces(&window);
+    configure_floating_window_for_spaces(&window, true);
     present_floating_window_on_active_space(&window);
     Ok(())
 }
@@ -461,7 +469,7 @@ fn show_main_window_on_main_thread(app: AppHandle) {
 }
 
 #[cfg(target_os = "macos")]
-fn configure_floating_window_for_spaces(window: &tauri::WebviewWindow) {
+fn configure_floating_window_for_spaces(window: &tauri::WebviewWindow, reposition: bool) {
     if let Ok(ns_window_ptr) = window.ns_window() {
         if ns_window_ptr.is_null() {
             return;
@@ -483,12 +491,88 @@ fn configure_floating_window_for_spaces(window: &tauri::WebviewWindow) {
         // page itself has rounded transparent corners. The card draws its own
         // alpha-aware shadow inside the transparent window instead.
         ns_window.setHasShadow(false);
-        position_native_floating_window(ns_window);
+        if reposition {
+            position_native_floating_window(ns_window);
+        }
     }
 }
 
 #[cfg(not(target_os = "macos"))]
-fn configure_floating_window_for_spaces(_window: &tauri::WebviewWindow) {}
+fn configure_floating_window_for_spaces(_window: &tauri::WebviewWindow, _reposition: bool) {}
+
+/// Window frame as (x, y, width, height) in AppKit screen coordinates.
+type FloatingFrame = (f64, f64, f64, f64);
+
+#[cfg(target_os = "macos")]
+fn floating_window_frame(window: &tauri::WebviewWindow) -> Option<FloatingFrame> {
+    let ns_window_ptr = window.ns_window().ok()?;
+    if ns_window_ptr.is_null() {
+        return None;
+    }
+    let ns_window: &NSWindow = unsafe { &*ns_window_ptr.cast() };
+    let frame = ns_window.frame();
+    Some((
+        frame.origin.x,
+        frame.origin.y,
+        frame.size.width,
+        frame.size.height,
+    ))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn floating_window_frame(_window: &tauri::WebviewWindow) -> Option<FloatingFrame> {
+    None
+}
+
+#[cfg(target_os = "macos")]
+fn restore_floating_window_frame(window: &tauri::WebviewWindow, saved: FloatingFrame) {
+    if let Ok(ns_window_ptr) = window.ns_window() {
+        if ns_window_ptr.is_null() {
+            return;
+        }
+        let ns_window: &NSWindow = unsafe { &*ns_window_ptr.cast() };
+        let mut frame = ns_window.frame();
+        frame.origin.x = saved.0;
+        frame.origin.y = saved.1;
+        frame.size.width = saved.2;
+        frame.size.height = saved.3;
+        ns_window.setFrame_display(frame, true);
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn restore_floating_window_frame(_window: &tauri::WebviewWindow, _saved: FloatingFrame) {}
+
+#[cfg(target_os = "macos")]
+fn set_floating_window_expanded(window: &tauri::WebviewWindow, expanded: bool) {
+    if let Ok(ns_window_ptr) = window.ns_window() {
+        if ns_window_ptr.is_null() {
+            return;
+        }
+        let ns_window: &NSWindow = unsafe { &*ns_window_ptr.cast() };
+        let target_height = if expanded {
+            FLOATING_HEIGHT_EXPANDED
+        } else {
+            FLOATING_HEIGHT_COMPACT
+        };
+        let mut frame = ns_window.frame();
+        if (frame.size.height - target_height).abs() < 1.0 {
+            return;
+        }
+        // Keep the top edge fixed so the header stays put and the card grows
+        // or shrinks downward (AppKit origin is bottom-left).
+        frame.origin.y += frame.size.height - target_height;
+        frame.size.height = target_height;
+        if let Some(screen) = ns_window.screen() {
+            let visible = screen.frame();
+            let margin = 16.0;
+            let min_y = visible.origin.y + margin;
+            let max_y = visible.origin.y + visible.size.height - target_height - margin;
+            frame.origin.y = frame.origin.y.clamp(min_y, max_y.max(min_y));
+        }
+        ns_window.setFrame_display(frame, true);
+    }
+}
 
 #[cfg(target_os = "macos")]
 fn present_floating_window_on_active_space(window: &tauri::WebviewWindow) {
@@ -595,7 +679,7 @@ fn position_native_floating_window(ns_window: &NSWindow) {
     let visible = screen.frame();
     let margin = 16.0;
     let width = FLOATING_WIDTH;
-    let height = FLOATING_HEIGHT;
+    let height = FLOATING_HEIGHT_COMPACT;
     let max_x = visible.origin.x + visible.size.width - width - margin;
     let min_x = visible.origin.x + margin;
     let max_y = visible.origin.y + visible.size.height - height - margin;
@@ -615,6 +699,24 @@ fn fluxion_show_floating_overlay(
     reset: Option<bool>,
 ) -> Result<(), String> {
     show_floating_overlay_on_main_thread(app, capture.unwrap_or(false), reset.unwrap_or(true));
+    Ok(())
+}
+
+#[tauri::command]
+fn fluxion_set_floating_overlay_expanded(app: AppHandle, expanded: bool) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let target = app.clone();
+        let _ = app.run_on_main_thread(move || {
+            if let Some(window) = target.get_webview_window(FLOATING_WINDOW_LABEL) {
+                set_floating_window_expanded(&window, expanded);
+            }
+        });
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (app, expanded);
+    }
     Ok(())
 }
 
@@ -1128,6 +1230,7 @@ pub fn run() {
             fluxion_browser_go_forward,
             fluxion_open_terminal_path,
             fluxion_show_floating_overlay,
+            fluxion_set_floating_overlay_expanded,
             fluxion_hide_floating_overlay,
             fluxion_home_dir,
             fluxion_capture_area,

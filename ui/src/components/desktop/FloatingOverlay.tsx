@@ -52,6 +52,7 @@ export function FloatingOverlay() {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const threadRef = useRef<HTMLDivElement | null>(null);
   const threadBottomRef = useRef<HTMLDivElement | null>(null);
+  const modelPickerAreaRef = useRef<HTMLDivElement | null>(null);
 
   const [homeDir, setHomeDir] = useState('');
   const [message, setMessage] = useState('');
@@ -115,6 +116,7 @@ export function FloatingOverlay() {
     setConversationId(null);
     setActiveRunId(null);
     setActiveRun(null);
+    void invoke('fluxion_set_floating_overlay_expanded', { expanded: false }).catch(() => undefined);
     window.setTimeout(() => textareaRef.current?.focus(), 50);
   }, []);
 
@@ -226,6 +228,29 @@ export function FloatingOverlay() {
     });
   }, [modelPickerLoading, refreshRegistryModels, registryModels]);
 
+  useEffect(() => {
+    if (!modelPickerOpen) return;
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        setModelPickerOpen(false);
+      }
+    };
+    const onPointerDown = (event: PointerEvent) => {
+      const area = modelPickerAreaRef.current;
+      if (area && event.target instanceof Node && !area.contains(event.target)) {
+        setModelPickerOpen(false);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown, true);
+    window.addEventListener('pointerdown', onPointerDown, true);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown, true);
+      window.removeEventListener('pointerdown', onPointerDown, true);
+    };
+  }, [modelPickerOpen]);
+
   const handleSaveReasoningSettings = useCallback(async () => {
     if (!reasoningDraft) return;
     setReasoningSaving(true);
@@ -326,6 +351,7 @@ export function FloatingOverlay() {
       };
       setActiveRunId(response.run_id);
       setActiveRun(run);
+      void invoke('fluxion_set_floating_overlay_expanded', { expanded: true }).catch(() => undefined);
       addRun(nextConversationId!, run);
       localStorage.setItem(`stream_token:${response.run_id}`, response.stream_token);
       subscribe(response.run_id, 0, response.stream_token);
@@ -425,7 +451,7 @@ export function FloatingOverlay() {
   ) : null;
 
   const controlsRow = (
-    <div className="floating-overlay-controls desktop-no-drag">
+    <div className="floating-overlay-controls desktop-no-drag" ref={modelPickerAreaRef}>
       <button
         type="button"
         onClick={openFloatingModelPicker}
@@ -487,10 +513,14 @@ export function FloatingOverlay() {
       event.preventDefault();
       void handleSubmit();
     }
+    if (event.key === 'Escape' && modelPickerOpen) {
+      setModelPickerOpen(false);
+      return;
+    }
     if (event.key === 'Escape' && !message.trim() && imageAttachments.length === 0) {
       void invoke('fluxion_hide_floating_overlay');
     }
-  }, [handleSubmit, imageAttachments.length, message]);
+  }, [handleSubmit, imageAttachments.length, message, modelPickerOpen]);
 
   return (
     <div className="floating-overlay-root">
