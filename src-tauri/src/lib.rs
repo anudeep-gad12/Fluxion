@@ -382,7 +382,7 @@ fn fluxion_browser_go_forward(app: AppHandle, label: String) -> Result<(), Strin
         .map_err(|error| error.to_string())
 }
 
-fn show_floating_overlay(app: &AppHandle, capture: bool) -> Result<(), String> {
+fn show_floating_overlay(app: &AppHandle, capture: bool, reset: bool) -> Result<(), String> {
     // A regular app with a hidden main window is anchored to that window's
     // Space. Activating it would switch Spaces before MoveToActiveSpace can
     // move the overlay. Spotify Tray avoids this by presenting its panel as an
@@ -393,18 +393,22 @@ fn show_floating_overlay(app: &AppHandle, capture: bool) -> Result<(), String> {
         window
             .set_size(LogicalSize::new(FLOATING_WIDTH, FLOATING_HEIGHT))
             .map_err(|error| error.to_string())?;
-        if cfg!(debug_assertions) {
-            let url: Url = format!("{}/?{}", service_url(), floating_query(capture))
-                .parse()
-                .map_err(|error| format!("invalid floating URL: {error}"))?;
-            window
-                .navigate(url)
-                .map_err(|error| format!("failed to navigate floating window: {error}"))?;
-        } else {
-            let script = format!("window.location.replace('index.html?{}')", floating_query(capture));
-            window
-                .eval(&script)
-                .map_err(|error| format!("failed to reset floating window: {error}"))?;
+        // Re-navigating reloads the page and wipes composer state (draft text,
+        // captured screenshots), so only do it when a fresh chat is requested.
+        if reset {
+            if cfg!(debug_assertions) {
+                let url: Url = format!("{}/?{}", service_url(), floating_query(capture))
+                    .parse()
+                    .map_err(|error| format!("invalid floating URL: {error}"))?;
+                window
+                    .navigate(url)
+                    .map_err(|error| format!("failed to navigate floating window: {error}"))?;
+            } else {
+                let script = format!("window.location.replace('index.html?{}')", floating_query(capture));
+                window
+                    .eval(&script)
+                    .map_err(|error| format!("failed to reset floating window: {error}"))?;
+            }
         }
         configure_floating_window_for_spaces(&window);
         window.show().map_err(|error| error.to_string())?;
@@ -436,10 +440,10 @@ fn show_floating_overlay(app: &AppHandle, capture: bool) -> Result<(), String> {
     Ok(())
 }
 
-fn show_floating_overlay_on_main_thread(app: AppHandle, capture: bool) {
+fn show_floating_overlay_on_main_thread(app: AppHandle, capture: bool, reset: bool) {
     let target = app.clone();
     let _ = app.run_on_main_thread(move || {
-        if let Err(error) = show_floating_overlay(&target, capture) {
+        if let Err(error) = show_floating_overlay(&target, capture, reset) {
             eprintln!("[fluxion] failed to show floating overlay: {error}");
         }
     });
@@ -605,8 +609,12 @@ fn position_native_floating_window(ns_window: &NSWindow) {
 }
 
 #[tauri::command]
-fn fluxion_show_floating_overlay(app: AppHandle, capture: Option<bool>) -> Result<(), String> {
-    show_floating_overlay_on_main_thread(app, capture.unwrap_or(false));
+fn fluxion_show_floating_overlay(
+    app: AppHandle,
+    capture: Option<bool>,
+    reset: Option<bool>,
+) -> Result<(), String> {
+    show_floating_overlay_on_main_thread(app, capture.unwrap_or(false), reset.unwrap_or(true));
     Ok(())
 }
 
@@ -631,6 +639,28 @@ fn fluxion_capture_area(app: AppHandle) -> Result<Option<CapturePayload>, String
         if !CGPreflightScreenCaptureAccess() {
             let newly_granted = if !SCREEN_CAPTURE_PERMISSION_REQUESTED.swap(true, Ordering::SeqCst)
             {
+                // A TCC entry from a previous build (different code signature)
+                // makes the request below return false without ever prompting,
+                // even though System Settings still shows Fluxion as allowed.
+                // Reset our own entry first so the prompt can actually appear.
+                // tccutil resolves bundle ids through LaunchServices, so make
+                // sure this bundle is registered before resetting.
+                if let Some(bundle_path) = std::env::current_exe()
+                    .ok()
+                    .and_then(|exe| exe.parent().map(PathBuf::from))
+                    .and_then(|macos_dir| macos_dir.parent().map(PathBuf::from))
+                    .and_then(|contents| contents.parent().map(PathBuf::from))
+                {
+                    let _ = std::process::Command::new(
+                        "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister",
+                    )
+                    .args(["-f".as_ref(), bundle_path.as_os_str()])
+                    .status();
+                }
+                let bundle_id = app.config().identifier.clone();
+                let _ = std::process::Command::new("/usr/bin/tccutil")
+                    .args(["reset", "ScreenCapture", &bundle_id])
+                    .status();
                 CGRequestScreenCaptureAccess()
             } else {
                 false
@@ -998,7 +1028,7 @@ fn install_tray(handle: &AppHandle) -> Result<(), String> {
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id().as_ref() {
             "new-floating" => {
-                show_floating_overlay_on_main_thread(app.clone(), false);
+                show_floating_overlay_on_main_thread(app.clone(), false, true);
             }
             "open-main" => {
                 show_main_window_on_main_thread(app.clone());
@@ -1015,7 +1045,7 @@ fn install_tray(handle: &AppHandle) -> Result<(), String> {
                 ..
             } = event
             {
-                show_floating_overlay_on_main_thread(tray.app_handle().clone(), false);
+                show_floating_overlay_on_main_thread(tray.app_handle().clone(), false, true);
             }
         });
 
@@ -1037,7 +1067,7 @@ fn install_global_shortcut(handle: &AppHandle) -> Result<(), String> {
                 .map_err(|error| error.to_string())?
                 .with_handler(move |app, _shortcut, event| {
                     if event.state == ShortcutState::Pressed {
-                        show_floating_overlay_on_main_thread(app.clone(), false);
+                        show_floating_overlay_on_main_thread(app.clone(), false, true);
                     }
                 })
                 .build(),

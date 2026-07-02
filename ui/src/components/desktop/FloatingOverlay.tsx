@@ -138,7 +138,7 @@ export function FloatingOverlay() {
       toast.error((error as { message?: string })?.message || 'Screenshot failed');
     } finally {
       setCapturing(false);
-      void invoke('fluxion_show_floating_overlay', { capture: false }).catch(() => undefined);
+      void invoke('fluxion_show_floating_overlay', { capture: false, reset: false }).catch(() => undefined);
       window.setTimeout(() => textareaRef.current?.focus(), 50);
     }
   }, [addAttachment, capturing]);

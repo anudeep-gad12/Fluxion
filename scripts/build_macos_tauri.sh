@@ -56,6 +56,8 @@ BUILD_ROOT="$ROOT_DIR/build/macos"
 DIST_ROOT="$ROOT_DIR/dist/macos"
 ZIP_PATH="$DIST_ROOT/${APP_NAME}-macos-${RELEASE_ARCH}.zip"
 DMG_PATH="$DIST_ROOT/${APP_NAME}-macos-${RELEASE_ARCH}.dmg"
+LOCAL_BUNDLE_ID="io.fluxion.local.dev"
+LOCAL_BUILD=false
 
 log() { echo "[build-macos-tauri] $*"; }
 
@@ -63,6 +65,19 @@ export FLUXION_APP_VERSION="$VERSION"
 export FLUXION_BUILD_ID="$BUILD_ID"
 export FLUXION_BUILD_NUMBER="$BUILD_NUMBER"
 export CI="${CI:-true}"
+
+TAURI_BUILD_CONFIG=()
+if [[ -z "${APPLE_SIGNING_IDENTITY:-}" ]]; then
+  LOCAL_BUILD=true
+  LOCAL_CONFIG_PATH="$BUILD_ROOT/tauri.local.conf.json"
+  mkdir -p "$BUILD_ROOT"
+  cat > "$LOCAL_CONFIG_PATH" <<EOF
+{
+  "identifier": "$LOCAL_BUNDLE_ID"
+}
+EOF
+  TAURI_BUILD_CONFIG=(--config "$LOCAL_CONFIG_PATH")
+fi
 
 log "Version $VERSION build $BUILD_ID bundle $BUILD_NUMBER"
 
@@ -122,7 +137,7 @@ log "Building Tauri app bundle"
   if [[ -n "${APPLE_SIGNING_IDENTITY:-}" ]]; then
     cargo tauri build --bundles app,dmg
   else
-    cargo tauri build --bundles app
+    cargo tauri build "${TAURI_BUILD_CONFIG[@]}" --bundles app
   fi
 )
 
@@ -140,19 +155,40 @@ INFO_PLIST="$DIST_ROOT/${APP_NAME}.app/Contents/Info.plist"
 if [[ -f "$INFO_PLIST" ]]; then
   /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$INFO_PLIST"
   /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" "$INFO_PLIST"
+  if [[ "$LOCAL_BUILD" == true ]]; then
+    /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName Fluxion Local" "$INFO_PLIST"
+    /usr/libexec/PlistBuddy -c "Set :CFBundleName Fluxion Local" "$INFO_PLIST"
+  fi
 fi
 
 # PlistBuddy writes happen after Tauri's bundle signing pass. Re-seal the app
 # so macOS TCC sees a valid code identity when remembering Screen Recording
 # consent. A Developer ID / Apple Development identity is stable across builds;
-# ad-hoc local builds are stable only for that exact build.
+# ad-hoc signatures change every build, which invalidates the TCC grant.
 if [[ -n "${APPLE_SIGNING_IDENTITY:-}" ]]; then
   codesign --force --options runtime --entitlements "$TAURI_DIR/entitlements.plist" \
     --sign "$APPLE_SIGNING_IDENTITY" "$DIST_ROOT/${APP_NAME}.app"
 else
-  codesign --force --entitlements "$TAURI_DIR/entitlements.plist" \
-    --sign - "$DIST_ROOT/${APP_NAME}.app"
-  log "Ad-hoc signed local build; Screen Recording consent applies to this exact build only"
+  LOCAL_SIGNING_IDENTITY="${FLUXION_LOCAL_SIGNING_IDENTITY:-}"
+  if [[ -z "$LOCAL_SIGNING_IDENTITY" ]]; then
+    LOCAL_SIGNING_IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null \
+      | awk -F'"' '/Developer ID Application/ {print $2; exit}')"
+  fi
+  if [[ -z "$LOCAL_SIGNING_IDENTITY" ]]; then
+    LOCAL_SIGNING_IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null \
+      | awk -F'"' '/Apple Development/ {print $2; exit}')"
+  fi
+  if [[ -n "$LOCAL_SIGNING_IDENTITY" ]]; then
+    codesign --force --entitlements "$TAURI_DIR/entitlements.plist" \
+      --sign "$LOCAL_SIGNING_IDENTITY" "$DIST_ROOT/${APP_NAME}.app"
+    log "Signed local build ($LOCAL_BUNDLE_ID) with '$LOCAL_SIGNING_IDENTITY'"
+    log "Screen Recording consent will persist across rebuilds"
+  else
+    codesign --force --entitlements "$TAURI_DIR/entitlements.plist" \
+      --sign - "$DIST_ROOT/${APP_NAME}.app"
+    log "Ad-hoc signed local build as $LOCAL_BUNDLE_ID"
+    log "Reset only its Screen Recording consent with: tccutil reset ScreenCapture $LOCAL_BUNDLE_ID"
+  fi
 fi
 codesign --verify --deep --strict "$DIST_ROOT/${APP_NAME}.app"
 
