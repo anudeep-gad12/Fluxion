@@ -203,6 +203,7 @@ async def create_agent_engine(
             provider_obj=provider_override,
         ),
         reasoning_settings=reasoning_settings,
+        coding_legacy_reduction=getattr(config.context, "coding_legacy_reduction", False),
         input_cost_per_million=input_cost_per_million,
         cached_input_cost_per_million=cached_input_cost_per_million,
         output_cost_per_million=output_cost_per_million,

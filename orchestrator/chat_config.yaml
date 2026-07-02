@@ -139,6 +139,7 @@ context:
   max_tokens: 100000           # Fallback token budget (used when model not in registry)
   reserve_for_response: 16384  # Fallback reserve (model registry overrides with max_output_tokens)
   truncation_strategy: "sliding_window"  # sliding_window | oldest_first
+  coding_legacy_reduction: false  # legacy in-place prompt reduction (cache-hostile); prefer compaction
 
 # =============================================================================
 # System Prompt

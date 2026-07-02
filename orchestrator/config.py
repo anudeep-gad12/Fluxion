@@ -338,6 +338,10 @@ class ChatContextConfig(BaseModel):
     max_tokens: int = 6000
     reserve_for_response: int = 16384
     truncation_strategy: Literal["sliding_window", "oldest_first"] = "sliding_window"
+    # Re-enable the pre-July-2026 in-place prompt reduction stages for coding
+    # sessions. Off by default: they rewrite history between compactions,
+    # which defeats provider prompt caching.
+    coding_legacy_reduction: bool = False
 
 
 class ChatTracingConfig(BaseModel):

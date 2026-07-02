@@ -78,12 +78,6 @@ class CodingSessionContextBuilder:
         checkpoint_message = self._checkpoint_message(checkpoint_entry)
         if checkpoint_message:
             messages.append(checkpoint_message)
-        neutral_metadata = self._metadata_message(
-            session_state=session_state,
-            explicit_metadata=metadata_message,
-        )
-        if neutral_metadata:
-            messages.append(neutral_metadata)
         restored_messages = restored_file_messages or []
         if restored_messages:
             messages.extend(restored_messages)
@@ -97,6 +91,17 @@ class CodingSessionContextBuilder:
                     self._counter.count_tokens(current_query) + HistoryBuilder.MSG_OVERHEAD
                 )
                 messages.append({"role": "user", "content": current_query})
+
+        # The metadata block changes every step (window state, file evidence,
+        # recent commands). Keep it as the LAST message so the prefix
+        # [system][checkpoint][restored][transcript] stays byte-stable across
+        # steps and provider prompt caching keeps working.
+        neutral_metadata = self._metadata_message(
+            session_state=session_state,
+            explicit_metadata=metadata_message,
+        )
+        if neutral_metadata:
+            messages.append(neutral_metadata)
 
         total_tokens = self.estimate_tokens(messages)
         budget.history_tokens = max(0, total_tokens - budget.system_prompt_tokens)
@@ -139,17 +144,18 @@ class CodingSessionContextBuilder:
         checkpoint_message = self._checkpoint_message(checkpoint_entry)
         if checkpoint_message:
             messages.append(checkpoint_message)
+        restored_messages = restored_file_messages or []
+        if restored_messages:
+            messages.extend(restored_messages)
+        normalized_tail = self._context_manager.normalize_entries(tail_entries)
+        messages.extend(normalized_tail.messages)
+        # Mutable metadata stays last; see build() for the cache rationale.
         neutral_metadata = self._metadata_message(
             session_state=session_state,
             explicit_metadata=metadata_message,
         )
         if neutral_metadata:
             messages.append(neutral_metadata)
-        restored_messages = restored_file_messages or []
-        if restored_messages:
-            messages.extend(restored_messages)
-        normalized_tail = self._context_manager.normalize_entries(tail_entries)
-        messages.extend(normalized_tail.messages)
         return CodingStoredContext(
             messages=messages,
             token_count=self.estimate_tokens(messages),

@@ -26,6 +26,10 @@ from orchestrator.agent.coding_session import (
     CodingSessionEntry,
     CodingSessionState,
 )
+from orchestrator.agent.compaction_summarizer import (
+    render_llm_checkpoint_content,
+    summarize_for_compaction,
+)
 from orchestrator.agent.context_pruner import ContextPruner
 from orchestrator.agent.permissions import classify_tool_call
 from orchestrator.agent.plan_mode import (
@@ -414,6 +418,20 @@ To provide your final answer, respond WITHOUT calling any tools."""
     MAX_TOOL_RESULT_CHARS: int = 50000
     COMPACTION_THRESHOLD_PCT: int = 90
     COMPACTION_PREFIX: str = "Conversation compacted to preserve context window"
+    # Per-tool char budgets used by pressure-time reduction (1x) and by
+    # persist-time bounding of replay entries (x CODING_PERSIST_BUDGET_MULTIPLIER).
+    CODING_TOOL_CONTENT_BUDGETS: Dict[str, int] = {
+        "read_file": 3200,
+        "web_extract": 2200,
+        "grep": 1800,
+        "bash": 2200,
+        "web_search": 1800,
+    }
+    CODING_TOOL_CONTENT_DEFAULT_BUDGET: int = 1600
+    # Replay copies are bounded once at persist time so stored entries never
+    # change afterwards (stable prompt prefix). The live prompt for the step
+    # that produced the output still sees the full payload.
+    CODING_PERSIST_BUDGET_MULTIPLIER: int = 4
 
     def __init__(
         self,
@@ -446,6 +464,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
         context_profile: Optional[ModelContextProfile] = None,
         collaboration_mode: str = "default",
         plan_approval_callback: Optional[Callable[[str, str, str], Any]] = None,
+        coding_legacy_reduction: bool = False,
     ) -> None:
         """Initialize agent engine.
 
@@ -496,6 +515,7 @@ To provide your final answer, respond WITHOUT calling any tools."""
         self._tool_choice = tool_choice
         self._max_context_tokens = max_context_tokens
         self._slow_response_threshold = slow_response_threshold
+        self._coding_legacy_reduction = coding_legacy_reduction
         self._context_profile = context_profile or ModelContextProfile(
             provider_name="unknown",
             model_id=self._model_name,
@@ -2647,7 +2667,10 @@ To provide your final answer, respond WITHOUT calling any tools."""
             content_json = {
                 "tool_call_id": tool_call.id,
                 "name": tool_call.name,
-                "content": self._format_tool_result(result, tool_call.name),
+                "content": self._bound_persisted_tool_content(
+                    tool_call.name,
+                    self._format_tool_result(result, tool_call.name),
+                ),
                 "success": result.success,
                 "replay_eligible": True,
             }
@@ -3470,6 +3493,25 @@ To provide your final answer, respond WITHOUT calling any tools."""
             covered_through_seq=compacted_entries[-1].seq,
             tail_start_seq=candidate_seq,
         )
+        summary_source = "heuristic"
+        summary_started = time.monotonic()
+        llm_summary = await summarize_for_compaction(
+            provider=self._provider,
+            model=self._model_name,
+            entries=compacted_entries,
+            durable_state_text=str(checkpoint_payload.get("content") or ""),
+            max_input_chars=max(
+                20000, (self._context_profile.effective_input_budget // 2) * 4
+            ),
+        )
+        summary_duration_ms = int((time.monotonic() - summary_started) * 1000)
+        if llm_summary:
+            checkpoint_payload["content"] = render_llm_checkpoint_content(
+                llm_summary,
+                read_files=list(checkpoint_payload.get("read_files") or []),
+                modified_files=list(checkpoint_payload.get("modified_files") or []),
+            )
+            summary_source = "llm"
         checkpoint_entry = {
             "run_id": run_id,
             "step_number": step_number,
@@ -3534,6 +3576,9 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 "raw_replay_counts": raw_replay_counts or {},
                 "reduction_stages_applied": reduction_stages_applied or [],
                 "fallback_stage": "stage4_checkpoint_fallback",
+                "summary_source": summary_source,
+                "summary_duration_ms": summary_duration_ms,
+                "summary_chars": len(str(checkpoint_payload.get("content") or "")),
             },
             actor="system",
             step_number=step_number,
@@ -5168,6 +5213,34 @@ To provide your final answer, respond WITHOUT calling any tools."""
             return text
         return text[:head_chars].rstrip() + marker + text[-tail_chars:].lstrip()
 
+    def _bound_persisted_tool_content(self, tool_name: str, content: str) -> str:
+        """Bound a tool result once before persisting its replay copy.
+
+        Stored entries are replayed verbatim on every later step, so they must
+        never be rewritten after this point; the omission marker names the tool
+        so the model knows it can re-run it for the full output.
+        """
+        if not content:
+            return content
+        target_chars = (
+            self.CODING_TOOL_CONTENT_BUDGETS.get(
+                tool_name, self.CODING_TOOL_CONTENT_DEFAULT_BUDGET
+            )
+            * self.CODING_PERSIST_BUDGET_MULTIPLIER
+        )
+        if len(content) <= target_chars:
+            return content
+        omitted = len(content) - target_chars
+        return self._shorten_with_head_tail(
+            content,
+            head_chars=int(target_chars * 0.65),
+            tail_chars=int(target_chars * 0.25),
+            marker=(
+                f"\n... [~{omitted} chars omitted from session replay; "
+                f"re-run {tool_name or 'the tool'} for full output] ...\n"
+            ),
+        )
+
     def _reduce_coding_tool_content(
         self,
         *,
@@ -5178,14 +5251,9 @@ To provide your final answer, respond WITHOUT calling any tools."""
         """Reduce bulky coding tool payloads while keeping grounded evidence."""
         if not content:
             return content
-        budget_by_tool = {
-            "read_file": 3200,
-            "web_extract": 2200,
-            "grep": 1800,
-            "bash": 2200,
-            "web_search": 1800,
-        }
-        target_chars = budget_by_tool.get(tool_name, 1600)
+        target_chars = self.CODING_TOOL_CONTENT_BUDGETS.get(
+            tool_name, self.CODING_TOOL_CONTENT_DEFAULT_BUDGET
+        )
         if aggressive:
             target_chars = max(600, int(target_chars * 0.5))
         if len(content) <= target_chars:
@@ -5400,28 +5468,32 @@ To provide your final answer, respond WITHOUT calling any tools."""
                 prompt_tokens = self._pruner.estimate_tokens(prompt_messages)
 
         if prompt_tokens >= threshold_tokens:
-            stage1_messages, stage1_changed = self._reduce_coding_tool_payloads(prompt_messages)
-            if stage1_changed:
-                prompt_messages = stage1_messages
-                prompt_tokens = self._pruner.estimate_tokens(prompt_messages)
-                reduction_stage = "stage1_tool_payload_reduced"
-                reduction_stages_applied.append(reduction_stage)
-
-            if prompt_tokens >= threshold_tokens:
-                stage2_messages, stage2_changed = self._reduce_coding_tool_scaffolding(prompt_messages)
-                if stage2_changed:
-                    prompt_messages = stage2_messages
+            # In-place reduction stages rewrite history between compactions,
+            # which defeats provider prompt caching. Default path goes straight
+            # to checkpoint compaction — an explicit, traced cache boundary.
+            if self._coding_legacy_reduction:
+                stage1_messages, stage1_changed = self._reduce_coding_tool_payloads(prompt_messages)
+                if stage1_changed:
+                    prompt_messages = stage1_messages
                     prompt_tokens = self._pruner.estimate_tokens(prompt_messages)
-                    reduction_stage = "stage2_tool_scaffolding_reduced"
+                    reduction_stage = "stage1_tool_payload_reduced"
                     reduction_stages_applied.append(reduction_stage)
 
-            if prompt_tokens >= threshold_tokens:
-                stage3_messages, stage3_changed = self._reduce_coding_dialogue_context(prompt_messages)
-                if stage3_changed:
-                    prompt_messages = stage3_messages
-                    prompt_tokens = self._pruner.estimate_tokens(prompt_messages)
-                    reduction_stage = "stage3_context_summarized"
-                    reduction_stages_applied.append(reduction_stage)
+                if prompt_tokens >= threshold_tokens:
+                    stage2_messages, stage2_changed = self._reduce_coding_tool_scaffolding(prompt_messages)
+                    if stage2_changed:
+                        prompt_messages = stage2_messages
+                        prompt_tokens = self._pruner.estimate_tokens(prompt_messages)
+                        reduction_stage = "stage2_tool_scaffolding_reduced"
+                        reduction_stages_applied.append(reduction_stage)
+
+                if prompt_tokens >= threshold_tokens:
+                    stage3_messages, stage3_changed = self._reduce_coding_dialogue_context(prompt_messages)
+                    if stage3_changed:
+                        prompt_messages = stage3_messages
+                        prompt_tokens = self._pruner.estimate_tokens(prompt_messages)
+                        reduction_stage = "stage3_context_summarized"
+                        reduction_stages_applied.append(reduction_stage)
 
             if prompt_tokens >= threshold_tokens:
                 checkpoint_fallback_activated = await self._compact_coding_session_history(

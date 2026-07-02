@@ -1559,8 +1559,8 @@ class TestCodingSessionPersistence:
         assert "Assistant claimed it was fixed." not in flattened
         assert "Progress so far: fixed" not in flattened
         assert "Double-check the cache path" not in flattened
-        assert [message["role"] for message in messages] == ["system", "system", "user"]
-        assert "CODING SESSION CURRENT STATE" in messages[1]["content"]
+        assert [message["role"] for message in messages] == ["system", "user", "system"]
+        assert "CODING SESSION CURRENT STATE" in messages[-1]["content"]
         assert repo.list_coding_session_entries.await_args.kwargs["include_compacted"] is False
         assert engine._last_stored_context is not None
         assert engine._last_stored_context["stored_tokens"] > 0
@@ -1645,17 +1645,17 @@ class TestCodingSessionPersistence:
             use_session_entries=True,
         )
 
-        assert [message["role"] for message in messages[:6]] == [
+        assert [message["role"] for message in messages[:5]] == [
             "system",
             "user",
-            "system",
             "assistant",
             "tool",
             "user",
         ]
         assert "The earlier part of this coding conversation was compacted" in messages[1]["content"]
-        assert messages[4]["name"] == "read_file"
-        assert "const app = true;" in messages[4]["content"]
+        assert messages[3]["name"] == "read_file"
+        assert "const app = true;" in messages[3]["content"]
+        assert "CODING SESSION CURRENT STATE" in messages[-1]["content"]
 
     @pytest.mark.asyncio
     async def test_persist_final_answer_can_mark_terminal_fallback_as_non_replayable(self):
@@ -1775,7 +1775,7 @@ class TestCodingSessionPersistence:
         repo.insert_coding_session_entry.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_prepare_coding_prompt_messages_reduces_tool_payloads_before_dialogue(self):
+    async def test_prepare_coding_prompt_messages_reduces_tool_payloads_when_legacy_enabled(self):
         repo = create_mock_repo()
         repo.list_coding_session_entries.return_value = [
             CodingSessionEntry(
@@ -1839,6 +1839,7 @@ class TestCodingSessionPersistence:
             provider=create_mock_provider(),
             repo=repo,
             registry=create_mock_registry(),
+            coding_legacy_reduction=True,
         )
         engine._add_trace_event = AsyncMock()
         session_state = CodingSessionState(objective="Preserve this exact user request")
@@ -1870,6 +1871,100 @@ class TestCodingSessionPersistence:
             for message in messages
         )
         assert usage_payload["reduction_stage"] == "stage1_tool_payload_reduced"
+
+    @pytest.mark.asyncio
+    async def test_prepare_coding_prompt_messages_default_path_compacts_instead_of_mutating(self):
+        """Pressure escalates straight to checkpoint compaction by default.
+
+        In-place reduction rewrites history between compactions, which
+        defeats provider prompt caching, so it only runs when the
+        coding_legacy_reduction flag is enabled.
+        """
+        repo = create_mock_repo()
+        large_tool_output = "\n".join(f"{i}\t{'x' * 100}" for i in range(1, 140))
+        repo.list_coding_session_entries.return_value = [
+            CodingSessionEntry(
+                conversation_id="conv-1",
+                seq=1,
+                run_id="run-1",
+                step_number=0,
+                entry_type="user",
+                role="user",
+                content_json={"content": "Preserve this exact user request"},
+                token_estimate=20,
+            ).to_dict(),
+            CodingSessionEntry(
+                conversation_id="conv-1",
+                seq=2,
+                run_id="run-1",
+                step_number=1,
+                entry_type="assistant_tool_calls",
+                role="assistant",
+                content_json={
+                    "content": "Reading file.",
+                    "tool_calls": [
+                        {
+                            "id": "tc-1",
+                            "type": "function",
+                            "function": {
+                                "name": "read_file",
+                                "arguments": '{"file_path":"src/app.ts"}',
+                            },
+                        }
+                    ],
+                },
+                token_estimate=20,
+            ).to_dict(),
+            CodingSessionEntry(
+                conversation_id="conv-1",
+                seq=3,
+                run_id="run-1",
+                step_number=1,
+                entry_type="tool_result",
+                role="tool",
+                content_json={
+                    "tool_call_id": "tc-1",
+                    "name": "read_file",
+                    "content": large_tool_output,
+                },
+                token_estimate=4000,
+            ).to_dict(),
+        ]
+        engine = AgentEngine(
+            provider=create_mock_provider(),
+            repo=repo,
+            registry=create_mock_registry(),
+        )
+        engine._add_trace_event = AsyncMock()
+        compact_mock = AsyncMock(return_value=False)
+        session_state = CodingSessionState(objective="Preserve this exact user request")
+
+        def estimate_tokens(messages):
+            return sum(len(str(message.get("content") or "")) for message in messages) // 20
+
+        with (
+            patch.object(engine, "_is_coding_profile", return_value=True),
+            patch.object(engine, "_coding_pressure_threshold_tokens", return_value=500),
+            patch.object(engine._pruner, "estimate_tokens", side_effect=estimate_tokens),
+            patch.object(engine, "_compact_coding_session_history", compact_mock),
+        ):
+            messages, _, usage_payload = await engine._prepare_coding_prompt_messages(
+                conversation_id="conv-1",
+                run_id="run-2",
+                query="follow-up",
+                step_number=2,
+                system_prompt="System prompt",
+                session_state=session_state,
+                working_memory=WorkingMemory(objective="Preserve this exact user request"),
+            )
+
+        compact_mock.assert_awaited()
+        tool_messages = [message for message in messages if message.get("role") == "tool"]
+        assert tool_messages
+        assert tool_messages[0]["content"] == large_tool_output
+        assert "stage1_tool_payload_reduced" not in usage_payload.get(
+            "reduction_stages_applied", []
+        )
         assert usage_payload["checkpoint_fallback_activated"] is False
 
     @pytest.mark.asyncio
@@ -5604,3 +5699,52 @@ class TestCodingContinuationBehavior:
             is True
         )
         assert result.result_data["pending_new_window_request"] is True
+
+
+class TestPersistTimeToolContentBounding:
+    """Replay copies of tool outputs are bounded once at persist time."""
+
+    def _engine(self) -> AgentEngine:
+        return AgentEngine(
+            provider=create_mock_provider(),
+            repo=create_mock_repo(),
+            registry=create_mock_registry(),
+        )
+
+    def test_short_content_is_untouched(self):
+        engine = self._engine()
+        assert engine._bound_persisted_tool_content("read_file", "short output") == "short output"
+
+    def test_oversized_content_is_head_tail_bounded_with_marker(self):
+        engine = self._engine()
+        budget = (
+            AgentEngine.CODING_TOOL_CONTENT_BUDGETS["read_file"]
+            * AgentEngine.CODING_PERSIST_BUDGET_MULTIPLIER
+        )
+        content = "H" * budget + "M" * 5000 + "T" * budget
+        bounded = engine._bound_persisted_tool_content("read_file", content)
+
+        assert len(bounded) < len(content)
+        assert bounded.startswith("H")
+        assert bounded.endswith("T")
+        assert "omitted from session replay" in bounded
+        assert "re-run read_file" in bounded
+
+    def test_bounding_is_idempotent(self):
+        """Bounded content re-persisted must not change again (stable replay)."""
+        engine = self._engine()
+        content = "x" * 100000
+        once = engine._bound_persisted_tool_content("bash", content)
+        twice = engine._bound_persisted_tool_content("bash", once)
+        assert once == twice
+
+    def test_unknown_tool_uses_default_budget(self):
+        engine = self._engine()
+        budget = (
+            AgentEngine.CODING_TOOL_CONTENT_DEFAULT_BUDGET
+            * AgentEngine.CODING_PERSIST_BUDGET_MULTIPLIER
+        )
+        content = "y" * (budget * 3)
+        bounded = engine._bound_persisted_tool_content("mystery_tool", content)
+        assert len(bounded) < len(content)
+        assert "re-run mystery_tool" in bounded

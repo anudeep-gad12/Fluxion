@@ -55,12 +55,12 @@ def test_builder_replays_transcript_and_metadata_in_order():
 
     assert [message["role"] for message in context.messages] == [
         "system",
-        "system",
         "user",
         "assistant",
+        "system",
     ]
-    assert "CODING SESSION CURRENT STATE" in context.messages[1]["content"]
-    assert "changed_files: src/chart.ts" in context.messages[1]["content"]
+    assert "CODING SESSION CURRENT STATE" in context.messages[-1]["content"]
+    assert "changed_files: src/chart.ts" in context.messages[-1]["content"]
     assert context.metadata_included is True
 
 
@@ -200,13 +200,13 @@ def test_builder_repairs_missing_tool_outputs():
 
     assert [message["role"] for message in context.messages] == [
         "system",
-        "system",
         "assistant",
         "tool",
         "assistant",
+        "system",
     ]
-    assert context.messages[3]["tool_call_id"] == "tc-missing"
-    assert "Missing tool output repaired" in context.messages[3]["content"]
+    assert context.messages[2]["tool_call_id"] == "tc-missing"
+    assert "Missing tool output repaired" in context.messages[2]["content"]
     assert context.normalization_stats["repaired_missing_tool_outputs"] == 1
 
 
@@ -239,6 +239,67 @@ def test_builder_drops_orphan_tool_outputs():
     assert context.normalization_stats["dropped_orphan_tool_outputs"] == 1
 
 
+def _user_entry(seq: int, text: str) -> CodingSessionEntry:
+    return CodingSessionEntry(
+        conversation_id="conv-1",
+        seq=seq,
+        run_id=f"run-{seq}",
+        step_number=0,
+        entry_type="user",
+        role="user",
+        content_json={"content": text},
+        token_estimate=10,
+    )
+
+
+def test_builder_prefix_is_stable_when_entries_append():
+    """Appending a transcript entry must extend, not rewrite, the prefix.
+
+    The mutable metadata block is the final message, so everything before it
+    must be byte-identical across steps for provider prompt caching to work.
+    """
+    builder = _builder()
+    session_state = CodingSessionState(objective="Fix sorting")
+    entries = [_user_entry(1, "first"), _user_entry(2, "second")]
+
+    before = builder.build(
+        system_prompt="System prompt",
+        session_state=session_state,
+        transcript_entries=list(entries),
+    )
+    session_state.modified_files.append("src/new_file.ts")
+    after = builder.build(
+        system_prompt="System prompt",
+        session_state=session_state,
+        transcript_entries=[*entries, _user_entry(3, "third")],
+    )
+
+    before_prefix = before.messages[:-1]
+    after_prefix = after.messages[: len(before_prefix)]
+    assert before_prefix == after_prefix
+    assert after.messages[-2]["content"] == "third"
+    assert "CODING SESSION CURRENT STATE" in after.messages[-1]["content"]
+
+
+def test_builder_output_is_deterministic():
+    builder = _builder()
+    session_state = CodingSessionState(objective="ship", modified_files=["a.py"])
+    entries = [_user_entry(1, "hello"), _user_entry(2, "again")]
+
+    first = builder.build(
+        system_prompt="System prompt",
+        session_state=session_state,
+        transcript_entries=list(entries),
+    )
+    second = builder.build(
+        system_prompt="System prompt",
+        session_state=session_state,
+        transcript_entries=list(entries),
+    )
+
+    assert first.messages == second.messages
+
+
 def test_coding_session_state_persists_context_window_state():
     state = CodingSessionState(
         objective="ship",
@@ -266,7 +327,7 @@ def test_coding_session_state_persists_context_window_state():
     assert restored.context_window.last_active_context_tokens == 456
 
 
-def test_builder_replays_checkpoint_then_metadata_then_restored_files_then_tail():
+def test_builder_replays_checkpoint_then_restored_files_then_tail_then_metadata():
     builder = _builder()
     session_state = CodingSessionState(
         modified_files=["src/app.ts"],
@@ -327,11 +388,12 @@ def test_builder_replays_checkpoint_then_metadata_then_restored_files_then_tail(
     assert [message["role"] for message in context.messages] == [
         "system",
         "user",
-        "system",
         "assistant",
         "tool",
         "user",
+        "system",
     ]
+    assert "CODING SESSION CURRENT STATE" in context.messages[-1]["content"]
     assert context.checkpoint_present is True
     assert context.restored_file_count == 1
     assert context.preserved_tail_count == 1
