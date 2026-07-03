@@ -312,7 +312,9 @@ textarea:focus {
 
 @media (prefers-reduced-motion: reduce) {
   .agent-caret,
-  .tr-marker[data-tone='running'] {
+  .tr-marker[data-tone='running'],
+  .animate-in,
+  .animate-pulse {
     animation: none !important;
   }
 }

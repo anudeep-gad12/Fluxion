@@ -733,3 +733,18 @@
   background: rgb(var(--ui-white-rgb) / 0.05);
 }
 
+
+/* --- Keyboard focus — one visible ring for every bespoke control --- */
+
+[data-app='desktop'] .desktop-icon-btn:focus-visible,
+[data-app='desktop'] .desktop-icon-control:focus-visible,
+[data-app='desktop'] .desktop-chip:focus-visible,
+[data-app='desktop'] .desktop-model-trigger:focus-visible,
+[data-app='desktop'] .desktop-mode-switch-option:focus-visible,
+[data-app='desktop'] .desktop-send-btn:focus-visible,
+[data-app='desktop'] .desktop-browser-nav-btn:focus-visible,
+[data-app='desktop'] .desktop-terminal-tab:focus-visible,
+[data-app='desktop'] .desktop-terminal-tab-close:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}

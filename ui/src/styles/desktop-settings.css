@@ -445,3 +445,12 @@
   padding: 9px 12px;
   background: var(--desktop-accent-muted);
 }
+
+/* Keyboard focus ring for settings controls */
+[data-app='desktop'] .desktop-settings-btn-ghost:focus-visible,
+[data-app='desktop'] .desktop-settings-btn-primary:focus-visible,
+[data-app='desktop'] .desktop-settings-list-item:focus-visible,
+[data-app='desktop'] .desktop-model-provider-tab:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}

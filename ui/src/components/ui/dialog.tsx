@@ -9,21 +9,82 @@ interface DialogProps {
     className?: string;
 }
 
+const FOCUSABLE_SELECTOR =
+    'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
 export function Dialog({ open, onOpenChange, children, className }: DialogProps) {
+    const surfaceRef = React.useRef<HTMLDivElement>(null);
+    const restoreFocusRef = React.useRef<HTMLElement | null>(null);
+
+    // Escape closes; Tab cycles focus inside the surface.
+    React.useEffect(() => {
+        if (!open) return;
+        const handleKeyDown = (event: KeyboardEvent) => {
+            if (event.key === "Escape") {
+                event.stopPropagation();
+                onOpenChange(false);
+                return;
+            }
+            if (event.key !== "Tab") return;
+            const surface = surfaceRef.current;
+            if (!surface) return;
+            const focusable = Array.from(
+                surface.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)
+            ).filter((el) => el.offsetParent !== null);
+            if (focusable.length === 0) {
+                event.preventDefault();
+                return;
+            }
+            const first = focusable[0];
+            const last = focusable[focusable.length - 1];
+            const active = document.activeElement as HTMLElement | null;
+            if (event.shiftKey && (active === first || !surface.contains(active))) {
+                event.preventDefault();
+                last.focus();
+            } else if (!event.shiftKey && (active === last || !surface.contains(active))) {
+                event.preventDefault();
+                first.focus();
+            }
+        };
+        document.addEventListener("keydown", handleKeyDown);
+        return () => document.removeEventListener("keydown", handleKeyDown);
+    }, [open, onOpenChange]);
+
+    // Move focus into the dialog on open; restore it on close.
+    React.useEffect(() => {
+        if (!open) return;
+        restoreFocusRef.current = document.activeElement as HTMLElement | null;
+        const surface = surfaceRef.current;
+        const firstFocusable = surface?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR);
+        (firstFocusable ?? surface)?.focus?.();
+        return () => {
+            restoreFocusRef.current?.focus?.();
+            restoreFocusRef.current = null;
+        };
+    }, [open]);
+
     if (!open) return null;
 
     return (
-        <div className="fixed inset-0 z-[var(--z-dialog)] flex items-center justify-center">
+        <div
+            className="fixed inset-0 z-[var(--z-dialog)] flex items-center justify-center"
+            role="dialog"
+            aria-modal="true"
+        >
             {/* Backdrop */}
             <div
                 className="fixed inset-0 bg-black/72 backdrop-blur-[2px]"
                 onClick={() => onOpenChange(false)}
             />
             {/* Content - relative z-10 to sit above backdrop */}
-            <div className={cn(
-                "ui-dialog-surface relative z-10 mx-4 w-full max-w-md overflow-hidden rounded-xl border border-white/10 bg-transparent shadow-2xl shadow-black/40 animate-in fade-in zoom-in-95 duration-200",
-                className,
-            )}>
+            <div
+                ref={surfaceRef}
+                tabIndex={-1}
+                className={cn(
+                    "ui-dialog-surface relative z-10 mx-4 w-full max-w-md overflow-hidden rounded-xl border border-white/10 bg-transparent shadow-2xl shadow-black/40 outline-none animate-in fade-in zoom-in-95 duration-200",
+                    className,
+                )}
+            >
                 {children}
             </div>
         </div>

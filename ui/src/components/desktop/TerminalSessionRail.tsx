@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { MouseEvent, WheelEvent } from 'react';
 import { ChevronDown, Globe2, Plus, Terminal, X } from 'lucide-react';
+import { useDismissable } from '@/hooks/useDismissable';
 
 import { cn } from '@/lib/utils';
 
@@ -59,16 +60,13 @@ export function TerminalSessionRail({
     onMenuOpenChange?.(open);
   };
 
-  useEffect(() => {
-    if (!menuOpen) return;
-    const onPointerDown = (event: PointerEvent) => {
-      if (!menuRef.current?.contains(event.target as Node)) {
-        setMenuOpen(false);
-      }
-    };
-    document.addEventListener('pointerdown', onPointerDown);
-    return () => document.removeEventListener('pointerdown', onPointerDown);
-  }, [menuOpen]);
+  const closeMenu = useCallback(() => {
+    if (controlledMenuOpen === undefined) {
+      setUncontrolledMenuOpen(false);
+    }
+    onMenuOpenChange?.(false);
+  }, [controlledMenuOpen, onMenuOpenChange]);
+  useDismissable(menuRef, closeMenu, menuOpen);
 
   const handleClose = (tab: ToolTab, event: MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();

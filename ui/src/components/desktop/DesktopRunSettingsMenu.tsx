@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { FolderOpen, SlidersHorizontal } from 'lucide-react';
 import { DesktopTextOptionGroup } from '@/components/desktop/DesktopTextOptionGroup';
+import { useDismissable } from '@/hooks/useDismissable';
 
 interface DesktopRunSettingsMenuProps {
   isWorkspaceLocked: boolean;
@@ -35,17 +36,8 @@ export function DesktopRunSettingsMenu({
 }: DesktopRunSettingsMenuProps) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const handlePointerDown = (event: MouseEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handlePointerDown);
-    return () => document.removeEventListener('mousedown', handlePointerDown);
-  }, [open]);
+  const close = useCallback(() => setOpen(false), []);
+  useDismissable(rootRef, close, open);
 
   const summary = `${permissionPolicy} · ${collaborationMode === 'plan' ? 'plan' : 'build'}`;
 

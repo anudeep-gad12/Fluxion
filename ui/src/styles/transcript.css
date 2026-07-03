@@ -541,3 +541,12 @@
   border-color: var(--desktop-border-subtle);
   background: var(--desktop-bg-3);
 }
+
+/* Keyboard focus ring for transcript controls */
+.tr-prompt-btn:focus-visible,
+.tr-thinking-toggle:focus-visible,
+.tr-more:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-radius: var(--radius-xs);
+}
