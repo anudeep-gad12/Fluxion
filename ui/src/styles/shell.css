@@ -686,14 +686,6 @@
   color: var(--desktop-text-secondary);
 }
 
-[data-app='desktop'] .desktop-approval-panel {
-  border-radius: 12px;
-  border: 1px solid var(--desktop-border-strong);
-  background: var(--desktop-bg-3);
-  padding: 12px 14px;
-  font-size: 12px;
-}
-
 [data-app='desktop'] .desktop-list-item-selected {
   background: rgb(var(--ui-white-rgb) / 0.06);
   border-color: transparent;
