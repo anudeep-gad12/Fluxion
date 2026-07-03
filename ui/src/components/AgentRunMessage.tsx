@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils';
 import { AgentTranscript } from '@/components/transcript/AgentTranscript';
 import { AnswerWithCitations } from '@/components/AnswerWithCitations';
 import { MessageActions } from '@/components/MessageActions';
+import { MarkerLine } from '@/components/transcript/TranscriptLine';
 import { RunFooter } from '@/components/transcript/RunFooter';
 import { UserTurn } from '@/components/transcript/UserTurn';
 import { useAgentRunDetails } from '@/hooks/useAgentRunDetails';
@@ -76,17 +77,19 @@ export const AgentRunMessage = memo(function AgentRunMessage({
                 />
               </div>
             ) : isActive ? null : run.status === 'cancelled' ? (
-              <div className="desktop-message-card-cancelled border-l border-amber-500/35 pl-4 text-sm text-amber-100/90">
+              <MarkerLine tone="steer" mono className="tr-run-state">
                 stopped by user
-              </div>
+              </MarkerLine>
             ) : run.status === 'interrupted' ? (
-              <div className="desktop-message-card-cancelled border-l border-orange-500/35 pl-4 text-sm text-orange-100/90">
+              <MarkerLine tone="steer" mono className="tr-run-state">
                 interrupted by server restart
-              </div>
+              </MarkerLine>
             ) : run.status === 'failed' ? (
-              <div className="desktop-message-card-error border-l border-red-500/35 pl-4 text-sm text-red-200/90">
-                [error] {run.error_detail || 'Agent failed. Please try again.'}
-              </div>
+              <MarkerLine tone="error" mono className="tr-run-state">
+                <span className="tr-danger">
+                  [error] {run.error_detail || 'Agent failed. Please try again.'}
+                </span>
+              </MarkerLine>
             ) : null}
           </div>
 

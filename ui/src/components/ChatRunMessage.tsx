@@ -7,6 +7,7 @@ import { AnswerMarkdown, extractAnswer } from '@/components/AnswerMarkdown';
 import { MessageActions } from '@/components/MessageActions';
 import { ThinkingPanel } from '@/components/ThinkingPanel';
 import { ShimmerSkeleton, ThinkingTimer } from '@/components/StreamingIndicator';
+import { MarkerLine } from '@/components/transcript/TranscriptLine';
 import { RunFooter } from '@/components/transcript/RunFooter';
 import { UserTurn } from '@/components/transcript/UserTurn';
 import { useStore } from '@/hooks/useStore';
@@ -47,7 +48,7 @@ export const ChatRunMessage = memo(function ChatRunMessage({
 
       <div className="desktop-run group/msg">
         <div className="min-w-0 flex-1">
-          <div className="desktop-run-stream fluxion-card-strong space-y-4 rounded-[1.35rem] border px-6 py-5">
+          <div className="desktop-run-stream space-y-4">
             <ThinkingPanel
               summary={run.thinking_summary}
               isStreaming={isThinking}
@@ -60,17 +61,19 @@ export const ChatRunMessage = memo(function ChatRunMessage({
             ) : isRunning && !displayText && isThinking ? (
               <ThinkingTimer label="Thinking" />
             ) : run.status === 'cancelled' ? (
-              <div className="desktop-message-card-cancelled rounded-[1rem] border border-amber-500/16 bg-amber-500/[0.06] px-4 py-3 text-sm text-amber-100/90">
+              <MarkerLine tone="steer" mono className="tr-run-state">
                 stopped by user
-              </div>
+              </MarkerLine>
             ) : run.status === 'interrupted' ? (
-              <div className="desktop-message-card-cancelled rounded-[1rem] border border-orange-500/16 bg-orange-500/[0.06] px-4 py-3 text-sm text-orange-100/90">
+              <MarkerLine tone="steer" mono className="tr-run-state">
                 interrupted by server restart
-              </div>
+              </MarkerLine>
             ) : run.status === 'failed' ? (
-              <div className="desktop-message-card-error rounded-[1rem] border border-red-500/16 bg-red-500/[0.06] px-4 py-3 text-sm text-red-200/90">
-                [error] {run.error_detail || 'Request failed. Please try again.'}
-              </div>
+              <MarkerLine tone="error" mono className="tr-run-state">
+                <span className="tr-danger">
+                  [error] {run.error_detail || 'Request failed. Please try again.'}
+                </span>
+              </MarkerLine>
             ) : displayText ? (
               <div className="desktop-run-answer">
                 <AnswerMarkdown content={extractAnswer(displayText)} />

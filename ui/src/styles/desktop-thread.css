@@ -12,18 +12,6 @@
   gap: 1rem;
 }
 
-/* Message cards */
-[data-app='desktop'] .desktop-message-card {
-  border-radius: 16px;
-  border: 1px solid var(--desktop-border-subtle);
-  background: color-mix(in srgb, var(--desktop-bg-2) 88%, var(--desktop-bg-1));
-  padding: 1rem 1.25rem;
-  box-shadow: none;
-  font-size: 14px;
-  line-height: 1.65;
-  color: var(--desktop-text-primary);
-}
-
 /* Flat assistant stream (steps + answer) — no outer card on desktop */
 [data-app='desktop'] .desktop-run-stream {
   padding: 0;
@@ -39,32 +27,10 @@
   background: transparent;
 }
 
-[data-app='desktop'] .desktop-run-stream .desktop-thinking-panel {
-  margin-bottom: 0;
-}
-
 [data-app='desktop'] .desktop-run-answer {
   font-size: 14px;
   line-height: 1.65;
   color: var(--desktop-text-primary);
-}
-
-[data-app='desktop'] .desktop-message-card-cancelled {
-  border-radius: 12px;
-  border: 1px solid rgb(var(--ui-warning-rgb) / 0.2);
-  background: rgb(var(--ui-warning-rgb) / 0.06);
-  padding: 0.75rem 1rem;
-  font-size: 13px;
-  color: var(--desktop-warning-text);
-}
-
-[data-app='desktop'] .desktop-message-card-error {
-  border-radius: 12px;
-  border: 1px solid rgb(var(--ui-danger-rgb) / 0.2);
-  background: rgb(var(--ui-danger-rgb) / 0.06);
-  padding: 0.75rem 1rem;
-  font-size: 13px;
-  color: var(--desktop-danger-text);
 }
 
 [data-app='desktop'] .desktop-run-meta {
@@ -107,54 +73,6 @@
   border-color: rgb(var(--ui-accent-rgb) / 0.2);
   background: var(--desktop-accent-muted);
   color: var(--desktop-accent);
-}
-
-/* Chat thinking panel */
-[data-app='desktop'] .desktop-thinking-panel {
-  margin-bottom: 1rem;
-  border-radius: 14px;
-  border: 1px solid var(--desktop-border-subtle);
-  background: var(--desktop-bg-2);
-  box-shadow: none;
-}
-
-[data-app='desktop'] .desktop-thinking-panel-toggle {
-  border-color: transparent;
-}
-
-[data-app='desktop'] .desktop-thinking-panel-toggle[data-expanded='true'] {
-  border-bottom: 1px solid var(--desktop-border-subtle);
-}
-
-[data-app='desktop'] .desktop-thinking-panel-badge {
-  border-radius: 6px;
-  border: 1px solid var(--desktop-border-subtle);
-  background: rgb(var(--ui-white-rgb) / 0.04);
-  padding: 2px 8px;
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0;
-  text-transform: none;
-  color: var(--desktop-text-secondary);
-  font-family: inherit;
-}
-
-[data-app='desktop'] .desktop-thinking-panel-badge-live {
-  border-color: rgb(var(--ui-accent-rgb) / 0.2);
-  background: var(--desktop-accent-muted);
-  color: var(--desktop-accent);
-}
-
-[data-app='desktop'] .desktop-thinking-panel-live-box {
-  border-radius: 12px;
-  border: 1px solid rgb(var(--ui-accent-rgb) / 0.15);
-  background: var(--desktop-accent-muted);
-}
-
-[data-app='desktop'] .desktop-thinking-panel-inner {
-  border-radius: 12px;
-  border: 1px solid var(--desktop-border-subtle);
-  background: var(--desktop-bg-3);
 }
 
 /* Markdown in thread */
@@ -283,11 +201,6 @@ html[data-surface='floating'] #root {
 
 .floating-overlay-thread .desktop-run {
   max-width: 100%;
-}
-
-.floating-overlay-thread .desktop-message-card,
-.floating-overlay-thread .desktop-run-answer {
-  border-radius: 20px;
 }
 
 .floating-overlay-hint {

@@ -225,6 +225,27 @@
   color: var(--desktop-text-tertiary);
 }
 
+/* User turn — `>` line, no bubble */
+.tr-user-text {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--desktop-text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.tr-user-attachments {
+  margin-top: 8px;
+  padding-left: 22px;
+}
+
+/* Terminal run states — flat toned lines */
+.tr-run-state {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 /* Spacing rhythm: 12px within a step, 24px between steps/turns */
 .tr-step {
   display: flex;

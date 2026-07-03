@@ -89,14 +89,6 @@ function ThinkingMarkdown({ content }: { content: string }) {
   );
 }
 
-function excerpt(content: string): string {
-  const firstLine = content
-    .split('\n')
-    .map((line) => line.trim())
-    .find(Boolean) || '';
-  return firstLine.length > 92 ? `${firstLine.slice(0, 89)}...` : firstLine;
-}
-
 export function ThinkingPanel({
   summary,
   steps = [],
@@ -108,123 +100,55 @@ export function ThinkingPanel({
 
   const cleanStreamingContent = stripThinkTags(streamingContent).trim();
   const cleanSummary = stripThinkTags(summary || '').trim();
-  const displaySummary = useMemo(() => {
-    if (cleanStreamingContent) return excerpt(cleanStreamingContent);
-    if (cleanSummary) return excerpt(cleanSummary);
-    for (const step of steps) {
-      const next = stripThinkTags(step.summary || '').trim();
-      if (next) return excerpt(next);
-    }
-    return '';
-  }, [cleanStreamingContent, cleanSummary, steps]);
+  const stepSummaries = useMemo(
+    () =>
+      steps
+        .map((step) => ({ seq: step.seq, text: stripThinkTags(step.summary || '').trim() }))
+        .filter((step) => step.text),
+    [steps],
+  );
 
-  if (!cleanSummary && steps.length === 0 && !cleanStreamingContent && !isStreaming) {
+  if (!cleanSummary && stepSummaries.length === 0 && !cleanStreamingContent && !isStreaming) {
     return null;
   }
 
-  const hasContent = cleanSummary || steps.length > 0 || cleanStreamingContent;
+  const hasContent = !!cleanSummary || stepSummaries.length > 0 || !!cleanStreamingContent;
 
   return (
-    <div className="desktop-thinking-panel mb-5 rounded-[1.25rem] border border-zinc-800/85 bg-zinc-950/48 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]">
+    <div className="tr-item mb-4">
       <button
         type="button"
+        className="tr-thinking-toggle"
         onClick={() => setExpanded((value) => !value)}
-        className={cn(
-          'desktop-thinking-panel-toggle ui-transition flex w-full items-start gap-3 px-4 py-3.5 text-left',
-          expanded ? 'border-b border-zinc-800/75' : 'hover:bg-zinc-900/28'
-        )}
         data-expanded={expanded}
       >
-        <span className="mt-0.5 text-zinc-500">{expanded ? '▾' : '▸'}</span>
-        <div className="min-w-0 flex-1 space-y-2">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="desktop-thinking-panel-badge rounded-full border border-zinc-800/90 bg-zinc-950/80 px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.18em] text-zinc-300">
-              thinking
-            </span>
-            {isStreaming && (
-              <span className="desktop-thinking-panel-badge desktop-thinking-panel-badge-live rounded-full border border-cyan-500/25 bg-cyan-500/[0.10] px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.18em] text-cyan-200">
-                live
-              </span>
-            )}
-          </div>
-          {displaySummary ? (
-            <p className="truncate text-[12px] leading-6 text-zinc-400">{displaySummary}</p>
-          ) : isStreaming ? (
-            <p className="text-[12px] leading-6 text-zinc-500">Thinking in progress...</p>
-          ) : null}
-        </div>
+        <span className="tr-marker" data-tone={isStreaming ? 'running' : 'pending'} aria-hidden>
+          ⏺
+        </span>
+        <span className="tr-thinking-label">Thinking…</span>
       </button>
 
-      <div className="collapsible-content" data-expanded={expanded}>
-        <div>
-          <div className="max-h-[26rem] space-y-4 overflow-y-auto px-4 py-4">
-            {cleanStreamingContent && (
-              <section className="space-y-2">
-                <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.18em] text-cyan-200/85">
-                  <span className="h-1.5 w-1.5 rounded-full bg-cyan-400" />
-                  Live reasoning
-                </div>
-                <div className="desktop-thinking-panel-live-box rounded-[1rem] border border-cyan-500/16 bg-cyan-500/[0.06] px-3.5 py-3">
-                  <ThinkingMarkdown content={cleanStreamingContent} />
-                  {isStreaming && (
-                    <span className="desktop-agent-caret agent-caret ml-1 inline-block h-3.5 w-1.5 translate-y-0.5 bg-cyan-400/75" />
-                  )}
-                </div>
-              </section>
-            )}
+      {expanded && (
+        <div className={cn('tr-thinking-content max-h-[26rem] overflow-y-auto', !hasContent && 'italic')}>
+          {cleanStreamingContent ? (
+            <>
+              <ThinkingMarkdown content={cleanStreamingContent} />
+              {isStreaming && (
+                <span className="desktop-agent-caret agent-caret ml-1 inline-block" />
+              )}
+            </>
+          ) : (
+            <div className="space-y-3">
+              {cleanSummary && <ThinkingMarkdown content={cleanSummary} />}
+              {stepSummaries.map((step) => (
+                <ThinkingMarkdown key={step.seq} content={step.text} />
+              ))}
+            </div>
+          )}
 
-            {!cleanStreamingContent && cleanSummary && (
-              <section className="space-y-2">
-                <div className="premium-section-label">summary</div>
-                <div className="desktop-thinking-panel-inner rounded-[1rem] border border-zinc-800/85 bg-zinc-950/78 px-3.5 py-3">
-                  <ThinkingMarkdown content={cleanSummary} />
-                </div>
-              </section>
-            )}
-
-            {steps.length > 0 && (
-              <section className="space-y-3">
-                <div className="premium-section-label">timeline</div>
-                <div className="space-y-3">
-                  {steps.map((step) => {
-                    const stepSummary = stripThinkTags(step.summary || '').trim();
-                    return (
-                      <div
-                        key={step.seq}
-                        className="desktop-thinking-panel-inner rounded-[1rem] border border-zinc-800/85 bg-zinc-950/62 px-3.5 py-3"
-                      >
-                        <div className="mb-2 flex flex-wrap items-center gap-2">
-                          <span
-                            className={cn(
-                              'rounded-full px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.14em]',
-                              step.status === 'done'
-                                ? 'bg-zinc-900 text-zinc-300'
-                                : step.status === 'thinking'
-                                  ? 'bg-cyan-500/[0.10] text-cyan-200'
-                                  : 'bg-zinc-900 text-zinc-500'
-                            )}
-                          >
-                            {step.step_type}
-                          </span>
-                        </div>
-                        {stepSummary ? (
-                          <ThinkingMarkdown content={stepSummary} />
-                        ) : (
-                          <p className="text-[12px] text-zinc-500">No summary captured.</p>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </section>
-            )}
-
-            {!hasContent && isStreaming && (
-              <div className="text-[12px] font-mono text-zinc-500">Thinking...</div>
-            )}
-          </div>
+          {!hasContent && isStreaming && <span>Thinking…</span>}
         </div>
-      </div>
+      )}
     </div>
   );
 }

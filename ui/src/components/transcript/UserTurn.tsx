@@ -1,29 +1,24 @@
 /**
- * User message turn shared by chat and agent run renderers.
+ * User message turn — Claude-Code style `>` line, no bubble.
  */
 
 import { ImagePreviewStrip } from '@/components/ImagePreviewStrip';
-import { formatRelativeTime } from '@/lib/utils';
 import type { Run } from '@/types';
 
 export function UserTurn({ run }: { run: Run }) {
   return (
-    <div className="desktop-run">
-      <div className="min-w-0 flex-1">
-        <div className="desktop-message-card fluxion-card rounded-[1.35rem] border px-6 py-5">
-          <span className="whitespace-pre-wrap text-[14px] leading-[1.9] text-zinc-50">
-            {run.user_message || run.prompt}
-          </span>
-          <ImagePreviewStrip
-            images={run.image_attachments}
-            className="mt-3"
-            thumbnailClassName="h-20 w-20"
-          />
-        </div>
-        <p className="desktop-run-meta mt-2 px-1 text-[11px] text-zinc-500">
-          {formatRelativeTime(run.created_at)}
-        </p>
+    <div className="tr-user-turn">
+      <div className="tr-line">
+        <span className="tr-marker" aria-hidden>
+          &gt;
+        </span>
+        <div className="tr-body tr-user-text">{run.user_message || run.prompt}</div>
       </div>
+      {run.image_attachments && run.image_attachments.length > 0 && (
+        <div className="tr-user-attachments">
+          <ImagePreviewStrip images={run.image_attachments} thumbnailClassName="h-20 w-20" />
+        </div>
+      )}
     </div>
   );
 }
