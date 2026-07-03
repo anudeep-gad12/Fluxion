@@ -56,7 +56,7 @@ export function ImagePreviewStrip({
 
       {preview && (
         <div
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-6"
+          className="fixed inset-0 z-[var(--z-lightbox)] flex items-center justify-center bg-black/80 p-6"
           role="dialog"
           aria-modal="true"
           onClick={() => setPreview(null)}

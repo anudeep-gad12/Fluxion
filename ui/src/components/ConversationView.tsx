@@ -1892,16 +1892,16 @@ export function ConversationView() {
           <DialogTitle className="font-mono text-sm text-zinc-100">rewind conversation</DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
-          <p className="font-mono text-[12px] leading-6 text-zinc-500">
+          <p className="font-mono text-xs leading-6 text-zinc-500">
             Rewind the active branch to before a prior prompt, then restore that prompt into the composer.
           </p>
           <div className="max-h-[22rem] space-y-2 overflow-y-auto pr-1">
             {rewindLoading ? (
-              <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 px-3 py-3 font-mono text-[12px] text-zinc-500">
+              <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 px-3 py-3 font-mono text-xs text-zinc-500">
                 loading…
               </div>
             ) : rewindCheckpoints.length === 0 ? (
-              <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 px-3 py-3 font-mono text-[12px] text-zinc-500">
+              <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 px-3 py-3 font-mono text-xs text-zinc-500">
                 No rewind points available for this conversation yet.
               </div>
             ) : (
@@ -1919,7 +1919,7 @@ export function ConversationView() {
                         : 'border-zinc-800 bg-zinc-900/60 text-zinc-300 hover:border-zinc-700 hover:bg-zinc-900'
                     )}
                   >
-                    <div className="truncate font-mono text-[12px] leading-6">
+                    <div className="truncate font-mono text-xs leading-6">
                       {checkpoint.user_message}
                     </div>
                     <div className="mt-1 font-mono text-[11px] text-zinc-500">
@@ -1930,7 +1930,7 @@ export function ConversationView() {
               })
             )}
           </div>
-          <div className="flex items-center justify-end gap-2 font-mono text-[12px]">
+          <div className="flex items-center justify-end gap-2 font-mono text-xs">
             <button
               type="button"
               onClick={() => setRewindOpen(false)}

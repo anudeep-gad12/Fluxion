@@ -122,7 +122,7 @@ function CitationsList({ citations }: { citations: AgentCitation[] }) {
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <div>
           <div className="premium-section-label">sources</div>
-          <p className="mt-1 text-[12px] leading-5 text-zinc-500">
+          <p className="mt-1 text-xs leading-5 text-zinc-500">
             {citations.length} reference{citations.length !== 1 ? 's' : ''}
           </p>
         </div>
@@ -157,12 +157,12 @@ function CitationsList({ citations }: { citations: AgentCitation[] }) {
                   <span className="line-clamp-1 text-[13px] font-medium leading-5 text-zinc-100">
                     {citation.title || host}
                   </span>
-                  <span className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">
+                  <span className="text-[11px] uppercase tracking-[0.16em] text-zinc-500">
                     {host}
                   </span>
                 </div>
                 {snippet && (
-                  <p className="mt-1 line-clamp-2 text-[12px] leading-5 text-zinc-400">
+                  <p className="mt-1 line-clamp-2 text-xs leading-5 text-zinc-400">
                     {snippet}
                   </p>
                 )}

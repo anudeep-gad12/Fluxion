@@ -43,10 +43,14 @@ function initialResolvedTheme(preference: ThemePreference): Theme {
 function applyTheme(theme: Theme): void {
   document.documentElement.dataset.theme = theme;
   document.documentElement.style.colorScheme = theme;
-  document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.setAttribute(
-    'content',
-    theme === 'light' ? '#f7f7f4' : '#09090b',
-  );
+  const chromeBg = getComputedStyle(document.documentElement)
+    .getPropertyValue('--desktop-bg-0')
+    .trim();
+  if (chromeBg) {
+    document
+      .querySelector<HTMLMetaElement>('meta[name="theme-color"]')
+      ?.setAttribute('content', chromeBg);
+  }
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {

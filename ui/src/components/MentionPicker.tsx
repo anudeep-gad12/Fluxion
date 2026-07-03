@@ -62,7 +62,7 @@ export function MentionPicker({
   if (desktop) {
     return (
       <div
-        className="desktop-mention-picker absolute left-0 right-0 bottom-full z-[200] mb-2"
+        className="desktop-mention-picker absolute left-0 right-0 bottom-full z-[var(--z-popover)] mb-2"
         role="listbox"
         aria-label="Workspace files"
       >
@@ -104,7 +104,7 @@ export function MentionPicker({
   }
 
   return (
-    <div className="ui-panel-strong ui-elevated absolute left-0 right-0 bottom-full z-[200] mb-2 max-h-64 overflow-y-auto rounded-[1rem] border border-white/10">
+    <div className="ui-panel-strong ui-elevated absolute left-0 right-0 bottom-full z-[var(--z-popover)] mb-2 max-h-64 overflow-y-auto rounded-[1rem] border border-white/10">
       {loading ? (
         <div className="px-3 py-2 text-[11px] font-mono text-zinc-300">searching files...</div>
       ) : error ? (

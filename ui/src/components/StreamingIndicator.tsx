@@ -80,7 +80,7 @@ export function ShimmerSkeleton({
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-900/90 px-4 py-3 font-mono text-[11px]">
         <div className="flex min-w-0 items-center gap-2">
           <span className={cn('inline-flex h-2 w-2 rounded-full animate-pulse', accentStyles.dot)} />
-          <span className={cn('uppercase tracking-[0.18em]', accentStyles.text)}>{label}</span>
+          <span className={cn('uppercase tracking-[0.16em]', accentStyles.text)}>{label}</span>
           <span className="text-zinc-700">/</span>
           <span className="truncate text-zinc-400">live run</span>
         </div>
@@ -91,7 +91,7 @@ export function ShimmerSkeleton({
 
       <div className="space-y-4 px-4 py-4">
         <div className="space-y-2">
-          <p className="text-[14px] leading-7 text-zinc-100">{summary}</p>
+          <p className="text-sm leading-7 text-zinc-100">{summary}</p>
           <div className={cn('h-px w-full bg-gradient-to-r', accentStyles.line)} />
         </div>
 

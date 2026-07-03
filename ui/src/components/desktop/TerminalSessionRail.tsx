@@ -145,7 +145,7 @@ export function TerminalSessionRail({
           <ChevronDown className="h-3 w-3" />
         </button>
         {menuOpen ? (
-          <div className="desktop-tool-add-menu absolute right-0 top-8 z-[1000] w-36 overflow-hidden rounded-lg border border-white/[0.08] bg-[var(--desktop-bg-2)] p-1 shadow-xl shadow-black/35">
+          <div className="desktop-tool-add-menu absolute right-0 top-8 z-[var(--z-menu)] w-36 overflow-hidden rounded-lg border border-white/[0.08] bg-[var(--desktop-bg-2)] p-1 shadow-xl shadow-black/35">
             <button
               type="button"
               onClick={() => {
@@ -154,7 +154,7 @@ export function TerminalSessionRail({
               }}
               disabled={terminalAtLimit}
               className={cn(
-                'desktop-no-drag flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] text-zinc-300',
+                'desktop-no-drag flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-zinc-300',
                 terminalAtLimit
                   ? 'cursor-not-allowed opacity-40'
                   : 'hover:bg-white/[0.06] hover:text-zinc-100'
@@ -172,7 +172,7 @@ export function TerminalSessionRail({
               }}
               disabled={browserAtLimit}
               className={cn(
-                'desktop-no-drag flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] text-zinc-300',
+                'desktop-no-drag flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-zinc-300',
                 browserAtLimit
                   ? 'cursor-not-allowed opacity-40'
                   : 'hover:bg-white/[0.06] hover:text-zinc-100'

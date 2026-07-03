@@ -143,6 +143,30 @@
   --duration-fast: 140ms;
   --duration-ui: 220ms;
   --duration-slow: 340ms;
+
+  /* Radius scale */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+
+  /* Elevation */
+  --shadow-menu: 0 16px 44px rgba(0, 0, 0, 0.42);
+  --shadow-dialog: 0 18px 50px rgba(0, 0, 0, 0.45);
+  --shadow-overlay: 0 24px 80px rgba(0, 0, 0, 0.34);
+  --glow-accent: 0 0 6px rgb(var(--desktop-accent-rgb) / 0.55);
+  --focus-ring: 0 0 0 3px rgb(var(--desktop-accent-rgb) / 0.22);
+
+  /* Layering — the 21474xxxxx band sits above Tauri native webview overlays */
+  --z-raised: 10;
+  --z-menu: 100;
+  --z-popover: 200;
+  --z-lightbox: 1000;
+  --z-dialog: 2147482001;
+  --z-context: 2147482100;
+  --z-overlay: 2147482200;
+  --z-dragframe: 2147483000;
 }
 
 [data-theme='light'] {

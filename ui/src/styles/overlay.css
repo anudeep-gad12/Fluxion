@@ -58,7 +58,7 @@ html[data-surface='floating'] #root {
   color: var(--desktop-text-secondary, #a1a1aa);
   font-size: 12px;
   line-height: 1;
-  transition: background 120ms ease, color 120ms ease;
+  transition: background var(--duration-fast) var(--ease-ui), color var(--duration-fast) var(--ease-ui);
 }
 
 .floating-overlay-action {
@@ -133,7 +133,7 @@ html[data-surface='floating'] #root {
   font-size: 12px;
   line-height: 1;
   padding: 7px 10px;
-  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+  transition: background var(--duration-fast) var(--ease-ui), color var(--duration-fast) var(--ease-ui), border-color var(--duration-fast) var(--ease-ui);
 }
 
 .floating-model-trigger:hover {
@@ -155,14 +155,14 @@ html[data-surface='floating'] #root {
   position: absolute;
   left: 0;
   bottom: calc(100% + 10px);
-  z-index: 100;
+  z-index: var(--z-menu);
   width: min(420px, calc(100vw - 48px));
   max-height: 242px;
   overflow: auto;
   border: 1px solid var(--desktop-border-subtle, rgba(255, 255, 255, 0.1));
   border-radius: 18px;
   background: color-mix(in srgb, var(--desktop-bg-1, #18181b) 96%, transparent);
-  box-shadow: 0 18px 52px rgba(0, 0, 0, 0.48);
+  box-shadow: var(--shadow-dialog);
   padding: 6px;
   backdrop-filter: blur(24px);
 }
@@ -173,7 +173,7 @@ html[data-surface='floating'] #root {
   min-width: 0;
   flex-direction: column;
   gap: 4px;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   padding: 9px 10px;
   text-align: left;
   color: var(--desktop-text-secondary, #a1a1aa);

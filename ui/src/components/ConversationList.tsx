@@ -121,7 +121,7 @@ function ConversationCard({
       <span
         className={cn(
           'h-1.5 w-1.5 shrink-0 rounded-full',
-          threadStatus === 'running' && 'bg-cyan-400 shadow-[0_0_6px_rgba(121,230,255,0.55)]',
+          threadStatus === 'running' && 'bg-cyan-400 shadow-[var(--glow-accent)]',
           threadStatus === 'failed' && 'bg-red-400/90',
           threadStatus === 'idle' && 'bg-zinc-700'
         )}
@@ -656,13 +656,13 @@ export function ConversationList() {
 
       {contextMenu && (
         <div
-          className="fixed z-[2147482100] w-52 rounded-xl border border-white/10 bg-zinc-950/98 p-1 shadow-2xl shadow-black/40 backdrop-blur"
+          className="fixed z-[var(--z-context)] w-52 rounded-xl border border-white/10 bg-zinc-950/98 p-1 shadow-2xl shadow-black/40 backdrop-blur"
           style={{ left: contextMenu.x, top: contextMenu.y }}
           onClick={(event) => event.stopPropagation()}
         >
           <button
             type="button"
-            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[12px] text-zinc-300 hover:bg-white/[0.06] hover:text-zinc-50"
+            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-zinc-300 hover:bg-white/[0.06] hover:text-zinc-50"
             onClick={() => openRenameDialog(contextMenu.conversation)}
           >
             <Pencil className="h-3.5 w-3.5" />
@@ -670,7 +670,7 @@ export function ConversationList() {
           </button>
           <button
             type="button"
-            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[12px] text-zinc-300 hover:bg-white/[0.06] hover:text-zinc-50"
+            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-zinc-300 hover:bg-white/[0.06] hover:text-zinc-50"
             onClick={() => handleTogglePin(contextMenu.conversation)}
           >
             <Pin className="h-3.5 w-3.5" />
@@ -678,7 +678,7 @@ export function ConversationList() {
           </button>
           <button
             type="button"
-            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[12px] text-zinc-300 hover:bg-white/[0.06] hover:text-zinc-50"
+            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-zinc-300 hover:bg-white/[0.06] hover:text-zinc-50"
             onClick={() => handleCopySessionId(contextMenu.conversation)}
           >
             <Copy className="h-3.5 w-3.5" />
@@ -687,7 +687,7 @@ export function ConversationList() {
           <div className="my-1 border-t border-white/10" />
           <button
             type="button"
-            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[12px] text-red-300 hover:bg-red-500/[0.10] hover:text-red-200"
+            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-red-300 hover:bg-red-500/[0.10] hover:text-red-200"
             onClick={() => handleDeleteClick(contextMenu.conversation.conversation_id)}
           >
             <Trash2 className="h-3.5 w-3.5" />

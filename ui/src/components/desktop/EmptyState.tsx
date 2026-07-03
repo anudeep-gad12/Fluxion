@@ -47,7 +47,7 @@ export function EmptyState({
       <h1 className="text-[22px] font-semibold tracking-tight text-zinc-50">
         {mode === 'agent' ? 'What should we build?' : 'How can I help?'}
       </h1>
-      <p className="mt-2 max-w-sm text-[14px] leading-relaxed text-zinc-500">
+      <p className="mt-2 max-w-sm text-sm leading-relaxed text-zinc-500">
         {mode === 'agent'
           ? workspaceName
             ? `${workspaceName} · ${model}`

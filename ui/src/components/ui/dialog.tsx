@@ -13,7 +13,7 @@ export function Dialog({ open, onOpenChange, children, className }: DialogProps)
     if (!open) return null;
 
     return (
-        <div className="fixed inset-0 z-[2147482001] flex items-center justify-center">
+        <div className="fixed inset-0 z-[var(--z-dialog)] flex items-center justify-center">
             {/* Backdrop */}
             <div
                 className="fixed inset-0 bg-black/72 backdrop-blur-[2px]"
@@ -52,7 +52,7 @@ export function DialogTitle({
     className?: string;
 }) {
     return (
-        <h2 className={cn("text-base font-bold tracking-[-0.035em] text-zinc-50", className)}>
+        <h2 className={cn("text-base font-bold tracking-[-0.02em] text-zinc-50", className)}>
             {children}
         </h2>
     );

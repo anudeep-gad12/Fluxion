@@ -162,7 +162,7 @@ const codeThemeDark = {
   ...oneDark,
   'pre[class*="language-"]': {
     ...oneDark['pre[class*="language-"]'],
-    background: '#09090b',
+    background: 'var(--desktop-bg-0)',
     margin: 0,
     padding: '1.1rem 1rem',
     borderRadius: '0 0 1rem 1rem',
@@ -180,7 +180,7 @@ const codeThemeLight = {
   ...oneLight,
   'pre[class*="language-"]': {
     ...oneLight['pre[class*="language-"]'],
-    background: '#fdfcfa',
+    background: 'var(--desktop-bg-2)',
     margin: 0,
     padding: '1.1rem 1rem',
     borderRadius: '0 0 1rem 1rem',
@@ -212,7 +212,7 @@ function SyntaxCodeBlock({
   }, [code]);
 
   return (
-    <div className="group relative my-5 overflow-hidden rounded-[1.15rem] border border-zinc-800/90 bg-zinc-950/88 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]">
+    <div className="group relative my-5 overflow-hidden rounded-[1.15rem] border border-zinc-800/90 bg-zinc-950/88">
       {/* Language label + copy button */}
       <div className="flex items-center justify-between border-b border-zinc-800/90 bg-zinc-900/88 px-3.5 py-2">
         <span className="text-[10px] font-mono uppercase tracking-[0.16em] text-zinc-500">
@@ -251,7 +251,7 @@ function PlainCodeBlock({ children }: { children: React.ReactNode }) {
   }, [children]);
 
   return (
-    <div className="group relative my-5 overflow-hidden rounded-[1.15rem] border border-zinc-800/90 bg-zinc-950/88 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]">
+    <div className="group relative my-5 overflow-hidden rounded-[1.15rem] border border-zinc-800/90 bg-zinc-950/88">
       <div className="flex items-center justify-between border-b border-zinc-800/90 bg-zinc-900/88 px-3.5 py-2">
         <span className="text-[10px] font-mono uppercase tracking-[0.16em] text-zinc-500">text</span>
         <button
@@ -262,7 +262,7 @@ function PlainCodeBlock({ children }: { children: React.ReactNode }) {
           {copied ? '✓ copied' : 'copy'}
         </button>
       </div>
-      <pre className="overflow-x-auto rounded-b-[1rem] bg-zinc-950 px-4 py-3.5 text-[12px] leading-7 text-zinc-100">
+      <pre className="overflow-x-auto rounded-b-[1rem] bg-zinc-950 px-4 py-3.5 text-xs leading-7 text-zinc-100">
         {children}
       </pre>
     </div>
@@ -298,7 +298,7 @@ export function AnswerMarkdown({ content }: { content: string }) {
 
             if (isInline) {
               return (
-                <code className="rounded-md border border-zinc-800/90 bg-zinc-950/90 px-1.5 py-0.5 text-[12px] text-zinc-200" {...props}>
+                <code className="rounded-md border border-zinc-800/90 bg-zinc-950/90 px-1.5 py-0.5 text-xs text-zinc-200" {...props}>
                   {children}
                 </code>
               );

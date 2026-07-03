@@ -73,7 +73,7 @@ function ThinkingMarkdown({ content }: { content: string }) {
           },
           pre({ children }) {
             return (
-              <pre className="my-3 overflow-x-auto rounded-xl border border-zinc-800/95 bg-zinc-950/92 px-3 py-2.5 text-[12px] text-zinc-200 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]">
+              <pre className="my-3 overflow-x-auto rounded-xl border border-zinc-800/95 bg-zinc-950/92 px-3 py-2.5 text-xs text-zinc-200">
                 {children}
               </pre>
             );

@@ -597,7 +597,7 @@ export function TerminalPanel({ agentModeActive }: TerminalPanelProps) {
     >
       <DesktopTitlebar className="desktop-terminal-header flex h-[var(--titlebar-height)] items-center justify-between border-b border-white/[0.05] px-3">
         <div className="desktop-titlebar-content min-w-0">
-          <div className="pointer-events-none text-[12px] font-medium text-zinc-400">{activeKind}</div>
+          <div className="pointer-events-none text-xs font-medium text-zinc-400">{activeKind}</div>
           {folderLabel ? (
             <div className="pointer-events-none truncate text-[11px] text-zinc-600" title={workspacePath}>
               {folderLabel}
@@ -655,7 +655,7 @@ export function TerminalPanel({ agentModeActive }: TerminalPanelProps) {
                 />
               ))}
               {tabs.length === 0 ? (
-                <div className="flex h-full items-center justify-center px-4 text-center text-[12px] text-zinc-600">
+                <div className="flex h-full items-center justify-center px-4 text-center text-xs text-zinc-600">
                   Use + to open a terminal or browser.
                 </div>
               ) : null}

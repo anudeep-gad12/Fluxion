@@ -141,7 +141,7 @@
   line-height: 1.5;
   color: var(--desktop-text-tertiary);
   cursor: pointer;
-  transition: color 0.12s ease;
+  transition: color var(--duration-fast) var(--ease-ui);
 }
 
 .tr-more:hover {
@@ -167,7 +167,7 @@
   line-height: 1.5;
   font-style: italic;
   color: var(--desktop-text-tertiary);
-  transition: color 0.12s ease;
+  transition: color var(--duration-fast) var(--ease-ui);
 }
 
 .tr-thinking-toggle:hover .tr-thinking-label {
@@ -310,7 +310,7 @@
   width: 100%;
   resize: none;
   border: 1px solid var(--desktop-border-subtle);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: transparent;
   margin-left: 22px;
   max-width: calc(100% - 22px);
@@ -344,7 +344,7 @@
   font-size: 12px;
   line-height: 1.5;
   cursor: pointer;
-  transition: opacity 0.12s ease;
+  transition: opacity var(--duration-fast) var(--ease-ui);
 }
 
 .tr-prompt-btn[data-action='approve'] {
@@ -395,14 +395,14 @@
 
 .tr-prompt-option {
   border: 1px solid var(--desktop-border-subtle);
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   background: transparent;
   padding: 4px 10px;
   font-size: 12px;
   line-height: 1.4;
   color: var(--desktop-text-secondary);
   cursor: pointer;
-  transition: border-color 0.12s ease, color 0.12s ease, background 0.12s ease;
+  transition: border-color var(--duration-fast) var(--ease-ui), color var(--duration-fast) var(--ease-ui), background var(--duration-fast) var(--ease-ui);
 }
 
 .tr-prompt-option:hover:not(:disabled) {
@@ -470,7 +470,7 @@
 [data-app='desktop'] .desktop-run-meta-pill {
   display: inline-flex;
   align-items: center;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--desktop-border-subtle);
   background: rgb(var(--ui-white-rgb) / 0.03);
   padding: 2px 8px;

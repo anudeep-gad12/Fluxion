@@ -579,7 +579,7 @@ export function IntegratedTerminal({
         )}
         <div
           className={cn(
-            'flex items-center justify-between gap-3 border-b border-white/[0.06] px-3 text-[12px] text-zinc-500',
+            'flex items-center justify-between gap-3 border-b border-white/[0.06] px-3 text-xs text-zinc-500',
             isEmbedded ? 'h-8' : 'h-9'
           )}
         >

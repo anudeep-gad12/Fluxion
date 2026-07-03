@@ -1,10 +1,10 @@
 /* Desktop settings surfaces — dialogs, popovers, flat lists */
 
 [data-app='desktop'] .ui-dialog-surface {
-  border-radius: 16px;
+  border-radius: var(--radius-xl);
   border: 1px solid var(--desktop-border-subtle);
   background: var(--desktop-bg-1);
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
+  box-shadow: var(--shadow-dialog);
 }
 
 [data-app='desktop'] .ui-dialog-surface .desktop-settings-dialog-header {
@@ -19,28 +19,21 @@
   color: var(--desktop-text-tertiary);
 }
 
-[data-app='desktop'] .ui-dialog-surface .premium-panel {
-  border: none;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-}
-
 [data-app='desktop'] .desktop-settings-popover {
-  border-radius: 14px;
+  border-radius: var(--radius-lg);
   border: 1px solid var(--desktop-border-subtle);
   background: var(--desktop-bg-1);
   padding: 14px;
-  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.42);
+  box-shadow: var(--shadow-menu);
 }
 
 /* @ file mention popover — same surface + list accent as model/reasoning dialogs */
 [data-app='desktop'] .desktop-mention-picker {
-  border-radius: 14px;
+  border-radius: var(--radius-lg);
   border: 1px solid var(--desktop-border-subtle);
   background: var(--desktop-bg-1);
   padding: 6px;
-  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.42);
+  box-shadow: var(--shadow-menu);
 }
 
 [data-app='desktop'] .desktop-mention-picker .desktop-mention-picker-list {
@@ -49,7 +42,7 @@
 }
 
 [data-app='desktop'] .desktop-mention-picker .desktop-settings-list-item {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   letter-spacing: 0;
 }
@@ -66,7 +59,7 @@
 [data-app='desktop'] .desktop-settings-list-panel {
   max-height: 24rem;
   overflow-y: auto;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--desktop-border-subtle);
   background: var(--desktop-bg-2);
   padding: 4px;
@@ -116,14 +109,14 @@
 [data-app='desktop'] .desktop-settings-field {
   width: 100%;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: rgb(var(--ui-white-rgb) / 0.04);
   padding: 8px 10px;
   font-size: 12px;
   line-height: 1.4;
   color: var(--desktop-text-primary);
   outline: none;
-  transition: box-shadow 0.12s ease;
+  transition: box-shadow var(--duration-fast) var(--ease-ui);
 }
 
 [data-app='desktop'] .desktop-settings-field:focus {
@@ -140,10 +133,10 @@
   margin-bottom: 2px;
   padding: 10px 10px;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: transparent;
   text-align: left;
-  transition: background 0.12s ease;
+  transition: background var(--duration-fast) var(--ease-ui);
 }
 
 [data-app='desktop'] .desktop-settings-list-item:last-child {
@@ -196,13 +189,13 @@
 
 [data-app='desktop'] .desktop-settings-btn-ghost {
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   padding: 6px 10px;
   background: transparent;
   font-size: 12px;
   font-weight: 500;
   color: var(--desktop-text-tertiary);
-  transition: color 0.12s ease, background 0.12s ease;
+  transition: color var(--duration-fast) var(--ease-ui), background var(--duration-fast) var(--ease-ui);
 }
 
 [data-app='desktop'] .desktop-settings-btn-ghost:hover:not(:disabled) {
@@ -212,13 +205,13 @@
 
 [data-app='desktop'] .desktop-settings-btn-primary {
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   padding: 6px 12px;
   background: transparent;
   font-size: 12px;
   font-weight: 500;
   color: var(--desktop-accent);
-  transition: color 0.12s ease, background 0.12s ease;
+  transition: color var(--duration-fast) var(--ease-ui), background var(--duration-fast) var(--ease-ui);
 }
 
 [data-app='desktop'] .desktop-settings-btn-primary:hover:not(:disabled) {
@@ -247,7 +240,7 @@
 [data-app='desktop'] .desktop-settings-hint-error {
   margin-top: 0;
   padding: 8px 10px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   border: 1px solid rgb(var(--ui-danger-rgb) / 0.2);
   background: rgb(var(--ui-danger-rgb) / 0.06);
   font-size: 11px;
@@ -313,7 +306,7 @@
   margin-bottom: 3px;
   padding: 9px 10px;
   border: none;
-  border-radius: 9px;
+  border-radius: var(--radius-md);
   background: transparent;
   text-align: left;
   font-size: 12px;
@@ -374,7 +367,7 @@
   gap: 10px;
   margin-bottom: 12px;
   padding: 10px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: var(--desktop-bg-2);
 }
 
@@ -385,7 +378,7 @@
 [data-app='desktop'] .desktop-model-list {
   max-height: 46vh;
   overflow-y: auto;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: var(--desktop-bg-2);
   padding: 4px;
 }
@@ -420,7 +413,7 @@
 [data-app='desktop'] .desktop-model-detail-id {
   margin-top: 6px;
   overflow-wrap: anywhere;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   color: var(--desktop-text-tertiary);
 }

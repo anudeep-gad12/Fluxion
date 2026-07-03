@@ -281,14 +281,14 @@ export function BrowserPane({
             value={address}
             onChange={(event) => setAddress(event.target.value)}
             placeholder="Search or enter URL"
-            className="desktop-browser-address h-7 w-full rounded-lg border border-white/[0.07] bg-white/[0.035] pl-8 pr-3 text-[12px] text-zinc-300 outline-none transition-colors placeholder:text-zinc-600 focus:border-cyan-300/30 focus:bg-white/[0.055]"
+            className="desktop-browser-address h-7 w-full rounded-lg border border-white/[0.07] bg-white/[0.035] pl-8 pr-3 text-xs text-zinc-300 outline-none transition-colors placeholder:text-zinc-600 focus:border-cyan-300/30 focus:bg-white/[0.055]"
           />
         </form>
       </div>
       <div className="relative min-h-0 flex-1 bg-[var(--desktop-bg-1)]">
         <div ref={viewportRef} className="absolute inset-0" />
         {!tab.url ? (
-          <div className="pointer-events-none absolute inset-0 flex items-start gap-2 px-5 py-5 text-[12px] text-zinc-600">
+          <div className="pointer-events-none absolute inset-0 flex items-start gap-2 px-5 py-5 text-xs text-zinc-600">
             <Globe2 className="mt-0.5 h-4 w-4" />
             <span>Enter a URL or search above</span>
           </div>
@@ -299,7 +299,7 @@ export function BrowserPane({
           </div>
         ) : null}
         {tab.status === 'error' ? (
-          <div className="absolute inset-x-3 top-3 flex items-start gap-2 rounded-lg border border-red-400/20 bg-red-500/10 px-3 py-2 text-[12px] text-red-200">
+          <div className="absolute inset-x-3 top-3 flex items-start gap-2 rounded-lg border border-red-400/20 bg-red-500/10 px-3 py-2 text-xs text-red-200">
             <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             <span className="break-words">{tab.error || 'Browser failed to load this page'}</span>
           </div>
