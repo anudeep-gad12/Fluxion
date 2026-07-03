@@ -28,8 +28,6 @@ export function getRunFooterMetrics(run: Run): string[] {
   }
   if (run.cost && typeof run.cost.total_cost === 'number') {
     metrics.push(`est ${formatAgentCost(run.cost.total_cost)}`);
-  } else if (usage) {
-    metrics.push('cost n/a');
   }
   if (typeof run.context_usage?.utilization_pct_effective === 'number') {
     metrics.push(`ctx ${Math.round(run.context_usage.utilization_pct_effective)}%`);

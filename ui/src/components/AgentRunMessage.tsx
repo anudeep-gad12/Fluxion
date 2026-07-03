@@ -60,7 +60,14 @@ export const AgentRunMessage = memo(function AgentRunMessage({
           : 'succeeded';
 
   return (
-    <div className="animate-in fade-in slide-in-from-bottom-2 space-y-5 duration-200">
+    <div
+      className={cn(
+        'space-y-5',
+        // Entrance animation only while live — virtualized remounts of
+        // settled runs must not re-animate on scroll.
+        isRunning && 'animate-in fade-in slide-in-from-bottom-2 duration-200'
+      )}
+    >
       <UserTurn run={run} />
 
       <div className="desktop-run group/msg">
@@ -119,14 +126,14 @@ export const AgentRunMessage = memo(function AgentRunMessage({
                   ) : null}
                   {cost && typeof cost.total_cost === 'number' ? (
                     <span>est {formatAgentCost(cost.total_cost)}</span>
-                  ) : usage ? (
-                    <span>cost n/a</span>
                   ) : null}
                   {contextUsage && (
                     <span>
                       ctx {Math.round(contextUsage.utilization_pct_effective)}
                       %
-                      {typeof compactionCount === 'number' ? ` · compact ${compactionCount}` : ''}
+                      {typeof compactionCount === 'number' && compactionCount > 0
+                        ? ` · compact ${compactionCount}`
+                        : ''}
                     </span>
                   )}
                 </>

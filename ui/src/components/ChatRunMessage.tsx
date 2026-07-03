@@ -44,7 +44,14 @@ export const ChatRunMessage = memo(function ChatRunMessage({
   const footerMetrics = getRunFooterMetrics(run);
 
   return (
-    <div className="animate-in fade-in slide-in-from-bottom-2 space-y-5 duration-200">
+    <div
+      className={cn(
+        'space-y-5',
+        // Entrance animation only while live — virtualized remounts of
+        // settled runs must not re-animate on scroll.
+        isRunning && 'animate-in fade-in slide-in-from-bottom-2 duration-200'
+      )}
+    >
       <UserTurn run={run} />
 
       <div className="desktop-run group/msg">
