@@ -2196,7 +2196,7 @@ export function ConversationView() {
       {rewindDialog}
 
       <div className="relative flex min-h-0 flex-1 flex-col">
-        <div className="flex-1 overflow-y-auto px-4 py-6" ref={scrollRef}>
+        <div className="flex-1 overflow-y-auto px-4 pb-10 pt-6" ref={scrollRef}>
           <div className="desktop-thread-column w-full">
             {isLoadingSelectedConversation && runs.length === 0 ? (
               <div className="flex min-h-[45vh] items-center justify-center">

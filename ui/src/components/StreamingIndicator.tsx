@@ -76,7 +76,7 @@ export function ShimmerSkeleton({
   const accentStyles = ACCENT_STYLES[accent];
 
   return (
-    <div className="overflow-hidden rounded-[1rem] border border-zinc-800/90 bg-zinc-950/70">
+    <div className="overflow-hidden rounded-xl border border-zinc-800/90 bg-zinc-950/70">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-900/90 px-4 py-3 font-mono text-[11px]">
         <div className="flex min-w-0 items-center gap-2">
           <span className={cn('inline-flex h-2 w-2 rounded-full animate-pulse', accentStyles.dot)} />

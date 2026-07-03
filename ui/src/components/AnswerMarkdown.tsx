@@ -165,7 +165,7 @@ const codeThemeDark = {
     background: 'var(--desktop-bg-0)',
     margin: 0,
     padding: '1.1rem 1rem',
-    borderRadius: '0 0 1rem 1rem',
+    borderRadius: '0 0 0.5rem 0.5rem',
     fontSize: '0.8125rem',
     lineHeight: '1.75',
   },
@@ -183,7 +183,7 @@ const codeThemeLight = {
     background: 'var(--desktop-bg-2)',
     margin: 0,
     padding: '1.1rem 1rem',
-    borderRadius: '0 0 1rem 1rem',
+    borderRadius: '0 0 0.5rem 0.5rem',
     fontSize: '0.8125rem',
     lineHeight: '1.75',
   },
@@ -212,7 +212,7 @@ function SyntaxCodeBlock({
   }, [code]);
 
   return (
-    <div className="group relative my-5 overflow-hidden rounded-[1.15rem] border border-zinc-800/90 bg-zinc-950/88">
+    <div className="group relative my-5 overflow-hidden rounded-lg border border-zinc-800/90 bg-zinc-950/88">
       {/* Language label + copy button */}
       <div className="flex items-center justify-between border-b border-zinc-800/90 bg-zinc-900/88 px-3.5 py-2">
         <span className="text-[10px] font-mono uppercase tracking-[0.16em] text-zinc-500">
@@ -251,7 +251,7 @@ function PlainCodeBlock({ children }: { children: React.ReactNode }) {
   }, [children]);
 
   return (
-    <div className="group relative my-5 overflow-hidden rounded-[1.15rem] border border-zinc-800/90 bg-zinc-950/88">
+    <div className="group relative my-5 overflow-hidden rounded-lg border border-zinc-800/90 bg-zinc-950/88">
       <div className="flex items-center justify-between border-b border-zinc-800/90 bg-zinc-900/88 px-3.5 py-2">
         <span className="text-[10px] font-mono uppercase tracking-[0.16em] text-zinc-500">text</span>
         <button
@@ -262,7 +262,7 @@ function PlainCodeBlock({ children }: { children: React.ReactNode }) {
           {copied ? '✓ copied' : 'copy'}
         </button>
       </div>
-      <pre className="overflow-x-auto rounded-b-[1rem] bg-zinc-950 px-4 py-3.5 text-xs leading-7 text-zinc-100">
+      <pre className="overflow-x-auto rounded-b-lg bg-zinc-950 px-4 py-3.5 text-xs leading-7 text-zinc-100">
         {children}
       </pre>
     </div>

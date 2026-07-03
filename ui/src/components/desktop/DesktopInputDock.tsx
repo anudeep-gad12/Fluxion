@@ -80,6 +80,7 @@ export function DesktopInputDock({
   metaRow,
   limitHint,
 }: DesktopInputDockProps) {
+  const showCounter = messageLength > 0;
   const showMeta = Boolean(metaRow || limitHint);
 
   return (
@@ -134,23 +135,21 @@ export function DesktopInputDock({
         controlsRow={controlsRow}
       />
 
-      {showMeta ? (
+      {showMeta || showCounter ? (
         <div className="desktop-prompt-meta">
           <div className="min-w-0 flex-1">{metaRow}</div>
-          <div className="flex shrink-0 items-center gap-2">
-            {limitHint}
-            <span className={cn(messageLength > maxLength * 0.9 && 'text-zinc-500')}>
-              {messageLength.toLocaleString()} / {maxLength.toLocaleString()}
-            </span>
-          </div>
+          {(limitHint || showCounter) && (
+            <div className="flex shrink-0 items-center gap-2">
+              {limitHint}
+              {showCounter && (
+                <span className={cn(messageLength > maxLength * 0.9 && 'text-zinc-500')}>
+                  {messageLength.toLocaleString()} / {maxLength.toLocaleString()}
+                </span>
+              )}
+            </div>
+          )}
         </div>
-      ) : (
-        <p className="desktop-prompt-meta justify-end">
-          <span className={cn(messageLength > maxLength * 0.9 && 'text-zinc-500')}>
-            {messageLength.toLocaleString()} / {maxLength.toLocaleString()}
-          </span>
-        </p>
-      )}
+      ) : null}
     </div>
   );
 }

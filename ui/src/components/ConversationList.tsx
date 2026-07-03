@@ -175,7 +175,7 @@ function WorkspaceSection({
 }) {
   return (
     <div className="space-y-px">
-      <div className="flex items-center gap-1 px-1 py-0.5">
+      <div className="flex items-center gap-1.5 px-1 py-0.5">
         <button
           type="button"
           onClick={onToggle}
@@ -194,7 +194,7 @@ function WorkspaceSection({
         >
           {group.label}
         </button>
-        <span className="shrink-0 text-[11px] tabular-nums text-zinc-600">
+        <span className="shrink-0 px-0.5 text-[11px] tabular-nums text-zinc-600">
           {group.conversations.length}
         </span>
         {!group.isGeneral && (
@@ -601,7 +601,7 @@ export function ConversationList() {
         {isLoading && visibleConversations.length === 0 ? (
           <div className="text-sm text-muted-foreground">Loading conversations...</div>
         ) : workspaceGroups.length === 0 ? (
-          <div className="space-y-3 rounded-[1rem] border border-dashed border-white/14 bg-white/[0.025] px-4 py-6 text-sm text-zinc-300">
+          <div className="space-y-3 rounded-xl border border-dashed border-white/14 bg-white/[0.025] px-4 py-6 text-sm text-zinc-300">
             <div>No workspaces yet.</div>
             <Button
               size="sm"

@@ -26,7 +26,9 @@ function uiBuildStampPlugin(buildAt: string): Plugin {
 }
 
 export default defineConfig({
-  base: "./",
+  // Served over http at the origin root (fluxion-server :9000); absolute base
+  // keeps assets loading on direct deep links like /conversations/<id>.
+  base: "/",
   define: {
     __UI_BUILD_AT__: JSON.stringify(uiBuildAt),
   },

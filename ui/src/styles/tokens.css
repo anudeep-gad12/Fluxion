@@ -138,6 +138,10 @@
   --input: 240 5% 16%;
   --ring: 191 100% 74%;
 
+  /* Scrollbars */
+  --scrollbar-thumb: hsl(240 5% 34%);
+  --scrollbar-thumb-hover: hsl(240 5% 46%);
+
   /* Motion */
   --ease-ui: cubic-bezier(0.22, 1, 0.36, 1);
   --duration-fast: 140ms;
@@ -195,6 +199,9 @@
   --desktop-success-text: #166534;
   --desktop-violet: #6d4e9c;
   --desktop-violet-text: #5b3c87;
+
+  --scrollbar-thumb: #aaa59a;
+  --scrollbar-thumb-hover: #8f8a7e;
 
   /* Terminal (xterm) — light needs an explicit ANSI ramp */
   --term-bg: #fdfcfa;

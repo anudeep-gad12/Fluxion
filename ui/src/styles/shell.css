@@ -7,10 +7,6 @@
   color: var(--desktop-text-primary);
 }
 
-[data-app='desktop'][data-theme='light'] * {
-  scrollbar-color: #aaa59a transparent;
-}
-
 [data-app='desktop'][data-theme='light'] textarea {
   caret-color: var(--desktop-text-primary);
 }
@@ -39,6 +35,24 @@
 [data-app='desktop'] .desktop-terminal-header {
   background: var(--desktop-bg-0);
   user-select: none;
+}
+
+/* Soft fade below the titlebar so scrolling content dissolves instead of
+ * hard-clipping at the header hairline. */
+[data-app='desktop'] .desktop-chrome-scrim {
+  position: relative;
+}
+
+[data-app='desktop'] .desktop-chrome-scrim::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  right: 0;
+  left: 0;
+  height: 14px;
+  background: linear-gradient(to bottom, var(--desktop-bg-1), transparent);
+  pointer-events: none;
+  z-index: var(--z-raised);
 }
 
 /* Sidebar chrome: fixed traffic-light band, then logo row at a stable Y */
@@ -364,6 +378,7 @@
   display: flex;
   align-items: center;
   gap: 12px;
+  min-height: 15px; /* reserve the row so the counter appearing doesn't shift layout */
   margin-top: 8px;
   padding: 0 4px;
   font-size: 11px;

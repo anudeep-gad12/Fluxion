@@ -116,7 +116,9 @@
   }
 
   .markdown table {
-    @apply my-6 block w-full overflow-x-auto rounded-2xl border border-zinc-800/95 bg-zinc-950/60 text-[12px] leading-6;
+    /* w-max + max-w-full: shrink-wrap narrow tables (no empty band inside the
+     * border) while still scrolling horizontally when wider than the column */
+    @apply my-6 block w-max max-w-full overflow-x-auto rounded-2xl border border-zinc-800/95 bg-zinc-950/60 text-[12px] leading-6;
     border-collapse: separate;
     border-spacing: 0;
   }
@@ -220,12 +222,12 @@
 @layer base {
   * {
     scrollbar-width: thin;
-    scrollbar-color: hsl(240 5% 34%) transparent;
+    scrollbar-color: var(--scrollbar-thumb) transparent;
   }
 
   *::-webkit-scrollbar {
-    width: 4px;
-    height: 4px;
+    width: 6px;
+    height: 6px;
   }
 
   *::-webkit-scrollbar-track {
@@ -233,24 +235,16 @@
   }
 
   *::-webkit-scrollbar-thumb {
-    background-color: hsl(240 5% 34%);
-    border-radius: 2px;
+    background-color: var(--scrollbar-thumb);
+    border-radius: 3px;
   }
 
   *::-webkit-scrollbar-thumb:hover {
-    background-color: hsl(240 5% 46%);
+    background-color: var(--scrollbar-thumb-hover);
   }
 
-  [data-theme='light'] * {
-    scrollbar-color: #b5b0a4 transparent;
-  }
-
-  [data-theme='light'] *::-webkit-scrollbar-thumb {
-    background-color: #b5b0a4;
-  }
-
-  [data-theme='light'] *::-webkit-scrollbar-thumb:hover {
-    background-color: #a19c8f;
+  ::selection {
+    background: rgb(var(--desktop-accent-rgb) / 0.28);
   }
 }
 

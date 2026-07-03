@@ -35,7 +35,7 @@ export function CitationInline({ index, citation }: CitationInlineProps) {
       </button>
 
       {showTooltip && (
-        <div className="ui-elevated absolute bottom-full left-1/2 z-50 mb-3 w-72 -translate-x-1/2 overflow-hidden rounded-[1rem] border border-zinc-800/90 bg-zinc-950/96 p-3 text-left shadow-[var(--shadow-menu)]">
+        <div className="ui-elevated absolute bottom-full left-1/2 z-50 mb-3 w-72 -translate-x-1/2 overflow-hidden rounded-xl border border-zinc-800/90 bg-zinc-950/96 p-3 text-left shadow-[var(--shadow-menu)]">
           <div className="space-y-1.5">
             <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.16em] text-zinc-500">
               <span className="rounded-full border border-zinc-800/90 bg-zinc-900/85 px-2 py-0.5 text-zinc-300">
