@@ -432,3 +432,106 @@
     animation: none;
   }
 }
+
+/* --- Run layout, footer meta, and thread markdown tints --- */
+
+/* Run layout */
+[data-app='desktop'] .desktop-run {
+  gap: 1rem;
+}
+
+/* Flat assistant stream (steps + answer) — no outer card on desktop */
+[data-app='desktop'] .desktop-run-stream {
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+[data-app='desktop'] .desktop-run-answer {
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--desktop-text-primary);
+}
+
+[data-app='desktop'] .desktop-run-meta {
+  font-family: inherit;
+  font-size: 11px;
+  color: var(--desktop-text-tertiary);
+}
+
+[data-app='desktop'] .desktop-run-meta-pill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 6px;
+  border: 1px solid var(--desktop-border-subtle);
+  background: rgb(var(--ui-white-rgb) / 0.03);
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--desktop-text-secondary);
+}
+
+[data-app='desktop'] .desktop-run-meta-pill[data-status='succeeded'] {
+  border-color: rgb(var(--ui-success-rgb) / 0.2);
+  background: rgb(var(--ui-success-rgb) / 0.06);
+  color: var(--desktop-success-text);
+}
+
+[data-app='desktop'] .desktop-run-meta-pill[data-status='failed'] {
+  border-color: rgb(var(--ui-danger-rgb) / 0.2);
+  background: rgb(var(--ui-danger-rgb) / 0.06);
+  color: var(--desktop-danger-text);
+}
+
+[data-app='desktop'] .desktop-run-meta-pill[data-status='cancelled'] {
+  border-color: rgb(var(--ui-warning-rgb) / 0.2);
+  background: rgb(var(--ui-warning-rgb) / 0.06);
+  color: var(--desktop-warning-text);
+}
+
+[data-app='desktop'] .desktop-run-meta-pill[data-status='running'] {
+  border-color: rgb(var(--ui-accent-rgb) / 0.2);
+  background: var(--desktop-accent-muted);
+  color: var(--desktop-accent);
+}
+
+/* Markdown in thread */
+[data-app='desktop'] .markdown {
+  color: var(--desktop-text-primary);
+}
+
+[data-app='desktop'] .markdown p,
+[data-app='desktop'] .markdown li {
+  color: var(--desktop-text-primary);
+}
+
+[data-app='desktop'] .markdown strong {
+  color: var(--desktop-text-primary);
+}
+
+[data-app='desktop'] .markdown a {
+  color: var(--desktop-accent);
+}
+
+[data-app='desktop'] .markdown code {
+  border-color: var(--desktop-border-subtle);
+  background: var(--desktop-bg-3);
+  color: var(--desktop-text-secondary);
+}
+
+[data-app='desktop'] .markdown pre {
+  border-color: var(--desktop-border-subtle);
+  background: var(--desktop-bg-3);
+}
+
+[data-app='desktop'] .markdown blockquote {
+  border-left-color: var(--desktop-border-strong);
+  color: var(--desktop-text-secondary);
+}
+
+[data-app='desktop'] .thinking-markdown pre {
+  border-color: var(--desktop-border-subtle);
+  background: var(--desktop-bg-3);
+}
