@@ -10,6 +10,7 @@ import './styles/desktop-settings.css'
 import './styles/desktop-thread.css'
 import './styles/desktop-hud.css'
 import './styles/tool-diff.css'
+import './styles/transcript.css'
 import App from './App.tsx'
 
 applyDesktopPlatformClass()

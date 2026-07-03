@@ -4,7 +4,7 @@
 
 import { memo, useCallback } from 'react';
 import { cn } from '@/lib/utils';
-import { AgentStepsPanel } from '@/components/AgentStepsPanel';
+import { AgentTranscript } from '@/components/transcript/AgentTranscript';
 import { AnswerWithCitations } from '@/components/AnswerWithCitations';
 import { MessageActions } from '@/components/MessageActions';
 import { RunFooter } from '@/components/transcript/RunFooter';
@@ -65,7 +65,7 @@ export const AgentRunMessage = memo(function AgentRunMessage({
       <div className="desktop-run group/msg">
         <div className="min-w-0 flex-1">
           <div className="desktop-run-stream space-y-4">
-            {agentState && <AgentStepsPanel agentState={agentState} />}
+            {agentState && <AgentTranscript agentState={agentState} />}
 
             {finalAnswer ? (
               <div className="desktop-run-answer">

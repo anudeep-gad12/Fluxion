@@ -47,7 +47,17 @@
 
 [data-app='desktop'] .desktop-hud-dot.desktop-hud-dot-live[data-active='true'] {
   box-shadow: 0 0 0 3px rgb(var(--ui-accent-rgb) / 0.1);
-  animation: desktop-step-dot-pulse 1.8s ease-in-out infinite;
+  animation: desktop-hud-dot-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes desktop-hud-dot-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 3px rgb(var(--ui-accent-rgb) / 0.1);
+  }
+  50% {
+    box-shadow: 0 0 0 5px rgb(var(--ui-accent-rgb) / 0.18);
+  }
 }
 
 /* Rotating phase word — quick, quiet fade as it swaps */

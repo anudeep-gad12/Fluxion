@@ -477,19 +477,10 @@ textarea:focus {
   .fluxion-trace,
   .shimmer,
   .animate-indeterminate,
-  .desktop-steps-track-progress,
-  .desktop-step-row,
-  .desktop-step-dot[data-tone='live'],
-  .desktop-step-dot[data-tone='success'],
-  .desktop-step-dot[data-tone='error'],
   .desktop-hud-dot-live,
   .desktop-hud-word-anim,
   .desktop-approval-panel {
     animation: none !important;
-  }
-
-  .desktop-steps-track-progress {
-    transition: none !important;
   }
 }
 

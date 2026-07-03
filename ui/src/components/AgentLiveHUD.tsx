@@ -9,7 +9,7 @@ import {
 } from '@/api/client';
 import { cn } from '@/lib/utils';
 import { AnswerMarkdown } from '@/components/AnswerMarkdown';
-import { formatArguments, UnifiedDiffView } from '@/components/ToolCallCard';
+import { formatArguments, UnifiedDiffView } from '@/components/transcript/toolFormat';
 import { formatAgentCost, formatAgentTokens, useDerivedAgentPhase } from '@/lib/agentLiveState';
 import { useStore } from '@/hooks/useStore';
 import type { AgentToolCall } from '@/types/agent';

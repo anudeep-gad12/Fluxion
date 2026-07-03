@@ -1,0 +1,249 @@
+/* ---------------------------------------------------------------------------
+ * Claude-Code-style transcript — flat marker lines, no cards or chrome.
+ *
+ * Grammar:  ⏺ action line        (.tr-line, marker toned by status)
+ *             ⎿ result line      (.tr-result, tertiary, indented to body col)
+ *           > user/steer line
+ * ------------------------------------------------------------------------- */
+
+.tr-item {
+  min-width: 0;
+}
+
+.tr-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.tr-marker {
+  flex: 0 0 14px;
+  text-align: center;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--desktop-text-tertiary);
+  user-select: none;
+}
+
+.tr-marker[data-tone='success'] {
+  color: var(--desktop-success);
+}
+
+.tr-marker[data-tone='error'] {
+  color: var(--desktop-danger);
+}
+
+.tr-marker[data-tone='system'] {
+  color: var(--desktop-violet);
+}
+
+.tr-marker[data-tone='steer'] {
+  color: var(--desktop-warning);
+}
+
+.tr-marker[data-tone='running'] {
+  color: var(--desktop-accent);
+  animation: tr-marker-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes tr-marker-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.tr-body {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.tr-mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--desktop-text-secondary);
+}
+
+.tr-prose {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--desktop-text-secondary);
+}
+
+.tr-tool-name {
+  color: var(--desktop-text-primary);
+}
+
+.tr-tool-args {
+  color: var(--desktop-text-secondary);
+  word-break: break-all;
+}
+
+.tr-tool-meta {
+  color: var(--desktop-text-tertiary);
+}
+
+/* Result rows — ⎿ sits at the body column of its parent line */
+.tr-result {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 4px;
+  padding-left: 22px;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--desktop-text-tertiary);
+}
+
+.tr-result-marker {
+  flex: 0 0 auto;
+  user-select: none;
+  color: var(--desktop-text-tertiary);
+}
+
+.tr-result-body {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.tr-pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.tr-danger {
+  color: var(--desktop-danger-text);
+}
+
+.tr-warning {
+  color: var(--desktop-warning-text);
+}
+
+.tr-more {
+  display: inline-block;
+  margin-top: 2px;
+  border: none;
+  background: transparent;
+  padding: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--desktop-text-tertiary);
+  cursor: pointer;
+  transition: color 0.12s ease;
+}
+
+.tr-more:hover {
+  color: var(--desktop-text-secondary);
+}
+
+/* Thinking — one dim line, content hidden until clicked */
+.tr-thinking-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tr-thinking-label {
+  font-size: 13px;
+  line-height: 1.5;
+  font-style: italic;
+  color: var(--desktop-text-tertiary);
+  transition: color 0.12s ease;
+}
+
+.tr-thinking-toggle:hover .tr-thinking-label {
+  color: var(--desktop-text-secondary);
+}
+
+.tr-thinking-content {
+  margin-top: 6px;
+  padding-left: 22px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--desktop-text-secondary);
+}
+
+.tr-thinking-content .markdown,
+.tr-thinking-content .markdown p,
+.tr-thinking-content .markdown li {
+  font-size: 13px;
+  color: var(--desktop-text-secondary);
+}
+
+/* Unified diff — flat single-column, CC style */
+.tr-diff {
+  margin-top: 4px;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.tr-diff-line {
+  margin: 0;
+  padding: 1px 8px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--desktop-text-secondary);
+}
+
+.tr-diff-add {
+  background: rgb(var(--ui-success-rgb) / 0.13);
+  color: var(--desktop-success-text);
+}
+
+.tr-diff-remove {
+  background: rgb(var(--ui-danger-rgb) / 0.13);
+  color: var(--desktop-danger-text);
+}
+
+.tr-diff-hunk {
+  padding: 1px 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--desktop-text-tertiary);
+}
+
+/* Spacing rhythm: 12px within a step, 24px between steps/turns */
+.tr-step {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.tr-stream {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.tr-stream > .tr-step + .tr-step {
+  margin-top: 12px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tr-marker[data-tone='running'] {
+    animation: none;
+  }
+}
