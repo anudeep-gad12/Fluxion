@@ -192,70 +192,87 @@
     @apply rounded-md border border-zinc-800/90 bg-zinc-950/90 px-1.5 py-0.5 text-[11px] text-zinc-200;
   }
 
+  /* Flat token-based dialog/settings primitives (single definition) */
   .premium-chip {
-    @apply ui-transition inline-flex items-center gap-2 rounded-full border px-3 py-1.5 font-mono text-[11px] text-zinc-300 hover:text-cyan-100;
-    border-color: var(--fluxion-line);
-    background: rgb(var(--ui-white-rgb) / 0.035);
+    @apply ui-transition inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[12px];
+    border-color: var(--desktop-border-subtle);
+    background: transparent;
+    color: var(--desktop-text-secondary);
+  }
+
+  .premium-chip:hover {
+    border-color: var(--desktop-border-strong);
+    color: var(--desktop-text-primary);
   }
 
   .premium-chip-active {
-    @apply text-cyan-100;
-    border-color: rgb(var(--ui-accent-rgb) / 0.24);
-    background: rgb(var(--ui-accent-rgb) / 0.075);
+    border-color: rgb(var(--desktop-accent-rgb) / 0.4);
+    background: var(--desktop-accent-muted);
+    color: var(--desktop-text-primary);
   }
 
   .premium-chip-muted {
-    @apply text-zinc-500 hover:text-zinc-200;
-    border-color: var(--fluxion-line);
-    background: rgb(var(--ui-white-rgb) / 0.024);
+    color: var(--desktop-text-tertiary);
   }
 
   .premium-field {
-    @apply ui-transition w-full rounded-[1rem] border px-3.5 py-2.5 text-sm text-zinc-100 outline-none placeholder:text-zinc-500 focus:ring-1 disabled:text-zinc-500;
-    border-color: var(--fluxion-line);
-    background: rgba(5, 6, 8, 0.72);
-    box-shadow: inset 0 1px rgb(var(--ui-white-rgb) / 0.035);
+    @apply ui-transition w-full rounded-lg border px-3 py-2 text-[13px] outline-none;
+    border-color: var(--desktop-border-subtle);
+    background: var(--desktop-bg-1);
+    color: var(--desktop-text-primary);
+  }
+
+  .premium-field::placeholder {
+    color: var(--desktop-text-tertiary);
   }
 
   .premium-field:focus {
-    border-color: rgb(var(--ui-accent-rgb) / 0.28);
-    background: rgba(5, 6, 8, 0.92);
-    --tw-ring-color: rgb(var(--ui-accent-rgb) / 0.16);
+    border-color: var(--desktop-border-strong);
+    box-shadow: 0 0 0 3px rgb(var(--desktop-accent-rgb) / 0.1);
   }
 
   .premium-panel {
-    @apply rounded-[1.15rem] border;
-    border-color: var(--fluxion-line);
-    background: var(--fluxion-panel);
-    box-shadow: inset 0 1px rgb(var(--ui-white-rgb) / 0.05);
+    @apply rounded-xl border;
+    border-color: var(--desktop-border-subtle);
+    background: var(--desktop-bg-2);
   }
 
   .premium-subtle-button {
-    @apply ui-transition inline-flex items-center justify-center rounded-full border px-3 py-1.5 font-mono text-[11px] text-zinc-300 hover:text-cyan-100 disabled:text-zinc-600;
-    border-color: var(--fluxion-line);
-    background: rgb(var(--ui-white-rgb) / 0.035);
+    @apply ui-transition inline-flex items-center justify-center rounded-lg border px-2.5 py-1 text-[12px];
+    border-color: var(--desktop-border-subtle);
+    background: transparent;
+    color: var(--desktop-text-secondary);
   }
 
   .premium-subtle-button:hover {
-    border-color: rgb(var(--ui-accent-rgb) / 0.22);
-    background: rgb(var(--ui-accent-rgb) / 0.065);
+    border-color: var(--desktop-border-strong);
+    color: var(--desktop-text-primary);
+  }
+
+  .premium-subtle-button:disabled {
+    color: var(--desktop-text-tertiary);
+    opacity: 0.6;
   }
 
   .premium-primary-button {
-    @apply ui-transition inline-flex items-center justify-center rounded-full border px-4 py-1.5 font-mono text-[11px] font-semibold text-zinc-950 disabled:opacity-60;
-    border-color: rgba(245, 247, 251, 0.92);
-    background: #f6f7fb;
-    box-shadow: 0 14px 36px rgb(var(--ui-white-rgb) / 0.08);
+    @apply ui-transition inline-flex items-center justify-center rounded-lg px-3 py-1 text-[12px] font-medium;
+    border: none;
+    background: var(--desktop-text-primary);
+    color: var(--desktop-bg-0);
   }
 
   .premium-primary-button:hover {
-    background: #fff;
-    transform: translateY(-1px);
+    opacity: 0.9;
+  }
+
+  .premium-primary-button:disabled {
+    opacity: 0.5;
   }
 
   .premium-section-label {
-    @apply text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-500;
-    letter-spacing: 0.16em;
+    @apply text-[11px] font-medium;
+    letter-spacing: 0.02em;
+    color: var(--desktop-text-secondary);
   }
 }
 
