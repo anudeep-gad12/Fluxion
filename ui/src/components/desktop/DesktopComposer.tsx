@@ -98,7 +98,10 @@ export function DesktopComposer({
   );
 
   return (
-    <div className="desktop-prompt-shell">
+    <div
+      className="desktop-prompt-shell"
+      data-steer={canSteerActiveRun && hasActiveRun ? 'true' : undefined}
+    >
       {mode === 'agent' && workspaceLabel ? (
         <div className="desktop-prompt-header">
           <span

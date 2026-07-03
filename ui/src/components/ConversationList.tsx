@@ -102,12 +102,13 @@ function ConversationCard({
   return (
     <div
       className={cn(
-        'desktop-list-item ui-transition group flex min-h-[36px] cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5',
+        'desktop-list-item ui-transition group flex h-7 cursor-pointer items-center gap-2 rounded-md px-2',
         isSelected && 'desktop-list-item-selected',
         isChecked && !isSelected && 'bg-white/[0.05]'
       )}
       onClick={isSelectMode ? onToggleCheck : onClick}
       onContextMenu={isSelectMode ? undefined : onContextMenu}
+      title={formatRelativeTime(conversationActivityAt(conversation))}
     >
       {isSelectMode && (
         <div className="shrink-0">
@@ -118,38 +119,31 @@ function ConversationCard({
           )}
         </div>
       )}
-        <div className="min-w-0 flex-1">
-          <p
-            className={cn(
-              'flex items-center gap-2 truncate text-[13px] leading-5',
-              isSelected ? 'font-medium text-zinc-50' : 'text-zinc-300'
-            )}
-          >
-            <span
-              className={cn(
-                'h-1.5 w-1.5 shrink-0 rounded-full',
-                threadStatus === 'running' && 'bg-cyan-400 shadow-[0_0_6px_rgba(121,230,255,0.55)]',
-                threadStatus === 'failed' && 'bg-red-400/90',
-                threadStatus === 'idle' && 'bg-zinc-600'
-              )}
-              aria-hidden
-            />
-            <span className="truncate">
-              {conversation.title ? truncate(conversation.title, 50) : 'New conversation'}
-            </span>
-            {pinned && (
-              <Pin className="h-3 w-3 shrink-0 fill-zinc-500 text-zinc-500" aria-label="Pinned" />
-            )}
-          </p>
-        <p className="truncate text-[11px] text-zinc-600">
-          {formatRelativeTime(conversationActivityAt(conversation))}
-        </p>
-      </div>
+      <span
+        className={cn(
+          'h-1.5 w-1.5 shrink-0 rounded-full',
+          threadStatus === 'running' && 'bg-cyan-400 shadow-[0_0_6px_rgba(121,230,255,0.55)]',
+          threadStatus === 'failed' && 'bg-red-400/90',
+          threadStatus === 'idle' && 'bg-zinc-700'
+        )}
+        aria-hidden
+      />
+      <span
+        className={cn(
+          'min-w-0 flex-1 truncate text-[13px] leading-5',
+          isSelected ? 'font-medium text-zinc-50' : 'text-zinc-300'
+        )}
+      >
+        {conversation.title ? truncate(conversation.title, 50) : 'New conversation'}
+      </span>
+      {pinned && (
+        <Pin className="h-3 w-3 shrink-0 fill-zinc-500 text-zinc-500" aria-label="Pinned" />
+      )}
       {!isSelectMode && (
         <Button
           variant="ghost"
           size="icon"
-          className="h-7 w-7 shrink-0 rounded-md text-zinc-600 opacity-0 hover:bg-white/[0.06] hover:text-zinc-300 group-hover:opacity-100"
+          className="h-6 w-6 shrink-0 rounded-md text-zinc-600 opacity-0 hover:bg-white/[0.06] hover:text-zinc-300 group-hover:opacity-100"
           onClick={(e) => {
             e.stopPropagation();
             onDelete();
@@ -181,22 +175,22 @@ function WorkspaceSection({
   children: ReactNode;
 }) {
   return (
-    <div className="space-y-0.5">
-      <div className="flex items-center gap-1 px-1 py-1">
+    <div className="space-y-px">
+      <div className="flex items-center gap-1 px-1 py-0.5">
         <button
           type="button"
           onClick={onToggle}
-          className="ui-transition flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-300"
+          className="ui-transition flex h-5 w-5 shrink-0 items-center justify-center rounded text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-300"
           title={isOpen ? 'Collapse workspace' : 'Expand workspace'}
         >
-          {isOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+          {isOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
         </button>
         <button
           type="button"
           ref={headerButtonRef}
           onClick={onToggle}
           onKeyDown={onHeaderKeyDown}
-          className="min-w-0 flex-1 truncate text-left text-[12px] font-semibold text-zinc-500"
+          className="min-w-0 flex-1 truncate text-left text-[11px] font-medium tracking-[0.02em] text-zinc-500"
           title={group.workspacePath || group.label}
         >
           {group.label}
@@ -208,15 +202,15 @@ function WorkspaceSection({
           <Button
             size="icon"
             variant="ghost"
-            className="h-6 w-6 shrink-0 rounded-md text-zinc-500 hover:text-zinc-300"
+            className="h-5 w-5 shrink-0 rounded text-zinc-500 hover:text-zinc-300"
             onClick={onNewConversation}
             title="New conversation in this workspace"
           >
-            <Plus className="h-3.5 w-3.5" />
+            <Plus className="h-3 w-3" />
           </Button>
         )}
       </div>
-      {isOpen && <div className="space-y-0.5 pl-1">{children}</div>}
+      {isOpen && <div className="space-y-px pl-1.5">{children}</div>}
     </div>
   );
 }
@@ -554,22 +548,22 @@ export function ConversationList({
 
   return (
     <div className="h-full flex flex-col">
-      <div className="border-b border-white/[0.06] px-2 py-2">
+      <div className="border-b border-white/[0.06] px-2 py-1.5">
         <div className="flex items-center justify-between gap-2">
-          <div className="text-[12px] font-semibold text-zinc-500">Workspaces</div>
-          <div className="flex items-center gap-1">
+          <div className="px-1 text-[11px] font-medium uppercase tracking-[0.08em] text-zinc-500">Workspaces</div>
+          <div className="flex items-center gap-0.5">
             <Button
               size="sm"
               variant="ghost"
               onClick={() => setAllWorkspaceSections(!allWorkspaceSectionsOpen)}
               disabled={workspaceGroups.length === 0}
-              className="h-9 w-9 rounded-lg p-0 text-zinc-400 hover:bg-white/[0.055] hover:text-zinc-100"
+              className="h-7 w-7 rounded-md p-0 text-zinc-500 hover:bg-white/[0.055] hover:text-zinc-200"
               title={allWorkspaceSectionsOpen ? 'Collapse all' : 'Expand all'}
             >
               {allWorkspaceSectionsOpen ? (
-                <ChevronDown className="h-4 w-4" />
+                <ChevronDown className="h-3.5 w-3.5" />
               ) : (
-                <ChevronRight className="h-4 w-4" />
+                <ChevronRight className="h-3.5 w-3.5" />
               )}
             </Button>
             {isSelectMode && (
@@ -588,7 +582,7 @@ export function ConversationList({
                   }
                 }}
                 title={selectedIds.size === visibleConversations.length ? 'Deselect all' : 'Select all'}
-                className="h-9 rounded-lg px-2 text-zinc-300 hover:bg-white/[0.055] hover:text-zinc-100 sm:h-8"
+                className="h-7 rounded-md px-2 text-zinc-300 hover:bg-white/[0.055] hover:text-zinc-100"
               >
                 {selectedIds.size === visibleConversations.length ? 'None' : 'All'}
               </Button>
@@ -598,9 +592,9 @@ export function ConversationList({
               variant={isSelectMode ? 'secondary' : 'ghost'}
               onClick={toggleSelectMode}
               title={isSelectMode ? 'Cancel selection' : 'Select conversations'}
-              className="h-9 w-9 rounded-lg sm:h-8 sm:w-8"
+              className="h-7 w-7 rounded-md"
             >
-              {isSelectMode ? <X className="h-4 w-4" /> : <CheckSquare className="h-4 w-4" />}
+              {isSelectMode ? <X className="h-3.5 w-3.5" /> : <CheckSquare className="h-3.5 w-3.5" />}
             </Button>
           </div>
         </div>
@@ -621,7 +615,7 @@ export function ConversationList({
         </div>
       )}
 
-      <div className="flex-1 space-y-3 overflow-y-auto p-2">
+      <div className="flex-1 space-y-2 overflow-y-auto p-2">
         {isLoading && visibleConversations.length === 0 ? (
           <div className="text-sm text-muted-foreground">Loading conversations...</div>
         ) : workspaceGroups.length === 0 ? (

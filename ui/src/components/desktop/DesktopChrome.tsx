@@ -18,7 +18,7 @@ export function DesktopChrome({ title, mergeTitlebar = false }: DesktopChromePro
     <DesktopTitlebar
       className="desktop-chrome flex h-[var(--titlebar-height)] items-center border-b border-white/[0.05] px-4"
     >
-      <p className="pointer-events-none min-w-0 truncate text-[13px] text-zinc-400">
+      <p className="pointer-events-none min-w-0 truncate text-[13px] font-medium text-zinc-400">
         {title || 'New chat'}
       </p>
     </DesktopTitlebar>

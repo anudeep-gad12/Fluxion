@@ -365,10 +365,10 @@
 [data-app='desktop'] .desktop-prompt-shell {
   position: relative;
   overflow: visible;
-  border-radius: 16px;
+  border-radius: 12px;
   border: 1px solid var(--desktop-border-subtle);
   background: color-mix(in srgb, var(--desktop-bg-2) 88%, var(--desktop-bg-1));
-  padding: 10px 12px 10px;
+  padding: 8px 10px;
   transition:
     border-color 0.15s ease,
     box-shadow 0.15s ease;
@@ -376,9 +376,15 @@
 
 [data-app='desktop'] .desktop-prompt-shell:focus-within {
   border-color: rgb(var(--ui-white-rgb) / 0.1);
-  box-shadow:
-    0 0 0 1px rgb(var(--ui-white-rgb) / 0.04),
-    0 0 0 4px rgb(var(--ui-accent-rgb) / 0.06);
+  box-shadow: 0 0 0 3px rgb(var(--ui-accent-rgb) / 0.12);
+}
+
+[data-app='desktop'] .desktop-prompt-shell[data-steer='true'] {
+  border-color: rgb(var(--ui-warning-rgb) / 0.3);
+}
+
+[data-app='desktop'] .desktop-prompt-shell[data-steer='true']:focus-within {
+  box-shadow: 0 0 0 3px rgb(var(--ui-warning-rgb) / 0.1);
 }
 
 [data-app='desktop'] .desktop-prompt-header {
