@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { X } from 'lucide-react';
 import type { ImageAttachment } from '@/types';
 import { cn } from '@/lib/utils';
 
@@ -44,10 +45,10 @@ export function ImagePreviewStrip({
               <button
                 type="button"
                 onClick={() => onRemove(image.id)}
-                className="absolute -right-1.5 -top-1.5 rounded-full border border-black/40 bg-zinc-950 px-1.5 py-0.5 text-[10px] text-zinc-300 opacity-90 hover:text-white"
+                className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full border border-black/40 bg-zinc-950 text-zinc-300 opacity-90 hover:text-white"
                 title="Remove image"
               >
-                ×
+                <X className="h-2.5 w-2.5" />
               </button>
             )}
           </div>

@@ -6,7 +6,8 @@ import { memo, useCallback } from 'react';
 import { AnswerMarkdown, extractAnswer } from '@/components/AnswerMarkdown';
 import { MessageActions } from '@/components/MessageActions';
 import { ThinkingPanel } from '@/components/ThinkingPanel';
-import { ShimmerSkeleton, ThinkingTimer } from '@/components/StreamingIndicator';
+import { BrailleSpinner } from '@/components/transcript/BrailleSpinner';
+import { ElapsedClock } from '@/components/transcript/RunStatusLine';
 import { MarkerLine } from '@/components/transcript/TranscriptLine';
 import { RunFooter } from '@/components/transcript/RunFooter';
 import { UserTurn } from '@/components/transcript/UserTurn';
@@ -56,10 +57,16 @@ export const ChatRunMessage = memo(function ChatRunMessage({
               defaultExpanded={false}
             />
 
-            {isRunning && !displayText && !streamingThinking ? (
-              <ShimmerSkeleton />
-            ) : isRunning && !displayText && isThinking ? (
-              <ThinkingTimer label="Thinking" />
+            {isRunning && !displayText ? (
+              <div className="tr-status-line" data-active="true">
+                <BrailleSpinner />
+                <span className="tr-status-word">
+                  {isThinking ? 'Thinking…' : 'Waiting for the first token…'}
+                </span>
+                <span className="tr-status-meta">
+                  (<ElapsedClock startedAt={run.created_at} />)
+                </span>
+              </div>
             ) : run.status === 'cancelled' ? (
               <MarkerLine tone="steer" mono className="tr-run-state">
                 stopped by user
@@ -78,7 +85,7 @@ export const ChatRunMessage = memo(function ChatRunMessage({
               <div className="desktop-run-answer">
                 <AnswerMarkdown content={extractAnswer(displayText)} />
                 {isStreaming && (
-                  <span className="inline-block h-4 w-2 animate-pulse bg-zinc-400 align-[-0.2em] ml-0.5" />
+                  <span className="agent-caret ml-0.5" />
                 )}
               </div>
             ) : !isThinking ? (

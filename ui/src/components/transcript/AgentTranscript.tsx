@@ -35,7 +35,7 @@ function ThinkingLine({
         <div className="tr-thinking-content">
           <AnswerMarkdown content={content} />
           {isLive && (
-            <span className="desktop-agent-caret agent-caret ml-1 inline-block" />
+            <span className="agent-caret ml-1" />
           )}
         </div>
       )}

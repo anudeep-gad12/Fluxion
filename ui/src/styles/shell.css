@@ -601,18 +601,6 @@
   backdrop-filter: none;
 }
 
-[data-app='desktop'] .premium-primary-button:hover {
-  transform: none;
-  box-shadow: none;
-}
-
-[data-app='desktop'] button.ui-transition[class*='shadow-'],
-[data-app='desktop'] .ui-transition[class*='hover:-translate-y'],
-[data-app='desktop'] button[class*='hover:-translate-y'] {
-  transform: none !important;
-  box-shadow: none !important;
-}
-
 [data-app='desktop'] [data-tauri-drag-region] {
   -webkit-app-region: drag;
   app-region: drag;

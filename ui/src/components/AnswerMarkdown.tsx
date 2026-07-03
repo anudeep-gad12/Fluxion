@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import { Check } from 'lucide-react';
 import 'katex/dist/katex.min.css';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -223,7 +224,13 @@ function SyntaxCodeBlock({
           className="ui-transition text-[10px] font-mono uppercase tracking-[0.16em] text-zinc-500 hover:text-cyan-100"
           title="Copy code"
         >
-          {copied ? '✓ copied' : 'copy'}
+          {copied ? (
+            <span className="inline-flex items-center gap-1">
+              <Check className="h-3 w-3" /> copied
+            </span>
+          ) : (
+            'copy'
+          )}
         </button>
       </div>
       <SyntaxHighlighter
@@ -259,7 +266,13 @@ function PlainCodeBlock({ children }: { children: React.ReactNode }) {
           className="ui-transition text-[10px] font-mono uppercase tracking-[0.16em] text-zinc-500 hover:text-cyan-100"
           title="Copy code"
         >
-          {copied ? '✓ copied' : 'copy'}
+          {copied ? (
+            <span className="inline-flex items-center gap-1">
+              <Check className="h-3 w-3" /> copied
+            </span>
+          ) : (
+            'copy'
+          )}
         </button>
       </div>
       <pre className="overflow-x-auto rounded-b-lg bg-zinc-950 px-4 py-3.5 text-xs leading-7 text-zinc-100">

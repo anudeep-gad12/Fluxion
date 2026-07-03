@@ -134,7 +134,7 @@ export function ThinkingPanel({
             <>
               <ThinkingMarkdown content={cleanStreamingContent} />
               {isStreaming && (
-                <span className="desktop-agent-caret agent-caret ml-1 inline-block" />
+                <span className="agent-caret ml-1" />
               )}
             </>
           ) : (

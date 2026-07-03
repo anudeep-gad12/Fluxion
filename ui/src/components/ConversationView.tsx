@@ -50,6 +50,7 @@ import type {
 import type { ConversationModelSelection } from '@/types';
 import {
   Dialog,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogContent,
@@ -1886,73 +1887,61 @@ export function ConversationView() {
   }, [activeMention, clearMentionState, effectiveWorkspacePath, mode]);
 
   const rewindDialog = (
-    <Dialog open={rewindOpen} onOpenChange={handleRewindOpenChange}>
-      <DialogContent className="max-w-xl border-zinc-800 bg-zinc-950 text-zinc-100">
-        <DialogHeader>
-          <DialogTitle className="font-mono text-sm text-zinc-100">rewind conversation</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-3">
-          <p className="font-mono text-xs leading-6 text-zinc-500">
-            Rewind the active branch to before a prior prompt, then restore that prompt into the composer.
-          </p>
-          <div className="max-h-[22rem] space-y-2 overflow-y-auto pr-1">
-            {rewindLoading ? (
-              <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 px-3 py-3 font-mono text-xs text-zinc-500">
-                loading…
-              </div>
-            ) : rewindCheckpoints.length === 0 ? (
-              <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 px-3 py-3 font-mono text-xs text-zinc-500">
-                No rewind points available for this conversation yet.
-              </div>
-            ) : (
-              rewindCheckpoints.map((checkpoint) => {
-                const selected = checkpoint.run_id === rewindSelectedRunId;
-                return (
-                  <button
-                    key={checkpoint.run_id}
-                    type="button"
-                    onClick={() => setRewindSelectedRunId(checkpoint.run_id)}
-                    className={cn(
-                      'w-full rounded-xl border px-3 py-3 text-left ui-transition',
-                      selected
-                        ? 'border-cyan-500/35 bg-cyan-500/[0.08] text-zinc-100'
-                        : 'border-zinc-800 bg-zinc-900/60 text-zinc-300 hover:border-zinc-700 hover:bg-zinc-900'
-                    )}
-                  >
-                    <div className="truncate font-mono text-xs leading-6">
-                      {checkpoint.user_message}
-                    </div>
-                    <div className="mt-1 font-mono text-[11px] text-zinc-500">
-                      {formatRelativeTime(checkpoint.created_at)}
-                    </div>
-                  </button>
-                );
-              })
-            )}
-          </div>
-          <div className="flex items-center justify-end gap-2 font-mono text-xs">
-            <button
-              type="button"
-              onClick={() => setRewindOpen(false)}
-              className="rounded-lg border border-zinc-800 px-3 py-2 text-zinc-400 hover:border-zinc-700 hover:text-zinc-200"
-              disabled={rewindSubmitting}
-            >
-              cancel
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleRewindRestore()}
-              disabled={!rewindSelectedRunId || rewindLoading || rewindSubmitting}
-              className={cn(
-                'rounded-lg border px-3 py-2 ui-transition',
-                !rewindSelectedRunId || rewindLoading || rewindSubmitting
-                  ? 'cursor-not-allowed border-zinc-800 text-zinc-600'
-                  : 'border-cyan-500/35 text-cyan-100 hover:bg-cyan-500/[0.08]'
-              )}
-            >
-              {rewindSubmitting ? 'rewinding…' : 'rewind'}
-            </button>
-          </div>
+    <Dialog open={rewindOpen} onOpenChange={handleRewindOpenChange} className="max-w-xl">
+      <DialogHeader className="desktop-settings-dialog-header">
+        <DialogTitle>Rewind conversation</DialogTitle>
+        <DialogDescription className="desktop-settings-dialog-desc">
+          Rewind the active branch to before a prior prompt, then restore that prompt into the
+          composer.
+        </DialogDescription>
+      </DialogHeader>
+      <DialogContent className="pt-4">
+        <div className="desktop-settings-list-panel max-h-[22rem]">
+          {rewindLoading ? (
+            <p className="desktop-settings-hint px-3 py-3">Loading…</p>
+          ) : rewindCheckpoints.length === 0 ? (
+            <p className="desktop-settings-hint px-3 py-3">
+              No rewind points available for this conversation yet.
+            </p>
+          ) : (
+            rewindCheckpoints.map((checkpoint) => {
+              const selected = checkpoint.run_id === rewindSelectedRunId;
+              return (
+                <button
+                  key={checkpoint.run_id}
+                  type="button"
+                  onClick={() => setRewindSelectedRunId(checkpoint.run_id)}
+                  className="desktop-settings-list-item"
+                  data-active={selected ? 'true' : undefined}
+                >
+                  <div className="desktop-settings-list-title truncate">
+                    {checkpoint.user_message}
+                  </div>
+                  <div className="desktop-settings-list-meta">
+                    {formatRelativeTime(checkpoint.created_at)}
+                  </div>
+                </button>
+              );
+            })
+          )}
+        </div>
+        <div className="desktop-settings-actions pt-4">
+          <button
+            type="button"
+            onClick={() => setRewindOpen(false)}
+            className="desktop-settings-btn-ghost"
+            disabled={rewindSubmitting}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleRewindRestore()}
+            disabled={!rewindSelectedRunId || rewindLoading || rewindSubmitting}
+            className="desktop-settings-btn-primary disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {rewindSubmitting ? 'Rewinding…' : 'Rewind'}
+          </button>
         </div>
       </DialogContent>
     </Dialog>

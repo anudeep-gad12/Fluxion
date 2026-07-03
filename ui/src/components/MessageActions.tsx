@@ -5,6 +5,7 @@
 
 import { useState, useCallback } from 'react';
 import { cn } from '@/lib/utils';
+import { Check } from 'lucide-react';
 
 interface MessageActionsProps {
   /** The text content to copy (markdown/plain text) */
@@ -45,7 +46,13 @@ export function MessageActions({
         className="ui-transition ui-focus-ring rounded-md border border-transparent px-2 py-1 text-zinc-300 hover:border-cyan-500/30 hover:bg-cyan-500/[0.08] hover:text-cyan-100"
         title="Copy response"
       >
-        {copied ? '✓ copied' : 'copy'}
+        {copied ? (
+          <span className="inline-flex items-center gap-1">
+            <Check className="h-3 w-3" /> copied
+          </span>
+        ) : (
+          'copy'
+        )}
       </button>
       {onRetry && (
         <button

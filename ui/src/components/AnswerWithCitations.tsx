@@ -75,7 +75,7 @@ export function AnswerWithCitations({
       <div className="space-y-5">
         <div>
           <AnswerMarkdown content={content} />
-          <span className="inline-block h-4 w-2 animate-pulse bg-zinc-400 align-[-0.2em] ml-0.5" />
+          <span className="agent-caret ml-0.5" />
         </div>
         <CitationsList citations={citations} />
       </div>
