@@ -381,23 +381,6 @@ textarea:focus {
   backdrop-filter: blur(20px);
 }
 
-.fluxion-composer {
-  border-color: var(--fluxion-line-strong);
-  background:
-    radial-gradient(circle at 5% 0%, rgb(var(--ui-accent-rgb) / 0.055), transparent 18rem),
-    rgba(8, 9, 12, 0.88);
-  box-shadow:
-    0 20px 70px rgba(0, 0, 0, 0.32),
-    inset 0 1px rgb(var(--ui-white-rgb) / 0.06);
-}
-
-.fluxion-composer:focus-within {
-  border-color: rgb(var(--ui-accent-rgb) / 0.3);
-  box-shadow:
-    0 22px 80px rgba(0, 0, 0, 0.34),
-    0 0 0 1px rgb(var(--ui-accent-rgb) / 0.1),
-    inset 0 1px rgb(var(--ui-white-rgb) / 0.075);
-}
 
 .fluxion-pill {
   border-color: var(--fluxion-line);

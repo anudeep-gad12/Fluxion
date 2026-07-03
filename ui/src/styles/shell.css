@@ -3,7 +3,6 @@
  * Tokens live in tokens.css. Scoped to [data-app='desktop'] (the desktop skin).
  * ------------------------------------------------------------------------- */
 
-
 [data-app='desktop'][data-theme='light'] body {
   color: var(--desktop-text-primary);
 }
@@ -439,20 +438,6 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Legacy class — web composer path */
-[data-app='desktop'] .desktop-composer-card {
-  overflow: visible;
-  border-radius: 16px;
-  border: 1px solid var(--desktop-border-subtle);
-  background: var(--desktop-bg-2);
-}
-
-[data-app='desktop'] .desktop-composer-input-field {
-  min-height: 2.75rem;
-  max-height: 12.5rem;
-  color: var(--desktop-text-primary);
-}
-
 [data-app='desktop'] .desktop-model-trigger {
   display: inline-flex;
   max-width: min(16rem, 42vw);
@@ -591,29 +576,6 @@
   color: var(--desktop-text-primary);
 }
 
-/* Boxy tabs — web toolbar fallback */
-[data-app='desktop'] .desktop-mode-tabs {
-  display: inline-flex;
-  gap: 2px;
-  padding: 2px;
-  border-radius: 8px;
-  background: rgb(var(--ui-white-rgb) / 0.04);
-}
-
-[data-app='desktop'] .desktop-mode-tab {
-  border-radius: 6px;
-  padding: 4px 9px;
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--desktop-text-tertiary);
-  transition: background 0.12s ease, color 0.12s ease;
-}
-
-[data-app='desktop'] .desktop-mode-tab[data-active='true'] {
-  background: rgb(var(--ui-white-rgb) / 0.1);
-  color: var(--desktop-text-primary);
-}
-
 [data-app='desktop'] .desktop-icon-btn {
   display: inline-flex;
   align-items: center;
@@ -748,7 +710,6 @@
 [data-app='desktop'] select,
 [data-app='desktop'] [role='button'],
 [data-app='desktop'] [contenteditable='true'],
-[data-app='desktop'] .fluxion-composer,
 [data-app='desktop'] .desktop-composer-dock {
   -webkit-app-region: no-drag;
   app-region: no-drag;
@@ -762,27 +723,6 @@
 
 [data-app='desktop'] .sonner-toast {
   border-radius: 0.5rem;
-}
-
-/* Aliases for web toolbar used in desktop shell */
-[data-app='desktop'] .desktop-ghost-control {
-  display: inline-flex;
-  max-width: min(11rem, 42vw);
-  align-items: center;
-  gap: 4px;
-  padding: 2px 6px;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  font-size: 12px;
-  line-height: 1.3;
-  color: var(--desktop-text-secondary);
-  transition: color 0.12s ease, background 0.12s ease;
-}
-
-[data-app='desktop'] .desktop-ghost-control:hover {
-  background: rgb(var(--ui-white-rgb) / 0.04);
-  color: var(--desktop-text-primary);
 }
 
 [data-app='desktop'] .desktop-icon-control {
@@ -898,29 +838,3 @@
   background: rgb(var(--ui-white-rgb) / 0.05);
 }
 
-/* Legacy web composer on desktop build (non-Tauri) */
-[data-app='desktop'] .desktop-send-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  border-radius: 9999px;
-  background: var(--desktop-text-primary);
-  color: var(--desktop-bg-0);
-}
-
-[data-app='desktop'] .desktop-send-button-disabled {
-  background: #3f3f46;
-  color: #71717a;
-}
-
-[data-app='desktop'] .desktop-send-button-steer {
-  background: var(--desktop-warning);
-  color: var(--desktop-bg-0);
-}
-
-[data-app='desktop'] .desktop-send-button-stop {
-  background: rgb(var(--ui-danger-rgb) / 0.18);
-  color: var(--desktop-danger-text);
-}

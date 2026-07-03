@@ -1,7 +1,7 @@
 import { Brain, ChevronDown, Terminal } from 'lucide-react';
 import type { ModelStatus } from '@/api/client';
 import { DesktopRunSettingsMenu } from '@/components/desktop/DesktopRunSettingsMenu';
-import type { ChatMode } from '@/components/desktop/ConversationToolbar';
+import type { ChatMode } from '@/types';
 
 interface DesktopComposerControlsProps {
   mode: ChatMode;

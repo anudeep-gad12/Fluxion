@@ -2,7 +2,7 @@ import { cn } from '@/lib/utils';
 import { isLocalDesktopApp } from '@/lib/platform';
 import { startWindowDrag } from '@/lib/windowDrag';
 import type { ModelStatus } from '@/api/client';
-import type { ChatMode } from './ConversationToolbar';
+import type { ChatMode } from '@/types';
 import type { MouseEvent as ReactMouseEvent } from 'react';
 
 interface EmptyStateProps {

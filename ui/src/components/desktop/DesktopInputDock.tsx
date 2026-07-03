@@ -2,7 +2,7 @@ import type { Ref, KeyboardEvent, ChangeEvent, ClipboardEvent, ReactNode } from 
 import { cn } from '@/lib/utils';
 import { DesktopComposer } from '@/components/desktop/DesktopComposer';
 import { DesktopAgentStatusBar } from '@/components/desktop/DesktopAgentStatusBar';
-import type { ChatMode } from '@/components/desktop/ConversationToolbar';
+import type { ChatMode } from '@/types';
 import type { AgentUIState } from '@/types/agent';
 
 interface DesktopInputDockProps {

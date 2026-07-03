@@ -1,7 +1,7 @@
 import type { Ref, KeyboardEvent, ChangeEvent, ClipboardEvent, ReactNode } from 'react';
 import { ArrowUp, Folder, Square } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { ChatMode } from '@/components/desktop/ConversationToolbar';
+import type { ChatMode } from '@/types';
 
 interface DesktopComposerProps {
   mode: ChatMode;

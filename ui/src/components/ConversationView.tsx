@@ -5,7 +5,6 @@ import type { KeyboardEvent, ChangeEvent, ClipboardEvent, MouseEvent as ReactMou
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { AgentRunMessage } from '@/components/AgentRunMessage';
-import { AgentLiveHUD } from '@/components/AgentLiveHUD';
 import { ChatRunMessage } from '@/components/ChatRunMessage';
 import { ImagePreviewStrip } from '@/components/ImagePreviewStrip';
 import { MentionPicker, extractActiveMention } from '@/components/MentionPicker';
@@ -14,13 +13,11 @@ import { ReasoningSettingsDialog } from '@/components/ReasoningSettingsDialog';
 import { ScrollToBottom } from '@/components/ScrollToBottom';
 import { WorkspacePickerDialog } from '@/components/WorkspacePickerDialog';
 import { VirtualizedConversationRunList } from '@/components/VirtualizedConversationRunList';
-import { ConversationToolbar } from '@/components/desktop/ConversationToolbar';
 import { DesktopChrome } from '@/components/desktop/DesktopChrome';
 import { DesktopInputDock } from '@/components/desktop/DesktopInputDock';
 import { DesktopComposerControls } from '@/components/desktop/DesktopComposerControls';
 import { EmptyState } from '@/components/desktop/EmptyState';
-import { Composer } from '@/components/desktop/Composer';
-import { AgentComposerOptions, AgentContextFooter } from '@/components/desktop/AgentComposerOptions';
+import { AgentContextFooter } from '@/components/desktop/AgentComposerOptions';
 import { isApplePlatform } from '@/lib/platform';
 import { startWindowDrag } from '@/lib/windowDrag';
 import {
@@ -2014,25 +2011,6 @@ export function ConversationView() {
     updateTerminalState,
   ]);
 
-  const agentOptionsRow = (
-    <AgentComposerOptions
-      mode={mode}
-      isWorkspaceLocked={isWorkspaceLocked}
-      hasConversationWorkspace={hasConversationWorkspace}
-      effectiveWorkspacePath={effectiveWorkspacePath}
-      draftWorkspacePath={draftWorkspacePath}
-      onDraftWorkspacePathChange={setDraftWorkspacePath}
-      onBrowseWorkspace={() => {
-        setWorkspacePickerMode('draft');
-        handleOpenWorkspacePicker();
-      }}
-      permissionPolicy={permissionPolicy}
-      onPermissionPolicyChange={setPermissionPolicy}
-      collaborationMode={collaborationMode}
-      onCollaborationModeChange={setCollaborationMode}
-    />
-  );
-
   const desktopWorkspaceLabel = useMemo(() => {
     if (mode !== 'agent') return null;
     const path = isWorkspaceLocked ? effectiveWorkspacePath : draftWorkspacePath;
@@ -2095,7 +2073,7 @@ export function ConversationView() {
       entries={mentionResults}
       selectedIndex={mentionSelectedIndex}
       onSelect={handleMentionSelect}
-      desktop={localDesktop}
+      desktop
     />
   );
 
@@ -2140,18 +2118,7 @@ export function ConversationView() {
   if (!conversation && runs.length === 0) {
     return (
       <div className="flex h-full flex-col">
-        {localDesktop ? (
-          <DesktopChrome title="New conversation" mergeTitlebar />
-        ) : (
-          <ConversationToolbar
-            conversationTitle="New conversation"
-            mode={mode}
-            onModeChange={setMode}
-            modelStatus={modelStatus}
-            onModelClick={() => setModelPickerOpen(true)}
-            onReasoningClick={() => setReasoningSettingsOpen(true)}
-          />
-        )}
+        <DesktopChrome title="New conversation" mergeTitlebar />
         <ModelPicker
           open={modelPickerOpen}
           onOpenChange={setModelPickerOpen}
@@ -2196,57 +2163,34 @@ export function ConversationView() {
             onSuggestionClick={(text) => setMessage(text)}
           />
         </div>
-        {localDesktop ? (
-          <DesktopInputDock
-            mode={mode}
-            onModeChange={setMode}
-            workspaceLabel={desktopWorkspaceLabel}
-            workspaceTitle={desktopWorkspaceTitle}
-            queuedSteers={[]}
-            activeAgentRun={null}
-            activeAgentHudState={null}
-            showAgentHud={false}
-            controlsRow={desktopComposerControls}
-            placeholder={
-              mode === 'agent' ? 'Ask the agent…' : 'Ask a question…'
-            }
-            {...sharedComposerProps}
-            metaRow={agentContextStatsRow}
-            limitHint={limitHintNode}
-            disabled={isSubmitting || atLimit || (hasActiveRun && !canSteerActiveRun)}
-          />
-        ) : (
-          <Composer
-            {...sharedComposerProps}
-            placeholder={
-              mode === 'agent' ? 'Ask the coding agent...' : 'Ask a question...'
-            }
-            disabled={isSubmitting || atLimit || (hasActiveRun && !canSteerActiveRun)}
-            agentOptionsRow={agentOptionsRow}
-            contextStatsRow={agentContextStatsRow}
-          />
-        )}
+        <DesktopInputDock
+          mode={mode}
+          onModeChange={setMode}
+          workspaceLabel={desktopWorkspaceLabel}
+          workspaceTitle={desktopWorkspaceTitle}
+          queuedSteers={[]}
+          activeAgentRun={null}
+          activeAgentHudState={null}
+          showAgentHud={false}
+          controlsRow={desktopComposerControls}
+          placeholder={
+            mode === 'agent' ? 'Ask the agent…' : 'Ask a question…'
+          }
+          {...sharedComposerProps}
+          metaRow={agentContextStatsRow}
+          limitHint={limitHintNode}
+          disabled={isSubmitting || atLimit || (hasActiveRun && !canSteerActiveRun)}
+        />
       </div>
     );
   }
 
   return (
     <div className="flex h-full flex-col">
-      {localDesktop ? (
-        <DesktopChrome
-          title={conversation?.title || 'Conversation'}
-          mergeTitlebar
-        />
-      ) : (
-        <ConversationToolbar
-          conversationTitle={conversation?.title || 'Conversation'}
-          mode={mode}
-          onModeChange={setMode}
-          modelStatus={modelStatus}
-          onModelClick={() => setModelPickerOpen(true)}
-          onReasoningClick={() => setReasoningSettingsOpen(true)}
-        />
-      )}
+      <DesktopChrome
+        title={conversation?.title || 'Conversation'}
+        mergeTitlebar
+      />
       <ModelPicker
         open={modelPickerOpen}
         onOpenChange={setModelPickerOpen}
@@ -2305,87 +2249,35 @@ export function ConversationView() {
         <ScrollToBottom
           scrollRef={scrollRef}
           isStreaming={!!activeRunId}
-          className={cn(
-            'left-1/2 -translate-x-1/2',
-            localDesktop ? 'bottom-[calc(var(--desktop-dock-height)+1rem)]' : (
-              activeAgentHudState?.isActive ? 'bottom-44' : 'bottom-32'
-            )
-          )}
+          className="left-1/2 -translate-x-1/2 bottom-[calc(var(--desktop-dock-height)+1rem)]"
         />
 
-        {!localDesktop && activeAgentRun && activeAgentHudState?.isActive ? (
-          <AgentLiveHUD
-            runId={activeAgentRun.run_id}
-            runCreatedAt={activeAgentRun.created_at}
-            agentState={activeAgentHudState}
-            onImplementationStarted={handlePlanImplementationStarted}
-          />
-        ) : null}
-
         <div className="flex-shrink-0">
-          {localDesktop ? (
-            <DesktopInputDock
-              mode={mode}
-              onModeChange={setMode}
-              workspaceLabel={desktopWorkspaceLabel}
-              workspaceTitle={desktopWorkspaceTitle}
-              queuedSteers={queuedSteers}
-              activeAgentRun={activeAgentRun}
-              activeAgentHudState={activeAgentHudState ?? null}
-              showAgentHud={!!activeAgentHudState?.isActive}
-              onImplementationStarted={handlePlanImplementationStarted}
-              controlsRow={desktopComposerControls}
-              placeholder={
-                atLimit
-                  ? 'Message limit reached'
-                  : hasActiveRun
-                    ? 'Steer the agent…'
-                    : mode === 'agent'
-                      ? 'Ask the agent…'
-                      : 'Ask a follow-up question…'
-              }
-              {...sharedComposerProps}
-              metaRow={agentContextStatsRow}
-              limitHint={limitHintNode}
-              disabled={isSubmitting || atLimit}
-            />
-          ) : (
-            <>
-              {queuedSteers.length > 0 ? (
-                <div className="mb-2 flex flex-wrap gap-1.5 px-4">
-                  {queuedSteers.map((msg, i) => (
-                    <span
-                      key={i}
-                      className="inline-flex items-center gap-1 rounded-md border border-amber-500/20 bg-amber-500/[0.08] px-2 py-1 text-[12px] text-amber-200/90"
-                    >
-                      <span className="text-amber-500/60">Queued:</span>{' '}
-                      {msg.length > 40 ? `${msg.slice(0, 40)}…` : msg}
-                    </span>
-                  ))}
-                </div>
-              ) : null}
-              <Composer
-                {...sharedComposerProps}
-                placeholder={
-                  atLimit
-                    ? 'Message limit reached'
-                    : hasActiveRun
-                      ? 'Steer the agent...'
-                      : mode === 'agent'
-                        ? 'Ask the coding agent...'
-                        : 'Ask a follow-up question...'
-                }
-                disabled={isSubmitting || atLimit}
-                agentOptionsRow={
-                  <>
-                    {agentOptionsRow}
-                    {limitHintNode}
-                  </>
-                }
-                contextStatsRow={agentContextStatsRow}
-              />
-            </>
-          )}
+          <DesktopInputDock
+            mode={mode}
+            onModeChange={setMode}
+            workspaceLabel={desktopWorkspaceLabel}
+            workspaceTitle={desktopWorkspaceTitle}
+            queuedSteers={queuedSteers}
+            activeAgentRun={activeAgentRun}
+            activeAgentHudState={activeAgentHudState ?? null}
+            showAgentHud={!!activeAgentHudState?.isActive}
+            onImplementationStarted={handlePlanImplementationStarted}
+            controlsRow={desktopComposerControls}
+            placeholder={
+              atLimit
+                ? 'Message limit reached'
+                : hasActiveRun
+                  ? 'Steer the agent…'
+                  : mode === 'agent'
+                    ? 'Ask the agent…'
+                    : 'Ask a follow-up question…'
+            }
+            {...sharedComposerProps}
+            metaRow={agentContextStatsRow}
+            limitHint={limitHintNode}
+            disabled={isSubmitting || atLimit}
+          />
         </div>
       </div>
     </div>

@@ -144,3 +144,6 @@ export interface ImageAttachment {
   mime_type: string;
   data_url: string;
 }
+
+/** Composer mode: regular conversation vs agent run. */
+export type ChatMode = 'chat' | 'agent';
