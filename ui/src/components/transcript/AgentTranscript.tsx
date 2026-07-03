@@ -6,7 +6,7 @@
 
 import { useMemo, useState } from 'react';
 import { AnswerMarkdown } from '@/components/AnswerMarkdown';
-import { CometSpinner } from '@/components/transcript/CometSpinner';
+import { BrailleSpinner } from '@/components/transcript/BrailleSpinner';
 import { ToolCallLine } from '@/components/transcript/ToolCallLine';
 import { MarkerLine } from '@/components/transcript/TranscriptLine';
 import { sanitizeThinking } from '@/lib/utils';
@@ -45,7 +45,7 @@ function ThinkingLine({
 
 function WaitingLine() {
   return (
-    <MarkerLine marker={<CometSpinner />} tone="default">
+    <MarkerLine marker={<BrailleSpinner />} tone="default">
       <span className="tr-thinking-label">Waiting for the first trace…</span>
     </MarkerLine>
   );

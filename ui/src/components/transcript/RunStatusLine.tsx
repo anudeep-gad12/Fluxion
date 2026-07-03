@@ -1,11 +1,11 @@
 /**
  * Live run status as a single spinner line:
- *   ◜ Working… (12s · 3.2k tok · 19% ctx)
+ *   ⠹ Working… (12s · 3.2k tok · 19% ctx)
  * Replaces the AgentLiveHUD live card + metric pills.
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { CometSpinner } from '@/components/transcript/CometSpinner';
+import { BrailleSpinner } from '@/components/transcript/BrailleSpinner';
 import { formatAgentTokens, useDerivedAgentPhase } from '@/lib/agentLiveState';
 import { cn } from '@/lib/utils';
 import type { AgentUIState } from '@/types/agent';
@@ -52,7 +52,7 @@ export function RunStatusLine({
 
   return (
     <div className="tr-status-line" data-active={agentState.isActive ? 'true' : 'false'}>
-      <CometSpinner active={agentState.isActive} />
+      <BrailleSpinner active={agentState.isActive} />
       <span className="tr-status-word">{phase.activeWord}…</span>
       <span className="tr-status-meta">
         (<ElapsedClock startedAt={startedAt} />
