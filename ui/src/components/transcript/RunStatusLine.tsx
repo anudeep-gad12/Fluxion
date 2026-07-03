@@ -1,15 +1,14 @@
 /**
- * Live run status as a single Claude-Code-style spinner line:
- *   ✳ Working… (12s · 3.2k tok · 19% ctx)
+ * Live run status as a single spinner line:
+ *   ◜ Working… (12s · 3.2k tok · 19% ctx)
  * Replaces the AgentLiveHUD live card + metric pills.
  */
 
 import { useEffect, useRef, useState } from 'react';
+import { CometSpinner } from '@/components/transcript/CometSpinner';
 import { formatAgentTokens, useDerivedAgentPhase } from '@/lib/agentLiveState';
 import { cn } from '@/lib/utils';
 import type { AgentUIState } from '@/types/agent';
-
-const SPINNER_GLYPHS = ['✳', '✶', '✻', '✽'];
 
 function formatElapsedSeconds(totalSeconds: number): string {
   const minutes = Math.floor(totalSeconds / 60);
@@ -36,24 +35,6 @@ export function ElapsedClock({ startedAt }: { startedAt: string }) {
   return <span>{formatElapsedSeconds(elapsedSeconds)}</span>;
 }
 
-function SpinnerGlyph({ active }: { active: boolean }) {
-  const [frame, setFrame] = useState(0);
-
-  useEffect(() => {
-    if (!active) return;
-    const interval = window.setInterval(() => {
-      setFrame((current) => (current + 1) % SPINNER_GLYPHS.length);
-    }, 300);
-    return () => window.clearInterval(interval);
-  }, [active]);
-
-  return (
-    <span className="tr-status-glyph" aria-hidden>
-      {SPINNER_GLYPHS[active ? frame : 0]}
-    </span>
-  );
-}
-
 export function RunStatusLine({
   runId,
   runCreatedAt,
@@ -71,7 +52,7 @@ export function RunStatusLine({
 
   return (
     <div className="tr-status-line" data-active={agentState.isActive ? 'true' : 'false'}>
-      <SpinnerGlyph active={agentState.isActive} />
+      <CometSpinner active={agentState.isActive} />
       <span className="tr-status-word">{phase.activeWord}…</span>
       <span className="tr-status-meta">
         (<ElapsedClock startedAt={startedAt} />

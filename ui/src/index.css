@@ -398,6 +398,7 @@ textarea:focus {
 @media (prefers-reduced-motion: reduce) {
   .agent-caret,
   .shimmer,
+  .tr-comet,
   .tr-marker[data-tone='running'] {
     animation: none !important;
   }

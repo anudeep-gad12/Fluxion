@@ -256,15 +256,45 @@
   line-height: 1.5;
 }
 
-.tr-status-glyph {
-  flex: 0 0 14px;
-  text-align: center;
-  color: var(--desktop-accent);
+/* Comet arc ring — conic arc with a fading tail, CSS-driven spin */
+.tr-comet {
+  flex: 0 0 12px;
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-inline: 1px; /* occupy the same 14px slot as .tr-marker */
+  align-self: center;
+  vertical-align: -1.5px;
+  border-radius: 50%;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg 70deg,
+    rgb(var(--desktop-accent-rgb) / 0.4) 220deg,
+    var(--desktop-accent) 360deg
+  );
+  mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1.5px));
+  -webkit-mask: radial-gradient(
+    farthest-side,
+    transparent calc(100% - 2px),
+    #000 calc(100% - 1.5px)
+  );
+  animation: tr-comet-spin 0.9s linear infinite;
+  filter: drop-shadow(0 0 4px rgb(var(--desktop-accent-rgb) / 0.55));
   user-select: none;
 }
 
-.tr-status-line[data-active='false'] .tr-status-glyph {
-  color: var(--desktop-text-tertiary);
+@keyframes tr-comet-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Idle/terminal: frozen neutral ring, no glow */
+.tr-comet[data-active='false'] {
+  animation: none;
+  filter: none;
+  background: var(--desktop-text-tertiary);
+  opacity: 0.55;
 }
 
 .tr-status-word {

@@ -25,7 +25,7 @@ export function MarkerLine({
   className,
   children,
 }: {
-  marker?: string;
+  marker?: ReactNode;
   tone?: MarkerTone;
   mono?: boolean;
   className?: string;
