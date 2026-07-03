@@ -138,20 +138,6 @@
   --input: 240 5% 16%;
   --ring: 191 100% 74%;
 
-  /* Legacy aliases — retire with the fluxion/premium classes */
-  --fluxion-bg: var(--desktop-bg-0);
-  --fluxion-panel: var(--desktop-bg-2);
-  --fluxion-panel-strong: var(--desktop-bg-3);
-  --fluxion-elevated: var(--desktop-bg-3);
-  --fluxion-line: var(--desktop-border-subtle);
-  --fluxion-line-strong: var(--desktop-border-strong);
-  --fluxion-text: var(--desktop-text-primary);
-  --fluxion-muted: var(--desktop-text-secondary);
-  --fluxion-dim: var(--desktop-text-tertiary);
-  --fluxion-cyan: var(--desktop-accent);
-  --fluxion-green: var(--desktop-success);
-  --fluxion-violet: var(--desktop-violet);
-
   /* Motion */
   --ease-ui: cubic-bezier(0.22, 1, 0.36, 1);
   --duration-fast: 140ms;

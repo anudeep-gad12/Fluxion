@@ -35,7 +35,7 @@ import {
   DialogTitle,
   DialogContent,
 } from '@/components/ui/dialog';
-import { isLocalDesktopApp, openExternalUrl } from '@/lib/platform';
+import { openExternalUrl } from '@/lib/platform';
 import { formatContextTokens } from '@/lib/runFormat';
 import { cn } from '@/lib/utils';
 import type { ConversationModelSelection } from '@/types';
@@ -522,7 +522,6 @@ export function ModelPicker({
     },
   ];
 
-  const desktop = isLocalDesktopApp();
   const activeProviderSection = providerSections.find((section) => section.key === selectedProvider);
   const selectedStandaloneProviderKey = selectedProvider
     ? standaloneProviderKeys.find((keyStatus) => keyStatus.provider === selectedProvider)
@@ -596,19 +595,19 @@ export function ModelPicker({
       <DialogContent className="space-y-4 overflow-hidden">
         {error && (
           <p className={cn(
-            desktop ? 'desktop-settings-hint-error' : 'rounded-xl border border-red-500/20 bg-red-500/[0.08] px-3 py-2 text-xs text-red-300'
+            'desktop-settings-hint-error'
           )}>{error}</p>
         )}
         {loading && (
-          <p className={cn(desktop ? 'desktop-settings-hint px-1 py-2' : 'px-1 py-2 text-xs text-zinc-500')}>Loading models…</p>
+          <p className={cn('desktop-settings-hint px-1 py-2')}>Loading models…</p>
         )}
         {startingLocalModel && (
-          <p className={cn(desktop ? 'desktop-settings-hint px-1 py-2' : 'px-1 py-2 text-xs text-cyan-200')}>
+          <p className={cn('desktop-settings-hint px-1 py-2')}>
             Starting local model… keep this window open while the server loads.
           </p>
         )}
-        <div className={cn(desktop ? 'desktop-model-picker-shell' : 'grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)]')}>
-          <aside className={cn(desktop ? 'desktop-model-provider-rail' : 'premium-panel p-2')}>
+        <div className={cn('desktop-model-picker-shell')}>
+          <aside className={cn('desktop-model-provider-rail')}>
             {initialPickerLoading && (
               <div className="space-y-2 p-1">
                 {Array.from({ length: 6 }).map((_, index) => (
@@ -628,26 +627,23 @@ export function ModelPicker({
                       setSelectedProvider(providerName);
                       setFocusedModel(null);
                   }}
-                  data-active={desktop && isSelected ? 'true' : undefined}
+                  data-active={isSelected ? 'true' : undefined}
                   className={cn(
-                    desktop
-                      ? 'desktop-model-provider-tab'
-                      : 'mb-1 flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-xs text-zinc-300 hover:bg-white/[0.05]',
-                    !desktop && isSelected && 'bg-cyan-300/[0.08] text-cyan-100'
+                    'desktop-model-provider-tab',
                   )}
                 >
                   <span className="min-w-0">
                     <span className="block truncate capitalize">{formatProviderName(providerName, info.display_name)}</span>
-                    <span className={cn(desktop ? 'desktop-model-provider-sub' : 'text-[10px] text-zinc-500')}>
+                    <span className={cn('desktop-model-provider-sub')}>
                       {info.models.length} models · {authReady ? 'ready' : 'setup'}
                     </span>
                   </span>
-                  {!authReady && <span className={cn(desktop ? 'desktop-model-provider-dot' : 'text-amber-300')}>!</span>}
+                  {!authReady && <span className={cn('desktop-model-provider-dot')}>!</span>}
                 </button>
               );
             })}
             {standaloneProviderKeys.length > 0 && (
-              <div className={cn(desktop ? 'desktop-model-provider-divider' : 'my-2 border-t border-white/10 pt-2')}>
+              <div className={cn('desktop-model-provider-divider')}>
                 {standaloneProviderKeys.map((keyStatus) => {
                   const isSelected = activeProvider === keyStatus.provider;
                   return (
@@ -659,28 +655,25 @@ export function ModelPicker({
                         setSelectedProvider(keyStatus.provider);
                         setFocusedModel(null);
                       }}
-                      data-active={desktop && isSelected ? 'true' : undefined}
+                      data-active={isSelected ? 'true' : undefined}
                       className={cn(
-                        desktop
-                          ? 'desktop-model-provider-tab'
-                          : 'mb-1 flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-xs text-zinc-300 hover:bg-white/[0.05]',
-                        !desktop && isSelected && 'bg-cyan-300/[0.08] text-cyan-100'
+                        'desktop-model-provider-tab',
                       )}
                     >
                       <span className="min-w-0">
                         <span className="block truncate capitalize">{formatProviderName(keyStatus.provider, keyStatus.provider === 'parallel' ? 'Parallel' : undefined)}</span>
-                        <span className={cn(desktop ? 'desktop-model-provider-sub' : 'text-[10px] text-zinc-500')}>
+                        <span className={cn('desktop-model-provider-sub')}>
                           tools · {keyStatus.has_key ? 'ready' : 'setup'}
                         </span>
                       </span>
-                      {!keyStatus.has_key && <span className={cn(desktop ? 'desktop-model-provider-dot' : 'text-amber-300')}>!</span>}
+                      {!keyStatus.has_key && <span className={cn('desktop-model-provider-dot')}>!</span>}
                     </button>
                   );
                 })}
               </div>
             )}
             {providerSections.length > 0 && (
-              <div className={cn(desktop ? 'desktop-model-provider-divider' : 'my-2 border-t border-white/10 pt-2')}>
+              <div className={cn('desktop-model-provider-divider')}>
                 {providerSections.map((section) => (
                   <button
                     key={section.key}
@@ -690,11 +683,11 @@ export function ModelPicker({
                       setSelectedProvider(section.key);
                       setFocusedModel(null);
                     }}
-                    data-active={desktop && activeProvider === section.key ? 'true' : undefined}
-                    className={cn(desktop ? 'desktop-model-provider-tab' : 'mb-1 block w-full rounded-xl px-3 py-2 text-left text-xs text-zinc-300 hover:bg-white/[0.05]')}
+                    data-active={activeProvider === section.key ? 'true' : undefined}
+                    className={cn('desktop-model-provider-tab')}
                   >
                     <span className="block truncate uppercase">{section.label}</span>
-                    <span className={cn(desktop ? 'desktop-model-provider-sub' : 'text-[10px] text-zinc-500')}>
+                    <span className={cn('desktop-model-provider-sub')}>
                       {section.models.length} {section.key === 'local-mlx' ? 'mlx' : 'local'}
                     </span>
                   </button>
@@ -703,10 +696,10 @@ export function ModelPicker({
             )}
           </aside>
 
-          <main className={cn(desktop ? 'desktop-model-picker-main' : 'min-w-0 space-y-3')}>
+          <main className={cn('desktop-model-picker-main')}>
             {initialPickerLoading ? (
-              <section className={cn(desktop ? 'desktop-model-section' : 'premium-panel p-3')}>
-                <div className={cn(desktop ? 'desktop-settings-provider-header' : 'px-2 pb-2 text-xs uppercase tracking-[0.16em] text-zinc-500')}>
+              <section className={cn('desktop-model-section')}>
+                <div className={cn('desktop-settings-provider-header')}>
                   Loading catalog
                 </div>
                 <div className="space-y-2 p-2">
@@ -717,12 +710,12 @@ export function ModelPicker({
               </section>
             ) : activeProviderInfo ? (
               <>
-                <div className={cn(desktop ? 'desktop-model-picker-toolbar' : 'premium-panel p-3')}>
+                <div className={cn('desktop-model-picker-toolbar')}>
                   <div className="min-w-0">
-                    <div className={cn(desktop ? 'desktop-settings-list-title' : 'text-sm font-semibold text-zinc-100')}>
+                    <div className={cn('desktop-settings-list-title')}>
                       {formatProviderName(activeProvider, activeProviderInfo.display_name)}
                     </div>
-                    <div className={cn(desktop ? 'desktop-settings-list-meta' : 'mt-1 text-xs text-zinc-500')}>
+                    <div className={cn('desktop-settings-list-meta')}>
                       {activeProviderInfo.catalog_source || 'curated'} catalog · {activeProviderInfo.available ? 'authenticated' : 'needs setup'}
                       {activeProviderInfo.catalog_error ? ` · live catalog unavailable` : ''}
                     </div>
@@ -732,19 +725,19 @@ export function ModelPicker({
                     onChange={(e) => setModelSearch(e.target.value)}
                     disabled={!!switching}
                     placeholder="Search models, aliases, capabilities…"
-                    className={cn(desktop ? 'desktop-settings-field desktop-model-search' : 'premium-field w-full lg:w-80')}
+                    className={cn('desktop-settings-field desktop-model-search')}
                   />
                 </div>
 
-                <section className={cn(desktop ? 'desktop-model-account-card' : 'premium-panel p-3')}>
+                <section className={cn('desktop-model-account-card')}>
                   {activeProviderInfo.auth_type === 'oauth' ? (
                     activeProvider === 'chatgpt' ? (
                       <>
                         <div className="min-w-0 flex-1">
-                          <div className={cn(desktop ? 'desktop-settings-key-name' : 'text-xs font-semibold text-zinc-200')}>
+                          <div className={cn('desktop-settings-key-name')}>
                             {activeProviderInfo.auth?.authenticated ? 'ChatGPT / Codex connected' : 'Connect ChatGPT / Codex'}
                           </div>
-                          <div className={cn(desktop ? 'desktop-settings-key-env' : 'mt-1 text-xs text-zinc-500')}>
+                          <div className={cn('desktop-settings-key-env')}>
                             {activeProviderInfo.auth?.authenticated
                               ? `${activeProviderInfo.auth.account_id || 'ChatGPT account'} · OAuth token saved in Fluxion.`
                               : chatGPTLogin?.status === 'timed_out'
@@ -758,7 +751,7 @@ export function ModelPicker({
                               <input
                                 value={chatGPTLogin.loginUrl}
                                 readOnly
-                                className={cn(desktop ? 'desktop-settings-field w-full' : 'premium-field w-full')}
+                                className={cn('desktop-settings-field w-full')}
                                 onFocus={(event) => event.currentTarget.select()}
                               />
                               <div className="flex flex-wrap gap-2">
@@ -766,17 +759,17 @@ export function ModelPicker({
                                   type="button"
                                   onClick={() => chatGPTLogin.status === 'timed_out' ? handleChatGPTRetryLogin() : openExternalUrl(chatGPTLogin.loginUrl)}
                                   disabled={switching === 'chatgpt-cancel'}
-                                  className={cn(desktop ? 'desktop-settings-btn-ghost' : 'premium-subtle-button')}
+                                  className={cn('desktop-settings-btn-ghost')}
                                 >
                                   Open URL
                                 </button>
-                                <button type="button" onClick={handleCopyChatGPTLoginUrl} className={cn(desktop ? 'desktop-settings-btn-ghost' : 'premium-subtle-button')}>
+                                <button type="button" onClick={handleCopyChatGPTLoginUrl} className={cn('desktop-settings-btn-ghost')}>
                                   Copy URL
                                 </button>
-                                <button type="button" onClick={handleChatGPTRetryLogin} disabled={switching === 'chatgpt-cancel'} className={cn(desktop ? 'desktop-settings-btn-ghost' : 'premium-subtle-button')}>
+                                <button type="button" onClick={handleChatGPTRetryLogin} disabled={switching === 'chatgpt-cancel'} className={cn('desktop-settings-btn-ghost')}>
                                   Retry
                                 </button>
-                                <button type="button" onClick={handleChatGPTCancelLogin} disabled={switching === 'chatgpt-cancel'} className={cn(desktop ? 'desktop-settings-btn-ghost' : 'premium-subtle-button')}>
+                                <button type="button" onClick={handleChatGPTCancelLogin} disabled={switching === 'chatgpt-cancel'} className={cn('desktop-settings-btn-ghost')}>
                                   Cancel
                                 </button>
                               </div>
@@ -784,11 +777,11 @@ export function ModelPicker({
                           )}
                         </div>
                         {activeProviderInfo.auth?.authenticated ? (
-                          <button type="button" onClick={handleChatGPTLogout} disabled={!!switching} className={cn(desktop ? 'desktop-settings-btn-ghost' : 'premium-subtle-button')}>
+                          <button type="button" onClick={handleChatGPTLogout} disabled={!!switching} className={cn('desktop-settings-btn-ghost')}>
                             Disconnect
                           </button>
                         ) : !chatGPTLogin ? (
-                          <button type="button" onClick={handleChatGPTConnect} disabled={switching === 'chatgpt-login'} className={cn(desktop ? 'desktop-settings-btn-primary' : 'premium-primary-button')}>
+                          <button type="button" onClick={handleChatGPTConnect} disabled={switching === 'chatgpt-login'} className={cn('desktop-settings-btn-primary')}>
                             {switching === 'chatgpt-login' ? 'Waiting…' : 'Connect'}
                           </button>
                         ) : null}
@@ -796,10 +789,10 @@ export function ModelPicker({
                     ) : (
                       <>
                         <div className="min-w-0 flex-1">
-                          <div className={cn(desktop ? 'desktop-settings-key-name' : 'text-xs font-semibold text-zinc-200')}>
+                          <div className={cn('desktop-settings-key-name')}>
                             {activeProviderInfo.auth?.authenticated ? 'Grok connected' : 'Connect Grok'}
                           </div>
-                          <div className={cn(desktop ? 'desktop-settings-key-env' : 'mt-1 text-xs text-zinc-500')}>
+                          <div className={cn('desktop-settings-key-env')}>
                             {activeProviderInfo.auth?.authenticated
                               ? `${activeProviderInfo.auth.account_id || 'Grok account'} · official Grok CLI OAuth.`
                               : activeProviderInfo.auth?.login_running || switching === 'grok-login'
@@ -809,12 +802,12 @@ export function ModelPicker({
                                   : 'Uses official `grok login --oauth` credentials from ~/.grok/auth.json.'}
                           </div>
                           {activeProviderInfo.auth?.last_message && (
-                            <div className={cn(desktop ? 'desktop-settings-hint mt-2' : 'mt-2 text-xs text-zinc-500')}>
+                            <div className={cn('desktop-settings-hint mt-2')}>
                               {activeProviderInfo.auth.last_message}
                             </div>
                           )}
                           {activeProviderInfo.auth?.last_error && (
-                            <div className={cn(desktop ? 'desktop-settings-hint-error mt-2' : 'mt-2 text-xs text-red-300')}>
+                            <div className={cn('desktop-settings-hint-error mt-2')}>
                               {activeProviderInfo.auth.last_error}
                             </div>
                           )}
@@ -825,13 +818,13 @@ export function ModelPicker({
                                 onChange={(e) => setGrokLoginCode(e.target.value)}
                                 placeholder="Paste browser fallback code"
                                 type="password"
-                                className={cn(desktop ? 'desktop-settings-field flex-1' : 'premium-field flex-1')}
+                                className={cn('desktop-settings-field flex-1')}
                               />
                               <button
                                 type="button"
                                 onClick={handleGrokSubmitCode}
                                 disabled={switching === 'grok-code'}
-                                className={cn(desktop ? 'desktop-settings-btn-primary' : 'premium-primary-button')}
+                                className={cn('desktop-settings-btn-primary')}
                               >
                                 Submit code
                               </button>
@@ -839,20 +832,20 @@ export function ModelPicker({
                           )}
                         </div>
                         {activeProviderInfo.auth?.authenticated ? (
-                          <button type="button" onClick={handleGrokLogout} disabled={!!switching} className={cn(desktop ? 'desktop-settings-btn-ghost' : 'premium-subtle-button')}>
+                          <button type="button" onClick={handleGrokLogout} disabled={!!switching} className={cn('desktop-settings-btn-ghost')}>
                             Disconnect
                           </button>
                         ) : activeProviderInfo.auth?.login_running || switching === 'grok-login' ? (
                           <div className="flex flex-wrap gap-2">
-                            <button type="button" onClick={handleGrokConnect} disabled={switching === 'grok-cancel'} className={cn(desktop ? 'desktop-settings-btn-ghost' : 'premium-subtle-button')}>
+                            <button type="button" onClick={handleGrokConnect} disabled={switching === 'grok-cancel'} className={cn('desktop-settings-btn-ghost')}>
                               Retry
                             </button>
-                            <button type="button" onClick={handleGrokCancelLogin} disabled={switching === 'grok-cancel'} className={cn(desktop ? 'desktop-settings-btn-ghost' : 'premium-subtle-button')}>
+                            <button type="button" onClick={handleGrokCancelLogin} disabled={switching === 'grok-cancel'} className={cn('desktop-settings-btn-ghost')}>
                               Cancel
                             </button>
                           </div>
                         ) : (
-                          <button type="button" onClick={handleGrokConnect} disabled={!!switching || activeProviderInfo.auth?.enabled === false} className={cn(desktop ? 'desktop-settings-btn-primary' : 'premium-primary-button')}>
+                          <button type="button" onClick={handleGrokConnect} disabled={!!switching || activeProviderInfo.auth?.enabled === false} className={cn('desktop-settings-btn-primary')}>
                             Connect
                           </button>
                         )}
@@ -861,10 +854,10 @@ export function ModelPicker({
                   ) : providerKeyStatus ? (
                     <>
                       <div className="min-w-0 flex-1">
-                        <div className={cn(desktop ? 'desktop-settings-key-name' : 'text-xs font-semibold text-zinc-200')}>
+                        <div className={cn('desktop-settings-key-name')}>
                           {formatProviderName(activeProvider, activeProviderInfo.display_name)} API key
                         </div>
-                        <div className={cn(desktop ? 'desktop-settings-key-env' : 'mt-1 text-xs text-zinc-500')}>
+                        <div className={cn('desktop-settings-key-env')}>
                           {providerKeyStatus.api_key_env || 'No key required'} · {providerKeyStatus.has_key ? `configured via ${providerKeyStatus.source}` : 'not configured'}
                         </div>
                       </div>
@@ -875,13 +868,13 @@ export function ModelPicker({
                             onChange={(e) => setProviderKeyDrafts((drafts) => ({ ...drafts, [activeProvider]: e.target.value }))}
                             placeholder={providerKeyStatus.has_key ? 'Enter replacement API key' : 'Enter API key'}
                             type="password"
-                            className={cn(desktop ? 'desktop-settings-field flex-1' : 'premium-field flex-1')}
+                            className={cn('desktop-settings-field flex-1')}
                           />
-                          <button type="button" onClick={() => handleSaveProviderKey(activeProvider)} disabled={!!switching} className={cn(desktop ? 'desktop-settings-btn-primary' : 'premium-primary-button')}>
+                          <button type="button" onClick={() => handleSaveProviderKey(activeProvider)} disabled={!!switching} className={cn('desktop-settings-btn-primary')}>
                             {providerKeyStatus.has_key ? 'Update' : 'Save'}
                           </button>
                           {providerKeyStatus.source === 'database' && (
-                            <button type="button" onClick={() => handleClearProviderKey(activeProvider)} disabled={!!switching} className={cn(desktop ? 'desktop-settings-btn-ghost' : 'premium-subtle-button')}>
+                            <button type="button" onClick={() => handleClearProviderKey(activeProvider)} disabled={!!switching} className={cn('desktop-settings-btn-ghost')}>
                               Clear
                             </button>
                           )}
@@ -892,22 +885,22 @@ export function ModelPicker({
                 </section>
 
                 {recommendedModels.length > 0 && normalizedSearch && (
-                  <section className={cn(desktop ? 'desktop-model-section' : 'premium-panel p-2')}>
-                    <div className={cn(desktop ? 'desktop-settings-provider-header' : 'px-2 pb-2 text-xs uppercase tracking-[0.16em] text-zinc-500')}>Recommended matches</div>
-                    <div className={cn(desktop ? 'desktop-model-grid' : 'grid gap-1')}>
+                  <section className={cn('desktop-model-section')}>
+                    <div className={cn('desktop-settings-provider-header')}>Recommended matches</div>
+                    <div className={cn('desktop-model-grid')}>
                       {recommendedModels.map(({ provider, model }) => {
                         const isActive = activeSelection?.provider === provider && activeSelection.model_id === model.model_id;
                         return (
                           <button
                             key={`${provider}:${model.model_id}:rec`}
                             type="button"
-                            onClick={() => desktop ? setFocusedModel({ provider, model }) : handleSelectRegistry(provider, model.model_id)}
+                            onClick={() => setFocusedModel({ provider, model })}
                             onDoubleClick={() => handleSelectRegistry(provider, model.model_id)}
-                            data-active={desktop && isActive ? 'true' : undefined}
-                            className={cn(desktop ? 'desktop-settings-list-item' : 'rounded-xl px-3 py-2 text-left text-sm text-zinc-200 hover:bg-white/[0.05]')}
+                            data-active={isActive ? 'true' : undefined}
+                            className={cn('desktop-settings-list-item')}
                           >
-                            <div className={cn(desktop ? 'desktop-settings-list-title truncate' : 'truncate font-medium')}>{model.display_name}</div>
-                            <div className={cn(desktop ? 'desktop-settings-list-meta flex flex-wrap gap-x-3' : 'mt-1 flex flex-wrap gap-x-3 text-xs text-zinc-500')}>
+                            <div className={cn('desktop-settings-list-title truncate')}>{model.display_name}</div>
+                            <div className={cn('desktop-settings-list-meta flex flex-wrap gap-x-3')}>
                               <span>{formatProviderName(provider, registryData?.providers[provider]?.display_name)}</span>
                               {formatModelMeta(model).slice(0, 4).map((part) => <span key={String(part)}>{part}</span>)}
                             </div>
@@ -918,9 +911,9 @@ export function ModelPicker({
                   </section>
                 )}
 
-                <section className={cn(desktop ? 'desktop-model-section' : 'premium-panel p-2')}>
-                  <div className={cn(desktop ? 'desktop-settings-provider-header' : 'px-2 pb-2 text-xs uppercase tracking-[0.16em] text-zinc-500')}>Models</div>
-                  <div className={cn(desktop ? 'desktop-model-list' : 'max-h-[44vh] overflow-y-auto')}>
+                <section className={cn('desktop-model-section')}>
+                  <div className={cn('desktop-settings-provider-header')}>Models</div>
+                  <div className={cn('desktop-model-list')}>
                     {visibleModels.map((model) => {
                       const isActive = activeSelection?.provider === activeProvider && activeSelection.model_id === model.model_id;
                       const isFocused = selectedDetail?.provider === activeProvider && selectedDetail?.model.model_id === model.model_id;
@@ -929,25 +922,24 @@ export function ModelPicker({
                         <button
                           key={model.model_id}
                           type="button"
-                          onClick={() => desktop ? setFocusedModel({ provider: activeProvider, model }) : handleSelectRegistry(activeProvider, model.model_id)}
+                          onClick={() => setFocusedModel({ provider: activeProvider, model })}
                           onDoubleClick={() => handleSelectRegistry(activeProvider, model.model_id)}
                           disabled={!!switching}
-                          data-active={desktop && (isActive || isFocused) ? 'true' : undefined}
+                          data-active={isActive || isFocused ? 'true' : undefined}
                           className={cn(
-                            desktop ? 'desktop-settings-list-item' : 'mb-1 block w-full rounded-[1rem] border px-4 py-3 text-left last:mb-0',
-                            !desktop && isActive ? 'border-cyan-300/30 bg-cyan-300/[0.075] text-zinc-50' : !desktop && 'border-transparent bg-transparent text-zinc-300 hover:border-white/10 hover:bg-white/[0.045] hover:text-cyan-100',
+                            'desktop-settings-list-item',
                             isBusy && 'opacity-60'
                           )}
                         >
                           <div className="flex items-start justify-between gap-4">
                             <div className="min-w-0">
-                              <div className={cn(desktop ? 'desktop-settings-list-title truncate' : 'truncate text-[13px] font-semibold tracking-[-0.02em] text-inherit')}>{model.display_name}</div>
-                              <div className={cn(desktop ? 'desktop-settings-list-meta flex flex-wrap gap-x-3' : 'mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-zinc-500')}>
+                              <div className={cn('desktop-settings-list-title truncate')}>{model.display_name}</div>
+                              <div className={cn('desktop-settings-list-meta flex flex-wrap gap-x-3')}>
                                 {formatModelMeta(model).map((part) => <span key={String(part)}>{part}</span>)}
                                 {formatModelCost(model) && <span>{formatModelCost(model)}</span>}
                               </div>
                             </div>
-                            {isActive && <span className={cn(desktop ? 'desktop-settings-list-active' : 'rounded-full border border-cyan-300/26 bg-cyan-300/[0.10] px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-cyan-100')}>Active</span>}
+                            {isActive && <span className={cn('desktop-settings-list-active')}>Active</span>}
                           </div>
                         </button>
                       );
@@ -956,15 +948,15 @@ export function ModelPicker({
                 </section>
               </>
             ) : activeStandaloneProviderKey ? (
-              <section className={cn(desktop ? 'desktop-model-account-card' : 'premium-panel p-3')}>
+              <section className={cn('desktop-model-account-card')}>
                 <div className="min-w-0 flex-1">
-                  <div className={cn(desktop ? 'desktop-settings-key-name' : 'text-xs font-semibold text-zinc-200')}>
+                  <div className={cn('desktop-settings-key-name')}>
                     {formatProviderName(activeStandaloneProviderKey.provider, activeStandaloneProviderKey.provider === 'parallel' ? 'Parallel' : undefined)} API key
                   </div>
-                  <div className={cn(desktop ? 'desktop-settings-key-env' : 'mt-1 text-xs text-zinc-500')}>
+                  <div className={cn('desktop-settings-key-env')}>
                     {activeStandaloneProviderKey.api_key_env} · {activeStandaloneProviderKey.has_key ? `configured via ${activeStandaloneProviderKey.source}` : 'not configured'}
                   </div>
-                  <div className={cn(desktop ? 'desktop-settings-hint mt-2' : 'mt-2 text-xs text-zinc-500')}>
+                  <div className={cn('desktop-settings-hint mt-2')}>
                     {activeStandaloneProviderKey.provider === 'parallel'
                       ? 'Used by agent web_search and web_extract tools. This is not a chat model provider.'
                       : 'Used by agent tools. This is not a chat model provider.'}
@@ -975,13 +967,13 @@ export function ModelPicker({
                   onChange={(e) => setProviderKeyDrafts((drafts) => ({ ...drafts, [activeStandaloneProviderKey.provider]: e.target.value }))}
                   placeholder={activeStandaloneProviderKey.has_key ? 'Enter replacement API key' : 'Enter API key'}
                   type="password"
-                  className={cn(desktop ? 'desktop-settings-field flex-1' : 'premium-field flex-1')}
+                  className={cn('desktop-settings-field flex-1')}
                 />
                 <button
                   type="button"
                   onClick={() => handleSaveProviderKey(activeStandaloneProviderKey.provider)}
                   disabled={!!switching}
-                  className={cn(desktop ? 'desktop-settings-btn-primary' : 'premium-primary-button')}
+                  className={cn('desktop-settings-btn-primary')}
                 >
                   {activeStandaloneProviderKey.has_key ? 'Update' : 'Save'}
                 </button>
@@ -990,15 +982,15 @@ export function ModelPicker({
                     type="button"
                     onClick={() => handleClearProviderKey(activeStandaloneProviderKey.provider)}
                     disabled={!!switching}
-                    className={cn(desktop ? 'desktop-settings-btn-ghost' : 'premium-subtle-button')}
+                    className={cn('desktop-settings-btn-ghost')}
                   >
                     Clear
                   </button>
                 )}
               </section>
             ) : (
-              <section className={cn(desktop ? 'desktop-model-section' : 'premium-panel p-2')}>
-                <div className={cn(desktop ? 'desktop-settings-provider-header' : 'px-2 pb-2 text-xs uppercase tracking-[0.16em] text-zinc-500')}>
+              <section className={cn('desktop-model-section')}>
+                <div className={cn('desktop-settings-provider-header')}>
                   {activeLocalSection?.label || 'Local models'}
                 </div>
                 {activeLocalSection && activeLocalSection.models.length > 0 ? (
@@ -1012,19 +1004,19 @@ export function ModelPicker({
                         disabled={!!switching || unsupported}
                         title={model.status_message || undefined}
                         className={cn(
-                          desktop ? 'desktop-settings-list-item' : 'mb-1 block w-full rounded-[1rem] border border-transparent px-4 py-3 text-left text-zinc-300 hover:border-white/10 hover:bg-white/[0.045]',
+                          'desktop-settings-list-item',
                           unsupported && 'cursor-not-allowed opacity-50',
                         )}
                       >
-                        <div className={cn(desktop ? 'desktop-settings-list-title truncate' : 'truncate text-[13px] font-semibold')}>{model.name}</div>
-                        <div className={cn(desktop ? 'desktop-settings-list-meta' : 'mt-1 text-[11px] text-zinc-500')}>
+                        <div className={cn('desktop-settings-list-title truncate')}>{model.name}</div>
+                        <div className={cn('desktop-settings-list-meta')}>
                           {isBusy ? 'Starting…' : unsupported ? (model.model_type_id ? `Unsupported ${model.model_type_id}` : 'Unsupported') : model.size_display}
                         </div>
                       </button>
                     );
                   })
                 ) : (
-                  <div className={cn(desktop ? 'desktop-settings-hint px-3 py-4' : 'px-3 py-4 text-sm text-zinc-500')}>
+                  <div className={cn('desktop-settings-hint px-3 py-4')}>
                     {activeProvider === 'local-mlx' ? 'No MLX models found.' : 'No GGUF models found.'}
                   </div>
                 )}
@@ -1032,7 +1024,7 @@ export function ModelPicker({
             )}
           </main>
 
-          {desktop && selectedDetail && activeProviderInfo && (
+          {selectedDetail && activeProviderInfo && (
             <aside className="desktop-model-detail-panel">
               <div className="desktop-model-detail-provider">{formatProviderName(selectedDetail.provider, registryData?.providers[selectedDetail.provider]?.display_name)}</div>
               <div className="desktop-model-detail-title">{selectedDetail.model.display_name}</div>

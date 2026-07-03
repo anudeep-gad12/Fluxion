@@ -55,7 +55,7 @@ import {
   DialogContent,
 } from '@/components/ui/dialog';
 import { DRAFT_TERMINAL_CONVERSATION_ID, useConversationRuns, useSelectedConversation, useStore, useHasActiveRun, useConversationTerminal } from '@/hooks/useStore';
-import { isLocalDesktopApp, openNativeWorkspacePicker } from '@/lib/platform';
+import { openNativeWorkspacePicker } from '@/lib/platform';
 import { formatContextTokens } from '@/lib/runFormat';
 import { useSSE } from '@/hooks/useSSE';
 import { useAgentSSE } from '@/hooks/useAgentSSE';
@@ -289,9 +289,7 @@ export function ConversationView() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loadingConversationId, setLoadingConversationId] = useState<string | null>(null);
   const [mode, setMode] = useState<ChatMode>('agent');
-  const localDesktop = isLocalDesktopApp();
   const [workspacePickerOpen, setWorkspacePickerOpen] = useState(false);
-  const [workspacePickerMode, setWorkspacePickerMode] = useState<'draft' | 'new-conversation'>('draft');
   const [mentionResults, setMentionResults] = useState<WorkspaceFileEntry[]>([]);
   const [mentionOpen, setMentionOpen] = useState(false);
   const [mentionLoading, setMentionLoading] = useState(false);
@@ -523,10 +521,9 @@ export function ConversationView() {
     || rewindOpen
   );
   useEffect(() => {
-    if (!localDesktop) return;
     setDesktopOverlayOpen(anyDialogOpen);
     return () => setDesktopOverlayOpen(false);
-  }, [anyDialogOpen, localDesktop, setDesktopOverlayOpen]);
+  }, [anyDialogOpen, setDesktopOverlayOpen]);
   const latestRunContextUsage = latestContextRun?.context_usage;
   const footerContextUsage = useMemo(() => (
     activeAgentState?.context_usage
@@ -941,16 +938,11 @@ export function ConversationView() {
       );
       return;
     }
-    if (isLocalDesktopApp()) {
-      const selectedPath = await openNativeWorkspacePicker();
-      if (selectedPath) {
-        rememberWorkspacePath(selectedPath);
-        setDraftWorkspacePath(selectedPath);
-      }
-      return;
+    const selectedPath = await openNativeWorkspacePicker();
+    if (selectedPath) {
+      rememberWorkspacePath(selectedPath);
+      setDraftWorkspacePath(selectedPath);
     }
-    setWorkspacePickerMode('draft');
-    setWorkspacePickerOpen(true);
   }, [
     hasConversationWorkspace,
     isWorkspaceLocked,
@@ -1694,17 +1686,12 @@ export function ConversationView() {
 
   const openWorkspacePickerForNewConversation = useCallback(async () => {
     if (hasActiveRun) return;
-    if (isLocalDesktopApp()) {
-      const selectedPath = await openNativeWorkspacePicker();
-      const normalized = selectedPath?.trim();
-      if (normalized) {
-        beginWorkspaceDraft(normalized);
-        navigate('/conversations', { replace: true });
-      }
-      return;
+    const selectedPath = await openNativeWorkspacePicker();
+    const normalized = selectedPath?.trim();
+    if (normalized) {
+      beginWorkspaceDraft(normalized);
+      navigate('/conversations', { replace: true });
     }
-    setWorkspacePickerMode('new-conversation');
-    setWorkspacePickerOpen(true);
   }, [
     beginWorkspaceDraft,
     hasActiveRun,
@@ -1981,12 +1968,12 @@ export function ConversationView() {
       />
     ) : null;
 
-  const terminalAvailable = localDesktop && mode === 'agent';
+  const terminalAvailable = mode === 'agent';
   const activeTerminalState = selectedConversationId ? terminalState : draftTerminalState;
   const terminalOpen = terminalAvailable && !!activeTerminalState?.isOpen;
 
   const handleTerminalToggle = useCallback(() => {
-    if (mode !== 'agent' || !localDesktop) return;
+    if (mode !== 'agent') return;
     if (!effectiveWorkspacePath) {
       toast.error(
         selectedConversationId
@@ -2005,7 +1992,6 @@ export function ConversationView() {
   }, [
     activeTerminalState?.isOpen,
     effectiveWorkspacePath,
-    localDesktop,
     mode,
     selectedConversationId,
     updateTerminalState,
@@ -2040,8 +2026,7 @@ export function ConversationView() {
       draftWorkspacePath={draftWorkspacePath}
       onDraftWorkspacePathChange={setDraftWorkspacePath}
       onBrowseWorkspace={() => {
-        setWorkspacePickerMode('draft');
-        handleOpenWorkspacePicker();
+        void handleOpenWorkspacePicker();
       }}
       permissionPolicy={permissionPolicy}
       onPermissionPolicyChange={setPermissionPolicy}
@@ -2110,9 +2095,7 @@ export function ConversationView() {
     attachmentsRow: imageAttachmentsRow,
   };
   const handleEmptyDesktopDrag = (event: ReactMouseEvent<HTMLDivElement>) => {
-    if (localDesktop) {
-      void startWindowDrag(event);
-    }
+    void startWindowDrag(event);
   };
 
   if (!conversation && runs.length === 0) {
@@ -2138,22 +2121,17 @@ export function ConversationView() {
         <WorkspacePickerDialog
           open={workspacePickerOpen}
           onOpenChange={setWorkspacePickerOpen}
-          value={draftWorkspacePath}
           onSelect={(workspacePath) => {
-            if (workspacePickerMode === 'new-conversation') {
-              startWorkspaceDraftConversation(workspacePath);
-              return;
-            }
             rememberWorkspacePath(workspacePath);
             setDraftWorkspacePath(workspacePath);
           }}
         />
         <div
-          data-tauri-drag-region={localDesktop ? true : undefined}
+          data-tauri-drag-region
           onMouseDown={handleEmptyDesktopDrag}
           className={cn(
             'flex min-h-0 flex-1 flex-col overflow-y-auto',
-            localDesktop && 'desktop-empty-drag-surface'
+            'desktop-empty-drag-surface'
           )}
         >
           <EmptyState
@@ -2210,12 +2188,7 @@ export function ConversationView() {
       <WorkspacePickerDialog
         open={workspacePickerOpen}
         onOpenChange={setWorkspacePickerOpen}
-        value={draftWorkspacePath}
         onSelect={(workspacePath) => {
-          if (workspacePickerMode === 'new-conversation') {
-            startWorkspaceDraftConversation(workspacePath);
-            return;
-          }
           rememberWorkspacePath(workspacePath);
           setDraftWorkspacePath(workspacePath);
         }}

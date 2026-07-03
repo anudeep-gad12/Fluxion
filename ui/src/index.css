@@ -193,50 +193,6 @@
   }
 
   /* Flat token-based dialog/settings primitives (single definition) */
-  .premium-chip {
-    @apply ui-transition inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[12px];
-    border-color: var(--desktop-border-subtle);
-    background: transparent;
-    color: var(--desktop-text-secondary);
-  }
-
-  .premium-chip:hover {
-    border-color: var(--desktop-border-strong);
-    color: var(--desktop-text-primary);
-  }
-
-  .premium-chip-active {
-    border-color: rgb(var(--desktop-accent-rgb) / 0.4);
-    background: var(--desktop-accent-muted);
-    color: var(--desktop-text-primary);
-  }
-
-  .premium-chip-muted {
-    color: var(--desktop-text-tertiary);
-  }
-
-  .premium-field {
-    @apply ui-transition w-full rounded-lg border px-3 py-2 text-[13px] outline-none;
-    border-color: var(--desktop-border-subtle);
-    background: var(--desktop-bg-1);
-    color: var(--desktop-text-primary);
-  }
-
-  .premium-field::placeholder {
-    color: var(--desktop-text-tertiary);
-  }
-
-  .premium-field:focus {
-    border-color: var(--desktop-border-strong);
-    box-shadow: 0 0 0 3px rgb(var(--desktop-accent-rgb) / 0.1);
-  }
-
-  .premium-panel {
-    @apply rounded-xl border;
-    border-color: var(--desktop-border-subtle);
-    background: var(--desktop-bg-2);
-  }
-
   .premium-subtle-button {
     @apply ui-transition inline-flex items-center justify-center rounded-lg border px-2.5 py-1 text-[12px];
     border-color: var(--desktop-border-subtle);
@@ -252,21 +208,6 @@
   .premium-subtle-button:disabled {
     color: var(--desktop-text-tertiary);
     opacity: 0.6;
-  }
-
-  .premium-primary-button {
-    @apply ui-transition inline-flex items-center justify-center rounded-lg px-3 py-1 text-[12px] font-medium;
-    border: none;
-    background: var(--desktop-text-primary);
-    color: var(--desktop-bg-0);
-  }
-
-  .premium-primary-button:hover {
-    opacity: 0.9;
-  }
-
-  .premium-primary-button:disabled {
-    opacity: 0.5;
   }
 
   .premium-section-label {
@@ -368,12 +309,12 @@ textarea:focus {
 }
 
 .ui-panel {
-  background: var(--fluxion-panel);
+  background: var(--desktop-bg-2);
   backdrop-filter: blur(18px);
 }
 
 .ui-panel-strong {
-  background: var(--fluxion-panel-strong);
+  background: var(--desktop-bg-3);
   backdrop-filter: blur(18px);
 }
 

@@ -14,8 +14,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { WorkspacePickerDialog } from '@/components/WorkspacePickerDialog';
-import { isLocalDesktopApp, openNativeWorkspacePicker } from '@/lib/platform';
+import { openNativeWorkspacePicker } from '@/lib/platform';
 import { cn, formatRelativeTime, truncate } from '@/lib/utils';
 import {
   CheckSquare,
@@ -215,15 +214,7 @@ function WorkspaceSection({
   );
 }
 
-interface ConversationListProps {
-  workspacePickerOpen?: boolean;
-  onWorkspacePickerOpenChange?: (open: boolean) => void;
-}
-
-export function ConversationList({
-  workspacePickerOpen: controlledPickerOpen,
-  onWorkspacePickerOpenChange: setControlledPickerOpen,
-}: ConversationListProps = {}) {
+export function ConversationList() {
   const navigate = useNavigate();
   const conversations = useStore((s) => s.conversations);
   const runsByConversation = useStore((s) => s.runsByConversation);
@@ -233,13 +224,8 @@ export function ConversationList({
   const updateConversation = useStore((s) => s.updateConversation);
   const removeConversation = useStore((s) => s.removeConversation);
   const beginWorkspaceDraft = useStore((s) => s.beginWorkspaceDraft);
-  const draftWorkspacePath = useStore((s) => s.draftWorkspacePath);
   const hasActiveRun = useHasActiveRun();
   const [isLoading, setIsLoading] = useState(false);
-  const [internalPickerOpen, setInternalPickerOpen] = useState(false);
-  const pickerControlled = setControlledPickerOpen !== undefined;
-  const workspacePickerOpen = controlledPickerOpen ?? internalPickerOpen;
-  const setWorkspacePickerOpen = setControlledPickerOpen ?? setInternalPickerOpen;
   const [workspaceSectionsOpen, setWorkspaceSectionsOpen] = useState<Record<string, boolean>>({});
   const workspaceHeaderRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
@@ -376,14 +362,10 @@ export function ConversationList({
 
   const openWorkspacePicker = async () => {
     if (hasActiveRun) return;
-    if (isLocalDesktopApp()) {
-      const selectedPath = await openNativeWorkspacePicker();
-      if (selectedPath) {
-        startWorkspaceDraft(selectedPath);
-      }
-      return;
+    const selectedPath = await openNativeWorkspacePicker();
+    if (selectedPath) {
+      startWorkspaceDraft(selectedPath);
     }
-    setWorkspacePickerOpen(true);
   };
 
   const handleDeleteClick = (conversationId: string) => {
@@ -671,17 +653,6 @@ export function ConversationList({
           </>
         )}
       </div>
-
-      {!pickerControlled && (
-        <WorkspacePickerDialog
-          open={workspacePickerOpen}
-          onOpenChange={setWorkspacePickerOpen}
-          value={draftWorkspacePath}
-          onSelect={(workspacePath) => {
-            startWorkspaceDraft(workspacePath);
-          }}
-        />
-      )}
 
       {contextMenu && (
         <div

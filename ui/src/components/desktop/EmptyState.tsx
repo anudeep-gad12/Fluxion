@@ -1,5 +1,4 @@
 import { cn } from '@/lib/utils';
-import { isLocalDesktopApp } from '@/lib/platform';
 import { startWindowDrag } from '@/lib/windowDrag';
 import type { ModelStatus } from '@/api/client';
 import type { ChatMode } from '@/types';
@@ -31,25 +30,19 @@ export function EmptyState({
   modelStatus,
   onSuggestionClick,
 }: EmptyStateProps) {
-  const desktop = isLocalDesktopApp();
   const workspaceName = workspacePath.trim()
     ? workspacePath.trim().split('/').filter(Boolean).pop() || workspacePath.trim()
     : null;
   const model = modelStatus?.model_name?.split('/').pop() || modelStatus?.model_name || 'your model';
   const handleMouseDown = (event: ReactMouseEvent<HTMLDivElement>) => {
-    if (desktop) {
-      void startWindowDrag(event);
-    }
+    void startWindowDrag(event);
   };
 
   return (
     <div
-      data-tauri-drag-region={desktop ? true : undefined}
+      data-tauri-drag-region
       onMouseDown={handleMouseDown}
-      className={cn(
-        'desktop-thread-column flex flex-1 flex-col items-center justify-center px-6 py-12 text-center',
-        desktop && 'desktop-empty-drag-surface'
-      )}
+      className="desktop-thread-column desktop-empty-drag-surface flex flex-1 flex-col items-center justify-center px-6 py-12 text-center"
     >
       <h1 className="text-[22px] font-semibold tracking-tight text-zinc-50">
         {mode === 'agent' ? 'What should we build?' : 'How can I help?'}
@@ -78,18 +71,6 @@ export function EmptyState({
         ))}
       </div>
 
-      {!desktop && (
-        <p className="mt-10 text-[12px] text-zinc-600">
-          <kbd className="rounded border border-white/10 bg-white/[0.03] px-1.5 py-0.5 font-sans text-zinc-500">
-            ⌘
-          </kbd>
-          <span className="mx-1">+</span>
-          <kbd className="rounded border border-white/10 bg-white/[0.03] px-1.5 py-0.5 font-sans text-zinc-500">
-            Enter
-          </kbd>
-          <span className="ml-2">to send</span>
-        </p>
-      )}
     </div>
   );
 }

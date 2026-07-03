@@ -186,12 +186,6 @@
   color: var(--desktop-text-tertiary);
 }
 
-[data-app='desktop'] .desktop-settings-provider-count {
-  margin-top: 2px;
-  font-size: 11px;
-  color: var(--desktop-text-tertiary);
-}
-
 [data-app='desktop'] .desktop-settings-actions {
   display: flex;
   justify-content: flex-end;

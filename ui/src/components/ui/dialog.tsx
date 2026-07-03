@@ -1,6 +1,5 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
-import { isLocalDesktopApp } from "@/lib/platform";
 import { Button } from "./button";
 
 interface DialogProps {
@@ -22,8 +21,7 @@ export function Dialog({ open, onOpenChange, children, className }: DialogProps)
             />
             {/* Content - relative z-10 to sit above backdrop */}
             <div className={cn(
-                "ui-dialog-surface relative z-10 mx-4 w-full max-w-md overflow-hidden rounded-xl border border-white/10 shadow-2xl shadow-black/40 animate-in fade-in zoom-in-95 duration-200",
-                isLocalDesktopApp() ? "bg-transparent" : "bg-[#18181b]",
+                "ui-dialog-surface relative z-10 mx-4 w-full max-w-md overflow-hidden rounded-xl border border-white/10 bg-transparent shadow-2xl shadow-black/40 animate-in fade-in zoom-in-95 duration-200",
                 className,
             )}>
                 {children}

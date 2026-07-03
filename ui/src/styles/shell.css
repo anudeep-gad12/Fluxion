@@ -34,12 +34,6 @@
   box-shadow: inset 1px 0 0 var(--desktop-border-subtle);
 }
 
-[data-app='desktop'] .desktop-panel-rail {
-  background: var(--desktop-bg-0);
-  box-shadow: inset 1px 0 0 var(--desktop-border-subtle);
-  padding-top: var(--titlebar-height);
-}
-
 [data-app='desktop'] .desktop-sidebar-header,
 [data-app='desktop'] .desktop-chrome,
 [data-app='desktop'] .desktop-terminal-header {
@@ -177,72 +171,6 @@
 
 [data-app='desktop'] .desktop-composer-dock {
   background: linear-gradient(to top, var(--desktop-bg-1) 82%, transparent);
-}
-
-[data-app='desktop'] .desktop-terminal-rail-row {
-  display: flex;
-  align-items: center;
-  gap: 1px;
-  margin-bottom: 2px;
-  border-radius: 6px;
-  transition: background 0.12s ease;
-}
-
-[data-app='desktop'] .desktop-terminal-rail-row:hover {
-  background: rgb(var(--ui-white-rgb) / 0.04);
-}
-
-[data-app='desktop'] .desktop-terminal-rail-row.is-active {
-  background: rgb(var(--ui-accent-rgb) / 0.08);
-}
-
-[data-app='desktop'] .desktop-terminal-rail-select {
-  display: flex;
-  min-width: 0;
-  flex: 1;
-  align-items: center;
-  gap: 5px;
-  border: none;
-  background: transparent;
-  padding: 4px 2px 4px 6px;
-  text-align: left;
-  font-size: 11px;
-  line-height: 1.2;
-  color: var(--desktop-text-secondary);
-  transition: color 0.12s ease;
-}
-
-[data-app='desktop'] .desktop-terminal-rail-row.is-active .desktop-terminal-rail-select {
-  color: var(--desktop-accent);
-}
-
-[data-app='desktop'] .desktop-terminal-rail-close {
-  display: flex;
-  flex-shrink: 0;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  margin-right: 2px;
-  border: none;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--desktop-text-tertiary);
-  opacity: 0;
-  transition:
-    opacity 0.12s ease,
-    color 0.12s ease,
-    background 0.12s ease;
-}
-
-[data-app='desktop'] .desktop-terminal-rail-row:hover .desktop-terminal-rail-close,
-[data-app='desktop'] .desktop-terminal-rail-row.is-active .desktop-terminal-rail-close {
-  opacity: 1;
-}
-
-[data-app='desktop'] .desktop-terminal-rail-close:hover {
-  background: rgb(var(--ui-white-rgb) / 0.08);
-  color: var(--desktop-text-primary);
 }
 
 [data-app='desktop'] .desktop-terminal-tabs {
@@ -639,21 +567,6 @@
   color: var(--desktop-danger-text);
 }
 
-[data-app='desktop'] .desktop-status-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 6px 4px;
-  font-size: 11px;
-  color: var(--desktop-text-tertiary);
-}
-
-[data-app='desktop'] .desktop-status-bar strong {
-  font-weight: 500;
-  color: var(--desktop-text-secondary);
-}
-
 [data-app='desktop'] .desktop-list-item-selected {
   background: rgb(var(--ui-white-rgb) / 0.06);
   border-color: transparent;
@@ -691,8 +604,7 @@
   cursor: default;
 }
 
-[data-app='desktop'] header[data-tauri-drag-region],
-[data-app='desktop'] .desktop-panel-rail[data-tauri-drag-region] {
+[data-app='desktop'] header[data-tauri-drag-region] {
   -webkit-app-region: drag;
   app-region: drag;
 }

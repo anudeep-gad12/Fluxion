@@ -18,7 +18,6 @@ import {
   type TerminalSessionResponse,
 } from '@/api/client';
 import { DRAFT_TERMINAL_CONVERSATION_ID, useStore, useConversationTerminal, type BrowserTabState } from '@/hooks/useStore';
-import { isLocalDesktopApp } from '@/lib/platform';
 import { Button } from '@/components/ui/button';
 
 const PANEL_WIDTH_KEY = 'reasoner_tools_panel_width';
@@ -152,7 +151,6 @@ interface TerminalPanelProps {
 }
 
 export function TerminalPanel({ agentModeActive }: TerminalPanelProps) {
-  const localDesktop = isLocalDesktopApp();
   const selectedConversationId = useStore((s) => s.selectedConversationId);
   const draftWorkspacePath = useStore((s) => s.draftWorkspacePath);
   const conversations = useStore((s) => s.conversations);
@@ -185,7 +183,7 @@ export function TerminalPanel({ agentModeActive }: TerminalPanelProps) {
     (item) => item.conversation_id === selectedConversationId,
   );
   const workspacePath = conversation?.workspace_path?.trim() || draftWorkspacePath.trim();
-  const terminalAvailable = localDesktop && agentModeActive && !!workspacePath;
+  const terminalAvailable = agentModeActive && !!workspacePath;
   const storageScope = selectedConversationId || terminalKey;
 
   useEffect(() => {
@@ -586,8 +584,6 @@ export function TerminalPanel({ agentModeActive }: TerminalPanelProps) {
       document.removeEventListener('pointercancel', handlePointerUp);
     };
   }, [handlePointerMove, handlePointerUp]);
-
-  if (!localDesktop) return null;
 
   const folderLabel = workspaceFolderLabel(workspacePath);
 

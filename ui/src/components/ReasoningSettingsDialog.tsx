@@ -10,7 +10,6 @@ import {
   DialogTitle,
   DialogContent,
 } from '@/components/ui/dialog';
-import { isLocalDesktopApp } from '@/lib/platform';
 import { cn } from '@/lib/utils';
 
 export function ReasoningSettingsDialog({
@@ -40,9 +39,7 @@ export function ReasoningSettingsDialog({
   const fireworksMode = draft?.fireworks_reasoning_mode ?? 'effort';
   const openRouterMode = draft?.reasoning_max_tokens == null ? 'effort' : 'budget';
   const minFireworksThinkingBudget = 1024;
-  const desktop = isLocalDesktopApp();
-  const inputClassName = desktop ? 'desktop-settings-field' : 'premium-field';
-  const selectClassName = 'premium-field appearance-none';
+  const inputClassName = 'desktop-settings-field';
 
   const effortChoices =
     capabilities?.reasoning_effort?.options?.length
@@ -69,23 +66,23 @@ export function ReasoningSettingsDialog({
       </DialogHeader>
       <DialogContent className="space-y-4">
         {!draft || !capabilities ? (
-          <p className={cn(desktop ? 'desktop-settings-hint' : 'text-xs text-zinc-500')}>Loading reasoning settings…</p>
+          <p className={cn('desktop-settings-hint')}>Loading reasoning settings…</p>
         ) : (
-          <div className={cn('space-y-4', !desktop && 'font-mono text-xs')}>
-            <section className={cn(desktop ? 'desktop-settings-section' : 'premium-panel px-4 py-3.5')}>
-              <span className={cn(desktop ? 'desktop-settings-label' : 'premium-section-label')}>Active model</span>
-              <div className={cn(desktop ? 'desktop-settings-model-line' : 'mt-2 text-sm text-zinc-100')}>{modelName}</div>
-              <div className={cn(desktop ? 'desktop-settings-model-provider' : 'mt-1 text-[11px] uppercase tracking-[0.16em] text-zinc-500')}>
+          <div className="space-y-4">
+            <section className={cn('desktop-settings-section')}>
+              <span className={cn('desktop-settings-label')}>Active model</span>
+              <div className={cn('desktop-settings-model-line')}>{modelName}</div>
+              <div className={cn('desktop-settings-model-provider')}>
                 {providerFamily}
               </div>
             </section>
 
-            <section className={cn(desktop ? 'desktop-settings-section' : 'premium-panel px-4 py-4')}>
+            <section className={cn('desktop-settings-section')}>
               <div className="grid gap-4 sm:grid-cols-2">
                 <label className="space-y-2">
                   <div>
-                    <div className={cn(desktop ? 'desktop-settings-field-label' : 'text-zinc-300')}>Max output</div>
-                    <div className={cn(desktop ? 'desktop-settings-hint !mt-1' : 'mt-1 text-[11px] leading-5 text-zinc-500')}>
+                    <div className={cn('desktop-settings-field-label')}>Max output</div>
+                    <div className={cn('desktop-settings-hint !mt-1')}>
                       Leave blank to use the active model max.
                     </div>
                   </div>
@@ -101,13 +98,12 @@ export function ReasoningSettingsDialog({
                 {showReasoningEffort && !showReasoningMaxTokens && (
                   <div className="space-y-2">
                     <div>
-                      <div className={cn(desktop ? 'desktop-settings-field-label' : 'text-zinc-300')}>Thinking effort</div>
-                      <div className={cn(desktop ? 'desktop-settings-hint !mt-1' : 'mt-1 text-[11px] leading-5 text-zinc-500')}>
+                      <div className={cn('desktop-settings-field-label')}>Thinking effort</div>
+                      <div className={cn('desktop-settings-hint !mt-1')}>
                         Provider-managed reasoning depth.
                       </div>
                     </div>
-                    {desktop ? (
-                      <DesktopTextOptionGroup
+                    {<DesktopTextOptionGroup
                         ariaLabel="Thinking effort"
                         value={draft.reasoning_effort ?? ''}
                         onChange={(value) => update('reasoning_effort', value || null)}
@@ -115,34 +111,19 @@ export function ReasoningSettingsDialog({
                           { value: '', label: 'Default' },
                           ...effortChoices.map((opt) => ({ value: opt, label: opt })),
                         ]}
-                      />
-                    ) : (
-                      <select
-                        value={draft.reasoning_effort ?? ''}
-                        onChange={(e) => update('reasoning_effort', e.target.value || null)}
-                        disabled={!capabilities.reasoning_effort.supported}
-                        title={disabledReason(capabilities.reasoning_effort.supported, capabilities.reasoning_effort.reason)}
-                        className={selectClassName}
-                      >
-                        <option value="">default</option>
-                        {effortChoices.map((opt) => (
-                          <option key={opt} value={opt}>{opt}</option>
-                        ))}
-                      </select>
-                    )}
+                      />}
                   </div>
                 )}
               </div>
             </section>
 
             {isFireworks ? (
-              <section className={cn(desktop ? 'desktop-settings-section' : 'premium-panel px-4 py-4')}>
-                <span className={cn(desktop ? 'desktop-settings-label' : 'premium-section-label')}>Fireworks</span>
+              <section className={cn('desktop-settings-section')}>
+                <span className={cn('desktop-settings-label')}>Fireworks</span>
                 <div className="mt-3 grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
-                    <div className={cn(desktop ? 'desktop-settings-field-label' : 'text-zinc-300')}>Control mode</div>
-                    {desktop ? (
-                      <DesktopTextOptionGroup
+                    <div className={cn('desktop-settings-field-label')}>Control mode</div>
+                    {<DesktopTextOptionGroup
                         ariaLabel="Fireworks control mode"
                         value={draft.fireworks_reasoning_mode}
                         onChange={(nextMode) => {
@@ -158,35 +139,13 @@ export function ReasoningSettingsDialog({
                           { value: 'effort', label: 'Effort' },
                           { value: 'thinking', label: 'Budget' },
                         ]}
-                      />
-                    ) : (
-                      <select
-                        value={draft.fireworks_reasoning_mode}
-                        onChange={(e) => {
-                          const nextMode = e.target.value as 'effort' | 'thinking';
-                          updateMany({
-                            fireworks_reasoning_mode: nextMode,
-                            fireworks_thinking_budget_tokens:
-                              nextMode === 'thinking'
-                                ? Math.max(draft.fireworks_thinking_budget_tokens ?? minFireworksThinkingBudget, minFireworksThinkingBudget)
-                                : null,
-                          });
-                        }}
-                        disabled={!capabilities.fireworks_reasoning_mode.supported}
-                        title={disabledReason(capabilities.fireworks_reasoning_mode.supported, capabilities.fireworks_reasoning_mode.reason)}
-                        className={selectClassName}
-                      >
-                        <option value="effort">effort-based</option>
-                        <option value="thinking">budget-based</option>
-                      </select>
-                    )}
+                      />}
                   </div>
 
                   {fireworksMode === 'effort' ? (
                     <div className="space-y-2">
-                      <div className={cn(desktop ? 'desktop-settings-field-label' : 'text-zinc-300')}>Thinking effort</div>
-                      {desktop ? (
-                        <DesktopTextOptionGroup
+                      <div className={cn('desktop-settings-field-label')}>Thinking effort</div>
+                      {<DesktopTextOptionGroup
                           ariaLabel="Thinking effort"
                           value={draft.reasoning_effort ?? ''}
                           onChange={(value) => update('reasoning_effort', value || null)}
@@ -194,25 +153,11 @@ export function ReasoningSettingsDialog({
                             { value: '', label: 'Default' },
                             ...effortChoices.map((opt) => ({ value: opt, label: opt })),
                           ]}
-                        />
-                      ) : (
-                        <select
-                          value={draft.reasoning_effort ?? ''}
-                          onChange={(e) => update('reasoning_effort', e.target.value || null)}
-                          disabled={!capabilities.reasoning_effort.supported}
-                          title={disabledReason(capabilities.reasoning_effort.supported, capabilities.reasoning_effort.reason)}
-                          className={selectClassName}
-                        >
-                          <option value="">default</option>
-                          {effortChoices.map((opt) => (
-                            <option key={opt} value={opt}>{opt}</option>
-                          ))}
-                        </select>
-                      )}
+                        />}
                     </div>
                   ) : (
                     <label className="space-y-2">
-                      <div className={cn(desktop ? 'desktop-settings-field-label' : 'text-zinc-300')}>Max thinking tokens</div>
+                      <div className={cn('desktop-settings-field-label')}>Max thinking tokens</div>
                       <input
                         type="number"
                         min={1024}
@@ -226,20 +171,19 @@ export function ReasoningSettingsDialog({
                     </label>
                   )}
                 </div>
-                <p className={cn(desktop ? 'desktop-settings-hint' : 'mt-3 text-[11px] leading-5 text-zinc-500')}>
+                <p className={cn('desktop-settings-hint')}>
                   {fireworksMode === 'effort'
                     ? 'Sends reasoning_effort only.'
                     : 'Sends thinking.budget_tokens only.'}
                 </p>
               </section>
             ) : showReasoningMaxTokens ? (
-              <section className={cn(desktop ? 'desktop-settings-section' : 'premium-panel px-4 py-4')}>
-                <span className={cn(desktop ? 'desktop-settings-label' : 'premium-section-label')}>OpenRouter</span>
+              <section className={cn('desktop-settings-section')}>
+                <span className={cn('desktop-settings-label')}>OpenRouter</span>
                 <div className="mt-3 grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
-                    <div className={cn(desktop ? 'desktop-settings-field-label' : 'text-zinc-300')}>Control mode</div>
-                    {desktop ? (
-                      <DesktopTextOptionGroup
+                    <div className={cn('desktop-settings-field-label')}>Control mode</div>
+                    {<DesktopTextOptionGroup
                         ariaLabel="OpenRouter control mode"
                         value={openRouterMode}
                         onChange={(value) => {
@@ -253,30 +197,13 @@ export function ReasoningSettingsDialog({
                           { value: 'effort', label: 'Effort' },
                           { value: 'budget', label: 'Budget' },
                         ]}
-                      />
-                    ) : (
-                      <select
-                        value={openRouterMode}
-                        onChange={(e) => {
-                          if (e.target.value === 'effort') {
-                            updateMany({ reasoning_max_tokens: null });
-                          } else {
-                            updateMany({ reasoning_max_tokens: draft.reasoning_max_tokens ?? 1024 });
-                          }
-                        }}
-                        className={selectClassName}
-                      >
-                        <option value="effort">effort-based</option>
-                        <option value="budget">budget-based</option>
-                      </select>
-                    )}
+                      />}
                   </div>
 
                   {openRouterMode === 'effort' ? (
                     <div className="space-y-2">
-                      <div className={cn(desktop ? 'desktop-settings-field-label' : 'text-zinc-300')}>Thinking effort</div>
-                      {desktop ? (
-                        <DesktopTextOptionGroup
+                      <div className={cn('desktop-settings-field-label')}>Thinking effort</div>
+                      {<DesktopTextOptionGroup
                           ariaLabel="Thinking effort"
                           value={draft.reasoning_effort ?? ''}
                           onChange={(value) => update('reasoning_effort', value || null)}
@@ -284,25 +211,11 @@ export function ReasoningSettingsDialog({
                             { value: '', label: 'Default' },
                             ...effortChoices.map((opt) => ({ value: opt, label: opt })),
                           ]}
-                        />
-                      ) : (
-                        <select
-                          value={draft.reasoning_effort ?? ''}
-                          onChange={(e) => update('reasoning_effort', e.target.value || null)}
-                          disabled={!capabilities.reasoning_effort.supported}
-                          title={disabledReason(capabilities.reasoning_effort.supported, capabilities.reasoning_effort.reason)}
-                          className={selectClassName}
-                        >
-                          <option value="">default</option>
-                          {effortChoices.map((opt) => (
-                            <option key={opt} value={opt}>{opt}</option>
-                          ))}
-                        </select>
-                      )}
+                        />}
                     </div>
                   ) : (
                     <label className="space-y-2">
-                      <div className={cn(desktop ? 'desktop-settings-field-label' : 'text-zinc-300')}>Max thinking tokens</div>
+                      <div className={cn('desktop-settings-field-label')}>Max thinking tokens</div>
                       <input
                         type="number"
                         min={1}
@@ -318,16 +231,16 @@ export function ReasoningSettingsDialog({
               </section>
             ) : (
               <section className={cn(
-                desktop ? 'desktop-settings-section desktop-settings-hint' : 'premium-panel px-4 py-3.5 text-[11px] leading-5 text-zinc-500'
+                'desktop-settings-section desktop-settings-hint'
               )}>
                 This provider has no separate max thinking token setting.
               </section>
             )}
 
-            <div className={cn(desktop ? 'desktop-settings-actions' : 'flex justify-end gap-2')}>
+            <div className={cn('desktop-settings-actions')}>
               <button
                 onClick={() => onOpenChange(false)}
-                className={cn(desktop ? 'desktop-settings-btn-ghost' : 'premium-subtle-button')}
+                className={cn('desktop-settings-btn-ghost')}
                 type="button"
               >
                 Cancel
@@ -335,7 +248,7 @@ export function ReasoningSettingsDialog({
               <button
                 onClick={onSave}
                 disabled={saving}
-                className={cn(desktop ? 'desktop-settings-btn-primary' : 'premium-primary-button')}
+                className={cn('desktop-settings-btn-primary')}
                 type="button"
               >
                 {saving ? 'Saving…' : 'Save'}
