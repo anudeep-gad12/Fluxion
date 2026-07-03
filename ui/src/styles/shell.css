@@ -1,92 +1,8 @@
-/* Desktop shell tokens — Linear luminance ladder + Fluxion cyan accent */
+/* ---------------------------------------------------------------------------
+ * Shell chrome — sidebar, titlebar, composer dock, terminal rail, drag regions.
+ * Tokens live in tokens.css. Scoped to [data-app='desktop'] (the desktop skin).
+ * ------------------------------------------------------------------------- */
 
-[data-app='desktop'] {
-  --titlebar-height: 44px;
-  /* macOS overlay titlebar: leave room for red/yellow/green controls */
-  --desktop-traffic-light-inset: 80px;
-  --desktop-dock-height: 132px;
-
-  --desktop-bg-0: #09090b;
-  --desktop-bg-1: #0c0c0e;
-  --desktop-bg-2: #141416;
-  --desktop-bg-3: #1c1c1f;
-
-  --desktop-border-subtle: rgb(var(--ui-white-rgb) / 0.05);
-  --desktop-border-strong: rgb(var(--ui-white-rgb) / 0.08);
-
-  --desktop-text-primary: #f4f4f5;
-  --desktop-text-secondary: #a1a1aa;
-  --desktop-text-tertiary: #71717a;
-
-  --desktop-accent: #79e6ff;
-  --desktop-accent-rgb: 121 230 255;
-  --desktop-accent-muted: rgb(var(--desktop-accent-rgb) / 0.12);
-  --desktop-hover: rgb(var(--ui-white-rgb) / 0.04);
-  --desktop-hover-strong: rgb(var(--ui-white-rgb) / 0.08);
-  --desktop-warning: #fbbf24;
-  --desktop-warning-text: #fde68a;
-  --desktop-danger: #f87171;
-  --desktop-danger-text: #fca5a5;
-  --desktop-success: #34d399;
-  --desktop-success-text: #a7f3d0;
-  --desktop-violet: #a78bfa;
-  --desktop-violet-text: #ddd6fe;
-
-  --fluxion-bg: var(--desktop-bg-0);
-  --fluxion-panel: var(--desktop-bg-2);
-  --fluxion-panel-strong: var(--desktop-bg-3);
-  --fluxion-elevated: var(--desktop-bg-3);
-  --fluxion-line: var(--desktop-border-subtle);
-  --fluxion-line-strong: var(--desktop-border-strong);
-  --fluxion-cyan: var(--desktop-accent);
-}
-
-[data-app='desktop'][data-theme='light'] {
-  --desktop-bg-0: #f2f1ed;
-  --desktop-bg-1: #f7f7f4;
-  --desktop-bg-2: #fdfcfa;
-  --desktop-bg-3: #ebeae5;
-
-  --desktop-border-subtle: rgba(38, 37, 30, 0.08);
-  --desktop-border-strong: rgba(38, 37, 30, 0.14);
-
-  --desktop-text-primary: #26251e;
-  --desktop-text-secondary: #5c594f;
-  --desktop-text-tertiary: #8a857a;
-
-  --desktop-accent: #087b94;
-  --desktop-accent-rgb: 8 123 148;
-  --desktop-accent-muted: rgba(8, 123, 148, 0.1);
-  --desktop-warning: #a16207;
-  --desktop-warning-text: #854d0e;
-  --desktop-danger: #b91c1c;
-  --desktop-danger-text: #991b1b;
-  --desktop-success: #168052;
-  --desktop-success-text: #166534;
-  --desktop-violet: #6d4e9c;
-  --desktop-violet-text: #5b3c87;
-
-  --fluxion-bg: var(--desktop-bg-0);
-  --fluxion-panel: var(--desktop-bg-2);
-  --fluxion-panel-strong: var(--desktop-bg-3);
-  --fluxion-elevated: var(--desktop-bg-2);
-  --fluxion-line: var(--desktop-border-subtle);
-  --fluxion-line-strong: var(--desktop-border-strong);
-  --fluxion-cyan: var(--desktop-accent);
-}
-
-[data-app='desktop'] body {
-  font-family:
-    -apple-system,
-    BlinkMacSystemFont,
-    'SF Pro Text',
-    'SF Pro Display',
-    system-ui,
-    sans-serif;
-  letter-spacing: -0.011em;
-  background: var(--desktop-bg-0);
-  background-image: none;
-}
 
 [data-app='desktop'][data-theme='light'] body {
   color: var(--desktop-text-primary);
@@ -941,4 +857,78 @@
   bottom: 0;
   left: 0;
   height: 6px;
+}
+
+/* --- Legacy .premium-* / markdown radius overrides (desktop restyle of the
+       web classes; single flat definition lands with the settings polish) --- */
+
+[data-app='desktop'] .premium-panel {
+  border-radius: 0.75rem;
+  background: var(--desktop-bg-2);
+  box-shadow: none;
+}
+
+[data-app='desktop'] .premium-section-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: var(--desktop-text-secondary);
+}
+
+[data-app='desktop'] .premium-chip,
+[data-app='desktop'] .premium-subtle-button,
+[data-app='desktop'] .premium-field,
+[data-app='desktop'] .premium-primary-button {
+  border-radius: 0.5rem;
+  font-family: inherit;
+  font-size: 0.8125rem;
+  letter-spacing: 0;
+  box-shadow: none;
+}
+
+[data-app='desktop'] .markdown pre,
+[data-app='desktop'] .markdown table {
+  border-radius: 0.5rem;
+}
+
+[data-app='desktop'] .markdown blockquote {
+  border-radius: 0 0.5rem 0.5rem 0;
+}
+
+[data-app='desktop'] .desktop-list-item {
+  border-radius: 0.5rem;
+  border: 1px solid transparent;
+  background: transparent;
+}
+
+[data-app='desktop'] .desktop-list-item:hover {
+  background: rgb(var(--ui-white-rgb) / 0.05);
+}
+
+/* Legacy web composer on desktop build (non-Tauri) */
+[data-app='desktop'] .desktop-send-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9999px;
+  background: var(--desktop-text-primary);
+  color: var(--desktop-bg-0);
+}
+
+[data-app='desktop'] .desktop-send-button-disabled {
+  background: #3f3f46;
+  color: #71717a;
+}
+
+[data-app='desktop'] .desktop-send-button-steer {
+  background: var(--desktop-warning);
+  color: var(--desktop-bg-0);
+}
+
+[data-app='desktop'] .desktop-send-button-stop {
+  background: rgb(var(--ui-danger-rgb) / 0.18);
+  color: var(--desktop-danger-text);
 }

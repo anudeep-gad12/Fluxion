@@ -8,7 +8,8 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        mono: ['"IBM Plex Mono"', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'monospace'],
+        sans: ['-apple-system', 'BlinkMacSystemFont', '"SF Pro Text"', '"SF Pro Display"', 'system-ui', 'sans-serif'],
+        mono: ['ui-monospace', '"SF Mono"', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'monospace'],
       },
       borderRadius: {
         lg: "var(--radius)",
@@ -16,6 +17,23 @@ export default {
         sm: "calc(var(--radius) - 4px)",
       },
       colors: {
+        // Semantic shortcuts onto the --desktop-* token set (preferred for new code)
+        surface: {
+          0: "var(--desktop-bg-0)",
+          1: "var(--desktop-bg-1)",
+          2: "var(--desktop-bg-2)",
+          3: "var(--desktop-bg-3)",
+        },
+        ink: {
+          hi: "var(--desktop-text-primary)",
+          mid: "var(--desktop-text-secondary)",
+          lo: "var(--desktop-text-tertiary)",
+        },
+        line: {
+          DEFAULT: "var(--desktop-border-subtle)",
+          strong: "var(--desktop-border-strong)",
+        },
+        accentc: "rgb(var(--desktop-accent-rgb) / <alpha-value>)",
         white: "rgb(var(--ui-white-rgb) / <alpha-value>)",
         zinc: {
           50: "rgb(var(--ui-zinc-50) / <alpha-value>)",

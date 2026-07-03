@@ -1,176 +1,8 @@
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700;800&display=swap');
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-@layer base {
-  :root {
-    color-scheme: dark;
-    --ui-white-rgb: 255 255 255;
-    --ui-zinc-50: 250 250 250;
-    --ui-zinc-100: 244 244 245;
-    --ui-zinc-200: 228 228 231;
-    --ui-zinc-300: 212 212 216;
-    --ui-zinc-400: 161 161 170;
-    --ui-zinc-500: 113 113 122;
-    --ui-zinc-600: 82 82 91;
-    --ui-zinc-700: 63 63 70;
-    --ui-zinc-800: 39 39 42;
-    --ui-zinc-900: 24 24 27;
-    --ui-zinc-950: 9 9 11;
-    --ui-cyan-50: 236 254 255;
-    --ui-cyan-100: 207 250 254;
-    --ui-cyan-200: 165 243 252;
-    --ui-cyan-300: 103 232 249;
-    --ui-cyan-400: 34 211 238;
-    --ui-cyan-500: 6 182 212;
-    --ui-red-100: 254 226 226;
-    --ui-red-200: 254 202 202;
-    --ui-red-300: 252 165 165;
-    --ui-red-400: 248 113 113;
-    --ui-red-500: 239 68 68;
-    --ui-amber-100: 254 243 199;
-    --ui-amber-200: 253 230 138;
-    --ui-amber-300: 252 211 77;
-    --ui-amber-400: 251 191 36;
-    --ui-amber-500: 245 158 11;
-    --ui-amber-600: 217 119 6;
-    --ui-emerald-100: 209 250 229;
-    --ui-emerald-200: 167 243 208;
-    --ui-emerald-300: 110 231 183;
-    --ui-emerald-400: 52 211 153;
-    --ui-emerald-500: 16 185 129;
-    --ui-emerald-600: 5 150 105;
-    --ui-violet-100: 237 233 254;
-    --ui-violet-200: 221 214 254;
-    --ui-violet-300: 196 181 253;
-    --ui-violet-400: 167 139 250;
-    --ui-violet-500: 139 92 246;
-    --ui-orange-100: 255 237 213;
-    --ui-orange-200: 254 215 170;
-    --ui-orange-300: 253 186 116;
-    --ui-orange-500: 249 115 22;
-    --ui-accent-rgb: 121 230 255;
-    --ui-warning-rgb: 251 191 36;
-    --ui-danger-rgb: 239 68 68;
-    --ui-success-rgb: 52 211 153;
-    --ui-violet-rgb: 167 139 250;
-    --background: 220 18% 3%;
-    --foreground: 0 0% 100%;
-    --card: 220 16% 7%;
-    --card-foreground: 0 0% 100%;
-    --popover: 220 15% 7%;
-    --popover-foreground: 0 0% 100%;
-    --primary: 194 100% 72%;
-    --primary-foreground: 220 18% 3%;
-    --secondary: 220 12% 11%;
-    --secondary-foreground: 222 18% 84%;
-    --muted: 220 10% 11%;
-    --muted-foreground: 222 9% 64%;
-    --accent: 196 45% 12%;
-    --accent-foreground: 0 0% 100%;
-    --destructive: 0 0% 60%;
-    --destructive-foreground: 0 0% 100%;
-    --border: 220 10% 20%;
-    --input: 220 10% 20%;
-    --ring: 194 100% 78%;
-    --radius: 1rem;
-    --fluxion-bg: #07080a;
-    --fluxion-panel: rgba(18, 20, 24, 0.72);
-    --fluxion-panel-strong: rgba(24, 27, 32, 0.9);
-    --fluxion-line: rgb(var(--ui-white-rgb) / 0.1);
-    --fluxion-line-strong: rgb(var(--ui-white-rgb) / 0.18);
-    --fluxion-text: #f5f7fb;
-    --fluxion-muted: #9ba0aa;
-    --fluxion-dim: #686d78;
-    --fluxion-cyan: #79e6ff;
-    --fluxion-green: #77e69b;
-    --fluxion-violet: #bda2ff;
-    --ease-ui: cubic-bezier(0.22, 1, 0.36, 1);
-    --duration-fast: 140ms;
-    --duration-ui: 220ms;
-    --duration-slow: 340ms;
-  }
-
-  html[data-app='desktop'][data-theme='light'] {
-    color-scheme: light;
-    --ui-white-rgb: 38 37 30;
-    --ui-zinc-50: 38 37 30;
-    --ui-zinc-100: 48 47 39;
-    --ui-zinc-200: 69 66 56;
-    --ui-zinc-300: 92 89 79;
-    --ui-zinc-400: 112 108 98;
-    --ui-zinc-500: 138 133 122;
-    --ui-zinc-600: 169 164 154;
-    --ui-zinc-700: 198 194 185;
-    --ui-zinc-800: 222 219 212;
-    --ui-zinc-900: 235 234 229;
-    --ui-zinc-950: 242 241 237;
-    --ui-cyan-50: 8 65 79;
-    --ui-cyan-100: 9 82 98;
-    --ui-cyan-200: 10 102 121;
-    --ui-cyan-300: 8 123 148;
-    --ui-cyan-400: 12 143 168;
-    --ui-cyan-500: 8 123 148;
-    --ui-red-100: 127 29 29;
-    --ui-red-200: 153 27 27;
-    --ui-red-300: 185 28 28;
-    --ui-red-400: 202 36 36;
-    --ui-red-500: 185 28 28;
-    --ui-amber-100: 113 63 18;
-    --ui-amber-200: 133 77 14;
-    --ui-amber-300: 161 98 7;
-    --ui-amber-400: 180 115 8;
-    --ui-amber-500: 161 98 7;
-    --ui-amber-600: 133 77 14;
-    --ui-emerald-100: 16 86 57;
-    --ui-emerald-200: 18 105 68;
-    --ui-emerald-300: 22 128 82;
-    --ui-emerald-400: 28 148 96;
-    --ui-emerald-500: 22 128 82;
-    --ui-emerald-600: 16 105 68;
-    --ui-violet-100: 82 55 125;
-    --ui-violet-200: 96 64 145;
-    --ui-violet-300: 109 78 156;
-    --ui-violet-400: 124 91 174;
-    --ui-violet-500: 109 78 156;
-    --ui-orange-100: 124 55 13;
-    --ui-orange-200: 154 67 12;
-    --ui-orange-300: 183 82 17;
-    --ui-orange-500: 183 82 17;
-    --ui-accent-rgb: 8 123 148;
-    --ui-warning-rgb: 161 98 7;
-    --ui-danger-rgb: 185 28 28;
-    --ui-success-rgb: 22 128 82;
-    --ui-violet-rgb: 109 78 156;
-    --background: 60 16% 96%;
-    --foreground: 52 12% 13%;
-    --card: 40 30% 99%;
-    --card-foreground: 52 12% 13%;
-    --popover: 40 30% 99%;
-    --popover-foreground: 52 12% 13%;
-    --primary: 191 90% 31%;
-    --primary-foreground: 60 16% 96%;
-    --secondary: 48 13% 91%;
-    --secondary-foreground: 52 12% 22%;
-    --muted: 48 13% 91%;
-    --muted-foreground: 42 7% 35%;
-    --accent: 191 42% 90%;
-    --accent-foreground: 52 12% 13%;
-    --destructive: 0 74% 42%;
-    --destructive-foreground: 60 16% 96%;
-    --border: 48 9% 82%;
-    --input: 48 9% 82%;
-    --ring: 191 90% 31%;
-    --fluxion-text: #26251e;
-    --fluxion-muted: #5c594f;
-    --fluxion-dim: #8a857a;
-    --fluxion-cyan: #087b94;
-    --fluxion-green: #168052;
-    --fluxion-violet: #6d4e9c;
-  }
-}
+/* Design tokens live in styles/tokens.css (imported before this file). */
 
 @layer base {
   * {
@@ -189,27 +21,23 @@
   }
 
   body {
-    @apply bg-background text-foreground antialiased;
-    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    @apply text-foreground antialiased;
+    font-family: var(--font-sans);
     text-rendering: optimizeLegibility;
-    font-feature-settings: "liga" 1, "calt" 1, "cv02" 1, "cv03" 1, "cv04" 1;
-    letter-spacing: -0.014em;
-    background:
-      radial-gradient(circle at 52% -16%, rgba(90, 126, 255, 0.16), transparent 34rem),
-      radial-gradient(circle at 86% 12%, rgb(var(--ui-accent-rgb) / 0.08), transparent 24rem),
-      linear-gradient(rgb(var(--ui-white-rgb) / 0.022) 1px, transparent 1px),
-      linear-gradient(90deg, rgb(var(--ui-white-rgb) / 0.022) 1px, transparent 1px),
-      var(--fluxion-bg);
-    background-size: auto, auto, 54px 54px, 54px 54px, auto;
+    letter-spacing: -0.011em;
+    background: var(--desktop-bg-0);
   }
 
   code,
   pre,
+  .font-mono {
+    font-family: var(--font-mono);
+  }
+
   textarea,
   input,
-  select,
-  .font-mono {
-    font-family: "IBM Plex Mono", "SFMono-Regular", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  select {
+    font-family: inherit;
   }
 }
 
@@ -577,13 +405,7 @@ textarea:focus {
 }
 
 .fluxion-app-bg {
-  background:
-    radial-gradient(circle at 52% -20%, rgba(90, 126, 255, 0.12), transparent 34rem),
-    radial-gradient(circle at 86% 12%, rgb(var(--ui-accent-rgb) / 0.06), transparent 24rem),
-    linear-gradient(rgb(var(--ui-white-rgb) / 0.018) 1px, transparent 1px),
-    linear-gradient(90deg, rgb(var(--ui-white-rgb) / 0.018) 1px, transparent 1px),
-    var(--fluxion-bg);
-  background-size: auto, auto, 54px 54px, 54px 54px, auto;
+  background: var(--desktop-bg-0);
 }
 
 .ui-transition {
@@ -692,94 +514,3 @@ textarea:focus {
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* -------------------------------------------------------------------------- */
-/* Desktop app (Tauri) — tokens + native shell                                 */
-/* -------------------------------------------------------------------------- */
-
-[data-app='desktop'] {
-  --radius: 0.75rem;
-  --sidebar-width-default: 260px;
-}
-
-[data-app='desktop'] code,
-[data-app='desktop'] pre,
-[data-app='desktop'] .font-mono {
-  font-family: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-}
-
-[data-app='desktop'] textarea,
-[data-app='desktop'] input,
-[data-app='desktop'] select {
-  font-family: inherit;
-}
-
-[data-app='desktop'] .premium-panel {
-  border-radius: 0.75rem;
-  background: var(--desktop-bg-2);
-  box-shadow: none;
-}
-
-[data-app='desktop'] .premium-section-label {
-  font-size: 0.75rem;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  text-transform: none;
-  color: var(--desktop-text-secondary);
-}
-
-[data-app='desktop'] .premium-chip,
-[data-app='desktop'] .premium-subtle-button,
-[data-app='desktop'] .premium-field,
-[data-app='desktop'] .premium-primary-button {
-  border-radius: 0.5rem;
-  font-family: inherit;
-  font-size: 0.8125rem;
-  letter-spacing: 0;
-  box-shadow: none;
-}
-
-[data-app='desktop'] .markdown pre,
-[data-app='desktop'] .markdown table {
-  border-radius: 0.5rem;
-}
-
-[data-app='desktop'] .markdown blockquote {
-  border-radius: 0 0.5rem 0.5rem 0;
-}
-
-[data-app='desktop'] .desktop-list-item {
-  border-radius: 0.5rem;
-  border: 1px solid transparent;
-  background: transparent;
-}
-
-[data-app='desktop'] .desktop-list-item:hover {
-  background: rgb(var(--ui-white-rgb) / 0.05);
-}
-
-/* Legacy web composer on desktop build (non-Tauri) */
-[data-app='desktop'] .desktop-send-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  border-radius: 9999px;
-  background: var(--desktop-text-primary);
-  color: var(--desktop-bg-0);
-}
-
-[data-app='desktop'] .desktop-send-button-disabled {
-  background: #3f3f46;
-  color: #71717a;
-}
-
-[data-app='desktop'] .desktop-send-button-steer {
-  background: #fbbf24;
-  color: #09090b;
-}
-
-[data-app='desktop'] .desktop-send-button-stop {
-  background: rgb(var(--ui-danger-rgb) / 0.18);
-  color: #fca5a5;
-}

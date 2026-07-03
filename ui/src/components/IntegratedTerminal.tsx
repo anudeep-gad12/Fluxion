@@ -22,7 +22,8 @@ const MAX_HEIGHT = 520;
 const MIN_WIDTH = 320;
 const MAX_WIDTH = 760;
 
-const TERMINAL_THEMES: Record<Theme, ITheme> = {
+/** Fallbacks if a --term-* token is missing (mirrors tokens.css). */
+const TERMINAL_THEME_FALLBACKS: Record<Theme, ITheme> = {
   dark: {
     background: '#0c0c0e',
     foreground: '#e4e4e7',
@@ -36,24 +37,46 @@ const TERMINAL_THEMES: Record<Theme, ITheme> = {
     cursor: '#26251e',
     cursorAccent: '#fdfcfa',
     selectionBackground: '#c8e2e7',
-    black: '#3a382f',
-    red: '#b91c1c',
-    green: '#168052',
-    yellow: '#a16207',
-    blue: '#276d8a',
-    magenta: '#6d4e9c',
-    cyan: '#087b94',
-    white: '#dedbd4',
-    brightBlack: '#706c62',
-    brightRed: '#dc2626',
-    brightGreen: '#188c5a',
-    brightYellow: '#b77908',
-    brightBlue: '#327f9e',
-    brightMagenta: '#815daf',
-    brightCyan: '#0c8fa8',
-    brightWhite: '#f7f7f4',
   },
 };
+
+const TERMINAL_TOKEN_KEYS: Array<[keyof ITheme, string]> = [
+  ['background', '--term-bg'],
+  ['foreground', '--term-fg'],
+  ['cursor', '--term-cursor'],
+  ['cursorAccent', '--term-cursor-accent'],
+  ['selectionBackground', '--term-selection'],
+  ['black', '--term-ansi-black'],
+  ['red', '--term-ansi-red'],
+  ['green', '--term-ansi-green'],
+  ['yellow', '--term-ansi-yellow'],
+  ['blue', '--term-ansi-blue'],
+  ['magenta', '--term-ansi-magenta'],
+  ['cyan', '--term-ansi-cyan'],
+  ['white', '--term-ansi-white'],
+  ['brightBlack', '--term-ansi-bright-black'],
+  ['brightRed', '--term-ansi-bright-red'],
+  ['brightGreen', '--term-ansi-bright-green'],
+  ['brightYellow', '--term-ansi-bright-yellow'],
+  ['brightBlue', '--term-ansi-bright-blue'],
+  ['brightMagenta', '--term-ansi-bright-magenta'],
+  ['brightCyan', '--term-ansi-bright-cyan'],
+  ['brightWhite', '--term-ansi-bright-white'],
+];
+
+/** Build the xterm theme from the --term-* CSS tokens (ANSI ramp only where defined). */
+function buildTerminalTheme(theme: Theme): ITheme {
+  const result: ITheme = { ...TERMINAL_THEME_FALLBACKS[theme] };
+  if (typeof window === 'undefined') return result;
+  const styles = getComputedStyle(document.documentElement);
+  for (const [key, token] of TERMINAL_TOKEN_KEYS) {
+    const value = styles.getPropertyValue(token).trim();
+    if (value) {
+      (result as Record<string, string>)[key] = value;
+    }
+  }
+  return result;
+}
 
 type TerminalDock = 'bottom' | 'right';
 
@@ -284,7 +307,7 @@ export function IntegratedTerminal({
       convertEol: false,
       fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
       fontSize: 12,
-      theme: TERMINAL_THEMES[themeRef.current],
+      theme: buildTerminalTheme(themeRef.current),
       scrollback: 5000,
     });
     const fitAddon = new FitAddon();
@@ -358,9 +381,15 @@ export function IntegratedTerminal({
 
   useEffect(() => {
     themeRef.current = theme;
-    if (terminalRef.current) {
-      terminalRef.current.options.theme = TERMINAL_THEMES[theme];
-    }
+    // Defer one frame: the ThemeProvider (parent) effect that flips
+    // data-theme on <html> runs after this child effect, and the xterm
+    // theme is built from the CSS custom properties it controls.
+    const raf = requestAnimationFrame(() => {
+      if (terminalRef.current) {
+        terminalRef.current.options.theme = buildTerminalTheme(theme);
+      }
+    });
+    return () => cancelAnimationFrame(raf);
   }, [theme]);
 
   useEffect(() => {
