@@ -49,7 +49,7 @@ export const ChatRunMessage = memo(function ChatRunMessage({
         'space-y-5',
         // Entrance animation only while live — virtualized remounts of
         // settled runs must not re-animate on scroll.
-        isRunning && 'animate-in fade-in slide-in-from-bottom-2 duration-200'
+        isRunning && 'ui-pop-in [--pop-offset:6px]'
       )}
     >
       <UserTurn run={run} />

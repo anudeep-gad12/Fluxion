@@ -81,7 +81,7 @@ export function Dialog({ open, onOpenChange, children, className }: DialogProps)
                 ref={surfaceRef}
                 tabIndex={-1}
                 className={cn(
-                    "ui-dialog-surface relative z-10 mx-4 w-full max-w-md overflow-hidden rounded-xl border border-[var(--desktop-border-strong)] bg-transparent shadow-[var(--shadow-dialog)] outline-none animate-in fade-in zoom-in-95 duration-200",
+                    "ui-dialog-surface relative z-10 mx-4 w-full max-w-md overflow-hidden rounded-xl border border-[var(--desktop-border-strong)] bg-transparent shadow-[var(--shadow-dialog)] outline-none ui-pop-in [--pop-offset:8px]",
                     className,
                 )}
             >

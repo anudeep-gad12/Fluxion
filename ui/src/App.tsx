@@ -251,7 +251,7 @@ function AppLayout() {
       <aside
         className={cn(
           'desktop-shell-left ui-panel relative flex flex-shrink-0 flex-col',
-          'transition-[width] duration-200 ease-in-out',
+          'transition-[width] duration-[var(--duration-ui)] ease-[var(--ease-ui)]',
           sidebarCollapsed && 'desktop-sidebar-collapsed overflow-hidden'
         )}
         style={{

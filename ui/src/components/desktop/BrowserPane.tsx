@@ -281,7 +281,7 @@ export function BrowserPane({
             value={address}
             onChange={(event) => setAddress(event.target.value)}
             placeholder="Search or enter URL"
-            className="desktop-browser-address h-7 w-full rounded-lg border border-[var(--desktop-border-strong)] bg-[var(--desktop-hover)] pl-8 pr-3 text-xs text-[var(--desktop-text-secondary)] outline-none transition-colors placeholder:text-[var(--desktop-text-tertiary)] focus:border-cyan-300/30 focus:bg-[var(--desktop-hover)]"
+            className="desktop-browser-address h-7 w-full rounded-lg border border-[var(--desktop-border-strong)] bg-[var(--desktop-hover)] pl-8 pr-3 text-xs text-[var(--desktop-text-secondary)] outline-none ui-transition placeholder:text-[var(--desktop-text-tertiary)] focus:border-cyan-300/30 focus:bg-[var(--desktop-hover)]"
           />
         </form>
       </div>

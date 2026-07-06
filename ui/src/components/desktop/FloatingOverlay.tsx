@@ -465,7 +465,7 @@ export function FloatingOverlay() {
       >
         <span className="truncate">{currentModelName}</span>
         <span className="floating-model-provider-name">{currentProviderName}</span>
-        <ChevronDown className={cn('h-3.5 w-3.5 shrink-0 transition-transform', modelPickerOpen && 'rotate-180')} />
+        <ChevronDown className={cn('h-3.5 w-3.5 shrink-0 ui-transition', modelPickerOpen && 'rotate-180')} />
       </button>
       {modelPickerOpen ? (
         <div className="floating-model-picker">

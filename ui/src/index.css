@@ -271,6 +271,11 @@ textarea {
   }
 }
 
+/* Entrance utility for TSX call sites; pair with [--pop-offset:Npx] */
+.ui-pop-in {
+  animation: ui-pop-in var(--duration-ui) var(--ease-ui);
+}
+
 /* The one streaming caret — sized here so every call site stays a bare span */
 .agent-caret {
   display: inline-block;
@@ -324,8 +329,8 @@ textarea {
 @media (prefers-reduced-motion: reduce) {
   .agent-caret,
   .tr-marker[data-tone='running'],
-  .animate-in,
   .animate-pulse,
+  .ui-pop-in,
   .desktop-theme-menu,
   .desktop-settings-popover,
   .desktop-mention-picker,

@@ -134,7 +134,7 @@ export function TerminalSessionRail({
         <button
           type="button"
           onClick={() => setMenuOpen(!menuOpen)}
-          className="desktop-no-drag flex h-6 items-center justify-center gap-0.5 rounded-md px-1.5 text-[var(--desktop-text-tertiary)] transition-colors hover:bg-[var(--desktop-hover)] hover:text-zinc-200"
+          className="desktop-no-drag flex h-6 items-center justify-center gap-0.5 rounded-md px-1.5 text-[var(--desktop-text-tertiary)] ui-transition hover:bg-[var(--desktop-hover)] hover:text-zinc-200"
           title="New panel tab"
           aria-label="New panel tab"
           aria-expanded={menuOpen}
