@@ -104,13 +104,13 @@ export function MentionPicker({
   }
 
   return (
-    <div className="ui-panel-strong ui-elevated absolute left-0 right-0 bottom-full z-[var(--z-popover)] mb-2 max-h-64 overflow-y-auto rounded-xl border border-white/10">
+    <div className="ui-panel-strong ui-elevated absolute left-0 right-0 bottom-full z-[var(--z-popover)] mb-2 max-h-64 overflow-y-auto rounded-xl border border-[var(--desktop-border-strong)]">
       {loading ? (
-        <div className="px-3 py-2 text-[11px] font-mono text-zinc-300">searching files...</div>
+        <div className="px-3 py-2 text-[11px] font-mono text-[var(--desktop-text-secondary)]">searching files...</div>
       ) : error ? (
         <div className="px-3 py-2 text-[11px] font-mono text-red-300">{error}</div>
       ) : entries.length === 0 ? (
-        <div className="px-3 py-2 text-[11px] font-mono text-zinc-500">no matching files</div>
+        <div className="px-3 py-2 text-[11px] font-mono text-[var(--desktop-text-tertiary)]">no matching files</div>
       ) : (
         entries.map((entry, index) => (
           <button
@@ -126,12 +126,12 @@ export function MentionPicker({
             className={cn(
               "ui-transition block w-full px-3 py-2.5 text-left font-mono text-[11px]",
               index === selectedIndex
-                ? "bg-cyan-300/[0.08] text-zinc-50"
-                : "text-zinc-300 hover:bg-white/[0.045] hover:text-cyan-100"
+                ? "bg-cyan-300/[0.08] text-[var(--desktop-text-primary)]"
+                : "text-[var(--desktop-text-secondary)] hover:bg-[var(--desktop-hover)] hover:text-cyan-100"
             )}
           >
             <div className="truncate">{entry.path}</div>
-            <div className="truncate text-[10px] text-zinc-500">{entry.name}</div>
+            <div className="truncate text-[10px] text-[var(--desktop-text-tertiary)]">{entry.name}</div>
           </button>
         ))
       )}

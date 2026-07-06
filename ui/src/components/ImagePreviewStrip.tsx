@@ -30,7 +30,7 @@ export function ImagePreviewStrip({
               type="button"
               onClick={() => setPreview(image)}
               className={cn(
-                'block overflow-hidden rounded-lg border border-white/10 bg-white/[0.04] hover:border-cyan-400/40',
+                'block overflow-hidden rounded-lg border border-[var(--desktop-border-strong)] bg-[var(--desktop-hover)] hover:border-cyan-400/40',
                 thumbnailClassName || 'h-16 w-16'
               )}
               title={image.name || `Image ${index + 1}`}
@@ -45,7 +45,7 @@ export function ImagePreviewStrip({
               <button
                 type="button"
                 onClick={() => onRemove(image.id)}
-                className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full border border-black/40 bg-zinc-950 text-zinc-300 opacity-90 hover:text-white"
+                className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full border border-black/40 bg-zinc-950 text-[var(--desktop-text-secondary)] opacity-90 hover:text-white"
                 title="Remove image"
               >
                 <X className="h-2.5 w-2.5" />
@@ -63,12 +63,12 @@ export function ImagePreviewStrip({
           onClick={() => setPreview(null)}
         >
           <div className="max-h-full max-w-5xl" onClick={(event) => event.stopPropagation()}>
-            <div className="mb-2 flex items-center justify-between gap-4 text-xs text-zinc-300">
+            <div className="mb-2 flex items-center justify-between gap-4 text-xs text-[var(--desktop-text-secondary)]">
               <span className="truncate">{preview.name}</span>
               <button
                 type="button"
                 onClick={() => setPreview(null)}
-                className="rounded-md border border-white/10 px-2 py-1 hover:bg-white/10"
+                className="rounded-md border border-[var(--desktop-border-strong)] px-2 py-1 hover:bg-[var(--desktop-hover-strong)]"
               >
                 close
               </button>
@@ -76,7 +76,7 @@ export function ImagePreviewStrip({
             <img
               src={preview.data_url}
               alt={preview.name || 'Image preview'}
-              className="max-h-[82vh] max-w-full rounded-xl border border-white/10 object-contain"
+              className="max-h-[82vh] max-w-full rounded-xl border border-[var(--desktop-border-strong)] object-contain"
             />
           </div>
         </div>

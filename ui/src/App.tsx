@@ -190,7 +190,7 @@ function AppLayout() {
                   variant="ghost"
                   size="icon"
                   onClick={() => handleSidebarToggle(true)}
-                  className="desktop-no-drag desktop-sidebar-toggle relative z-10 h-8 w-8 shrink-0 text-zinc-500"
+                  className="desktop-no-drag desktop-sidebar-toggle relative z-10 h-8 w-8 shrink-0 text-[var(--desktop-text-tertiary)]"
                   aria-label="Collapse sidebar"
                 >
                   <PanelLeftClose className="h-4 w-4" />
@@ -205,7 +205,7 @@ function AppLayout() {
                 variant="ghost"
                 size="icon"
                 onClick={() => handleSidebarToggle(false)}
-                className="desktop-no-drag desktop-sidebar-toggle relative z-10 h-8 w-8 shrink-0 text-zinc-500"
+                className="desktop-no-drag desktop-sidebar-toggle relative z-10 h-8 w-8 shrink-0 text-[var(--desktop-text-tertiary)]"
                 aria-label="Open sidebar"
               >
                 <PanelLeft className="h-4 w-4" />
@@ -225,7 +225,7 @@ function AppLayout() {
           onClick={() => void handleOpenWorkspacePicker()}
           className={cn(
             'h-8 w-full justify-start gap-2 rounded-lg px-2.5 text-[13px] font-normal',
-            'text-zinc-400 hover:bg-white/[0.05] hover:text-zinc-100'
+            'text-[var(--desktop-text-secondary)] hover:bg-[var(--desktop-hover)] hover:text-[var(--desktop-text-primary)]'
           )}
           title="Add a workspace folder"
         >
@@ -263,11 +263,11 @@ function AppLayout() {
         {sidebarContent}
         {!sidebarCollapsed && (
           <div
-            className="group absolute bottom-0 right-0 top-0 w-1 cursor-col-resize hover:bg-white/10"
+            className="group absolute bottom-0 right-0 top-0 w-1 cursor-col-resize hover:bg-[var(--desktop-hover-strong)]"
             onMouseDown={handleMouseDown}
           >
             <div className="absolute right-0 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100">
-              <GripVertical className="h-6 w-6 text-zinc-600" />
+              <GripVertical className="h-6 w-6 text-[var(--desktop-text-tertiary)]" />
             </div>
           </div>
         )}
@@ -293,7 +293,7 @@ function AppLayout() {
   );
 
   return (
-    <div className="fluxion-app-bg flex h-[100dvh] flex-col text-zinc-100">
+    <div className="fluxion-app-bg flex h-[100dvh] flex-col text-[var(--desktop-text-primary)]">
       {body}
       <DesktopWindowDragFrame />
     </div>
@@ -313,7 +313,7 @@ function App() {
         duration={4000}
         theme={theme}
         toastOptions={{
-          className: 'sonner-toast border border-white/10 bg-zinc-900 text-zinc-100',
+          className: 'sonner-toast border border-[var(--desktop-border-strong)] bg-zinc-900 text-[var(--desktop-text-primary)]',
         }}
       />
       {floating ? (

@@ -142,7 +142,7 @@ export function DesktopInputDock({
             <div className="flex shrink-0 items-center gap-2">
               {limitHint}
               {showCounter && (
-                <span className={cn(messageLength > maxLength * 0.9 && 'text-zinc-500')}>
+                <span className={cn(messageLength > maxLength * 0.9 && 'text-[var(--desktop-text-tertiary)]')}>
                   {messageLength.toLocaleString()} / {maxLength.toLocaleString()}
                 </span>
               )}

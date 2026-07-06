@@ -595,11 +595,11 @@ export function TerminalPanel({ agentModeActive }: TerminalPanelProps) {
       className="desktop-shell-right ui-panel relative flex flex-shrink-0 flex-col"
       style={{ width: panelWidth }}
     >
-      <DesktopTitlebar className="desktop-terminal-header flex h-[var(--titlebar-height)] items-center justify-between border-b border-white/[0.05] px-3">
+      <DesktopTitlebar className="desktop-terminal-header flex h-[var(--titlebar-height)] items-center justify-between border-b border-[var(--desktop-border-subtle)] px-3">
         <div className="desktop-titlebar-content min-w-0">
-          <div className="pointer-events-none text-xs font-medium text-zinc-400">{activeKind}</div>
+          <div className="pointer-events-none text-xs font-medium text-[var(--desktop-text-secondary)]">{activeKind}</div>
           {folderLabel ? (
-            <div className="pointer-events-none truncate text-[11px] text-zinc-600" title={workspacePath}>
+            <div className="pointer-events-none truncate text-[11px] text-[var(--desktop-text-tertiary)]" title={workspacePath}>
               {folderLabel}
             </div>
           ) : null}
@@ -608,7 +608,7 @@ export function TerminalPanel({ agentModeActive }: TerminalPanelProps) {
           variant="ghost"
           size="icon"
           onClick={handleToggleOpen}
-          className="desktop-no-drag relative z-10 h-8 w-8 text-zinc-500"
+          className="desktop-no-drag relative z-10 h-8 w-8 text-[var(--desktop-text-tertiary)]"
           aria-label="Collapse tools panel"
         >
           <PanelRightClose className="h-4 w-4" />
@@ -655,7 +655,7 @@ export function TerminalPanel({ agentModeActive }: TerminalPanelProps) {
                 />
               ))}
               {tabs.length === 0 ? (
-                <div className="flex h-full items-center justify-center px-4 text-center text-xs text-zinc-600">
+                <div className="flex h-full items-center justify-center px-4 text-center text-xs text-[var(--desktop-text-tertiary)]">
                   Use + to open a terminal or browser.
                 </div>
               ) : null}

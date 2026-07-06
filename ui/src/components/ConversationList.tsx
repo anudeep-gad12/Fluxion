@@ -114,7 +114,7 @@ function ConversationCard({
       className={cn(
         'desktop-list-item ui-transition group flex h-7 cursor-pointer items-center gap-2 rounded-md px-2',
         isSelected && 'desktop-list-item-selected',
-        isChecked && !isSelected && 'bg-white/[0.05]'
+        isChecked && !isSelected && 'bg-[var(--desktop-hover)]'
       )}
       onClick={isSelectMode ? onToggleCheck : onClick}
       onContextMenu={isSelectMode ? undefined : onContextMenu}
@@ -123,9 +123,9 @@ function ConversationCard({
       {isSelectMode && (
         <div className="shrink-0">
           {isChecked ? (
-            <CheckSquare className="h-4 w-4 text-zinc-400" />
+            <CheckSquare className="h-4 w-4 text-[var(--desktop-text-secondary)]" />
           ) : (
-            <Square className="h-4 w-4 text-zinc-500" />
+            <Square className="h-4 w-4 text-[var(--desktop-text-tertiary)]" />
           )}
         </div>
       )}
@@ -143,19 +143,19 @@ function ConversationCard({
       <span
         className={cn(
           'min-w-0 flex-1 truncate text-[13px] leading-5',
-          isSelected ? 'font-medium text-zinc-50' : 'text-zinc-300'
+          isSelected ? 'font-medium text-[var(--desktop-text-primary)]' : 'text-[var(--desktop-text-secondary)]'
         )}
       >
         {conversation.title ? truncate(conversation.title, 50) : 'New conversation'}
       </span>
       {pinned && (
-        <Pin className="h-3 w-3 shrink-0 fill-zinc-500 text-zinc-500" aria-label="Pinned" />
+        <Pin className="h-3 w-3 shrink-0 fill-zinc-500 text-[var(--desktop-text-tertiary)]" aria-label="Pinned" />
       )}
       {!isSelectMode && (
         <Button
           variant="ghost"
           size="icon"
-          className="h-6 w-6 shrink-0 rounded-md text-zinc-600 opacity-0 hover:bg-white/[0.06] hover:text-zinc-300 group-hover:opacity-100"
+          className="h-6 w-6 shrink-0 rounded-md text-[var(--desktop-text-tertiary)] opacity-0 hover:bg-[var(--desktop-hover)] hover:text-[var(--desktop-text-secondary)] group-hover:opacity-100"
           onClick={(e) => {
             e.stopPropagation();
             onDelete();
@@ -192,7 +192,7 @@ function WorkspaceSection({
         <button
           type="button"
           onClick={onToggle}
-          className="ui-transition flex h-5 w-5 shrink-0 items-center justify-center rounded text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-300"
+          className="ui-transition flex h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--desktop-text-tertiary)] hover:bg-[var(--desktop-hover)] hover:text-[var(--desktop-text-secondary)]"
           title={isOpen ? 'Collapse workspace' : 'Expand workspace'}
         >
           {isOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
@@ -202,19 +202,19 @@ function WorkspaceSection({
           ref={headerButtonRef}
           onClick={onToggle}
           onKeyDown={onHeaderKeyDown}
-          className="min-w-0 flex-1 truncate text-left text-[11px] font-medium tracking-[0.02em] text-zinc-500"
+          className="min-w-0 flex-1 truncate text-left text-[11px] font-medium tracking-[0.02em] text-[var(--desktop-text-tertiary)]"
           title={group.workspacePath || group.label}
         >
           {group.label}
         </button>
-        <span className="shrink-0 px-0.5 text-[11px] tabular-nums text-zinc-600">
+        <span className="shrink-0 px-0.5 text-[11px] tabular-nums text-[var(--desktop-text-tertiary)]">
           {group.conversations.length}
         </span>
         {!group.isGeneral && (
           <Button
             size="icon"
             variant="ghost"
-            className="h-5 w-5 shrink-0 rounded text-zinc-500 hover:text-zinc-300"
+            className="h-5 w-5 shrink-0 rounded text-[var(--desktop-text-tertiary)] hover:text-[var(--desktop-text-secondary)]"
             onClick={onNewConversation}
             title="New conversation in this workspace"
           >
@@ -541,16 +541,16 @@ export function ConversationList() {
 
   return (
     <div className="h-full flex flex-col">
-      <div className="border-b border-white/[0.06] px-2 py-1.5">
+      <div className="border-b border-[var(--desktop-border-subtle)] px-2 py-1.5">
         <div className="flex items-center justify-between gap-2">
-          <div className="px-1 text-[11px] font-medium uppercase tracking-[0.08em] text-zinc-500">Workspaces</div>
+          <div className="px-1 text-[11px] font-medium uppercase tracking-[0.08em] text-[var(--desktop-text-tertiary)]">Workspaces</div>
           <div className="flex items-center gap-0.5">
             <Button
               size="sm"
               variant="ghost"
               onClick={() => setAllWorkspaceSections(!allWorkspaceSectionsOpen)}
               disabled={workspaceGroups.length === 0}
-              className="h-7 w-7 rounded-md p-0 text-zinc-500 hover:bg-white/[0.055] hover:text-zinc-200"
+              className="h-7 w-7 rounded-md p-0 text-[var(--desktop-text-tertiary)] hover:bg-[var(--desktop-hover)] hover:text-zinc-200"
               title={allWorkspaceSectionsOpen ? 'Collapse all' : 'Expand all'}
             >
               {allWorkspaceSectionsOpen ? (
@@ -575,7 +575,7 @@ export function ConversationList() {
                   }
                 }}
                 title={selectedIds.size === visibleConversations.length ? 'Deselect all' : 'Select all'}
-                className="h-7 rounded-md px-2 text-zinc-300 hover:bg-white/[0.055] hover:text-zinc-100"
+                className="h-7 rounded-md px-2 text-[var(--desktop-text-secondary)] hover:bg-[var(--desktop-hover)] hover:text-[var(--desktop-text-primary)]"
               >
                 {selectedIds.size === visibleConversations.length ? 'None' : 'All'}
               </Button>
@@ -594,8 +594,8 @@ export function ConversationList() {
       </div>
 
       {isSelectMode && selectedIds.size > 0 && (
-        <div className="flex items-center justify-between border-b border-white/10 bg-white/[0.035] px-3 py-2 sm:px-4">
-          <span className="text-sm text-zinc-300">{selectedIds.size} selected</span>
+        <div className="flex items-center justify-between border-b border-[var(--desktop-border-strong)] bg-[var(--desktop-hover)] px-3 py-2 sm:px-4">
+          <span className="text-sm text-[var(--desktop-text-secondary)]">{selectedIds.size} selected</span>
           <Button
             size="sm"
             variant="destructive"
@@ -612,13 +612,13 @@ export function ConversationList() {
         {isLoading && visibleConversations.length === 0 ? (
           <div className="text-sm text-muted-foreground">Loading conversations...</div>
         ) : workspaceGroups.length === 0 ? (
-          <div className="space-y-3 rounded-xl border border-dashed border-white/14 bg-white/[0.025] px-4 py-6 text-sm text-zinc-300">
+          <div className="space-y-3 rounded-xl border border-dashed border-white/14 bg-[var(--desktop-hover)] px-4 py-6 text-sm text-[var(--desktop-text-secondary)]">
             <div>No workspaces yet.</div>
             <Button
               size="sm"
               variant="ghost"
               onClick={() => void openWorkspacePicker()}
-              className="h-8 rounded-lg px-2 text-zinc-400 hover:bg-white/[0.055] hover:text-zinc-100"
+              className="h-8 rounded-lg px-2 text-[var(--desktop-text-secondary)] hover:bg-[var(--desktop-hover)] hover:text-[var(--desktop-text-primary)]"
             >
               <Plus className="h-3.5 w-3.5" />
               Add workspace
@@ -671,13 +671,13 @@ export function ConversationList() {
 
       {contextMenu && (
         <div
-          className="fixed z-[var(--z-context)] w-52 rounded-xl border border-white/10 bg-zinc-950/98 p-1 shadow-2xl shadow-black/40 backdrop-blur"
+          className="fixed z-[var(--z-context)] w-52 rounded-xl border border-[var(--desktop-border-strong)] bg-[var(--desktop-panel-overlay)] p-1 shadow-[var(--shadow-menu)] backdrop-blur"
           style={{ left: contextMenu.x, top: contextMenu.y }}
           onClick={(event) => event.stopPropagation()}
         >
           <button
             type="button"
-            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-zinc-300 hover:bg-white/[0.06] hover:text-zinc-50"
+            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-[var(--desktop-text-secondary)] hover:bg-[var(--desktop-hover)] hover:text-[var(--desktop-text-primary)]"
             onClick={() => openRenameDialog(contextMenu.conversation)}
           >
             <Pencil className="h-3.5 w-3.5" />
@@ -685,7 +685,7 @@ export function ConversationList() {
           </button>
           <button
             type="button"
-            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-zinc-300 hover:bg-white/[0.06] hover:text-zinc-50"
+            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-[var(--desktop-text-secondary)] hover:bg-[var(--desktop-hover)] hover:text-[var(--desktop-text-primary)]"
             onClick={() => handleTogglePin(contextMenu.conversation)}
           >
             <Pin className="h-3.5 w-3.5" />
@@ -693,16 +693,16 @@ export function ConversationList() {
           </button>
           <button
             type="button"
-            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-zinc-300 hover:bg-white/[0.06] hover:text-zinc-50"
+            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-[var(--desktop-text-secondary)] hover:bg-[var(--desktop-hover)] hover:text-[var(--desktop-text-primary)]"
             onClick={() => handleCopySessionId(contextMenu.conversation)}
           >
             <Copy className="h-3.5 w-3.5" />
             Copy session-id
           </button>
-          <div className="my-1 border-t border-white/10" />
+          <div className="my-1 border-t border-[var(--desktop-border-strong)]" />
           <button
             type="button"
-            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-red-300 hover:bg-red-500/[0.10] hover:text-red-200"
+            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-red-300 hover:bg-[var(--desktop-danger-hover)] hover:text-red-200"
             onClick={() => handleDeleteClick(contextMenu.conversation.conversation_id)}
           >
             <Trash2 className="h-3.5 w-3.5" />
@@ -732,7 +732,7 @@ export function ConversationList() {
                 void handleRenameConversation();
               }
             }}
-            className="w-full rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-cyan-300/35"
+            className="w-full rounded-xl border border-[var(--desktop-border-strong)] bg-[var(--desktop-hover)] px-3 py-2 text-sm text-[var(--desktop-text-primary)] outline-none placeholder:text-[var(--desktop-text-tertiary)] focus:border-cyan-300/35"
             placeholder="Chat title"
           />
         </DialogContent>

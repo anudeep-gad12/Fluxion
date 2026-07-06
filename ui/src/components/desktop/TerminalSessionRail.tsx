@@ -92,7 +92,7 @@ export function TerminalSessionRail({
   }, [activeTabId]);
 
   return (
-    <div className="desktop-terminal-tabs flex h-10 shrink-0 items-center gap-1 border-b border-white/[0.06] bg-[var(--desktop-bg-0)] px-2">
+    <div className="desktop-terminal-tabs flex h-10 shrink-0 items-center gap-1 border-b border-[var(--desktop-border-subtle)] bg-[var(--desktop-bg-0)] px-2">
       <div
         ref={tabsScrollerRef}
         className="desktop-terminal-tabs-scroller min-w-0 flex-1 overflow-x-hidden overscroll-contain"
@@ -134,7 +134,7 @@ export function TerminalSessionRail({
         <button
           type="button"
           onClick={() => setMenuOpen(!menuOpen)}
-          className="desktop-no-drag flex h-6 items-center justify-center gap-0.5 rounded-md px-1.5 text-zinc-500 transition-colors hover:bg-white/[0.06] hover:text-zinc-200"
+          className="desktop-no-drag flex h-6 items-center justify-center gap-0.5 rounded-md px-1.5 text-[var(--desktop-text-tertiary)] transition-colors hover:bg-[var(--desktop-hover)] hover:text-zinc-200"
           title="New panel tab"
           aria-label="New panel tab"
           aria-expanded={menuOpen}
@@ -143,7 +143,7 @@ export function TerminalSessionRail({
           <ChevronDown className="h-3 w-3" />
         </button>
         {menuOpen ? (
-          <div className="desktop-tool-add-menu absolute right-0 top-8 z-[var(--z-menu)] w-36 overflow-hidden rounded-lg border border-white/[0.08] bg-[var(--desktop-bg-2)] p-1 shadow-xl shadow-black/35">
+          <div className="desktop-tool-add-menu absolute right-0 top-8 z-[var(--z-menu)] w-36 overflow-hidden rounded-lg border border-[var(--desktop-border-strong)] bg-[var(--desktop-bg-2)] p-1 shadow-[var(--shadow-menu)]">
             <button
               type="button"
               onClick={() => {
@@ -152,10 +152,10 @@ export function TerminalSessionRail({
               }}
               disabled={terminalAtLimit}
               className={cn(
-                'desktop-no-drag flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-zinc-300',
+                'desktop-no-drag flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-[var(--desktop-text-secondary)]',
                 terminalAtLimit
                   ? 'cursor-not-allowed opacity-40'
-                  : 'hover:bg-white/[0.06] hover:text-zinc-100'
+                  : 'hover:bg-[var(--desktop-hover)] hover:text-[var(--desktop-text-primary)]'
               )}
               title={terminalAtLimit ? `Maximum ${maxTerminals} terminals` : 'New terminal'}
             >
@@ -170,10 +170,10 @@ export function TerminalSessionRail({
               }}
               disabled={browserAtLimit}
               className={cn(
-                'desktop-no-drag flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-zinc-300',
+                'desktop-no-drag flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-[var(--desktop-text-secondary)]',
                 browserAtLimit
                   ? 'cursor-not-allowed opacity-40'
-                  : 'hover:bg-white/[0.06] hover:text-zinc-100'
+                  : 'hover:bg-[var(--desktop-hover)] hover:text-[var(--desktop-text-primary)]'
               )}
               title={browserAtLimit ? `Maximum ${maxBrowsers} browsers` : 'New browser'}
             >

@@ -2073,7 +2073,7 @@ export function ConversationView() {
     <p
       className={cn(
         'text-[11px]',
-        atLimit ? 'text-red-400/80' : usage.remaining <= 3 ? 'text-amber-400' : 'text-zinc-600'
+        atLimit ? 'text-red-400/80' : usage.remaining <= 3 ? 'text-amber-400' : 'text-[var(--desktop-text-tertiary)]'
       )}
     >
       {atLimit ? 'No messages left' : `${usage.remaining} messages left`}
@@ -2207,13 +2207,13 @@ export function ConversationView() {
           <div className="desktop-thread-column w-full">
             {isLoadingSelectedConversation && runs.length === 0 ? (
               <div className="flex min-h-[45vh] items-center justify-center">
-                <div className="flex items-center gap-3 rounded-full border border-white/[0.08] bg-white/[0.035] px-4 py-2 text-[13px] text-zinc-400">
+                <div className="flex items-center gap-3 rounded-full border border-[var(--desktop-border-strong)] bg-[var(--desktop-hover)] px-4 py-2 text-[13px] text-[var(--desktop-text-secondary)]">
                   <span className="h-2 w-2 animate-pulse rounded-full bg-cyan-300/80" />
                   Loading conversation…
                 </div>
               </div>
             ) : runs.length === 0 ? (
-              <div className="flex min-h-[45vh] items-center justify-center text-[13px] text-zinc-500">
+              <div className="flex min-h-[45vh] items-center justify-center text-[13px] text-[var(--desktop-text-tertiary)]">
                 No messages in this conversation.
               </div>
             ) : (

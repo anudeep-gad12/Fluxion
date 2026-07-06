@@ -553,8 +553,8 @@ export function IntegratedTerminal({
         isEmbedded
           ? 'h-full w-full'
           : isRightDock
-            ? 'h-full border-l border-white/[0.08]'
-            : 'flex-col border-t border-white/[0.08]'
+            ? 'h-full border-l border-[var(--desktop-border-strong)]'
+            : 'flex-col border-t border-[var(--desktop-border-strong)]'
       )}
       style={
         isEmbedded
@@ -566,21 +566,21 @@ export function IntegratedTerminal({
     >
       {!isEmbedded && isRightDock && (
         <div
-          className="ui-transition relative h-full w-2 cursor-col-resize bg-white/[0.025] hover:bg-white/[0.06]"
+          className="ui-transition relative h-full w-2 cursor-col-resize bg-[var(--desktop-hover)] hover:bg-[var(--desktop-hover-strong)]"
           onMouseDown={handleHorizontalResize}
         />
       )}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {!isEmbedded && !isRightDock && (
           <div
-            className="ui-transition h-1.5 cursor-row-resize bg-white/[0.025] hover:bg-white/[0.06]"
+            className="ui-transition h-1.5 cursor-row-resize bg-[var(--desktop-hover)] hover:bg-[var(--desktop-hover-strong)]"
             onMouseDown={handleVerticalResize}
           />
         )}
         <div
           className={cn(
-            'flex items-center justify-between gap-3 px-3 text-xs text-zinc-500',
-            isEmbedded ? 'h-8' : 'h-9 border-b border-white/[0.06]'
+            'flex items-center justify-between gap-3 px-3 text-xs text-[var(--desktop-text-tertiary)]',
+            isEmbedded ? 'h-8' : 'h-9 border-b border-[var(--desktop-border-subtle)]'
           )}
         >
           <div className="flex min-w-0 items-center gap-2">
@@ -601,14 +601,14 @@ export function IntegratedTerminal({
               <>
                 <button
                   onClick={() => handleDockToggle('bottom')}
-                  className={cn('ui-transition', terminalState.dock === 'bottom' ? 'text-cyan-100' : 'text-zinc-500 hover:text-zinc-200')}
+                  className={cn('ui-transition', terminalState.dock === 'bottom' ? 'text-cyan-100' : 'text-[var(--desktop-text-tertiary)] hover:text-zinc-200')}
                   type="button"
                 >
                   bottom
                 </button>
                 <button
                   onClick={() => handleDockToggle('right')}
-                  className={cn('ui-transition', terminalState.dock === 'right' ? 'text-cyan-100' : 'text-zinc-500 hover:text-zinc-200')}
+                  className={cn('ui-transition', terminalState.dock === 'right' ? 'text-cyan-100' : 'text-[var(--desktop-text-tertiary)] hover:text-zinc-200')}
                   type="button"
                 >
                   right

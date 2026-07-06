@@ -44,10 +44,10 @@ export function EmptyState({
       onMouseDown={handleMouseDown}
       className="desktop-thread-column desktop-empty-drag-surface flex flex-1 flex-col items-center justify-center px-6 py-12 text-center"
     >
-      <h1 className="text-[22px] font-semibold tracking-tight text-zinc-50">
+      <h1 className="text-[22px] font-semibold tracking-tight text-[var(--desktop-text-primary)]">
         {mode === 'agent' ? 'What should we build?' : 'How can I help?'}
       </h1>
-      <p className="mt-2 max-w-sm text-sm leading-relaxed text-zinc-500">
+      <p className="mt-2 max-w-sm text-sm leading-relaxed text-[var(--desktop-text-tertiary)]">
         {mode === 'agent'
           ? workspaceName
             ? `${workspaceName} · ${model}`
@@ -62,8 +62,8 @@ export function EmptyState({
             type="button"
             onClick={() => onSuggestionClick?.(suggestion)}
             className={cn(
-              'desktop-no-drag ui-transition rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3',
-              'text-left text-[13px] text-zinc-300 hover:border-white/10 hover:bg-white/[0.04] hover:text-zinc-100'
+              'desktop-no-drag ui-transition rounded-xl border border-[var(--desktop-border-subtle)] bg-[var(--desktop-hover)] px-4 py-3',
+              'text-left text-[13px] text-[var(--desktop-text-secondary)] hover:border-[var(--desktop-border-strong)] hover:bg-[var(--desktop-hover)] hover:text-[var(--desktop-text-primary)]'
             )}
           >
             {suggestion}

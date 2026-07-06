@@ -533,8 +533,8 @@ export function FloatingOverlay() {
         <header className="floating-overlay-header" data-tauri-drag-region>
           <div className="flex min-w-0 items-center gap-2">
             <span className="floating-overlay-dot" aria-hidden />
-            <span className="truncate text-[13px] font-medium text-zinc-300">Fluxion</span>
-            <span className="truncate text-[11px] text-zinc-600">{homeDir || 'Home'}</span>
+            <span className="truncate text-[13px] font-medium text-[var(--desktop-text-secondary)]">Fluxion</span>
+            <span className="truncate text-[11px] text-[var(--desktop-text-tertiary)]">{homeDir || 'Home'}</span>
           </div>
           <div className="desktop-no-drag flex items-center gap-1">
             <button

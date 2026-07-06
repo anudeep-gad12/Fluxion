@@ -237,7 +237,7 @@ export function BrowserPane({
 
   return (
     <div className={cn('flex h-full min-h-0 flex-col', !active && 'hidden')}>
-      <div className="desktop-browser-toolbar flex h-11 shrink-0 items-center gap-1 border-b border-white/[0.06] bg-[var(--desktop-bg-0)] px-2">
+      <div className="desktop-browser-toolbar flex h-11 shrink-0 items-center gap-1 border-b border-[var(--desktop-border-subtle)] bg-[var(--desktop-bg-0)] px-2">
         <button
           type="button"
           className="desktop-browser-nav-btn"
@@ -275,20 +275,20 @@ export function BrowserPane({
             navigate(address);
           }}
         >
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-600" />
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--desktop-text-tertiary)]" />
           <input
             ref={inputRef}
             value={address}
             onChange={(event) => setAddress(event.target.value)}
             placeholder="Search or enter URL"
-            className="desktop-browser-address h-7 w-full rounded-lg border border-white/[0.07] bg-white/[0.035] pl-8 pr-3 text-xs text-zinc-300 outline-none transition-colors placeholder:text-zinc-600 focus:border-cyan-300/30 focus:bg-white/[0.055]"
+            className="desktop-browser-address h-7 w-full rounded-lg border border-[var(--desktop-border-strong)] bg-[var(--desktop-hover)] pl-8 pr-3 text-xs text-[var(--desktop-text-secondary)] outline-none transition-colors placeholder:text-[var(--desktop-text-tertiary)] focus:border-cyan-300/30 focus:bg-[var(--desktop-hover)]"
           />
         </form>
       </div>
       <div className="relative min-h-0 flex-1 bg-[var(--desktop-bg-1)]">
         <div ref={viewportRef} className="absolute inset-0" />
         {!tab.url ? (
-          <div className="pointer-events-none absolute inset-0 flex items-start gap-2 px-5 py-5 text-xs text-zinc-600">
+          <div className="pointer-events-none absolute inset-0 flex items-start gap-2 px-5 py-5 text-xs text-[var(--desktop-text-tertiary)]">
             <Globe2 className="mt-0.5 h-4 w-4" />
             <span>Enter a URL or search above</span>
           </div>

@@ -17,7 +17,7 @@ export function DesktopSidebarBrand({ collapsed }: DesktopSidebarBrandProps) {
       <AppBrandIcon className="desktop-sidebar-brand-logo h-7 w-7" />
       <span
         className={cn(
-          'desktop-sidebar-brand-name pointer-events-none truncate text-[15px] font-semibold tracking-tight text-zinc-50',
+          'desktop-sidebar-brand-name pointer-events-none truncate text-[15px] font-semibold tracking-tight text-[var(--desktop-text-primary)]',
           collapsed && 'desktop-sidebar-brand-name-collapsed'
         )}
       >
