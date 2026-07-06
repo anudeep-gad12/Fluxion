@@ -13,12 +13,12 @@ const buttonVariants = cva(
         destructive:
           "border border-red-400/24 bg-red-500/12 text-red-100 hover:border-red-300/36 hover:bg-red-500/18",
         outline:
-          "border border-white/10 bg-white/[0.035] text-zinc-200 hover:border-cyan-300/28 hover:bg-cyan-300/[0.07] hover:text-cyan-50",
+          "border border-[var(--desktop-border-strong)] bg-[var(--desktop-hover)] text-zinc-200 hover:border-cyan-300/28 hover:bg-[var(--desktop-accent-hover)] hover:text-cyan-50",
         secondary:
-          "border border-white/10 bg-white/[0.045] text-zinc-200 hover:border-white/16 hover:bg-white/[0.075]",
-        ghost: "text-zinc-400 hover:bg-white/[0.055] hover:text-cyan-50",
+          "border border-[var(--desktop-border-strong)] bg-[var(--desktop-hover)] text-zinc-200 hover:border-white/16 hover:bg-[var(--desktop-hover-strong)]",
+        ghost: "text-[var(--desktop-text-secondary)] hover:bg-[var(--desktop-hover)] hover:text-cyan-50",
         desktop:
-          "border border-white/[0.08] bg-white/[0.04] font-medium text-zinc-200 hover:border-white/12 hover:bg-white/[0.07] hover:text-zinc-50",
+          "border border-[var(--desktop-border-strong)] bg-[var(--desktop-hover)] font-medium text-zinc-200 hover:border-white/[0.12] hover:bg-[var(--desktop-hover-strong)] hover:text-[var(--desktop-text-primary)]",
         link: "text-primary underline-offset-4 hover:underline",
       },
       size: {

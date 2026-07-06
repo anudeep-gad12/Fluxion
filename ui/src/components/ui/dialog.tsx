@@ -81,7 +81,7 @@ export function Dialog({ open, onOpenChange, children, className }: DialogProps)
                 ref={surfaceRef}
                 tabIndex={-1}
                 className={cn(
-                    "ui-dialog-surface relative z-10 mx-4 w-full max-w-md overflow-hidden rounded-xl border border-white/10 bg-transparent shadow-2xl shadow-black/40 outline-none animate-in fade-in zoom-in-95 duration-200",
+                    "ui-dialog-surface relative z-10 mx-4 w-full max-w-md overflow-hidden rounded-xl border border-[var(--desktop-border-strong)] bg-transparent shadow-[var(--shadow-dialog)] outline-none animate-in fade-in zoom-in-95 duration-200",
                     className,
                 )}
             >
@@ -113,7 +113,7 @@ export function DialogTitle({
     className?: string;
 }) {
     return (
-        <h2 className={cn("text-base font-bold tracking-[-0.02em] text-zinc-50", className)}>
+        <h2 className={cn("text-base font-bold tracking-[-0.02em] text-[var(--desktop-text-primary)]", className)}>
             {children}
         </h2>
     );
@@ -127,7 +127,7 @@ export function DialogDescription({
     className?: string;
 }) {
     return (
-        <p className={cn("mt-1.5 text-sm leading-6 text-zinc-500", className)}>
+        <p className={cn("mt-1.5 text-sm leading-6 text-[var(--desktop-text-tertiary)]", className)}>
             {children}
         </p>
     );
