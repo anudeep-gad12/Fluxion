@@ -28,6 +28,18 @@
 [data-app='desktop'] .desktop-shell-right {
   background: var(--desktop-bg-0);
   box-shadow: inset 1px 0 0 var(--desktop-border-subtle);
+  animation: desktop-panel-in var(--duration-ui) var(--ease-ui);
+}
+
+@keyframes desktop-panel-in {
+  from {
+    opacity: 0;
+    transform: translateX(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 [data-app='desktop'] .desktop-sidebar-header,
@@ -97,6 +109,9 @@
   background: var(--desktop-bg-2);
   padding: 4px;
   box-shadow: 0 14px 36px rgba(0, 0, 0, 0.22);
+  --pop-offset: -4px;
+  transform-origin: top;
+  animation: ui-pop-in var(--duration-fast) var(--ease-ui);
 }
 
 [data-app='desktop'] .desktop-theme-option {
@@ -112,6 +127,9 @@
   text-align: left;
   font-size: 12px;
   color: var(--desktop-text-secondary);
+  transition:
+    background var(--duration-fast) var(--ease-ui),
+    color var(--duration-fast) var(--ease-ui);
 }
 
 [data-app='desktop'] .desktop-theme-option:hover,
@@ -217,7 +235,7 @@
 }
 
 [data-app='desktop'] .desktop-terminal-tab:hover {
-  background: rgb(var(--ui-white-rgb) / 0.045);
+  background: var(--desktop-hover);
 }
 
 [data-app='desktop'] .desktop-terminal-tab.is-active {
@@ -266,7 +284,7 @@
 }
 
 [data-app='desktop'] .desktop-terminal-tab-close:hover {
-  background: rgb(var(--ui-white-rgb) / 0.08);
+  background: var(--desktop-hover-strong);
   color: var(--desktop-text-primary);
 }
 
@@ -285,7 +303,7 @@
 }
 
 [data-app='desktop'] .desktop-browser-nav-btn:hover:not(:disabled) {
-  background: rgb(var(--ui-white-rgb) / 0.06);
+  background: var(--desktop-hover);
   color: var(--desktop-text-primary);
 }
 
@@ -405,7 +423,7 @@
 }
 
 [data-app='desktop'] .desktop-model-trigger:hover {
-  background: rgb(var(--ui-white-rgb) / 0.04);
+  background: var(--desktop-hover);
   color: var(--desktop-text-primary);
 }
 
@@ -452,12 +470,12 @@
   font-size: 11px;
   line-height: 1.2;
   color: var(--desktop-text-secondary);
-  background: rgb(var(--ui-white-rgb) / 0.05);
+  background: var(--desktop-hover);
   transition: background var(--duration-fast) var(--ease-ui), color var(--duration-fast) var(--ease-ui);
 }
 
 [data-app='desktop'] .desktop-chip:hover {
-  background: rgb(var(--ui-white-rgb) / 0.08);
+  background: var(--desktop-hover-strong);
   color: var(--desktop-text-primary);
 }
 
@@ -514,7 +532,7 @@
 
 [data-app='desktop'] .desktop-mode-switch-option:hover {
   color: var(--desktop-text-secondary);
-  background: rgb(var(--ui-white-rgb) / 0.04);
+  background: var(--desktop-hover);
 }
 
 [data-app='desktop'] .desktop-mode-switch-option[data-active='true'] {
@@ -534,12 +552,19 @@
   flex-shrink: 0;
   border-radius: var(--radius-sm);
   color: var(--desktop-text-secondary);
-  transition: background var(--duration-fast) var(--ease-ui), color var(--duration-fast) var(--ease-ui);
+  transition:
+    background var(--duration-fast) var(--ease-ui),
+    color var(--duration-fast) var(--ease-ui),
+    transform var(--duration-fast) var(--ease-ui);
 }
 
 [data-app='desktop'] .desktop-icon-btn:hover {
-  background: rgb(var(--ui-white-rgb) / 0.06);
+  background: var(--desktop-hover);
   color: var(--desktop-text-primary);
+}
+
+[data-app='desktop'] .desktop-icon-btn:active {
+  transform: scale(0.94);
 }
 
 [data-app='desktop'] .desktop-icon-btn[data-active='true'] {
@@ -559,11 +584,16 @@
   color: var(--desktop-bg-1);
   transition:
     background var(--duration-fast) var(--ease-ui),
-    opacity var(--duration-fast) var(--ease-ui);
+    opacity var(--duration-fast) var(--ease-ui),
+    transform var(--duration-fast) var(--ease-ui);
 }
 
 [data-app='desktop'] .desktop-send-btn:hover:not(:disabled) {
-  background: var(--desktop-text-primary);
+  opacity: 0.88;
+}
+
+[data-app='desktop'] .desktop-send-btn:active:not(:disabled) {
+  transform: scale(0.92);
 }
 
 [data-app='desktop'] .desktop-send-btn-disabled,
@@ -583,7 +613,7 @@
 }
 
 [data-app='desktop'] .desktop-list-item-selected {
-  background: rgb(var(--ui-white-rgb) / 0.06);
+  background: var(--desktop-hover-strong);
   border-color: transparent;
   box-shadow: none;
   color: var(--desktop-text-primary);
@@ -657,12 +687,19 @@
   border-radius: var(--radius-sm);
   color: var(--desktop-text-secondary);
   background: transparent;
-  transition: background var(--duration-fast) var(--ease-ui), color var(--duration-fast) var(--ease-ui);
+  transition:
+    background var(--duration-fast) var(--ease-ui),
+    color var(--duration-fast) var(--ease-ui),
+    transform var(--duration-fast) var(--ease-ui);
 }
 
 [data-app='desktop'] .desktop-icon-control:hover {
-  background: rgb(var(--ui-white-rgb) / 0.06);
+  background: var(--desktop-hover);
   color: var(--desktop-text-primary);
+}
+
+[data-app='desktop'] .desktop-icon-control:active {
+  transform: scale(0.94);
 }
 
 [data-app='desktop'] .desktop-icon-control[data-active='true'] {
@@ -727,10 +764,13 @@
   border-radius: var(--radius-md);
   border: 1px solid transparent;
   background: transparent;
+  transition:
+    background var(--duration-fast) var(--ease-ui),
+    color var(--duration-fast) var(--ease-ui);
 }
 
 [data-app='desktop'] .desktop-list-item:hover {
-  background: rgb(var(--ui-white-rgb) / 0.05);
+  background: var(--desktop-hover);
 }
 
 

@@ -549,7 +549,7 @@ export function IntegratedTerminal({
   return (
     <div
       className={cn(
-        'flex min-h-0 flex-shrink-0 overflow-hidden bg-[var(--desktop-bg-2)]',
+        'flex min-h-0 flex-shrink-0 overflow-hidden bg-[var(--term-bg)]',
         isEmbedded
           ? 'h-full w-full'
           : isRightDock
@@ -579,8 +579,8 @@ export function IntegratedTerminal({
         )}
         <div
           className={cn(
-            'flex items-center justify-between gap-3 border-b border-white/[0.06] px-3 text-xs text-zinc-500',
-            isEmbedded ? 'h-8' : 'h-9'
+            'flex items-center justify-between gap-3 px-3 text-xs text-zinc-500',
+            isEmbedded ? 'h-8' : 'h-9 border-b border-white/[0.06]'
           )}
         >
           <div className="flex min-w-0 items-center gap-2">
@@ -640,7 +640,7 @@ export function IntegratedTerminal({
             ) : null}
           </div>
         </div>
-        <div className="min-h-0 min-w-0 flex-1 bg-[var(--desktop-bg-2)]">
+        <div className="min-h-0 min-w-0 flex-1 bg-[var(--term-bg)]">
           <div
             ref={containerRef}
             className="h-full min-w-0 w-full px-3 py-2"

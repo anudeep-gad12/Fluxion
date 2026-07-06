@@ -266,6 +266,20 @@ textarea:focus {
   46%, 100% { opacity: 0.2; }
 }
 
+/* One entrance for every transient surface (menus, popovers, pickers).
+ * --pop-offset points from the trigger toward the surface's resting spot:
+ * negative = drops down from a trigger above, positive = rises from below. */
+@keyframes ui-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(var(--pop-offset, 4px)) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 /* The one streaming caret — sized here so every call site stays a bare span */
 .agent-caret {
   display: inline-block;
@@ -306,15 +320,25 @@ textarea:focus {
     transform var(--duration-ui) var(--ease-ui);
 }
 
+/* Single focus ring for the whole app — same token the bespoke desktop-* and
+ * tr-* controls use, so keyboard focus looks identical everywhere. */
 .ui-focus-ring {
-  @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200/60 focus-visible:ring-offset-0;
+  @apply focus-visible:outline-none;
+}
+
+.ui-focus-ring:focus-visible {
+  box-shadow: var(--focus-ring);
 }
 
 @media (prefers-reduced-motion: reduce) {
   .agent-caret,
   .tr-marker[data-tone='running'],
   .animate-in,
-  .animate-pulse {
+  .animate-pulse,
+  .desktop-theme-menu,
+  .desktop-settings-popover,
+  .desktop-mention-picker,
+  .desktop-shell-right {
     animation: none !important;
   }
 }

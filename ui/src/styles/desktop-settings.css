@@ -25,6 +25,9 @@
   background: var(--desktop-bg-1);
   padding: 14px;
   box-shadow: var(--shadow-menu);
+  --pop-offset: 4px;
+  transform-origin: bottom;
+  animation: ui-pop-in var(--duration-fast) var(--ease-ui);
 }
 
 /* @ file mention popover — same surface + list accent as model/reasoning dialogs */
@@ -34,6 +37,9 @@
   background: var(--desktop-bg-1);
   padding: 6px;
   box-shadow: var(--shadow-menu);
+  --pop-offset: 4px;
+  transform-origin: bottom;
+  animation: ui-pop-in var(--duration-fast) var(--ease-ui);
 }
 
 [data-app='desktop'] .desktop-mention-picker .desktop-mention-picker-list {
@@ -144,7 +150,7 @@
 }
 
 [data-app='desktop'] .desktop-settings-list-item:hover:not(:disabled) {
-  background: rgb(var(--ui-white-rgb) / 0.05);
+  background: var(--desktop-hover);
 }
 
 [data-app='desktop'] .desktop-settings-list-item[data-active='true'] {
@@ -200,7 +206,7 @@
 
 [data-app='desktop'] .desktop-settings-btn-ghost:hover:not(:disabled) {
   color: var(--desktop-text-primary);
-  background: rgb(var(--ui-white-rgb) / 0.04);
+  background: var(--desktop-hover);
 }
 
 [data-app='desktop'] .desktop-settings-btn-primary {
@@ -311,10 +317,13 @@
   text-align: left;
   font-size: 12px;
   color: var(--desktop-text-secondary);
+  transition:
+    background var(--duration-fast) var(--ease-ui),
+    color var(--duration-fast) var(--ease-ui);
 }
 
 [data-app='desktop'] .desktop-model-provider-tab:hover {
-  background: rgb(var(--ui-white-rgb) / 0.045);
+  background: var(--desktop-hover);
   color: var(--desktop-text-primary);
 }
 

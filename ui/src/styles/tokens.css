@@ -48,7 +48,7 @@
   --desktop-accent: #79e6ff;
   --desktop-accent-rgb: 121 230 255;
   --desktop-accent-muted: rgb(var(--desktop-accent-rgb) / 0.12);
-  --desktop-hover: rgb(var(--ui-white-rgb) / 0.04);
+  --desktop-hover: rgb(var(--ui-white-rgb) / 0.05);
   --desktop-hover-strong: rgb(var(--ui-white-rgb) / 0.08);
   --desktop-warning: #fbbf24;
   --desktop-warning-text: #fde68a;

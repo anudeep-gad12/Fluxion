@@ -72,7 +72,7 @@ export const AgentRunMessage = memo(function AgentRunMessage({
 
       <div className="desktop-run group/msg">
         <div className="min-w-0 flex-1">
-          <div className="desktop-run-stream space-y-4">
+          <div className="desktop-run-stream space-y-4" data-live={isRunning ? 'true' : undefined}>
             {agentState && <AgentTranscript agentState={agentState} />}
 
             {finalAnswer ? (

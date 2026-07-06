@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
-import { GripVertical, PanelRightClose } from 'lucide-react';
+import { PanelRightClose } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { IntegratedTerminal } from '@/components/IntegratedTerminal';
@@ -593,7 +593,7 @@ export function TerminalPanel({ agentModeActive }: TerminalPanelProps) {
     <aside
       ref={panelRef}
       className="desktop-shell-right ui-panel relative flex flex-shrink-0 flex-col"
-      style={{ width: panelWidth, paddingLeft: RESIZE_GUTTER_WIDTH }}
+      style={{ width: panelWidth }}
     >
       <DesktopTitlebar className="desktop-terminal-header flex h-[var(--titlebar-height)] items-center justify-between border-b border-white/[0.05] px-3">
         <div className="desktop-titlebar-content min-w-0">
@@ -664,13 +664,11 @@ export function TerminalPanel({ agentModeActive }: TerminalPanelProps) {
         ) : null}
       </div>
       <div
-        className="group absolute bottom-0 left-0 top-0 z-20 cursor-col-resize touch-none hover:bg-white/10"
+        className="group absolute bottom-0 left-0 top-0 z-20 cursor-col-resize touch-none"
         style={{ width: RESIZE_GUTTER_WIDTH }}
         onPointerDown={handlePointerDown}
       >
-        <div className="absolute left-0 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100">
-          <GripVertical className="h-6 w-6 text-zinc-600" />
-        </div>
+        <div className="ui-transition absolute bottom-0 left-0 top-0 w-[2px] bg-transparent group-hover:bg-[var(--desktop-border-strong)]" />
       </div>
     </aside>
   );
