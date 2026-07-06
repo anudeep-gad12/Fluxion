@@ -104,10 +104,10 @@ export const AgentRunMessage = memo(function AgentRunMessage({
             <RunFooter
               pillClassName={cn(
                 'desktop-run-meta-pill rounded-full border border-zinc-900/90 bg-transparent px-2.5 py-1',
-                phase?.accentClassName || 'text-zinc-300',
+                phase?.accentClassName || 'text-[var(--desktop-text-secondary)]',
                 run.status === 'failed' && 'border-red-500/15 text-red-400/85',
                 run.status === 'cancelled' && 'border-amber-500/15 text-amber-300/85',
-                run.status === 'interrupted' && 'border-orange-500/15 text-orange-300/85'
+                run.status === 'interrupted' && 'border-[var(--desktop-interrupt-border)] text-[var(--desktop-interrupt)]'
               )}
               dataStatus={metaStatus}
               statusLabel={phase?.label || (run.status === 'succeeded' ? 'done' : run.status === 'cancelled' ? 'stopped' : run.status)}

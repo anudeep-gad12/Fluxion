@@ -48,8 +48,8 @@ export function ScrollToBottom({ scrollRef, isStreaming, className }: ScrollToBo
     <button
       onClick={scrollToBottom}
       className={cn(
-        'ui-transition ui-focus-ring fixed z-30 rounded-full border border-cyan-500/28 bg-zinc-950/94 px-3.5 py-2 text-[11px] font-mono text-cyan-100 backdrop-blur-sm',
-        'hover:border-cyan-400/40 hover:bg-cyan-500/[0.08] animate-in fade-in slide-in-from-bottom-2 duration-200',
+        'ui-transition ui-focus-ring fixed z-30 rounded-full border border-cyan-500/28 bg-[var(--desktop-panel-overlay)] px-3.5 py-2 text-[11px] font-mono text-cyan-100 backdrop-blur-sm',
+        'hover:border-cyan-400/40 hover:bg-[var(--desktop-accent-hover)] animate-in fade-in slide-in-from-bottom-2 duration-200',
         'shadow-[var(--shadow-menu)]',
         className,
       )}

@@ -213,15 +213,15 @@ function SyntaxCodeBlock({
   }, [code]);
 
   return (
-    <div className="group relative my-5 overflow-hidden rounded-lg border border-zinc-800/90 bg-zinc-950/88">
+    <div className="group relative my-5 overflow-hidden rounded-lg border border-zinc-800/90 bg-[var(--desktop-panel-overlay)]">
       {/* Language label + copy button */}
-      <div className="flex items-center justify-between border-b border-zinc-800/90 bg-zinc-900/88 px-3.5 py-2">
-        <span className="text-[10px] font-mono uppercase tracking-[0.16em] text-zinc-500">
+      <div className="flex items-center justify-between border-b border-zinc-800/90 bg-[var(--desktop-bg-3)] px-3.5 py-2">
+        <span className="text-[10px] font-mono uppercase tracking-[0.16em] text-[var(--desktop-text-tertiary)]">
           {language || 'text'}
         </span>
         <button
           onClick={handleCopy}
-          className="ui-transition text-[10px] font-mono uppercase tracking-[0.16em] text-zinc-500 hover:text-cyan-100"
+          className="ui-transition text-[10px] font-mono uppercase tracking-[0.16em] text-[var(--desktop-text-tertiary)] hover:text-cyan-100"
           title="Copy code"
         >
           {copied ? (
@@ -258,12 +258,12 @@ function PlainCodeBlock({ children }: { children: React.ReactNode }) {
   }, [children]);
 
   return (
-    <div className="group relative my-5 overflow-hidden rounded-lg border border-zinc-800/90 bg-zinc-950/88">
-      <div className="flex items-center justify-between border-b border-zinc-800/90 bg-zinc-900/88 px-3.5 py-2">
-        <span className="text-[10px] font-mono uppercase tracking-[0.16em] text-zinc-500">text</span>
+    <div className="group relative my-5 overflow-hidden rounded-lg border border-zinc-800/90 bg-[var(--desktop-panel-overlay)]">
+      <div className="flex items-center justify-between border-b border-zinc-800/90 bg-[var(--desktop-bg-3)] px-3.5 py-2">
+        <span className="text-[10px] font-mono uppercase tracking-[0.16em] text-[var(--desktop-text-tertiary)]">text</span>
         <button
           onClick={handleCopy}
-          className="ui-transition text-[10px] font-mono uppercase tracking-[0.16em] text-zinc-500 hover:text-cyan-100"
+          className="ui-transition text-[10px] font-mono uppercase tracking-[0.16em] text-[var(--desktop-text-tertiary)] hover:text-cyan-100"
           title="Copy code"
         >
           {copied ? (
@@ -275,7 +275,7 @@ function PlainCodeBlock({ children }: { children: React.ReactNode }) {
           )}
         </button>
       </div>
-      <pre className="overflow-x-auto rounded-b-lg bg-zinc-950 px-4 py-3.5 text-xs leading-7 text-zinc-100">
+      <pre className="overflow-x-auto rounded-b-lg bg-zinc-950 px-4 py-3.5 text-xs leading-7 text-[var(--desktop-text-primary)]">
         {children}
       </pre>
     </div>
@@ -311,7 +311,7 @@ export function AnswerMarkdown({ content }: { content: string }) {
 
             if (isInline) {
               return (
-                <code className="rounded-md border border-zinc-800/90 bg-zinc-950/90 px-1.5 py-0.5 text-xs text-zinc-200" {...props}>
+                <code className="rounded-md border border-zinc-800/90 bg-[var(--desktop-panel-overlay)] px-1.5 py-0.5 text-xs text-zinc-200" {...props}>
                   {children}
                 </code>
               );

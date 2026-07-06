@@ -96,20 +96,20 @@ export const ChatRunMessage = memo(function ChatRunMessage({
                 )}
               </div>
             ) : !isThinking ? (
-              <div className="text-sm text-zinc-300">No response.</div>
+              <div className="text-sm text-[var(--desktop-text-secondary)]">No response.</div>
             ) : null}
           </div>
 
           <RunFooter
             pillClassName={cn(
-              'desktop-run-meta-pill rounded-full border border-zinc-800/85 bg-zinc-950/72 px-2.5 py-1',
+              'desktop-run-meta-pill rounded-full border border-zinc-800/85 bg-[var(--desktop-panel-inset)] px-2.5 py-1',
               run.status === 'succeeded'
                 ? 'text-emerald-300'
                 : run.status === 'failed'
                   ? 'border-red-500/15 text-red-400/85'
                   : run.status === 'interrupted'
-                    ? 'border-orange-500/15 text-orange-300/85'
-                  : 'text-zinc-400'
+                    ? 'border-[var(--desktop-interrupt-border)] text-[var(--desktop-interrupt)]'
+                  : 'text-[var(--desktop-text-secondary)]'
             )}
             dataStatus={run.status}
             statusLabel={formatRunStatusLabel(run)}

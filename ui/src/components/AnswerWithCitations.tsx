@@ -122,7 +122,7 @@ function CitationsList({ citations }: { citations: AgentCitation[] }) {
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <div>
           <div className="premium-section-label">sources</div>
-          <p className="mt-1 text-xs leading-5 text-zinc-500">
+          <p className="mt-1 text-xs leading-5 text-[var(--desktop-text-tertiary)]">
             {citations.length} reference{citations.length !== 1 ? 's' : ''}
           </p>
         </div>
@@ -147,22 +147,22 @@ function CitationsList({ citations }: { citations: AgentCitation[] }) {
               href={citation.source_url}
               target="_blank"
               rel="noopener noreferrer"
-              className="ui-transition group flex gap-3 border-t border-zinc-900/90 px-1 py-3 first:border-t-0 hover:border-cyan-500/14 hover:bg-cyan-500/[0.02]"
+              className="ui-transition group flex gap-3 border-t border-zinc-900/90 px-1 py-3 first:border-t-0 hover:border-cyan-500/14 hover:bg-[var(--desktop-accent-hover)]"
             >
-              <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full border border-zinc-900/90 bg-transparent font-mono text-[10px] text-zinc-300 group-hover:border-cyan-500/20 group-hover:text-cyan-100">
+              <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full border border-zinc-900/90 bg-transparent font-mono text-[10px] text-[var(--desktop-text-secondary)] group-hover:border-cyan-500/20 group-hover:text-cyan-100">
                 {index + 1}
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                  <span className="line-clamp-1 text-[13px] font-medium leading-5 text-zinc-100">
+                  <span className="line-clamp-1 text-[13px] font-medium leading-5 text-[var(--desktop-text-primary)]">
                     {citation.title || host}
                   </span>
-                  <span className="text-[11px] uppercase tracking-[0.16em] text-zinc-500">
+                  <span className="text-[11px] uppercase tracking-[0.16em] text-[var(--desktop-text-tertiary)]">
                     {host}
                   </span>
                 </div>
                 {snippet && (
-                  <p className="mt-1 line-clamp-2 text-xs leading-5 text-zinc-400">
+                  <p className="mt-1 line-clamp-2 text-xs leading-5 text-[var(--desktop-text-secondary)]">
                     {snippet}
                   </p>
                 )}
