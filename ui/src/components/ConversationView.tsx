@@ -81,9 +81,6 @@ const MENTION_RESULT_LIMIT = 20;
 const MAX_IMAGE_ATTACHMENTS = 20;
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 
-/** Mode: 'chat' for regular conversation, 'agent' for agent */
-type ChatMode = 'chat' | 'agent';
-
 function getLineStart(text: string, position: number): number {
   return text.lastIndexOf('\n', Math.max(0, position) - 1) + 1;
 }
@@ -278,18 +275,18 @@ export function ConversationView() {
   // longer lock this composer.
   const hasActiveRun = useConversationHasActiveRun(selectedConversationId);
   const setConversationMode = useStore((s) => s.setConversationMode);
+  const commandPaletteOpen = useStore((s) => s.commandPaletteOpen);
   const updateTerminalState = useStore((s) => s.updateTerminalState);
   const setDesktopOverlayOpen = useStore((s) => s.setDesktopOverlayOpen);
   const draftWorkspacePath = useStore((s) => s.draftWorkspacePath);
   const draftConversationNonce = useStore((s) => s.draftConversationNonce);
   const setDraftWorkspacePath = useStore((s) => s.setDraftWorkspacePath);
   const rememberWorkspacePath = useStore((s) => s.rememberWorkspacePath);
-  const beginWorkspaceDraft = useStore((s) => s.beginWorkspaceDraft);
   const [message, setMessage] = useState('');
   const [imageAttachments, setImageAttachments] = useState<ImageAttachment[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loadingConversationId, setLoadingConversationId] = useState<string | null>(null);
-  const [mode, setMode] = useState<ChatMode>('agent');
+  const mode = useStore((s) => s.conversationMode);
   const [workspacePickerOpen, setWorkspacePickerOpen] = useState(false);
   const [mentionResults, setMentionResults] = useState<WorkspaceFileEntry[]>([]);
   const [mentionOpen, setMentionOpen] = useState(false);
@@ -308,8 +305,6 @@ export function ConversationView() {
   const verticalMoveColumnRef = useRef<number | null>(null);
   const composerFocusRafRef = useRef<number | null>(null);
   const bottomScrollRafRef = useRef<number | null>(null);
-  const pendingWorkspaceShortcutRef = useRef<'workspace-new' | 'workspace-picker' | null>(null);
-  const pendingWorkspaceShortcutTimeoutRef = useRef<number | null>(null);
   const lastEscapeAtRef = useRef(0);
 
   // Model picker state
@@ -424,10 +419,6 @@ export function ConversationView() {
     );
   }, [selectedConversationId, terminalState]);
 
-  useEffect(() => {
-    setConversationMode(mode);
-  }, [mode, setConversationMode]);
-
   // Fetch model status and usage on mount
   useEffect(() => {
     getModelStatus().then((status) => {
@@ -531,6 +522,7 @@ export function ConversationView() {
     || modelPickerOpen
     || reasoningSettingsOpen
     || rewindOpen
+    || commandPaletteOpen
   );
   useEffect(() => {
     setDesktopOverlayOpen(anyDialogOpen);
@@ -1554,12 +1546,12 @@ export function ConversationView() {
     }
     if (e.key === '1' && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
-      setMode('agent');
+      setConversationMode('agent');
       return true;
     }
     if (e.key === '2' && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
-      setMode('chat');
+      setConversationMode('chat');
       return true;
     }
     return false;
@@ -1708,51 +1700,6 @@ export function ConversationView() {
     handleComposerEditingShortcut(e);
   };
 
-  const openWorkspacePickerForNewConversation = useCallback(async () => {
-    const selectedPath = await openNativeWorkspacePicker();
-    const normalized = selectedPath?.trim();
-    if (normalized) {
-      beginWorkspaceDraft(normalized);
-      navigate('/conversations', { replace: true });
-    }
-  }, [
-    beginWorkspaceDraft,
-    navigate,
-  ]);
-
-  const startWorkspaceDraftConversation = useCallback((workspacePath: string) => {
-    const normalized = workspacePath.trim();
-    if (!normalized) {
-      openWorkspacePickerForNewConversation();
-      return;
-    }
-    beginWorkspaceDraft(normalized);
-    navigate('/conversations', { replace: true });
-  }, [
-    beginWorkspaceDraft,
-    navigate,
-    openWorkspacePickerForNewConversation,
-  ]);
-
-  const clearPendingWorkspaceShortcut = useCallback(() => {
-    pendingWorkspaceShortcutRef.current = null;
-    if (pendingWorkspaceShortcutTimeoutRef.current !== null) {
-      window.clearTimeout(pendingWorkspaceShortcutTimeoutRef.current);
-      pendingWorkspaceShortcutTimeoutRef.current = null;
-    }
-  }, []);
-
-  const armPendingWorkspaceShortcut = useCallback((action: 'workspace-new' | 'workspace-picker') => {
-    pendingWorkspaceShortcutRef.current = action;
-    if (pendingWorkspaceShortcutTimeoutRef.current !== null) {
-      window.clearTimeout(pendingWorkspaceShortcutTimeoutRef.current);
-    }
-    pendingWorkspaceShortcutTimeoutRef.current = window.setTimeout(() => {
-      pendingWorkspaceShortcutRef.current = null;
-      pendingWorkspaceShortcutTimeoutRef.current = null;
-    }, 1500);
-  }, []);
-
   useEffect(() => {
     const handleWindowKeyDown = (event: globalThis.KeyboardEvent) => {
       if (event.defaultPrevented || event.isComposing) return;
@@ -1788,42 +1735,6 @@ export function ConversationView() {
         lastEscapeAtRef.current = 0;
       }
 
-      const pendingWorkspaceShortcut = pendingWorkspaceShortcutRef.current;
-      if (pendingWorkspaceShortcut) {
-        if (event.metaKey || event.ctrlKey || event.altKey) {
-          clearPendingWorkspaceShortcut();
-          return;
-        }
-        if (lowerKey === 'escape') {
-          clearPendingWorkspaceShortcut();
-          return;
-        }
-        if (lowerKey === 'n') {
-          event.preventDefault();
-          clearPendingWorkspaceShortcut();
-          if (effectiveWorkspacePath) {
-            startWorkspaceDraftConversation(effectiveWorkspacePath);
-          } else {
-            openWorkspacePickerForNewConversation();
-          }
-          return;
-        }
-        if (lowerKey === 'w') {
-          event.preventDefault();
-          clearPendingWorkspaceShortcut();
-          openWorkspacePickerForNewConversation();
-          return;
-        }
-        clearPendingWorkspaceShortcut();
-      }
-
-      if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && lowerKey === 'k') {
-        if (isTextInputElement(event.target)) return;
-        event.preventDefault();
-        armPendingWorkspaceShortcut('workspace-new');
-        return;
-      }
-
       if (event.key !== '/' || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
       if (isTextInputElement(event.target)) return;
       const textarea = textareaRef.current;
@@ -1836,26 +1747,18 @@ export function ConversationView() {
     return () => window.removeEventListener('keydown', handleWindowKeyDown);
   }, [
     anyDialogOpen,
-    armPendingWorkspaceShortcut,
-    clearPendingWorkspaceShortcut,
-    effectiveWorkspacePath,
     focusComposer,
     hasActiveRun,
     lockedWorkspacePath,
     mentionOpen,
     openRewindPicker,
     selectedConversationId,
-    openWorkspacePickerForNewConversation,
-    startWorkspaceDraftConversation,
   ]);
 
   useEffect(() => {
     return () => {
       if (composerFocusRafRef.current !== null) {
         cancelAnimationFrame(composerFocusRafRef.current);
-      }
-      if (pendingWorkspaceShortcutTimeoutRef.current !== null) {
-        window.clearTimeout(pendingWorkspaceShortcutTimeoutRef.current);
       }
       lastEscapeAtRef.current = 0;
     };
@@ -2150,7 +2053,7 @@ export function ConversationView() {
         </div>
         <DesktopInputDock
           mode={mode}
-          onModeChange={setMode}
+          onModeChange={setConversationMode}
           workspaceLabel={desktopWorkspaceLabel}
           workspaceTitle={desktopWorkspaceTitle}
           queuedSteers={[]}
@@ -2235,7 +2138,7 @@ export function ConversationView() {
         <div className="flex-shrink-0">
           <DesktopInputDock
             mode={mode}
-            onModeChange={setMode}
+            onModeChange={setConversationMode}
             workspaceLabel={desktopWorkspaceLabel}
             workspaceTitle={desktopWorkspaceTitle}
             queuedSteers={queuedSteers}

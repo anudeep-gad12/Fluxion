@@ -85,10 +85,12 @@ interface AppState {
   agentRunState: Record<string, AgentUIState>;
   terminalByConversation: Record<string, TerminalUIState>;
 
-  /** Active conversation UI mode (synced from ConversationView for shell panels). */
+  /** Active conversation UI mode (shared by ConversationView and shell panels). */
   conversationMode: 'chat' | 'agent';
   /** Desktop modal/popover is open; native browser webviews must hide under it. */
   desktopOverlayOpen: boolean;
+  /** Command palette (⌘K) visibility. */
+  commandPaletteOpen: boolean;
 
   // Conversation actions
   setConversations: (conversations: Conversation[]) => void;
@@ -148,6 +150,7 @@ interface AppState {
   setActiveTerminalSession: (conversationId: string, sessionId: string) => void;
   setConversationMode: (mode: 'chat' | 'agent') => void;
   setDesktopOverlayOpen: (open: boolean) => void;
+  setCommandPaletteOpen: (open: boolean) => void;
 }
 
 export const useStore = create<AppState>((set, get) => ({
@@ -174,6 +177,7 @@ export const useStore = create<AppState>((set, get) => ({
   terminalByConversation: {},
   conversationMode: 'agent',
   desktopOverlayOpen: false,
+  commandPaletteOpen: false,
 
   // Conversation actions
   setConversations: (conversations) => set({ conversations }),
@@ -736,6 +740,7 @@ export const useStore = create<AppState>((set, get) => ({
 
   setConversationMode: (mode) => set({ conversationMode: mode }),
   setDesktopOverlayOpen: (open) => set({ desktopOverlayOpen: open }),
+  setCommandPaletteOpen: (open) => set({ commandPaletteOpen: open }),
 }));
 
 // Selectors

@@ -410,8 +410,8 @@ textarea {
   .desktop-theme-menu,
   .desktop-settings-popover,
   .desktop-mention-picker,
+  .desktop-command-palette,
   .desktop-shell-right {
     animation: none !important;
   }
 }
-

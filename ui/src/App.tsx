@@ -17,6 +17,7 @@ import { cn } from '@/lib/utils';
 import { PanelLeftClose, PanelLeft, GripVertical, FolderPlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ThemeToggle } from '@/components/ThemeToggle';
+import { CommandPalette } from '@/components/CommandPalette';
 import { useTheme } from '@/hooks/useTheme';
 
 const SIDEBAR_PREF_KEY = 'reasoner_sidebar_pref';
@@ -295,6 +296,7 @@ function AppLayout() {
   return (
     <div className="fluxion-app-bg flex h-[100dvh] flex-col text-[var(--desktop-text-primary)]">
       {body}
+      <CommandPalette />
       <DesktopWindowDragFrame />
     </div>
   );
