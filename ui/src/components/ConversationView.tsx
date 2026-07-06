@@ -38,6 +38,7 @@ import {
   listConversationRewindCheckpoints,
   rewindConversation,
   attachDraftTerminalSessions,
+  listRegistryModels,
 } from '@/api/client';
 import type {
   ConversationRewindCheckpoint,
@@ -57,6 +58,13 @@ import {
 } from '@/components/ui/dialog';
 import { DRAFT_TERMINAL_CONVERSATION_ID, useConversationRuns, useSelectedConversation, useStore, useHasActiveRun, useConversationTerminal } from '@/hooks/useStore';
 import { openNativeWorkspacePicker } from '@/lib/platform';
+import {
+  CONVERSATION_MODEL_METADATA_KEY,
+  getConversationModelSelection,
+  loadStickyModelSelection,
+  saveStickyModelSelection,
+  selectionFromRegistryActive,
+} from '@/lib/modelSelection';
 import { formatContextTokens } from '@/lib/runFormat';
 import { useSSE } from '@/hooks/useSSE';
 import { useAgentSSE } from '@/hooks/useAgentSSE';
@@ -162,16 +170,6 @@ function isTextInputElement(element: EventTarget | null): boolean {
     return true;
   }
   return !!element.closest('[contenteditable="true"], [role="textbox"]');
-}
-
-const CONVERSATION_MODEL_METADATA_KEY = 'model_selection';
-
-function getConversationModelSelection(conversation?: Conversation | null): ConversationModelSelection | null {
-  const value = conversation?.metadata?.[CONVERSATION_MODEL_METADATA_KEY];
-  if (!value || typeof value !== 'object') return null;
-  const selection = value as Partial<ConversationModelSelection>;
-  if (!selection.provider || !selection.model_id || !selection.display_name) return null;
-  return selection as ConversationModelSelection;
 }
 
 function modelStatusFromSelection(
@@ -315,7 +313,9 @@ export function ConversationView() {
   // Model picker state
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [modelStatus, setModelStatus] = useState<ModelStatus | null>(null);
-  const [draftModelSelection, setDraftModelSelection] = useState<ConversationModelSelection | null>(null);
+  const [draftModelSelection, setDraftModelSelection] = useState<ConversationModelSelection | null>(
+    () => loadStickyModelSelection()
+  );
   const defaultModelStatusRef = useRef<ModelStatus | null>(null);
   const [reasoningSettingsOpen, setReasoningSettingsOpen] = useState(false);
   const [reasoningSettings, setReasoningSettings] = useState<ReasoningSettingsResponse | null>(null);
@@ -431,6 +431,16 @@ export function ConversationView() {
     getModelStatus().then((status) => {
       if (!defaultModelStatusRef.current) defaultModelStatusRef.current = status;
       setModelStatus(status);
+      // Installs that predate client-side stickiness have no saved selection;
+      // seed it from the backend's active model so every run sends headers.
+      if (!loadStickyModelSelection()) {
+        listRegistryModels().then((registry) => {
+          const seeded = selectionFromRegistryActive(registry, status);
+          if (!seeded) return;
+          saveStickyModelSelection(seeded);
+          setDraftModelSelection((current) => current ?? seeded);
+        }).catch(() => {});
+      }
     }).catch(() => {});
     refreshUsage();
     refreshReasoningSettings();
@@ -442,7 +452,9 @@ export function ConversationView() {
       setModelStatus((current) => modelStatusFromSelection(selection, current));
       return;
     }
-    if (!selectedConversationId && draftModelSelection) {
+    if (draftModelSelection) {
+      // No per-conversation selection stored: show the sticky draft, which is
+      // also what run headers will carry for this conversation.
       setModelStatus((current) => modelStatusFromSelection(draftModelSelection, current));
       return;
     }
@@ -913,6 +925,7 @@ export function ConversationView() {
   const handleModelStatusChange = useCallback((status: ModelStatus, selection?: ConversationModelSelection | null) => {
     setModelStatus(status);
     if (!selection) return;
+    saveStickyModelSelection(selection);
     if (!selectedConversationId) {
       setDraftModelSelection(selection);
       return;
@@ -1099,6 +1112,20 @@ export function ConversationView() {
         updateConversation(conversationId, {
           title: conversationTitleFromMessage(messageToSend),
         });
+      }
+
+      // Pin the model on legacy conversations that predate per-conversation
+      // metadata, so concurrent runs never depend on the backend's global default.
+      if (conversation && !getConversationModelSelection(conversation) && activeModelSelection) {
+        updateConversation(conversationId, {
+          metadata: {
+            ...(conversation.metadata || {}),
+            [CONVERSATION_MODEL_METADATA_KEY]: activeModelSelection,
+          },
+        });
+        void patchConversation(conversationId, {
+          metadata: { [CONVERSATION_MODEL_METADATA_KEY]: activeModelSelection },
+        }).catch(() => {});
       }
 
       if (mode === 'agent') {

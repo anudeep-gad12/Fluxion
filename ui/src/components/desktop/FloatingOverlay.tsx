@@ -25,11 +25,15 @@ import { useAgentSSE } from '@/hooks/useAgentSSE';
 import { useStore, useHasActiveRun } from '@/hooks/useStore';
 import type { ConversationModelSelection, ImageAttachment, Run } from '@/types';
 import { cn } from '@/lib/utils';
+import {
+  CONVERSATION_MODEL_METADATA_KEY,
+  loadStickyModelSelection,
+  saveStickyModelSelection,
+} from '@/lib/modelSelection';
 
 const MAX_IMAGE_ATTACHMENTS = 20;
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 const OVERLAY_METADATA = { surface: 'floating_overlay' };
-const CONVERSATION_MODEL_METADATA_KEY = 'model_selection';
 
 type CapturePayload = {
   name: string;
@@ -66,7 +70,9 @@ export function FloatingOverlay() {
   const [registryModels, setRegistryModels] = useState<RegistryModelsResponse | null>(null);
   const [modelPickerLoading, setModelPickerLoading] = useState(false);
   const [modelStatus, setModelStatus] = useState<ModelStatus | null>(null);
-  const [activeModelSelection, setActiveModelSelection] = useState<ConversationModelSelection | null>(null);
+  const [activeModelSelection, setActiveModelSelection] = useState<ConversationModelSelection | null>(
+    () => loadStickyModelSelection()
+  );
   const [reasoningSettingsOpen, setReasoningSettingsOpen] = useState(false);
   const [reasoningSettings, setReasoningSettings] = useState<ReasoningSettingsResponse | null>(null);
   const [reasoningDraft, setReasoningDraft] = useState<ReasoningSettings | null>(null);
@@ -209,6 +215,7 @@ export function FloatingOverlay() {
         source: status.source,
         selected_at: new Date().toISOString(),
       };
+      saveStickyModelSelection(selection);
       setModelStatus(status);
       setActiveModelSelection(selection);
       setModelPickerOpen(false);
