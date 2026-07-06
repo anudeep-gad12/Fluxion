@@ -62,6 +62,9 @@ interface AppState {
   // Runs per conversation
   runsByConversation: Record<string, Run[]>;
 
+  // Reverse map so run-keyed state (agentRunState) can resolve its conversation
+  conversationIdByRunId: Record<string, string>;
+
   // Events per run
   eventsByRun: Record<string, Event[]>;
 
@@ -158,6 +161,7 @@ export const useStore = create<AppState>((set, get) => ({
     ? JSON.parse(localStorage.getItem(WORKSPACE_LIST_STORAGE_KEY) || '[]')
     : [],
   runsByConversation: {},
+  conversationIdByRunId: {},
   eventsByRun: {},
   streamingRunId: null,
   streamingText: {},
@@ -185,10 +189,15 @@ export const useStore = create<AppState>((set, get) => ({
   })),
 
   removeConversation: (conversationId) => set((state) => {
-    const { [conversationId]: _removed, ...remainingRuns } = state.runsByConversation;
+    const { [conversationId]: removedRuns, ...remainingRuns } = state.runsByConversation;
+    const conversationIdByRunId = { ...state.conversationIdByRunId };
+    for (const run of removedRuns ?? []) {
+      delete conversationIdByRunId[run.run_id];
+    }
     return {
       conversations: state.conversations.filter((c) => c.conversation_id !== conversationId),
       runsByConversation: remainingRuns,
+      conversationIdByRunId,
       selectedConversationId: state.selectedConversationId === conversationId ? null : state.selectedConversationId,
     };
   }),
@@ -251,12 +260,20 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   // Run actions
-  setRuns: (conversationId, runs) => set((state) => ({
-    runsByConversation: {
-      ...state.runsByConversation,
-      [conversationId]: dedupeRuns(runs),
-    },
-  })),
+  setRuns: (conversationId, runs) => set((state) => {
+    const deduped = dedupeRuns(runs);
+    const conversationIdByRunId = { ...state.conversationIdByRunId };
+    for (const run of deduped) {
+      conversationIdByRunId[run.run_id] = conversationId;
+    }
+    return {
+      runsByConversation: {
+        ...state.runsByConversation,
+        [conversationId]: deduped,
+      },
+      conversationIdByRunId,
+    };
+  }),
 
   addRun: (conversationId, run) => set((state) => {
     const currentRuns = state.runsByConversation[conversationId] || [];
@@ -267,6 +284,10 @@ export const useStore = create<AppState>((set, get) => ({
       runsByConversation: {
         ...state.runsByConversation,
         [conversationId]: [...currentRuns, run],
+      },
+      conversationIdByRunId: {
+        ...state.conversationIdByRunId,
+        [run.run_id]: conversationId,
       },
     };
   }),
@@ -300,9 +321,11 @@ export const useStore = create<AppState>((set, get) => ({
     const { [runId]: _streamText, ...restStreamingText } = state.streamingText;
     const { [runId]: _streamThink, ...restStreamingThinking } = state.streamingThinking;
     const { [runId]: _events, ...restEventsByRun } = state.eventsByRun;
+    const { [runId]: _conversationId, ...restConversationIdByRunId } = state.conversationIdByRunId;
 
     return {
       runsByConversation,
+      conversationIdByRunId: restConversationIdByRunId,
       streamingText: restStreamingText,
       streamingThinking: restStreamingThinking,
       eventsByRun: restEventsByRun,
@@ -761,3 +784,44 @@ export const useHasActiveRun = () => {
 
   return hasActiveAgent || hasActiveChat || hasRunningBackendRun;
 };
+
+/**
+ * Whether a specific conversation has a live run. Live agent state wins over
+ * a possibly-stale run.status (a backgrounded run's status only updates via
+ * its SSE stream).
+ */
+export function conversationHasActiveRun(state: AppState, conversationId: string | null): boolean {
+  if (!conversationId) return false;
+  const runs = state.runsByConversation[conversationId] ?? [];
+  for (const run of runs) {
+    const live = state.agentRunState[run.run_id];
+    if (live ? live.isActive : run.status === 'running') return true;
+  }
+  return !!state.streamingRunId && state.conversationIdByRunId[state.streamingRunId] === conversationId;
+}
+
+export const useConversationHasActiveRun = (conversationId: string | null) =>
+  useStore((s) => conversationHasActiveRun(s, conversationId));
+
+export type ConversationAttention = 'tool-approval' | 'plan-approval' | 'user-input' | null;
+
+/** Pending prompt (approval/plan/user-input) in any of the conversation's live runs. */
+export function conversationAttention(state: AppState, conversationId: string): ConversationAttention {
+  const runs = state.runsByConversation[conversationId] ?? [];
+  for (const run of runs) {
+    const live = state.agentRunState[run.run_id];
+    if (!live?.isActive) continue;
+    if (live.pendingPlanApproval?.status === 'pending') return 'plan-approval';
+    if (live.pendingUserInput) return 'user-input';
+    if (live.toolCalls.some((tc) => tc.status === 'pending' && tc.approval_required)) {
+      return 'tool-approval';
+    }
+  }
+  return null;
+}
+
+export const useConversationAttention = (conversationId: string | null) =>
+  useStore((s) => (conversationId ? conversationAttention(s, conversationId) : null));
+
+/** Chat mode keeps a single streaming slot app-wide. */
+export const useIsChatStreaming = () => useStore((s) => s.streamingRunId !== null);
