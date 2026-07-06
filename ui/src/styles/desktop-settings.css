@@ -126,7 +126,7 @@
 }
 
 [data-app='desktop'] .desktop-settings-field:focus {
-  box-shadow: 0 0 0 1px rgb(var(--ui-accent-rgb) / 0.18);
+  box-shadow: var(--focus-ring-field);
 }
 
 [data-app='desktop'] .desktop-settings-field::placeholder {

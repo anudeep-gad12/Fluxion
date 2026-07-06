@@ -249,15 +249,6 @@
 }
 
 textarea {
-  caret-color: #d4d4d8;
-}
-
-textarea:focus {
-  caret-color: #fafafa;
-}
-
-[data-theme='light'] textarea,
-[data-theme='light'] textarea:focus {
   caret-color: var(--desktop-text-primary);
 }
 

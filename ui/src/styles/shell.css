@@ -158,8 +158,8 @@
 }
 
 [data-app='desktop'] .desktop-theme-toggle:focus-visible {
-  outline: 2px solid rgb(var(--desktop-accent-rgb) / 0.4);
-  outline-offset: 1px;
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 
 [data-app='desktop'] .desktop-sidebar-brand-name {
@@ -336,7 +336,7 @@
 
 [data-app='desktop'] .desktop-prompt-shell:focus-within {
   border-color: rgb(var(--ui-white-rgb) / 0.1);
-  box-shadow: 0 0 0 3px rgb(var(--ui-accent-rgb) / 0.12);
+  box-shadow: var(--focus-ring-soft);
 }
 
 [data-app='desktop'] .desktop-prompt-shell[data-steer='true'] {
@@ -497,7 +497,7 @@
 }
 
 [data-app='desktop'] .desktop-chip-input:focus {
-  box-shadow: 0 0 0 1px rgb(var(--ui-accent-rgb) / 0.2);
+  box-shadow: var(--focus-ring-field);
 }
 
 /* Text-style mode switch (composer footer) */

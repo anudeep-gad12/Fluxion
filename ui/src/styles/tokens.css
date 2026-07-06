@@ -8,7 +8,7 @@
  * Naming: --desktop-* is the canonical semantic set (bg ladder, text ramp,
  * accent, status colors). --ui-* are raw RGB channels consumed by
  * tailwind.config.js — do not remove while Tailwind palette utilities are in
- * use. --fluxion-* are legacy aliases kept until the web-skin classes die.
+ * use.
  * ------------------------------------------------------------------------- */
 
 :root {
@@ -19,7 +19,6 @@
   /* macOS overlay titlebar: leave room for red/yellow/green controls */
   --desktop-traffic-light-inset: 80px;
   --desktop-dock-height: 132px;
-  --sidebar-width-default: 260px;
   --radius: 0.5rem;
 
   /* Typography */
@@ -50,6 +49,11 @@
   --desktop-accent-muted: rgb(var(--desktop-accent-rgb) / 0.12);
   --desktop-hover: rgb(var(--ui-white-rgb) / 0.05);
   --desktop-hover-strong: rgb(var(--ui-white-rgb) / 0.08);
+  --desktop-accent-hover: rgb(var(--desktop-accent-rgb) / 0.07);
+  --desktop-danger-hover: rgb(var(--ui-danger-rgb) / 0.12);
+  /* Translucent panel surfaces (floating cards vs recessed insets) */
+  --desktop-panel-overlay: rgb(var(--ui-zinc-950) / 0.94);
+  --desktop-panel-inset: rgb(var(--ui-zinc-950) / 0.6);
   --desktop-warning: #fbbf24;
   --desktop-warning-text: #fde68a;
   --desktop-danger: #f87171;
@@ -57,7 +61,9 @@
   --desktop-success: #34d399;
   --desktop-success-text: #a7f3d0;
   --desktop-violet: #a78bfa;
-  --desktop-violet-text: #ddd6fe;
+  /* Interrupted-run status tone */
+  --desktop-interrupt: rgb(var(--ui-orange-300) / 0.85);
+  --desktop-interrupt-border: rgb(var(--ui-orange-500) / 0.15);
 
   /* Terminal (xterm) — core colors; dark uses xterm ANSI defaults */
   --term-bg: #0c0c0e;
@@ -115,7 +121,6 @@
   --ui-warning-rgb: 251 191 36;
   --ui-danger-rgb: 239 68 68;
   --ui-success-rgb: 52 211 153;
-  --ui-violet-rgb: 167 139 250;
 
   /* shadcn semantic HSL — derived from the luminance ladder */
   --background: 240 10% 4%;
@@ -146,7 +151,6 @@
   --ease-ui: cubic-bezier(0.22, 1, 0.36, 1);
   --duration-fast: 140ms;
   --duration-ui: 220ms;
-  --duration-slow: 340ms;
 
   /* Radius scale */
   --radius-xs: 4px;
@@ -158,9 +162,12 @@
   /* Elevation */
   --shadow-menu: 0 16px 44px rgba(0, 0, 0, 0.42);
   --shadow-dialog: 0 18px 50px rgba(0, 0, 0, 0.45);
-  --shadow-overlay: 0 24px 80px rgba(0, 0, 0, 0.34);
   --glow-accent: 0 0 6px rgb(var(--desktop-accent-rgb) / 0.55);
   --focus-ring: 0 0 0 3px rgb(var(--desktop-accent-rgb) / 0.22);
+  /* Calm variant for always-focused surfaces (main composer) */
+  --focus-ring-soft: 0 0 0 3px rgb(var(--desktop-accent-rgb) / 0.12);
+  /* 1px ring for text fields where the 3px ring is too loud */
+  --focus-ring-field: 0 0 0 1px rgb(var(--desktop-accent-rgb) / 0.3);
 
   /* Layering — the 21474xxxxx band sits above Tauri native webview overlays */
   --z-raised: 10;
@@ -170,6 +177,7 @@
   --z-dialog: 2147482001;
   --z-context: 2147482100;
   --z-overlay: 2147482200;
+  --z-tooltip: 2147482500;
   --z-dragframe: 2147483000;
 }
 
@@ -198,7 +206,6 @@
   --desktop-success: #168052;
   --desktop-success-text: #166534;
   --desktop-violet: #6d4e9c;
-  --desktop-violet-text: #5b3c87;
 
   --scrollbar-thumb: #aaa59a;
   --scrollbar-thumb-hover: #8f8a7e;
@@ -274,7 +281,6 @@
   --ui-warning-rgb: 161 98 7;
   --ui-danger-rgb: 185 28 28;
   --ui-success-rgb: 22 128 82;
-  --ui-violet-rgb: 109 78 156;
 
   --background: 48 16% 94%;
   --foreground: 52 12% 13%;

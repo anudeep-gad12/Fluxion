@@ -328,6 +328,7 @@
 
 .tr-prompt-input:focus {
   border-color: var(--desktop-border-strong);
+  box-shadow: var(--focus-ring-field);
 }
 
 .tr-prompt-actions {
