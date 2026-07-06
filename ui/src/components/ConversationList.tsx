@@ -4,7 +4,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { deleteConversation, listConversations, patchConversation } from '@/api/client';
-import { useStore } from '@/hooks/useStore';
+import { useStore, conversationAttention } from '@/hooks/useStore';
+import type { AgentUIState } from '@/types/agent';
 import { Button } from '@/components/ui/button';
 import {
   ConfirmDialog,
@@ -31,17 +32,27 @@ import {
 import type { Conversation, Run } from '@/types';
 import { toast } from 'sonner';
 
-type ThreadStatus = 'idle' | 'running' | 'failed';
+type ThreadStatus = 'idle' | 'running' | 'needs-attention' | 'failed';
 
 function threadStatusForConversation(
   runs: Run[],
-  streamingRunId: string | null
+  streamingRunId: string | null,
+  agentRunState: Record<string, AgentUIState>,
+  attention: ReturnType<typeof conversationAttention>,
 ): ThreadStatus {
+  if (attention) {
+    return 'needs-attention';
+  }
   if (streamingRunId && runs.some((run) => run.run_id === streamingRunId)) {
     return 'running';
   }
-  if (runs.some((run) => run.status === 'running')) {
-    return 'running';
+  // Live agent state wins over run.status, which can be stale for
+  // backgrounded runs until their SSE stream delivers the terminal event.
+  for (const run of runs) {
+    const live = agentRunState[run.run_id];
+    if (live ? live.isActive : run.status === 'running') {
+      return 'running';
+    }
   }
   const latest = runs[0];
   if (latest?.status === 'failed') {
@@ -122,9 +133,11 @@ function ConversationCard({
         className={cn(
           'h-1.5 w-1.5 shrink-0 rounded-full',
           threadStatus === 'running' && 'bg-cyan-400 shadow-[var(--glow-accent)]',
+          threadStatus === 'needs-attention' && 'animate-pulse bg-amber-400',
           threadStatus === 'failed' && 'bg-red-400/90',
           threadStatus === 'idle' && 'bg-zinc-700'
         )}
+        title={threadStatus === 'needs-attention' ? 'Waiting for your approval' : undefined}
         aria-hidden
       />
       <span
@@ -218,6 +231,7 @@ export function ConversationList() {
   const navigate = useNavigate();
   const conversations = useStore((s) => s.conversations);
   const runsByConversation = useStore((s) => s.runsByConversation);
+  const agentRunState = useStore((s) => s.agentRunState);
   const streamingRunId = useStore((s) => s.streamingRunId);
   const selectedConversationId = useStore((s) => s.selectedConversationId);
   const setConversations = useStore((s) => s.setConversations);
@@ -636,7 +650,12 @@ export function ConversationList() {
                     isChecked={selectedIds.has(conversation.conversation_id)}
                     threadStatus={threadStatusForConversation(
                       runsByConversation[conversation.conversation_id] ?? [],
-                      streamingRunId
+                      streamingRunId,
+                      agentRunState,
+                      conversationAttention(
+                        { runsByConversation, agentRunState },
+                        conversation.conversation_id
+                      )
                     )}
                     onClick={() => navigate(`/conversations/${conversation.conversation_id}`)}
                     onContextMenu={(event) => handleConversationContextMenu(event, conversation)}

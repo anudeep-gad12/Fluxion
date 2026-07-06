@@ -785,12 +785,17 @@ export const useHasActiveRun = () => {
   return hasActiveAgent || hasActiveChat || hasRunningBackendRun;
 };
 
+type RunActivitySlices = Pick<
+  AppState,
+  'runsByConversation' | 'agentRunState' | 'conversationIdByRunId' | 'streamingRunId'
+>;
+
 /**
  * Whether a specific conversation has a live run. Live agent state wins over
  * a possibly-stale run.status (a backgrounded run's status only updates via
  * its SSE stream).
  */
-export function conversationHasActiveRun(state: AppState, conversationId: string | null): boolean {
+export function conversationHasActiveRun(state: RunActivitySlices, conversationId: string | null): boolean {
   if (!conversationId) return false;
   const runs = state.runsByConversation[conversationId] ?? [];
   for (const run of runs) {
@@ -806,7 +811,10 @@ export const useConversationHasActiveRun = (conversationId: string | null) =>
 export type ConversationAttention = 'tool-approval' | 'plan-approval' | 'user-input' | null;
 
 /** Pending prompt (approval/plan/user-input) in any of the conversation's live runs. */
-export function conversationAttention(state: AppState, conversationId: string): ConversationAttention {
+export function conversationAttention(
+  state: Pick<AppState, 'runsByConversation' | 'agentRunState'>,
+  conversationId: string,
+): ConversationAttention {
   const runs = state.runsByConversation[conversationId] ?? [];
   for (const run of runs) {
     const live = state.agentRunState[run.run_id];
