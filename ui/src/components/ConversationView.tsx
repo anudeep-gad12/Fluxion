@@ -56,7 +56,7 @@ import {
   DialogTitle,
   DialogContent,
 } from '@/components/ui/dialog';
-import { DRAFT_TERMINAL_CONVERSATION_ID, useConversationRuns, useSelectedConversation, useStore, useHasActiveRun, useConversationTerminal } from '@/hooks/useStore';
+import { DRAFT_TERMINAL_CONVERSATION_ID, useConversationRuns, useSelectedConversation, useStore, useConversationHasActiveRun, useConversationTerminal } from '@/hooks/useStore';
 import { openNativeWorkspacePicker } from '@/lib/platform';
 import {
   CONVERSATION_MODEL_METADATA_KEY,
@@ -274,7 +274,9 @@ export function ConversationView() {
   const terminalState = useConversationTerminal(selectedConversationId);
   const draftTerminalState = useConversationTerminal(DRAFT_TERMINAL_CONVERSATION_ID);
   const initTerminalState = useStore((s) => s.initTerminalState);
-  const hasActiveRun = useHasActiveRun();
+  // Scoped to the selected conversation: runs in other conversations no
+  // longer lock this composer.
+  const hasActiveRun = useConversationHasActiveRun(selectedConversationId);
   const setConversationMode = useStore((s) => s.setConversationMode);
   const updateTerminalState = useStore((s) => s.updateTerminalState);
   const setDesktopOverlayOpen = useStore((s) => s.setDesktopOverlayOpen);
@@ -986,7 +988,14 @@ export function ConversationView() {
       return;
     }
 
-    if (hasActiveRun) return; // Non-agent active run, block
+    if (hasActiveRun) return; // This conversation's non-agent run is active, block
+
+    // Chat mode keeps a single streaming slot app-wide (useSSE); a second
+    // chat stream would steal it. Agent runs are never blocked by this.
+    if (mode === 'chat' && useStore.getState().streamingRunId) {
+      toast.error('A chat response is still streaming in another conversation.');
+      return;
+    }
 
     let conversationId = selectedConversationId;
 
@@ -1700,7 +1709,6 @@ export function ConversationView() {
   };
 
   const openWorkspacePickerForNewConversation = useCallback(async () => {
-    if (hasActiveRun) return;
     const selectedPath = await openNativeWorkspacePicker();
     const normalized = selectedPath?.trim();
     if (normalized) {
@@ -1709,12 +1717,10 @@ export function ConversationView() {
     }
   }, [
     beginWorkspaceDraft,
-    hasActiveRun,
     navigate,
   ]);
 
   const startWorkspaceDraftConversation = useCallback((workspacePath: string) => {
-    if (hasActiveRun) return;
     const normalized = workspacePath.trim();
     if (!normalized) {
       openWorkspacePickerForNewConversation();
@@ -1724,7 +1730,6 @@ export function ConversationView() {
     navigate('/conversations', { replace: true });
   }, [
     beginWorkspaceDraft,
-    hasActiveRun,
     navigate,
     openWorkspacePickerForNewConversation,
   ]);
@@ -1796,7 +1801,6 @@ export function ConversationView() {
         if (lowerKey === 'n') {
           event.preventDefault();
           clearPendingWorkspaceShortcut();
-          if (hasActiveRun) return;
           if (effectiveWorkspacePath) {
             startWorkspaceDraftConversation(effectiveWorkspacePath);
           } else {

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { deleteConversation, listConversations, patchConversation } from '@/api/client';
-import { useStore, useHasActiveRun } from '@/hooks/useStore';
+import { useStore } from '@/hooks/useStore';
 import { Button } from '@/components/ui/button';
 import {
   ConfirmDialog,
@@ -224,7 +224,6 @@ export function ConversationList() {
   const updateConversation = useStore((s) => s.updateConversation);
   const removeConversation = useStore((s) => s.removeConversation);
   const beginWorkspaceDraft = useStore((s) => s.beginWorkspaceDraft);
-  const hasActiveRun = useHasActiveRun();
   const [isLoading, setIsLoading] = useState(false);
   const [workspaceSectionsOpen, setWorkspaceSectionsOpen] = useState<Record<string, boolean>>({});
   const workspaceHeaderRefs = useRef<Record<string, HTMLButtonElement | null>>({});
@@ -352,7 +351,6 @@ export function ConversationList() {
   }, [workspaceGroups]);
 
   const startWorkspaceDraft = (workspacePath: string) => {
-    if (hasActiveRun) return;
     const normalized = workspacePath.trim();
     if (!normalized) return;
     beginWorkspaceDraft(normalized);
@@ -361,7 +359,6 @@ export function ConversationList() {
   };
 
   const openWorkspacePicker = async () => {
-    if (hasActiveRun) return;
     const selectedPath = await openNativeWorkspacePicker();
     if (selectedPath) {
       startWorkspaceDraft(selectedPath);
@@ -607,7 +604,6 @@ export function ConversationList() {
               size="sm"
               variant="ghost"
               onClick={() => void openWorkspacePicker()}
-              disabled={hasActiveRun}
               className="h-8 rounded-lg px-2 text-zinc-400 hover:bg-white/[0.055] hover:text-zinc-100"
             >
               <Plus className="h-3.5 w-3.5" />

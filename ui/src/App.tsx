@@ -10,7 +10,7 @@ import { DesktopTitlebar } from '@/components/desktop/DesktopTitlebar';
 import { DesktopSidebarBrand } from '@/components/desktop/DesktopSidebarBrand';
 import { FloatingOverlay } from '@/components/desktop/FloatingOverlay';
 import { startWindowDrag } from '@/lib/windowDrag';
-import { useStore, useHasActiveRun } from '@/hooks/useStore';
+import { useStore } from '@/hooks/useStore';
 import { getApiBase } from '@/api/client';
 import { openNativeWorkspacePicker } from '@/lib/platform';
 import { cn } from '@/lib/utils';
@@ -95,7 +95,6 @@ function DesktopWindowDragFrame() {
 }
 
 function AppLayout() {
-  const hasActiveRun = useHasActiveRun();
   const navigate = useNavigate();
 
   const conversationMode = useStore((s) => s.conversationMode);
@@ -111,18 +110,17 @@ function AppLayout() {
 
   const startWorkspaceDraft = useCallback((workspacePath: string) => {
     const normalized = workspacePath.trim();
-    if (!normalized || hasActiveRun) return;
+    if (!normalized) return;
     beginWorkspaceDraft(normalized);
     navigate('/conversations', { replace: true });
-  }, [beginWorkspaceDraft, hasActiveRun, navigate]);
+  }, [beginWorkspaceDraft, navigate]);
 
   const handleOpenWorkspacePicker = useCallback(async () => {
-    if (hasActiveRun) return;
     const selectedPath = await openNativeWorkspacePicker();
     if (selectedPath) {
       startWorkspaceDraft(selectedPath);
     }
-  }, [hasActiveRun, startWorkspaceDraft]);
+  }, [startWorkspaceDraft]);
 
   useEffect(() => {
     void fetch(`${getApiBase()}/health`)
@@ -225,16 +223,11 @@ function AppLayout() {
         <Button
           variant="ghost"
           onClick={() => void handleOpenWorkspacePicker()}
-          disabled={hasActiveRun}
           className={cn(
             'h-8 w-full justify-start gap-2 rounded-lg px-2.5 text-[13px] font-normal',
             'text-zinc-400 hover:bg-white/[0.05] hover:text-zinc-100'
           )}
-          title={
-            hasActiveRun
-              ? 'Active run in progress'
-              : 'Add a workspace folder'
-          }
+          title="Add a workspace folder"
         >
           <FolderPlus className="h-4 w-4 opacity-70" />
           New workspace
