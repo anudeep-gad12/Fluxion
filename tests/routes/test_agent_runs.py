@@ -1215,3 +1215,96 @@ class TestAgentFactory:
 
                 assert engine is not None
                 assert engine._max_steps == 1000
+
+
+# =============================================================================
+# Concurrent-run model isolation Tests
+# =============================================================================
+
+
+class TestConcurrentRunModelIsolation:
+    """Concurrent runs must each keep their own explicit model selection."""
+
+    def test_concurrent_runs_persist_their_own_model_headers(self, client, test_db):
+        """Two runs started with different X-Provider/X-Model headers keep them."""
+        first = client.post(
+            "/api/agent/runs",
+            json={"query": "Run A"},
+            headers={
+                "X-Provider": "fireworks",
+                "X-Model": "accounts/fireworks/models/kimi-k2p6",
+            },
+        )
+        second = client.post(
+            "/api/agent/runs",
+            json={"query": "Run B"},
+            headers={"X-Provider": "openrouter", "X-Model": "qwen/qwen3-72b"},
+        )
+        assert first.status_code == 200
+        assert second.status_code == 200
+        first_id = first.json()["run_id"]
+        second_id = second.json()["run_id"]
+        assert first_id != second_id
+
+        async def fetch_model_config(run_id: str) -> dict:
+            cursor = await test_db.conn.execute(
+                "SELECT model_config_snapshot FROM runs WHERE run_id = ?",
+                (run_id,),
+            )
+            row = await cursor.fetchone()
+            return json.loads(row[0])
+
+        loop = asyncio.get_event_loop()
+        first_config = loop.run_until_complete(fetch_model_config(first_id))
+        second_config = loop.run_until_complete(fetch_model_config(second_id))
+
+        assert first_config["selected_provider"] == "fireworks"
+        assert first_config["selected_model"] == "accounts/fireworks/models/kimi-k2p6"
+        assert second_config["selected_provider"] == "openrouter"
+        assert second_config["selected_model"] == "qwen/qwen3-72b"
+
+    @pytest.mark.asyncio
+    async def test_explicit_headers_bypass_global_provider_override(
+        self, test_db, mock_agent_engine
+    ):
+        """A run with explicit headers must ignore the process-global local
+        override and active model, resolving its own provider instead."""
+        captured: dict = {}
+
+        async def capture_create_engine(**kwargs):
+            captured.update(kwargs)
+            return mock_agent_engine
+
+        global_provider = MagicMock(name="global_local_provider")
+        selected_provider = MagicMock(name="selected_provider")
+        resolved = MagicMock()
+        resolved.model_id = "accounts/fireworks/models/kimi-k2p6"
+
+        with patch(
+            "orchestrator.agent.factory.create_agent_engine", capture_create_engine
+        ), patch(
+            "orchestrator.providers.factory.get_provider_override",
+            return_value=global_provider,
+        ), patch(
+            "orchestrator.providers.factory.create_provider_for_model",
+            return_value=(selected_provider, resolved),
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as async_http:
+                response = await async_http.post(
+                    "/api/agent/runs",
+                    json={"query": "Use my model"},
+                    headers={"X-Provider": "fireworks", "X-Model": "kimi-k2p6"},
+                )
+                assert response.status_code == 200
+                # The engine is created in a background task on this loop.
+                for _ in range(100):
+                    if captured:
+                        break
+                    await asyncio.sleep(0.02)
+
+        assert captured, "background task never created the agent engine"
+        assert captured["provider_override"] is selected_provider
+        assert captured["provider_override"] is not global_provider
+        assert captured["model_name"] == resolved.model_id
