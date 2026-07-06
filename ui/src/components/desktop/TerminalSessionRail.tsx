@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { MouseEvent, WheelEvent } from 'react';
 import { ChevronDown, Globe2, Plus, Terminal, X } from 'lucide-react';
+import { Tooltip } from '@/components/ui/tooltip';
 import { useDismissable } from '@/hooks/useDismissable';
 
 import { cn } from '@/lib/utils';
@@ -131,17 +132,18 @@ export function TerminalSessionRail({
         </div>
       </div>
       <div ref={menuRef} className="relative shrink-0">
-        <button
-          type="button"
-          onClick={() => setMenuOpen(!menuOpen)}
-          className="desktop-no-drag flex h-6 items-center justify-center gap-0.5 rounded-md px-1.5 text-[var(--desktop-text-tertiary)] ui-transition hover:bg-[var(--desktop-hover)] hover:text-zinc-200"
-          title="New panel tab"
-          aria-label="New panel tab"
-          aria-expanded={menuOpen}
-        >
-          <Plus className="h-3.5 w-3.5" />
-          <ChevronDown className="h-3 w-3" />
-        </button>
+        <Tooltip content="New panel tab" side="bottom">
+          <button
+            type="button"
+            onClick={() => setMenuOpen(!menuOpen)}
+            className="desktop-no-drag flex h-6 items-center justify-center gap-0.5 rounded-md px-1.5 text-[var(--desktop-text-tertiary)] ui-transition hover:bg-[var(--desktop-hover)] hover:text-zinc-200"
+            aria-label="New panel tab"
+            aria-expanded={menuOpen}
+          >
+            <Plus className="h-3.5 w-3.5" />
+            <ChevronDown className="h-3 w-3" />
+          </button>
+        </Tooltip>
         {menuOpen ? (
           <div className="desktop-tool-add-menu absolute right-0 top-8 z-[var(--z-menu)] w-36 overflow-hidden rounded-lg border border-[var(--desktop-border-strong)] bg-[var(--desktop-bg-2)] p-1 shadow-[var(--shadow-menu)]">
             <button

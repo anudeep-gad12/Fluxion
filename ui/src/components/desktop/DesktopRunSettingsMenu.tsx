@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { FolderOpen, SlidersHorizontal } from 'lucide-react';
 import { DesktopTextOptionGroup } from '@/components/desktop/DesktopTextOptionGroup';
+import { Tooltip } from '@/components/ui/tooltip';
 import { useDismissable } from '@/hooks/useDismissable';
 
 interface DesktopRunSettingsMenuProps {
@@ -43,16 +44,17 @@ export function DesktopRunSettingsMenu({
 
   return (
     <div ref={rootRef} className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((current) => !current)}
-        className="desktop-icon-btn"
-        title={`Run settings (${summary})`}
-        aria-label="Run settings"
-        aria-expanded={open}
-      >
-        <SlidersHorizontal className="h-3.5 w-3.5" />
-      </button>
+      <Tooltip content={`Run settings (${summary})`}>
+        <button
+          type="button"
+          onClick={() => setOpen((current) => !current)}
+          className="desktop-icon-btn"
+          aria-label="Run settings"
+          aria-expanded={open}
+        >
+          <SlidersHorizontal className="h-3.5 w-3.5" />
+        </button>
+      </Tooltip>
 
       {open ? (
         <div className="desktop-settings-popover absolute bottom-full left-0 z-50 mb-2 w-[min(18rem,calc(100vw-2rem))]">
@@ -76,15 +78,16 @@ export function DesktopRunSettingsMenu({
                   placeholder="/path/to/project"
                   className="desktop-settings-field min-w-0 flex-1"
                 />
-                <button
-                  type="button"
-                  onClick={onBrowseWorkspace}
-                  className="desktop-icon-btn shrink-0"
-                  title="Browse workspace"
-                  aria-label="Browse workspace"
-                >
-                  <FolderOpen className="h-3.5 w-3.5" />
-                </button>
+                <Tooltip content="Browse workspace">
+                  <button
+                    type="button"
+                    onClick={onBrowseWorkspace}
+                    className="desktop-icon-btn shrink-0"
+                    aria-label="Browse workspace"
+                  >
+                    <FolderOpen className="h-3.5 w-3.5" />
+                  </button>
+                </Tooltip>
               </div>
             )}
           </div>

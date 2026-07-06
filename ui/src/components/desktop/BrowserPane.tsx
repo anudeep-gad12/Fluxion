@@ -6,6 +6,7 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { Webview } from '@tauri-apps/api/webview';
 
 import type { BrowserTabState } from '@/hooks/useStore';
+import { Tooltip } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 
 interface BrowserPaneProps {
@@ -238,36 +239,39 @@ export function BrowserPane({
   return (
     <div className={cn('flex h-full min-h-0 flex-col', !active && 'hidden')}>
       <div className="desktop-browser-toolbar flex h-11 shrink-0 items-center gap-1 border-b border-[var(--desktop-border-subtle)] bg-[var(--desktop-bg-0)] px-2">
-        <button
-          type="button"
-          className="desktop-browser-nav-btn"
-          onClick={() => runBrowserCommand('fluxion_browser_go_back')}
-          disabled={!tab.url}
-          title="Back"
-          aria-label="Back"
-        >
-          <ArrowLeft className="h-3.5 w-3.5" />
-        </button>
-        <button
-          type="button"
-          className="desktop-browser-nav-btn"
-          onClick={() => runBrowserCommand('fluxion_browser_go_forward')}
-          disabled={!tab.url}
-          title="Forward"
-          aria-label="Forward"
-        >
-          <ArrowRight className="h-3.5 w-3.5" />
-        </button>
-        <button
-          type="button"
-          className="desktop-browser-nav-btn"
-          onClick={() => runBrowserCommand('fluxion_browser_reload')}
-          disabled={!tab.url}
-          title="Reload"
-          aria-label="Reload"
-        >
-          <RotateCw className="h-3.5 w-3.5" />
-        </button>
+        <Tooltip content="Back" side="bottom">
+          <button
+            type="button"
+            className="desktop-browser-nav-btn"
+            onClick={() => runBrowserCommand('fluxion_browser_go_back')}
+            disabled={!tab.url}
+            aria-label="Back"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" />
+          </button>
+        </Tooltip>
+        <Tooltip content="Forward" side="bottom">
+          <button
+            type="button"
+            className="desktop-browser-nav-btn"
+            onClick={() => runBrowserCommand('fluxion_browser_go_forward')}
+            disabled={!tab.url}
+            aria-label="Forward"
+          >
+            <ArrowRight className="h-3.5 w-3.5" />
+          </button>
+        </Tooltip>
+        <Tooltip content="Reload" side="bottom">
+          <button
+            type="button"
+            className="desktop-browser-nav-btn"
+            onClick={() => runBrowserCommand('fluxion_browser_reload')}
+            disabled={!tab.url}
+            aria-label="Reload"
+          >
+            <RotateCw className="h-3.5 w-3.5" />
+          </button>
+        </Tooltip>
         <form
           className="relative min-w-0 flex-1"
           onSubmit={(event) => {

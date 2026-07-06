@@ -1,6 +1,7 @@
 import { Brain, ChevronDown, Terminal } from 'lucide-react';
 import type { ModelStatus } from '@/api/client';
 import { DesktopRunSettingsMenu } from '@/components/desktop/DesktopRunSettingsMenu';
+import { Tooltip } from '@/components/ui/tooltip';
 import type { ChatMode } from '@/types';
 
 interface DesktopComposerControlsProps {
@@ -55,18 +56,17 @@ export function DesktopComposerControls({
 
   return (
     <div className="flex min-w-0 items-center gap-0.5">
-      <button
-        type="button"
-        onClick={onModelClick}
-        className="desktop-model-trigger"
-        title={modelStatus?.model_name ? `Model: ${modelStatus.model_name}` : 'Switch model'}
+      <Tooltip
+        content={modelStatus?.model_name ? `Model: ${modelStatus.model_name}` : 'Switch model'}
       >
-        <span className="desktop-model-trigger-name">{modelLabel}</span>
-        {providerLabel ? (
-          <span className="desktop-model-trigger-provider">{providerLabel}</span>
-        ) : null}
-        <ChevronDown className="desktop-model-trigger-chevron" aria-hidden />
-      </button>
+        <button type="button" onClick={onModelClick} className="desktop-model-trigger">
+          <span className="desktop-model-trigger-name">{modelLabel}</span>
+          {providerLabel ? (
+            <span className="desktop-model-trigger-provider">{providerLabel}</span>
+          ) : null}
+          <ChevronDown className="desktop-model-trigger-chevron" aria-hidden />
+        </button>
+      </Tooltip>
 
       {mode === 'agent' ? (
         <DesktopRunSettingsMenu
@@ -83,28 +83,30 @@ export function DesktopComposerControls({
         />
       ) : null}
 
-      <button
-        type="button"
-        onClick={onReasoningClick}
-        className="desktop-icon-btn shrink-0"
-        title="Reasoning settings"
-        aria-label="Reasoning settings"
-      >
-        <Brain className="h-3.5 w-3.5" />
-      </button>
-
-      {showTerminal ? (
+      <Tooltip content="Reasoning settings">
         <button
           type="button"
-          onClick={onTerminalClick}
-          data-active={terminalOpen ? 'true' : 'false'}
+          onClick={onReasoningClick}
           className="desktop-icon-btn shrink-0"
-          title="Terminal panel"
-          aria-label="Terminal panel"
-          aria-pressed={terminalOpen}
+          aria-label="Reasoning settings"
         >
-          <Terminal className="h-3.5 w-3.5" />
+          <Brain className="h-3.5 w-3.5" />
         </button>
+      </Tooltip>
+
+      {showTerminal ? (
+        <Tooltip content="Terminal panel">
+          <button
+            type="button"
+            onClick={onTerminalClick}
+            data-active={terminalOpen ? 'true' : 'false'}
+            className="desktop-icon-btn shrink-0"
+            aria-label="Terminal panel"
+            aria-pressed={terminalOpen}
+          >
+            <Terminal className="h-3.5 w-3.5" />
+          </button>
+        </Tooltip>
       ) : null}
     </div>
   );

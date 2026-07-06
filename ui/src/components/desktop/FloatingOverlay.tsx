@@ -24,6 +24,7 @@ import {
 import { ensureAgentStream } from '@/lib/agentStreamManager';
 import { useStore, useHasActiveRun } from '@/hooks/useStore';
 import type { ConversationModelSelection, ImageAttachment, Run } from '@/types';
+import { Tooltip } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import {
   CONVERSATION_MODEL_METADATA_KEY,
@@ -491,25 +492,27 @@ export function FloatingOverlay() {
           )}
         </div>
       ) : null}
-      <button
-        type="button"
-        onClick={() => setReasoningSettingsOpen(true)}
-        className="desktop-icon-btn shrink-0"
-        title="Reasoning settings"
-        aria-label="Reasoning settings"
-      >
-        <Brain className="h-3.5 w-3.5" />
-      </button>
-      <button
-        type="button"
-        onClick={() => void captureArea()}
-        disabled={capturing || isGenerating}
-        className={cn('desktop-icon-btn shrink-0', capturing && 'opacity-60')}
-        title="Capture screen area"
-        aria-label="Capture screen area"
-      >
-        <Camera className="h-3.5 w-3.5" />
-      </button>
+      <Tooltip content="Reasoning settings">
+        <button
+          type="button"
+          onClick={() => setReasoningSettingsOpen(true)}
+          className="desktop-icon-btn shrink-0"
+          aria-label="Reasoning settings"
+        >
+          <Brain className="h-3.5 w-3.5" />
+        </button>
+      </Tooltip>
+      <Tooltip content="Capture screen area">
+        <button
+          type="button"
+          onClick={() => void captureArea()}
+          disabled={capturing || isGenerating}
+          className={cn('desktop-icon-btn shrink-0', capturing && 'opacity-60')}
+          aria-label="Capture screen area"
+        >
+          <Camera className="h-3.5 w-3.5" />
+        </button>
+      </Tooltip>
     </div>
   );
 

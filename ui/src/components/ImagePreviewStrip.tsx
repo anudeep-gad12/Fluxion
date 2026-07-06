@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { X } from 'lucide-react';
+import { Tooltip } from '@/components/ui/tooltip';
 import type { ImageAttachment } from '@/types';
 import { cn } from '@/lib/utils';
 
@@ -42,14 +43,16 @@ export function ImagePreviewStrip({
               />
             </button>
             {onRemove && (
-              <button
-                type="button"
-                onClick={() => onRemove(image.id)}
-                className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full border border-black/40 bg-zinc-950 text-[var(--desktop-text-secondary)] opacity-90 hover:text-white"
-                title="Remove image"
-              >
-                <X className="h-2.5 w-2.5" />
-              </button>
+              <Tooltip content="Remove image">
+                <button
+                  type="button"
+                  onClick={() => onRemove(image.id)}
+                  className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full border border-black/40 bg-zinc-950 text-[var(--desktop-text-secondary)] opacity-90 hover:text-white"
+                  aria-label="Remove image"
+                >
+                  <X className="h-2.5 w-2.5" />
+                </button>
+              </Tooltip>
             )}
           </div>
         ))}

@@ -1,5 +1,6 @@
 import type { Ref, KeyboardEvent, ChangeEvent, ClipboardEvent, ReactNode } from 'react';
 import { ArrowUp, Folder, Square } from 'lucide-react';
+import { Tooltip } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import type { ChatMode } from '@/types';
 
@@ -69,8 +70,8 @@ export function DesktopComposer({
         : 'Send';
 
   const modeOptions = [
-    { value: 'agent' as const, label: 'Agent' },
-    { value: 'chat' as const, label: 'Chat' },
+    { value: 'agent' as const, label: 'Agent', shortcut: '⌘1' },
+    { value: 'chat' as const, label: 'Chat', shortcut: '⌘2' },
   ];
 
   const modeTabs = (
@@ -82,16 +83,18 @@ export function DesktopComposer({
               ·
             </span>
           ) : null}
-          <button
-            type="button"
-            role="tab"
-            aria-selected={mode === option.value}
-            data-active={mode === option.value ? 'true' : 'false'}
-            onClick={() => onModeChange(option.value)}
-            className="desktop-mode-switch-option"
-          >
-            {option.label}
-          </button>
+          <Tooltip content={`${option.label} mode`} shortcut={option.shortcut}>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mode === option.value}
+              data-active={mode === option.value ? 'true' : 'false'}
+              onClick={() => onModeChange(option.value)}
+              className="desktop-mode-switch-option"
+            >
+              {option.label}
+            </button>
+          </Tooltip>
         </span>
       ))}
     </div>
@@ -141,31 +144,33 @@ export function DesktopComposer({
           {modeTabs}
 
           {isGenerating ? (
-            <button
-              type="button"
-              onClick={onStop}
-              disabled={!!stoppingRunId}
-              className="desktop-send-btn desktop-send-btn-stop"
-              title="Stop"
-              aria-label="Stop run"
-            >
-              <Square className="h-3 w-3 fill-current" />
-            </button>
+            <Tooltip content="Stop run">
+              <button
+                type="button"
+                onClick={onStop}
+                disabled={!!stoppingRunId}
+                className="desktop-send-btn desktop-send-btn-stop"
+                aria-label="Stop run"
+              >
+                <Square className="h-3 w-3 fill-current" />
+              </button>
+            </Tooltip>
           ) : (
-            <button
-              type="button"
-              onClick={onSubmit}
-              disabled={sendDisabled}
-              className={cn(
-                'desktop-send-btn',
-                sendDisabled && 'desktop-send-btn-disabled',
-                canSteerActiveRun && !sendDisabled && 'desktop-send-btn-steer'
-              )}
-              title={sendLabel}
-              aria-label={sendLabel}
-            >
-              <ArrowUp className="h-4 w-4" strokeWidth={2.5} />
-            </button>
+            <Tooltip content={sendLabel} shortcut="⌘↵" disabled={sendDisabled}>
+              <button
+                type="button"
+                onClick={onSubmit}
+                disabled={sendDisabled}
+                className={cn(
+                  'desktop-send-btn',
+                  sendDisabled && 'desktop-send-btn-disabled',
+                  canSteerActiveRun && !sendDisabled && 'desktop-send-btn-steer'
+                )}
+                aria-label={sendLabel}
+              >
+                <ArrowUp className="h-4 w-4" strokeWidth={2.5} />
+              </button>
+            </Tooltip>
           )}
         </div>
       </div>

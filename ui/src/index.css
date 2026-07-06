@@ -276,6 +276,81 @@ textarea {
   animation: ui-pop-in var(--duration-ui) var(--ease-ui);
 }
 
+/* Shared tooltip surface (components/ui/tooltip.tsx) */
+.ui-tooltip {
+  position: fixed;
+  z-index: var(--z-tooltip);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 280px;
+  padding: 4px 8px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--desktop-border-strong);
+  background: var(--desktop-panel-overlay);
+  color: var(--desktop-text-primary);
+  font-size: 11px;
+  line-height: 1.45;
+  box-shadow: var(--shadow-menu);
+  backdrop-filter: blur(12px);
+  pointer-events: none;
+  animation: ui-pop-in var(--duration-fast) var(--ease-ui);
+}
+
+.ui-tooltip[data-side='top'] {
+  --pop-offset: 3px;
+}
+
+.ui-tooltip[data-side='bottom'] {
+  --pop-offset: -3px;
+}
+
+.ui-tooltip-kbd {
+  padding: 0 4px;
+  border-radius: var(--radius-xs);
+  background: var(--desktop-bg-3);
+  color: var(--desktop-text-tertiary);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 16px;
+}
+
+.ui-tooltip-arrow {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  transform: rotate(45deg);
+  background: var(--desktop-panel-overlay);
+}
+
+.ui-tooltip[data-side='top'] .ui-tooltip-arrow {
+  bottom: -4.5px;
+  left: calc(var(--tooltip-arrow-offset, 50%) - 4px);
+  border-bottom: 1px solid var(--desktop-border-strong);
+  border-right: 1px solid var(--desktop-border-strong);
+}
+
+.ui-tooltip[data-side='bottom'] .ui-tooltip-arrow {
+  top: -4.5px;
+  left: calc(var(--tooltip-arrow-offset, 50%) - 4px);
+  border-left: 1px solid var(--desktop-border-strong);
+  border-top: 1px solid var(--desktop-border-strong);
+}
+
+.ui-tooltip[data-side='left'] .ui-tooltip-arrow {
+  right: -4.5px;
+  top: calc(var(--tooltip-arrow-offset, 50%) - 4px);
+  border-top: 1px solid var(--desktop-border-strong);
+  border-right: 1px solid var(--desktop-border-strong);
+}
+
+.ui-tooltip[data-side='right'] .ui-tooltip-arrow {
+  left: -4.5px;
+  top: calc(var(--tooltip-arrow-offset, 50%) - 4px);
+  border-bottom: 1px solid var(--desktop-border-strong);
+  border-left: 1px solid var(--desktop-border-strong);
+}
+
 /* The one streaming caret — sized here so every call site stays a bare span */
 .agent-caret {
   display: inline-block;
@@ -331,6 +406,7 @@ textarea {
   .tr-marker[data-tone='running'],
   .animate-pulse,
   .ui-pop-in,
+  .ui-tooltip,
   .desktop-theme-menu,
   .desktop-settings-popover,
   .desktop-mention-picker,

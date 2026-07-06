@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, Monitor, Moon, Sun, type LucideIcon } from 'lucide-react';
+import { Tooltip } from '@/components/ui/tooltip';
 import { useTheme, type ThemePreference } from '@/hooks/useTheme';
 import { cn } from '@/lib/utils';
 
@@ -75,23 +76,24 @@ export function ThemeToggle({
 
   return (
     <div ref={rootRef} className={cn('desktop-theme-menu-root desktop-no-drag', className)}>
-      <button
-        ref={triggerRef}
-        type="button"
-        onClick={() => setOpen((current) => !current)}
-        onKeyDown={(event) => {
-          if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
-          event.preventDefault();
-          setOpen(true);
-        }}
-        className="desktop-theme-toggle"
-        aria-label={`Theme: ${OPTIONS[activeIndex]?.label ?? 'System'}`}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        title="Theme"
-      >
-        <TriggerIcon className="h-4 w-4" aria-hidden />
-      </button>
+      <Tooltip content={`Theme: ${OPTIONS[activeIndex]?.label ?? 'System'}`} side="bottom">
+        <button
+          ref={triggerRef}
+          type="button"
+          onClick={() => setOpen((current) => !current)}
+          onKeyDown={(event) => {
+            if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+            event.preventDefault();
+            setOpen(true);
+          }}
+          className="desktop-theme-toggle"
+          aria-label={`Theme: ${OPTIONS[activeIndex]?.label ?? 'System'}`}
+          aria-haspopup="menu"
+          aria-expanded={open}
+        >
+          <TriggerIcon className="h-4 w-4" aria-hidden />
+        </button>
+      </Tooltip>
       {open ? createPortal(
         <div
           ref={menuRef}

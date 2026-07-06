@@ -7,6 +7,7 @@ import { deleteConversation, listConversations, patchConversation } from '@/api/
 import { useStore, conversationAttention } from '@/hooks/useStore';
 import type { AgentUIState } from '@/types/agent';
 import { Button } from '@/components/ui/button';
+import { Tooltip } from '@/components/ui/tooltip';
 import {
   ConfirmDialog,
   Dialog,
@@ -189,14 +190,16 @@ function WorkspaceSection({
   return (
     <div className="space-y-px">
       <div className="flex items-center gap-1.5 px-1 py-0.5">
-        <button
-          type="button"
-          onClick={onToggle}
-          className="ui-transition flex h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--desktop-text-tertiary)] hover:bg-[var(--desktop-hover)] hover:text-[var(--desktop-text-secondary)]"
-          title={isOpen ? 'Collapse workspace' : 'Expand workspace'}
-        >
-          {isOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-        </button>
+        <Tooltip content={isOpen ? 'Collapse workspace' : 'Expand workspace'}>
+          <button
+            type="button"
+            onClick={onToggle}
+            className="ui-transition flex h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--desktop-text-tertiary)] hover:bg-[var(--desktop-hover)] hover:text-[var(--desktop-text-secondary)]"
+            aria-label={isOpen ? 'Collapse workspace' : 'Expand workspace'}
+          >
+            {isOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+          </button>
+        </Tooltip>
         <button
           type="button"
           ref={headerButtonRef}
@@ -211,15 +214,17 @@ function WorkspaceSection({
           {group.conversations.length}
         </span>
         {!group.isGeneral && (
-          <Button
-            size="icon"
-            variant="ghost"
-            className="h-5 w-5 shrink-0 rounded text-[var(--desktop-text-tertiary)] hover:text-[var(--desktop-text-secondary)]"
-            onClick={onNewConversation}
-            title="New conversation in this workspace"
-          >
-            <Plus className="h-3 w-3" />
-          </Button>
+          <Tooltip content="New conversation in this workspace">
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-5 w-5 shrink-0 rounded text-[var(--desktop-text-tertiary)] hover:text-[var(--desktop-text-secondary)]"
+              onClick={onNewConversation}
+              aria-label="New conversation in this workspace"
+            >
+              <Plus className="h-3 w-3" />
+            </Button>
+          </Tooltip>
         )}
       </div>
       {isOpen && <div className="space-y-px pl-1.5">{children}</div>}
@@ -545,20 +550,22 @@ export function ConversationList() {
         <div className="flex items-center justify-between gap-2">
           <div className="px-1 text-[11px] font-medium uppercase tracking-[0.08em] text-[var(--desktop-text-tertiary)]">Workspaces</div>
           <div className="flex items-center gap-0.5">
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => setAllWorkspaceSections(!allWorkspaceSectionsOpen)}
-              disabled={workspaceGroups.length === 0}
-              className="h-7 w-7 rounded-md p-0 text-[var(--desktop-text-tertiary)] hover:bg-[var(--desktop-hover)] hover:text-zinc-200"
-              title={allWorkspaceSectionsOpen ? 'Collapse all' : 'Expand all'}
-            >
-              {allWorkspaceSectionsOpen ? (
-                <ChevronDown className="h-3.5 w-3.5" />
-              ) : (
-                <ChevronRight className="h-3.5 w-3.5" />
-              )}
-            </Button>
+            <Tooltip content={allWorkspaceSectionsOpen ? 'Collapse all' : 'Expand all'}>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setAllWorkspaceSections(!allWorkspaceSectionsOpen)}
+                disabled={workspaceGroups.length === 0}
+                className="h-7 w-7 rounded-md p-0 text-[var(--desktop-text-tertiary)] hover:bg-[var(--desktop-hover)] hover:text-zinc-200"
+                aria-label={allWorkspaceSectionsOpen ? 'Collapse all' : 'Expand all'}
+              >
+                {allWorkspaceSectionsOpen ? (
+                  <ChevronDown className="h-3.5 w-3.5" />
+                ) : (
+                  <ChevronRight className="h-3.5 w-3.5" />
+                )}
+              </Button>
+            </Tooltip>
             {isSelectMode && (
               <Button
                 size="sm"
@@ -580,15 +587,17 @@ export function ConversationList() {
                 {selectedIds.size === visibleConversations.length ? 'None' : 'All'}
               </Button>
             )}
-            <Button
-              size="sm"
-              variant={isSelectMode ? 'secondary' : 'ghost'}
-              onClick={toggleSelectMode}
-              title={isSelectMode ? 'Cancel selection' : 'Select conversations'}
-              className="h-7 w-7 rounded-md"
-            >
-              {isSelectMode ? <X className="h-3.5 w-3.5" /> : <CheckSquare className="h-3.5 w-3.5" />}
-            </Button>
+            <Tooltip content={isSelectMode ? 'Cancel selection' : 'Select conversations'}>
+              <Button
+                size="sm"
+                variant={isSelectMode ? 'secondary' : 'ghost'}
+                onClick={toggleSelectMode}
+                aria-label={isSelectMode ? 'Cancel selection' : 'Select conversations'}
+                className="h-7 w-7 rounded-md"
+              >
+                {isSelectMode ? <X className="h-3.5 w-3.5" /> : <CheckSquare className="h-3.5 w-3.5" />}
+              </Button>
+            </Tooltip>
           </div>
         </div>
       </div>
