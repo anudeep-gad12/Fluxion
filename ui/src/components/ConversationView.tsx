@@ -67,7 +67,7 @@ import {
 } from '@/lib/modelSelection';
 import { formatContextTokens } from '@/lib/runFormat';
 import { useSSE } from '@/hooks/useSSE';
-import { useAgentSSE } from '@/hooks/useAgentSSE';
+import { ensureAgentStream } from '@/lib/agentStreamManager';
 import { useAgentRunDetails } from '@/hooks/useAgentRunDetails';
 import { formatAgentCost } from '@/lib/agentLiveState';
 import { inputCostTotal, normalizeTokenUsage, outputCostTotal } from '@/lib/usageMetrics';
@@ -475,9 +475,6 @@ export function ConversationView() {
 
   // Stop generation state
   const [pendingMessage, setPendingMessage] = useState('');
-  // Track run IDs we already subscribed to in handleSubmit, so
-  // loadConversation doesn't open a second EventSource for the same run.
-  const subscribedRunRef = useRef<string | null>(null);
   const [pendingRunId, setPendingRunId] = useState<string | null>(null);
   const [pendingIsAgent, setPendingIsAgent] = useState(false);
   const [stoppingRunId, setStoppingRunId] = useState<string | null>(null);
@@ -692,7 +689,7 @@ export function ConversationView() {
   }, [injectedSteerCount, queuedSteers.length]);
 
   // Only track chat (non-agent) runs for useSSE auto-subscribe.
-  // Agent runs are managed manually via useAgentSSE.
+  // Agent runs are managed by the module-level agentStreamManager.
   const activeChatRunId = useMemo(() => {
     for (let i = runs.length - 1; i >= 0; i -= 1) {
       if (runs[i].status === 'running' && runs[i].mode !== 'agent') {
@@ -704,9 +701,6 @@ export function ConversationView() {
 
   // Get subscribe/unsubscribe functions from useSSE (chat mode)
   const { subscribe, unsubscribe } = useSSE(activeChatRunId);
-
-  // Get subscribe/unsubscribe functions from useAgentSSE (agent mode)
-  const { subscribe: subscribeAgent } = useAgentSSE(null); // Manual subscription, not auto
 
   const scrollConversationToBottom = useCallback(() => {
     const el = scrollRef.current;
@@ -758,18 +752,14 @@ export function ConversationView() {
         updateConversation(selectedConversationId!, data.conversation);
         setRuns(selectedConversationId!, data.runs);
 
-        // Auto-reconnect to any active runs after page reload.
-        // Skip if we already subscribed in handleSubmit (prevents double EventSource).
+        // Auto-reconnect to any active runs after page reload. ensureAgentStream
+        // is idempotent, so runs already streaming (from handleSubmit or a
+        // backgrounded conversation) are left untouched.
         for (const run of data.runs) {
           if (run.status === 'running') {
             if (run.mode === 'agent') {
-              if (subscribedRunRef.current === run.run_id) {
-                // Already subscribed from handleSubmit — don't open a second connection
-                continue;
-              }
-              // Reconnect to agent SSE stream with stored token (e.g. after page reload)
               const streamToken = localStorage.getItem(`stream_token:${run.run_id}`) || undefined;
-              subscribeAgent(run.run_id, 0, streamToken);
+              ensureAgentStream(run.run_id, { streamToken });
             } else {
               // Reconnect to chat SSE stream
               subscribe(run.run_id);
@@ -801,7 +791,7 @@ export function ConversationView() {
     return () => {
       cancelled = true;
     };
-  }, [navigate, selectConversation, selectedConversationId, setRuns, updateConversation, subscribe, subscribeAgent]);
+  }, [navigate, selectConversation, selectedConversationId, setRuns, updateConversation, subscribe]);
 
   const runListKey = useMemo(
     () => runs.map((run) => run.run_id).join('|'),
@@ -1155,10 +1145,9 @@ export function ConversationView() {
         // Store stream token for reconnection after page refresh
         localStorage.setItem(`stream_token:${response.run_id}`, response.stream_token);
 
-        // Subscribe to agent SSE stream with auth token BEFORE navigate
-        // to prevent loadConversation from opening a duplicate connection
-        subscribedRunRef.current = response.run_id;
-        subscribeAgent(response.run_id, 0, response.stream_token);
+        // Open the run's SSE stream before navigate; ensureAgentStream is
+        // idempotent so loadConversation can't open a duplicate connection.
+        ensureAgentStream(response.run_id, { streamToken: response.stream_token });
 
         const run: Run = {
           run_id: response.run_id,
@@ -1261,8 +1250,7 @@ export function ConversationView() {
     if (implementation.stream_token) {
       localStorage.setItem(`stream_token:${implementation.run_id}`, implementation.stream_token);
     }
-    subscribedRunRef.current = implementation.run_id;
-    subscribeAgent(implementation.run_id, 0, implementation.stream_token);
+    ensureAgentStream(implementation.run_id, { streamToken: implementation.stream_token });
     const run: Run = {
       run_id: implementation.run_id,
       created_at: new Date().toISOString(),
@@ -1276,7 +1264,7 @@ export function ConversationView() {
     };
     addRun(selectedConversationId, run);
     setEvents(implementation.run_id, []);
-  }, [addRun, conversation?.summary, selectedConversationId, setEvents, subscribeAgent]);
+  }, [addRun, conversation?.summary, selectedConversationId, setEvents]);
 
   // Handle stream completion - clear pending state.
   // Guard: only fire when we have a selected conversation (prevents false
@@ -1293,7 +1281,6 @@ export function ConversationView() {
       setStoppingRunId(null);
       clearMentionState();
       setQueuedSteers([]);
-      subscribedRunRef.current = null;
     }
   }, [clearMentionState, selectedConversationId, activeRunId, pendingRunId]);
 

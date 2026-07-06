@@ -21,7 +21,7 @@ import {
   type ReasoningSettings,
   type ReasoningSettingsResponse,
 } from '@/api/client';
-import { useAgentSSE } from '@/hooks/useAgentSSE';
+import { ensureAgentStream } from '@/lib/agentStreamManager';
 import { useStore, useHasActiveRun } from '@/hooks/useStore';
 import type { ConversationModelSelection, ImageAttachment, Run } from '@/types';
 import { cn } from '@/lib/utils';
@@ -86,7 +86,6 @@ export function FloatingOverlay() {
   const updateRun = useStore((s) => s.updateRun);
   const hasActiveRun = useHasActiveRun();
   const liveAgentState = useStore((s) => (activeRunId ? s.agentRunState[activeRunId] : undefined));
-  const { subscribe } = useAgentSSE(null);
 
   const refreshReasoningSettings = useCallback(async () => {
     try {
@@ -361,7 +360,7 @@ export function FloatingOverlay() {
       void invoke('fluxion_set_floating_overlay_expanded', { expanded: true }).catch(() => undefined);
       addRun(nextConversationId!, run);
       localStorage.setItem(`stream_token:${response.run_id}`, response.stream_token);
-      subscribe(response.run_id, 0, response.stream_token);
+      ensureAgentStream(response.run_id, { streamToken: response.stream_token });
     } catch (error) {
       toast.error((error as { message?: string })?.message || 'Failed to start agent');
       setMessage(text);
@@ -383,7 +382,6 @@ export function FloatingOverlay() {
     modelStatus?.supports_vision,
     permissionPolicy,
     setRuns,
-    subscribe,
   ]);
 
   const currentRun = useMemo(() => {
