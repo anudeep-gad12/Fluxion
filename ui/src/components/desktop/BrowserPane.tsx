@@ -298,8 +298,8 @@ export function BrowserPane({
           </div>
         ) : null}
         {tab.status === 'loading' ? (
-          <div className="pointer-events-none absolute left-0 right-0 top-0 h-px overflow-hidden bg-cyan-300/20">
-            <div className="h-full w-1/3 animate-pulse bg-cyan-300/70" />
+          <div className="pointer-events-none absolute left-0 right-0 top-0 h-0.5 overflow-hidden bg-[rgb(var(--desktop-accent-rgb)/0.15)]">
+            <div className="ui-progress-indeterminate h-full w-1/4 bg-[var(--desktop-accent)]" />
           </div>
         ) : null}
         {tab.status === 'error' ? (

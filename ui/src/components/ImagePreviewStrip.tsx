@@ -47,7 +47,7 @@ export function ImagePreviewStrip({
                 <button
                   type="button"
                   onClick={() => onRemove(image.id)}
-                  className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full border border-black/40 bg-zinc-950 text-[var(--desktop-text-secondary)] opacity-90 hover:text-white"
+                  className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full border border-[var(--desktop-border-strong)] bg-[var(--desktop-panel-overlay)] text-[var(--desktop-text-secondary)] opacity-90 hover:text-[var(--desktop-text-primary)]"
                   aria-label="Remove image"
                 >
                   <X className="h-2.5 w-2.5" />

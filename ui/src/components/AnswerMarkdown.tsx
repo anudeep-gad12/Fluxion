@@ -8,6 +8,7 @@ import rehypeKatex from 'rehype-katex';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useTheme } from '@/hooks/useTheme';
+import { Tooltip } from '@/components/ui/tooltip';
 
 /**
  * Fix common LaTeX issues that cause KaTeX parsing errors.
@@ -213,25 +214,26 @@ function SyntaxCodeBlock({
   }, [code]);
 
   return (
-    <div className="group relative my-5 overflow-hidden rounded-lg border border-zinc-800/90 bg-[var(--desktop-panel-overlay)]">
+    <div className="group relative my-5 overflow-hidden rounded-lg border border-[var(--desktop-border-subtle)] bg-[var(--desktop-panel-overlay)]">
       {/* Language label + copy button */}
-      <div className="flex items-center justify-between border-b border-zinc-800/90 bg-[var(--desktop-bg-3)] px-3.5 py-2">
+      <div className="flex items-center justify-between border-b border-[var(--desktop-border-subtle)] bg-[var(--desktop-bg-3)] px-3.5 py-2">
         <span className="text-[10px] font-mono uppercase tracking-[0.16em] text-[var(--desktop-text-tertiary)]">
           {language || 'text'}
         </span>
-        <button
-          onClick={handleCopy}
-          className="ui-transition text-[10px] font-mono uppercase tracking-[0.16em] text-[var(--desktop-text-tertiary)] hover:text-cyan-100"
-          title="Copy code"
-        >
-          {copied ? (
-            <span className="inline-flex items-center gap-1">
-              <Check className="h-3 w-3" /> copied
-            </span>
-          ) : (
-            'copy'
-          )}
-        </button>
+        <Tooltip content="Copy code">
+          <button
+            onClick={handleCopy}
+            className="ui-transition ui-focus-ring text-[10px] font-mono uppercase tracking-[0.16em] text-[var(--desktop-text-tertiary)] hover:text-cyan-100"
+          >
+            {copied ? (
+              <span className="inline-flex items-center gap-1">
+                <Check className="h-3 w-3" /> copied
+              </span>
+            ) : (
+              'copy'
+            )}
+          </button>
+        </Tooltip>
       </div>
       <SyntaxHighlighter
         style={theme === 'light' ? codeThemeLight : codeThemeDark}
@@ -258,24 +260,25 @@ function PlainCodeBlock({ children }: { children: React.ReactNode }) {
   }, [children]);
 
   return (
-    <div className="group relative my-5 overflow-hidden rounded-lg border border-zinc-800/90 bg-[var(--desktop-panel-overlay)]">
-      <div className="flex items-center justify-between border-b border-zinc-800/90 bg-[var(--desktop-bg-3)] px-3.5 py-2">
+    <div className="group relative my-5 overflow-hidden rounded-lg border border-[var(--desktop-border-subtle)] bg-[var(--desktop-panel-overlay)]">
+      <div className="flex items-center justify-between border-b border-[var(--desktop-border-subtle)] bg-[var(--desktop-bg-3)] px-3.5 py-2">
         <span className="text-[10px] font-mono uppercase tracking-[0.16em] text-[var(--desktop-text-tertiary)]">text</span>
-        <button
-          onClick={handleCopy}
-          className="ui-transition text-[10px] font-mono uppercase tracking-[0.16em] text-[var(--desktop-text-tertiary)] hover:text-cyan-100"
-          title="Copy code"
-        >
-          {copied ? (
-            <span className="inline-flex items-center gap-1">
-              <Check className="h-3 w-3" /> copied
-            </span>
-          ) : (
-            'copy'
-          )}
-        </button>
+        <Tooltip content="Copy code">
+          <button
+            onClick={handleCopy}
+            className="ui-transition ui-focus-ring text-[10px] font-mono uppercase tracking-[0.16em] text-[var(--desktop-text-tertiary)] hover:text-cyan-100"
+          >
+            {copied ? (
+              <span className="inline-flex items-center gap-1">
+                <Check className="h-3 w-3" /> copied
+              </span>
+            ) : (
+              'copy'
+            )}
+          </button>
+        </Tooltip>
       </div>
-      <pre className="overflow-x-auto rounded-b-lg bg-zinc-950 px-4 py-3.5 text-xs leading-7 text-[var(--desktop-text-primary)]">
+      <pre className="overflow-x-auto rounded-b-lg bg-[var(--desktop-panel-overlay)] px-4 py-3.5 text-xs leading-7 text-[var(--desktop-text-primary)]">
         {children}
       </pre>
     </div>
@@ -311,7 +314,7 @@ export function AnswerMarkdown({ content }: { content: string }) {
 
             if (isInline) {
               return (
-                <code className="rounded-md border border-zinc-800/90 bg-[var(--desktop-panel-overlay)] px-1.5 py-0.5 text-xs text-zinc-200" {...props}>
+                <code className="rounded-md border border-[var(--desktop-border-subtle)] bg-[var(--desktop-panel-overlay)] px-1.5 py-0.5 text-xs text-[var(--desktop-text-secondary)]" {...props}>
                   {children}
                 </code>
               );

@@ -98,8 +98,8 @@ const STATUS_DOT_STYLES: Record<TerminalStatus, string> = {
   running: 'bg-emerald-300',
   stale: 'bg-amber-300',
   error: 'bg-red-300',
-  idle: 'bg-zinc-600',
-  closed: 'bg-zinc-600',
+  idle: 'bg-[var(--desktop-text-tertiary)]',
+  closed: 'bg-[var(--desktop-text-tertiary)]',
 };
 
 function normalizeStatus(status: string | undefined): TerminalStatus {
@@ -590,7 +590,7 @@ export function IntegratedTerminal({
             </span>
             {!isEmbedded ? (
               <>
-                <span className="text-zinc-700">·</span>
+                <span className="text-[var(--desktop-text-tertiary)]">·</span>
                 <span className="truncate" title={pathLabel}>{pathLabel}</span>
               </>
             ) : null}
@@ -601,29 +601,29 @@ export function IntegratedTerminal({
               <>
                 <button
                   onClick={() => handleDockToggle('bottom')}
-                  className={cn('ui-transition', terminalState.dock === 'bottom' ? 'text-cyan-100' : 'text-[var(--desktop-text-tertiary)] hover:text-zinc-200')}
+                  className={cn('ui-transition', terminalState.dock === 'bottom' ? 'text-cyan-100' : 'text-[var(--desktop-text-tertiary)] hover:text-[var(--desktop-text-primary)]')}
                   type="button"
                 >
                   bottom
                 </button>
                 <button
                   onClick={() => handleDockToggle('right')}
-                  className={cn('ui-transition', terminalState.dock === 'right' ? 'text-cyan-100' : 'text-[var(--desktop-text-tertiary)] hover:text-zinc-200')}
+                  className={cn('ui-transition', terminalState.dock === 'right' ? 'text-cyan-100' : 'text-[var(--desktop-text-tertiary)] hover:text-[var(--desktop-text-primary)]')}
                   type="button"
                 >
                   right
                 </button>
-                <span className="text-zinc-800">|</span>
+                <span className="text-[var(--desktop-border-strong)]">|</span>
               </>
             ) : null}
             {!needsRestartOnly && (
-              <button onClick={handleClear} className="ui-transition hover:text-zinc-200" type="button">
+              <button onClick={handleClear} className="ui-transition hover:text-[var(--desktop-text-primary)]" type="button">
                 clear
               </button>
             )}
             <button
               onClick={handleRestart}
-              className="ui-transition hover:text-zinc-200 disabled:cursor-wait disabled:text-zinc-700"
+              className="ui-transition hover:text-[var(--desktop-text-primary)] disabled:cursor-wait disabled:text-[var(--desktop-text-tertiary)]"
               type="button"
               disabled={isRestarting}
             >
@@ -632,7 +632,7 @@ export function IntegratedTerminal({
             {!isEmbedded ? (
               <button
                 onClick={() => updateTerminalState(conversationId, { isOpen: false })}
-                className="ui-transition hover:text-zinc-200"
+                className="ui-transition hover:text-[var(--desktop-text-primary)]"
                 type="button"
               >
                 close

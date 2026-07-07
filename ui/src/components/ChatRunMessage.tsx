@@ -102,7 +102,7 @@ export const ChatRunMessage = memo(function ChatRunMessage({
 
           <RunFooter
             pillClassName={cn(
-              'desktop-run-meta-pill rounded-full border border-zinc-800/85 bg-[var(--desktop-panel-inset)] px-2.5 py-1',
+              'desktop-run-meta-pill rounded-full border border-[var(--desktop-border-subtle)] bg-[var(--desktop-panel-inset)] px-2.5 py-1',
               run.status === 'succeeded'
                 ? 'text-emerald-300'
                 : run.status === 'failed'

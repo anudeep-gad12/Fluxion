@@ -24,6 +24,29 @@ export const TOOL_PREFIXES: Record<string, string> = {
 
 export const COMMAND_TOOL_NAMES = new Set(['exec_command', 'write_stdin']);
 
+/** Visual category for a tool — drives the transcript's per-tool accent color. */
+export type ToolCategory = 'read' | 'search' | 'edit' | 'exec' | 'default';
+
+const TOOL_CATEGORIES: Record<string, ToolCategory> = {
+  read_file: 'read',
+  list_directory: 'read',
+  glob: 'read',
+  read_artifact: 'read',
+  list_run_artifacts: 'read',
+  web_search: 'search',
+  web_extract: 'search',
+  grep: 'search',
+  write_file: 'edit',
+  edit_file: 'edit',
+  exec_command: 'exec',
+  write_stdin: 'exec',
+};
+
+/** Resolve a tool name to its visual category (defaults to 'default'). */
+export function toolCategory(toolName: string): ToolCategory {
+  return TOOL_CATEGORIES[toolName] ?? 'default';
+}
+
 function normalizeToolArguments(
   rawArgs: Record<string, unknown> | string | null | undefined,
 ): Record<string, unknown> {

@@ -60,7 +60,7 @@ function ThinkingMarkdown({ content }: { content: string }) {
             const isInline = !className;
             if (isInline) {
               return (
-                <code className="rounded-md border border-zinc-800/90 bg-[var(--desktop-panel-overlay)] px-1.5 py-0.5 text-[11px] text-zinc-200" {...props}>
+                <code className="rounded-md border border-[var(--desktop-border-subtle)] bg-[var(--desktop-panel-overlay)] px-1.5 py-0.5 text-[11px] text-[var(--desktop-text-secondary)]" {...props}>
                   {children}
                 </code>
               );
@@ -73,7 +73,7 @@ function ThinkingMarkdown({ content }: { content: string }) {
           },
           pre({ children }) {
             return (
-              <pre className="my-3 overflow-x-auto rounded-xl border border-zinc-800/95 bg-[var(--desktop-panel-overlay)] px-3 py-2.5 text-xs text-zinc-200">
+              <pre className="my-3 overflow-x-auto rounded-xl border border-[var(--desktop-border-subtle)] bg-[var(--desktop-panel-overlay)] px-3 py-2.5 text-xs text-[var(--desktop-text-secondary)]">
                 {children}
               </pre>
             );

@@ -35,10 +35,10 @@ export function CitationInline({ index, citation }: CitationInlineProps) {
       </button>
 
       {showTooltip && (
-        <div className="ui-elevated absolute bottom-full left-1/2 z-50 mb-3 w-72 -translate-x-1/2 overflow-hidden rounded-xl border border-zinc-800/90 bg-[var(--desktop-panel-overlay)] p-3 text-left shadow-[var(--shadow-menu)]">
+        <div className="ui-elevated absolute bottom-full left-1/2 z-50 mb-3 w-72 -translate-x-1/2 overflow-hidden rounded-xl border border-[var(--desktop-border-subtle)] bg-[var(--desktop-panel-overlay)] p-3 text-left shadow-[var(--shadow-menu)]">
           <div className="space-y-1.5">
             <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.16em] text-[var(--desktop-text-tertiary)]">
-              <span className="rounded-full border border-zinc-800/90 bg-[var(--desktop-bg-3)] px-2 py-0.5 text-[var(--desktop-text-secondary)]">
+              <span className="rounded-full border border-[var(--desktop-border-subtle)] bg-[var(--desktop-bg-3)] px-2 py-0.5 text-[var(--desktop-text-secondary)]">
                 source {index}
               </span>
               <span className="truncate">{hostname}</span>
@@ -54,7 +54,7 @@ export function CitationInline({ index, citation }: CitationInlineProps) {
               </div>
             )}
           </div>
-          <div className="absolute bottom-0 left-1/2 h-3 w-3 -translate-x-1/2 translate-y-1/2 rotate-45 border-b border-r border-zinc-800/90 bg-[var(--desktop-panel-overlay)]" />
+          <div className="absolute bottom-0 left-1/2 h-3 w-3 -translate-x-1/2 translate-y-1/2 rotate-45 border-b border-r border-[var(--desktop-border-subtle)] bg-[var(--desktop-panel-overlay)]" />
         </div>
       )}
     </span>

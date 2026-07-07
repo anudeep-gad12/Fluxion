@@ -18,6 +18,7 @@ import { PanelLeftClose, PanelLeft, GripVertical, FolderPlus } from 'lucide-reac
 import { Button } from '@/components/ui/button';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { CommandPalette } from '@/components/CommandPalette';
+import { Tooltip } from '@/components/ui/tooltip';
 import { useTheme } from '@/hooks/useTheme';
 
 const SIDEBAR_PREF_KEY = 'reasoner_sidebar_pref';
@@ -177,7 +178,7 @@ function AppLayout() {
           />
           <div
             className={cn(
-              'desktop-sidebar-brand-band flex h-10 w-full shrink-0 items-center',
+              'desktop-sidebar-brand-band flex w-full shrink-0',
               sidebarCollapsed
                 ? 'justify-center'
                 : 'justify-between gap-2 pr-2 pl-[var(--desktop-traffic-light-inset)]'
@@ -221,18 +222,19 @@ function AppLayout() {
           sidebarCollapsed && 'desktop-sidebar-body-collapsed'
         )}
       >
-        <Button
-          variant="ghost"
-          onClick={() => void handleOpenWorkspacePicker()}
-          className={cn(
-            'h-8 w-full justify-start gap-2 rounded-lg px-2.5 text-[13px] font-normal',
-            'text-[var(--desktop-text-secondary)] hover:bg-[var(--desktop-hover)] hover:text-[var(--desktop-text-primary)]'
-          )}
-          title="Add a workspace folder"
-        >
-          <FolderPlus className="h-4 w-4 opacity-70" />
-          New workspace
-        </Button>
+        <Tooltip content="Add a workspace folder" side="right" align="start">
+          <Button
+            variant="ghost"
+            onClick={() => void handleOpenWorkspacePicker()}
+            className={cn(
+              'desktop-sidebar-action',
+              'text-[var(--desktop-text-secondary)] hover:bg-[var(--desktop-hover)] hover:text-[var(--desktop-text-primary)]'
+            )}
+          >
+            <FolderPlus className="h-4 w-4 opacity-70" />
+            New workspace
+          </Button>
+        </Tooltip>
       </div>
 
       <div
@@ -315,7 +317,7 @@ function App() {
         duration={4000}
         theme={theme}
         toastOptions={{
-          className: 'sonner-toast border border-[var(--desktop-border-strong)] bg-zinc-900 text-[var(--desktop-text-primary)]',
+          className: 'sonner-toast border border-[var(--desktop-border-strong)] bg-[var(--desktop-bg-3)] text-[var(--desktop-text-primary)]',
         }}
       />
       {floating ? (

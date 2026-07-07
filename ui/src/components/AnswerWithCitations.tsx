@@ -7,7 +7,7 @@ import { AnswerMarkdown } from '@/components/AnswerMarkdown';
 import { CitationInline } from '@/components/CitationInline';
 import type { AgentCitation } from '@/types/agent';
 
-const INITIAL_SOURCES_SHOWN = 4;
+const INITIAL_SOURCES_SHOWN = 3;
 
 interface AnswerWithCitationsProps {
   content: string;
@@ -118,18 +118,16 @@ function CitationsList({ citations }: { citations: AgentCitation[] }) {
   const hiddenCount = Math.max(0, citations.length - INITIAL_SOURCES_SHOWN);
 
   return (
-    <section className="border-t border-zinc-900/90 pt-4">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <div className="premium-section-label">sources</div>
-          <p className="mt-1 text-xs leading-5 text-[var(--desktop-text-tertiary)]">
-            {citations.length} reference{citations.length !== 1 ? 's' : ''}
-          </p>
+    <section className="desktop-sources">
+      <div className="desktop-sources-header">
+        <div className="desktop-sources-label">
+          sources
+          <span>{citations.length} reference{citations.length !== 1 ? 's' : ''}</span>
         </div>
         {hasMore && (
           <button
             onClick={() => setExpanded((value) => !value)}
-            className="premium-subtle-button px-3 py-1"
+            className="desktop-sources-toggle"
             type="button"
           >
             {expanded ? 'show less' : `show ${hiddenCount} more`}
@@ -137,7 +135,7 @@ function CitationsList({ citations }: { citations: AgentCitation[] }) {
         )}
       </div>
 
-      <div className="space-y-0">
+      <div className="desktop-sources-list">
         {visibleCitations.map((citation, index) => {
           const host = getSourceHost(citation.source_url);
           const snippet = summarizeSnippet(citation.snippet);
@@ -147,22 +145,22 @@ function CitationsList({ citations }: { citations: AgentCitation[] }) {
               href={citation.source_url}
               target="_blank"
               rel="noopener noreferrer"
-              className="ui-transition group flex gap-3 border-t border-zinc-900/90 px-1 py-3 first:border-t-0 hover:border-cyan-500/14 hover:bg-[var(--desktop-accent-hover)]"
+              className="desktop-source-row"
             >
-              <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full border border-zinc-900/90 bg-transparent font-mono text-[10px] text-[var(--desktop-text-secondary)] group-hover:border-cyan-500/20 group-hover:text-cyan-100">
+              <div className="desktop-source-index">
                 {index + 1}
               </div>
               <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                  <span className="line-clamp-1 text-[13px] font-medium leading-5 text-[var(--desktop-text-primary)]">
+                <div className="desktop-source-main">
+                  <span className="desktop-source-title">
                     {citation.title || host}
                   </span>
-                  <span className="text-[11px] uppercase tracking-[0.16em] text-[var(--desktop-text-tertiary)]">
+                  <span className="desktop-source-host">
                     {host}
                   </span>
                 </div>
                 {snippet && (
-                  <p className="mt-1 line-clamp-2 text-xs leading-5 text-[var(--desktop-text-secondary)]">
+                  <p className="desktop-source-snippet">
                     {snippet}
                   </p>
                 )}

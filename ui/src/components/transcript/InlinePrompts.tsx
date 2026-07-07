@@ -18,6 +18,7 @@ import { AnswerMarkdown } from '@/components/AnswerMarkdown';
 import { formatArguments, UnifiedDiffView } from '@/components/transcript/toolFormat';
 import { useStore } from '@/hooks/useStore';
 import { cn } from '@/lib/utils';
+import { Tooltip } from '@/components/ui/tooltip';
 import type { AgentUIState } from '@/types/agent';
 
 interface InlinePromptsProps {
@@ -236,20 +237,20 @@ export function InlinePrompts({ agentState, onImplementationStarted }: InlinePro
             <div className="tr-prompt-question-text">{question.question}</div>
             <div className="tr-prompt-options">
               {question.options.map((option) => (
-                <button
-                  key={option.label}
-                  type="button"
-                  onClick={() => setUserInputAnswers((current) => ({
-                    ...current,
-                    [question.id]: option.label,
-                  }))}
-                  disabled={userInputSubmitting !== null}
-                  data-selected={userInputAnswers[question.id] === option.label ? 'true' : 'false'}
-                  className="tr-prompt-option"
-                  title={option.description}
-                >
-                  {option.label}
-                </button>
+                <Tooltip key={option.label} content={option.description}>
+                  <button
+                    type="button"
+                    onClick={() => setUserInputAnswers((current) => ({
+                      ...current,
+                      [question.id]: option.label,
+                    }))}
+                    disabled={userInputSubmitting !== null}
+                    data-selected={userInputAnswers[question.id] === option.label ? 'true' : 'false'}
+                    className="tr-prompt-option"
+                  >
+                    {option.label}
+                  </button>
+                </Tooltip>
               ))}
             </div>
           </div>

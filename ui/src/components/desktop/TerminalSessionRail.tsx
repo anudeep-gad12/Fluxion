@@ -136,7 +136,7 @@ export function TerminalSessionRail({
           <button
             type="button"
             onClick={() => setMenuOpen(!menuOpen)}
-            className="desktop-no-drag flex h-6 items-center justify-center gap-0.5 rounded-md px-1.5 text-[var(--desktop-text-tertiary)] ui-transition hover:bg-[var(--desktop-hover)] hover:text-zinc-200"
+            className="desktop-no-drag flex h-6 items-center justify-center gap-0.5 rounded-md px-1.5 text-[var(--desktop-text-tertiary)] ui-transition hover:bg-[var(--desktop-hover)] hover:text-[var(--desktop-text-primary)]"
             aria-label="New panel tab"
             aria-expanded={menuOpen}
           >
@@ -159,7 +159,7 @@ export function TerminalSessionRail({
                   ? 'cursor-not-allowed opacity-40'
                   : 'hover:bg-[var(--desktop-hover)] hover:text-[var(--desktop-text-primary)]'
               )}
-              title={terminalAtLimit ? `Maximum ${maxTerminals} terminals` : 'New terminal'}
+              title={terminalAtLimit ? `Maximum ${maxTerminals} terminals` : undefined}
             >
               <Terminal className="h-3.5 w-3.5" />
               Terminal
@@ -177,7 +177,7 @@ export function TerminalSessionRail({
                   ? 'cursor-not-allowed opacity-40'
                   : 'hover:bg-[var(--desktop-hover)] hover:text-[var(--desktop-text-primary)]'
               )}
-              title={browserAtLimit ? `Maximum ${maxBrowsers} browsers` : 'New browser'}
+              title={browserAtLimit ? `Maximum ${maxBrowsers} browsers` : undefined}
             >
               <Globe2 className="h-3.5 w-3.5" />
               Browser

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
-import { PanelRightClose } from 'lucide-react';
+import { PanelRightClose, TerminalSquare } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { IntegratedTerminal } from '@/components/IntegratedTerminal';
@@ -655,8 +655,26 @@ export function TerminalPanel({ agentModeActive }: TerminalPanelProps) {
                 />
               ))}
               {tabs.length === 0 ? (
-                <div className="flex h-full items-center justify-center px-4 text-center text-xs text-[var(--desktop-text-tertiary)]">
-                  Use + to open a terminal or browser.
+                <div className="flex h-full flex-col items-center justify-center px-6 text-center">
+                  <TerminalSquare
+                    className="mb-3 h-6 w-6 text-[var(--desktop-text-tertiary)]"
+                    aria-hidden
+                  />
+                  <div className="text-xs font-medium text-[var(--desktop-text-secondary)]">
+                    No tools open
+                  </div>
+                  <div className="mt-1 max-w-48 text-[11px] leading-4 text-[var(--desktop-text-tertiary)]">
+                    Start a terminal in this workspace.
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => void handleNewTerminal()}
+                    className="premium-subtle-button mt-3 h-7 px-2.5 text-[11px]"
+                  >
+                    New terminal
+                  </Button>
                 </div>
               ) : null}
             </div>
@@ -679,14 +697,14 @@ export function useTerminalPanelToggle() {
   const selectedConversationId = useStore((s) => s.selectedConversationId);
   const updateTerminalState = useStore((s) => s.updateTerminalState);
   const initTerminalState = useStore((s) => s.initTerminalState);
-  const terminalState = useConversationTerminal(selectedConversationId);
+  const terminalKey = selectedConversationId || DRAFT_TERMINAL_CONVERSATION_ID;
+  const terminalState = useConversationTerminal(terminalKey);
 
   return useCallback(() => {
-    if (!selectedConversationId) return;
     if (!terminalState) {
-      initTerminalState(selectedConversationId, { dock: 'right', isOpen: true });
+      initTerminalState(terminalKey, { dock: 'right', isOpen: true });
       return;
     }
-    updateTerminalState(selectedConversationId, { isOpen: !terminalState.isOpen });
-  }, [selectedConversationId, terminalState, initTerminalState, updateTerminalState]);
+    updateTerminalState(terminalKey, { isOpen: !terminalState.isOpen });
+  }, [terminalKey, terminalState, initTerminalState, updateTerminalState]);
 }

@@ -9,7 +9,7 @@ import { ChatRunMessage } from '@/components/ChatRunMessage';
 import { ImagePreviewStrip } from '@/components/ImagePreviewStrip';
 import { MentionPicker, extractActiveMention } from '@/components/MentionPicker';
 import { ModelPicker } from '@/components/ModelPicker';
-import { ReasoningSettingsDialog } from '@/components/ReasoningSettingsDialog';
+import { RunSettingsDialog } from '@/components/desktop/RunSettingsDialog';
 import { ScrollToBottom } from '@/components/ScrollToBottom';
 import { WorkspacePickerDialog } from '@/components/WorkspacePickerDialog';
 import { VirtualizedConversationRunList } from '@/components/VirtualizedConversationRunList';
@@ -77,6 +77,7 @@ import type { Run, Conversation, ImageAttachment } from '@/types';
 /** Maximum characters allowed in the input textarea (~2000 tokens) */
 const MAX_INPUT_CHARS = 8000;
 const MENTION_RESULT_LIMIT = 20;
+const AUTO_SCROLL_BOTTOM_THRESHOLD_PX = 150;
 
 const MAX_IMAGE_ATTACHMENTS = 20;
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
@@ -305,6 +306,7 @@ export function ConversationView() {
   const verticalMoveColumnRef = useRef<number | null>(null);
   const composerFocusRafRef = useRef<number | null>(null);
   const bottomScrollRafRef = useRef<number | null>(null);
+  const shouldAutoFollowScrollRef = useRef(true);
   const lastEscapeAtRef = useRef(0);
 
   // Model picker state
@@ -702,6 +704,15 @@ export function ConversationView() {
     el.scrollTop = el.scrollHeight;
   }, []);
 
+  const isConversationNearBottom = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return true;
+    return (
+      el.scrollHeight - el.scrollTop - el.clientHeight
+      < AUTO_SCROLL_BOTTOM_THRESHOLD_PX
+    );
+  }, []);
+
   const scheduleConversationBottomScroll = useCallback((frames = 18) => {
     if (typeof window === 'undefined') return;
     if (bottomScrollRafRef.current !== null) {
@@ -712,6 +723,7 @@ export function ConversationView() {
     let framesRemaining = frames;
     const tick = () => {
       scrollConversationToBottom();
+      shouldAutoFollowScrollRef.current = true;
       framesRemaining -= 1;
       if (framesRemaining > 0) {
         bottomScrollRafRef.current = window.requestAnimationFrame(tick);
@@ -722,6 +734,35 @@ export function ConversationView() {
 
     bottomScrollRafRef.current = window.requestAnimationFrame(tick);
   }, [scrollConversationToBottom]);
+
+  const scrollConversationToBottomIfFollowing = useCallback((frames = 8) => {
+    // Check the sticky-bottom ref first. It is updated by real scroll events,
+    // so a large streamed chunk cannot make us falsely think the user scrolled
+    // away just because scrollHeight grew before this effect ran.
+    if (!shouldAutoFollowScrollRef.current && !isConversationNearBottom()) {
+      return;
+    }
+    scrollConversationToBottom();
+    scheduleConversationBottomScroll(frames);
+  }, [isConversationNearBottom, scheduleConversationBottomScroll, scrollConversationToBottom]);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+
+    const updateAutoFollow = () => {
+      shouldAutoFollowScrollRef.current = (
+        el.scrollHeight - el.scrollTop - el.clientHeight
+        < AUTO_SCROLL_BOTTOM_THRESHOLD_PX
+      );
+    };
+
+    updateAutoFollow();
+    el.addEventListener('scroll', updateAutoFollow, { passive: true });
+    return () => {
+      el.removeEventListener('scroll', updateAutoFollow);
+    };
+  }, [selectedConversationId]);
 
   useEffect(() => () => {
     if (bottomScrollRafRef.current !== null) {
@@ -798,6 +839,7 @@ export function ConversationView() {
   // height measurements over the next few frames; keep pinning to bottom during
   // that initial measurement window so the scrollbar does not settle mid-thread.
   useLayoutEffect(() => {
+    shouldAutoFollowScrollRef.current = true;
     scheduleConversationBottomScroll();
   }, [runListKey, scheduleConversationBottomScroll, selectedConversationId]);
 
@@ -821,25 +863,32 @@ export function ConversationView() {
       agentState.agentState,
     ].join(':');
   });
+  const runRenderScrollSignal = useMemo(
+    () => runs.map((run) => [
+      run.run_id,
+      run.status,
+      run.final_answer?.length ?? 0,
+      run.thinking_summary?.length ?? 0,
+      run.error_detail?.length ?? 0,
+      run.usage?.total_tokens ?? 0,
+    ].join(':')).join('|'),
+    [runs],
+  );
 
-  useEffect(() => {
-    if (!scrollRef.current || !activeRunId || !activeAgentRun) return;
-    const el = scrollRef.current;
-    requestAnimationFrame(() => {
-      el.scrollTop = el.scrollHeight;
-    });
-  }, [activeAgentScrollSignal, activeRunId, activeAgentRun]);
+  useLayoutEffect(() => {
+    if (!activeRunId || !activeAgentRun) return;
+    scrollConversationToBottomIfFollowing();
+  }, [activeAgentScrollSignal, activeRunId, activeAgentRun, scrollConversationToBottomIfFollowing]);
 
-  useEffect(() => {
-    if (!scrollRef.current || !activeRunId || activeAgentRun) return;
-    const el = scrollRef.current;
-    const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 150;
-    if (isNearBottom) {
-      requestAnimationFrame(() => {
-        el.scrollTop = el.scrollHeight;
-      });
-    }
-  }, [lastStreamLen, activeRunId, activeAgentRun]);
+  useLayoutEffect(() => {
+    if (!activeRunId || activeAgentRun) return;
+    scrollConversationToBottomIfFollowing();
+  }, [lastStreamLen, activeRunId, activeAgentRun, scrollConversationToBottomIfFollowing]);
+
+  useLayoutEffect(() => {
+    if (!runRenderScrollSignal) return;
+    scrollConversationToBottomIfFollowing(14);
+  }, [runRenderScrollSignal, scrollConversationToBottomIfFollowing]);
 
   const focusComposer = useCallback(() => {
     const textarea = textareaRef.current;
@@ -1923,13 +1972,20 @@ export function ConversationView() {
 
   const desktopComposerControls = (
     <DesktopComposerControls
-      mode={mode}
       modelStatus={modelStatus}
       onModelClick={() => setModelPickerOpen(true)}
-      onReasoningClick={() => setReasoningSettingsOpen(true)}
+      onSettingsClick={() => setReasoningSettingsOpen(true)}
       showTerminal={terminalAvailable}
       terminalOpen={terminalOpen}
       onTerminalClick={handleTerminalToggle}
+    />
+  );
+
+  const runSettingsDialogNode = (
+    <RunSettingsDialog
+      open={reasoningSettingsOpen}
+      onOpenChange={setReasoningSettingsOpen}
+      mode={mode}
       isWorkspaceLocked={isWorkspaceLocked}
       hasConversationWorkspace={hasConversationWorkspace}
       effectiveWorkspacePath={effectiveWorkspacePath}
@@ -1942,6 +1998,11 @@ export function ConversationView() {
       onPermissionPolicyChange={setPermissionPolicy}
       collaborationMode={collaborationMode}
       onCollaborationModeChange={setCollaborationMode}
+      settingsResponse={reasoningSettings}
+      draft={reasoningDraft}
+      onDraftChange={setReasoningDraft}
+      onSave={handleSaveReasoningSettings}
+      saving={reasoningSaving}
     />
   );
 
@@ -1976,7 +2037,7 @@ export function ConversationView() {
     <p
       className={cn(
         'text-[11px]',
-        atLimit ? 'text-red-400/80' : usage.remaining <= 3 ? 'text-amber-400' : 'text-[var(--desktop-text-tertiary)]'
+        atLimit ? 'text-[var(--desktop-danger)]' : usage.remaining <= 3 ? 'text-[var(--desktop-warning)]' : 'text-[var(--desktop-text-tertiary)]'
       )}
     >
       {atLimit ? 'No messages left' : `${usage.remaining} messages left`}
@@ -2019,15 +2080,7 @@ export function ConversationView() {
           onModelStatusChange={handleModelStatusChange}
           activeSelection={activeModelSelection}
         />
-        <ReasoningSettingsDialog
-          open={reasoningSettingsOpen}
-          onOpenChange={setReasoningSettingsOpen}
-          settingsResponse={reasoningSettings}
-          draft={reasoningDraft}
-          onDraftChange={setReasoningDraft}
-          onSave={handleSaveReasoningSettings}
-          saving={reasoningSaving}
-        />
+        {runSettingsDialogNode}
         <WorkspacePickerDialog
           open={workspacePickerOpen}
           onOpenChange={setWorkspacePickerOpen}
@@ -2086,15 +2139,7 @@ export function ConversationView() {
         onModelStatusChange={handleModelStatusChange}
         activeSelection={activeModelSelection}
       />
-      <ReasoningSettingsDialog
-        open={reasoningSettingsOpen}
-        onOpenChange={setReasoningSettingsOpen}
-        settingsResponse={reasoningSettings}
-        draft={reasoningDraft}
-        onDraftChange={setReasoningDraft}
-        onSave={handleSaveReasoningSettings}
-        saving={reasoningSaving}
-      />
+      {runSettingsDialogNode}
       <WorkspacePickerDialog
         open={workspacePickerOpen}
         onOpenChange={setWorkspacePickerOpen}
@@ -2111,7 +2156,7 @@ export function ConversationView() {
             {isLoadingSelectedConversation && runs.length === 0 ? (
               <div className="flex min-h-[45vh] items-center justify-center">
                 <div className="flex items-center gap-3 rounded-full border border-[var(--desktop-border-strong)] bg-[var(--desktop-hover)] px-4 py-2 text-[13px] text-[var(--desktop-text-secondary)]">
-                  <span className="h-2 w-2 animate-pulse rounded-full bg-cyan-300/80" />
+                  <span className="h-2 w-2 animate-pulse rounded-full bg-[var(--desktop-accent)]" />
                   Loading conversation…
                 </div>
               </div>

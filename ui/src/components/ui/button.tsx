@@ -5,20 +5,20 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 
 const buttonVariants = cva(
-  "ui-transition ui-focus-ring inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-xl text-sm font-semibold ring-offset-background disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
+  "ui-transition ui-pressable ui-focus-ring inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-xl text-sm font-semibold ring-offset-background disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
   {
     variants: {
       variant: {
-        default: "border border-zinc-100 bg-zinc-100 text-zinc-950 hover:bg-white",
+        default: "border border-[var(--desktop-text-primary)] bg-[var(--desktop-text-primary)] text-[var(--desktop-bg-0)] hover:opacity-90",
         destructive:
-          "border border-red-400/24 bg-red-500/12 text-red-100 hover:border-red-300/36 hover:bg-red-500/18",
+          "border border-[rgb(var(--ui-danger-rgb)/0.24)] bg-[rgb(var(--ui-danger-rgb)/0.1)] text-[var(--desktop-danger-text)] hover:border-[rgb(var(--ui-danger-rgb)/0.34)] hover:bg-[rgb(var(--ui-danger-rgb)/0.16)]",
         outline:
-          "border border-[var(--desktop-border-strong)] bg-[var(--desktop-hover)] text-zinc-200 hover:border-cyan-300/28 hover:bg-[var(--desktop-accent-hover)] hover:text-cyan-50",
+          "border border-[var(--desktop-border-strong)] bg-[var(--desktop-hover)] text-[var(--desktop-text-secondary)] hover:border-[rgb(var(--desktop-accent-rgb)/0.28)] hover:bg-[var(--desktop-accent-hover)] hover:text-[var(--desktop-text-primary)]",
         secondary:
-          "border border-[var(--desktop-border-strong)] bg-[var(--desktop-hover)] text-zinc-200 hover:border-white/16 hover:bg-[var(--desktop-hover-strong)]",
-        ghost: "text-[var(--desktop-text-secondary)] hover:bg-[var(--desktop-hover)] hover:text-cyan-50",
+          "border border-[var(--desktop-border-strong)] bg-[var(--desktop-hover)] text-[var(--desktop-text-secondary)] hover:bg-[var(--desktop-hover-strong)]",
+        ghost: "text-[var(--desktop-text-secondary)] hover:bg-[var(--desktop-hover)] hover:text-[var(--desktop-text-primary)]",
         desktop:
-          "border border-[var(--desktop-border-strong)] bg-[var(--desktop-hover)] font-medium text-zinc-200 hover:border-white/[0.12] hover:bg-[var(--desktop-hover-strong)] hover:text-[var(--desktop-text-primary)]",
+          "border border-[var(--desktop-border-strong)] bg-[var(--desktop-hover)] font-medium text-[var(--desktop-text-secondary)] hover:bg-[var(--desktop-hover-strong)] hover:text-[var(--desktop-text-primary)]",
         link: "text-primary underline-offset-4 hover:underline",
       },
       size: {

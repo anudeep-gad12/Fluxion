@@ -1,5 +1,6 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
+import { useMountTransition } from "@/hooks/useMountTransition";
 import { Button } from "./button";
 
 interface DialogProps {
@@ -15,6 +16,7 @@ const FOCUSABLE_SELECTOR =
 export function Dialog({ open, onOpenChange, children, className }: DialogProps) {
     const surfaceRef = React.useRef<HTMLDivElement>(null);
     const restoreFocusRef = React.useRef<HTMLElement | null>(null);
+    const { mounted, closing } = useMountTransition(open);
 
     // Escape closes; Tab cycles focus inside the surface.
     React.useEffect(() => {
@@ -63,17 +65,21 @@ export function Dialog({ open, onOpenChange, children, className }: DialogProps)
         };
     }, [open]);
 
-    if (!open) return null;
+    if (!mounted) return null;
 
     return (
         <div
             className="fixed inset-0 z-[var(--z-dialog)] flex items-center justify-center"
             role="dialog"
             aria-modal="true"
+            data-state={closing ? "closing" : "open"}
         >
             {/* Backdrop */}
             <div
-                className="fixed inset-0 bg-black/72 backdrop-blur-[2px]"
+                className={cn(
+                    "fixed inset-0 bg-black/72 backdrop-blur-[2px] transition-opacity duration-[140ms]",
+                    closing ? "opacity-0" : "opacity-100",
+                )}
                 onClick={() => onOpenChange(false)}
             />
             {/* Content - relative z-10 to sit above backdrop */}
@@ -81,7 +87,8 @@ export function Dialog({ open, onOpenChange, children, className }: DialogProps)
                 ref={surfaceRef}
                 tabIndex={-1}
                 className={cn(
-                    "ui-dialog-surface relative z-10 mx-4 w-full max-w-md overflow-hidden rounded-xl border border-[var(--desktop-border-strong)] bg-transparent shadow-[var(--shadow-dialog)] outline-none ui-pop-in [--pop-offset:8px]",
+                    "ui-dialog-surface relative z-10 mx-4 w-full max-w-md overflow-hidden rounded-xl border border-[var(--desktop-border-strong)] bg-transparent shadow-[var(--shadow-dialog)] outline-none [--pop-offset:8px]",
+                    closing ? "ui-pop-out" : "ui-pop-in",
                     className,
                 )}
             >

@@ -59,7 +59,7 @@ export function AgentContextFooter({
     <div className="flex flex-wrap items-center gap-2 text-[11px] tabular-nums text-[var(--desktop-text-tertiary)]">
       {segments.map((segment, index) => (
         <Fragment key={segment}>
-          {index > 0 && <span className="text-zinc-700">·</span>}
+          {index > 0 && <span className="text-[var(--desktop-text-tertiary)]">·</span>}
           <span>{segment}</span>
         </Fragment>
       ))}

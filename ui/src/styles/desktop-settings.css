@@ -1,7 +1,80 @@
 /* Desktop settings surfaces — dialogs, popovers, flat lists */
 
+[data-app='desktop'] {
+  --desktop-settings-control-height: 30px;
+  --desktop-settings-row-min: 38px;
+  --desktop-settings-pad-x: 10px;
+}
+
+/* Reasoning-effort slider — a stepped track with clickable tick labels. */
+[data-app='desktop'] .desktop-effort {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 1px 2px 0;
+}
+
+[data-app='desktop'] .desktop-effort-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    var(--desktop-accent) 0%,
+    var(--desktop-accent) var(--fill, 0%),
+    var(--desktop-hover-strong) var(--fill, 0%),
+    var(--desktop-hover-strong) 100%
+  );
+  outline: none;
+  cursor: pointer;
+}
+
+[data-app='desktop'] .desktop-effort-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: var(--desktop-text-primary);
+  border: 2px solid var(--desktop-bg-2);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.32);
+  transition: transform var(--duration-fast) var(--ease-ui);
+}
+
+[data-app='desktop'] .desktop-effort-range:active::-webkit-slider-thumb {
+  transform: scale(1.12);
+}
+
+[data-app='desktop'] .desktop-effort-ticks {
+  display: flex;
+  justify-content: space-between;
+}
+
+[data-app='desktop'] .desktop-effort-tick {
+  border: none;
+  background: transparent;
+  padding: 0;
+  font-size: var(--text-caption);
+  line-height: 1.2;
+  color: var(--desktop-text-tertiary);
+  text-transform: capitalize;
+  cursor: pointer;
+  transition: color var(--duration-fast) var(--ease-ui);
+}
+
+[data-app='desktop'] .desktop-effort-tick:hover {
+  color: var(--desktop-text-secondary);
+}
+
+[data-app='desktop'] .desktop-effort-tick[data-active='true'] {
+  color: var(--desktop-text-primary);
+  font-weight: 500;
+}
+
 [data-app='desktop'] .ui-dialog-surface {
-  border-radius: var(--radius-xl);
+  border-radius: 14px;
   border: 1px solid var(--desktop-border-subtle);
   background: var(--desktop-bg-1);
   box-shadow: var(--shadow-dialog);
@@ -9,6 +82,14 @@
 
 [data-app='desktop'] .ui-dialog-surface .desktop-settings-dialog-header {
   border-bottom: 1px solid var(--desktop-border-subtle);
+}
+
+[data-app='desktop'] .ui-dialog-surface > div:first-child {
+  padding: 18px 20px 13px;
+}
+
+[data-app='desktop'] .ui-dialog-surface > div:last-child {
+  padding: 14px 20px 16px;
 }
 
 [data-app='desktop'] .ui-dialog-surface h2 {
@@ -23,7 +104,7 @@
   border-radius: var(--radius-lg);
   border: 1px solid var(--desktop-border-subtle);
   background: var(--desktop-bg-1);
-  padding: 14px;
+  padding: 12px;
   box-shadow: var(--shadow-menu);
   --pop-offset: 4px;
   transform-origin: bottom;
@@ -35,7 +116,7 @@
   border-radius: var(--radius-lg);
   border: 1px solid var(--desktop-border-subtle);
   background: var(--desktop-bg-1);
-  padding: 6px;
+  padding: 5px;
   box-shadow: var(--shadow-menu);
   --pop-offset: 4px;
   transform-origin: bottom;
@@ -65,19 +146,20 @@
 [data-app='desktop'] .desktop-settings-list-panel {
   max-height: 24rem;
   overflow-y: auto;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   border: 1px solid var(--desktop-border-subtle);
   background: var(--desktop-bg-2);
-  padding: 4px;
+  padding: 3px;
 }
 
 [data-app='desktop'] .desktop-settings-label {
   display: block;
-  margin-bottom: 8px;
+  margin-bottom: 7px;
   font-size: 11px;
-  font-weight: 500;
+  font-weight: 600;
   color: var(--desktop-text-tertiary);
-  letter-spacing: -0.01em;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
 }
 
 [data-app='desktop'] .desktop-settings-field-label {
@@ -114,18 +196,23 @@
 
 [data-app='desktop'] .desktop-settings-field {
   width: 100%;
-  border: none;
-  border-radius: var(--radius-md);
-  background: rgb(var(--ui-white-rgb) / 0.04);
-  padding: 8px 10px;
+  min-height: var(--desktop-settings-control-height);
+  border: 1px solid var(--desktop-border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--desktop-panel-inset);
+  padding: 6px var(--desktop-settings-pad-x);
   font-size: 12px;
-  line-height: 1.4;
+  line-height: 1.35;
   color: var(--desktop-text-primary);
   outline: none;
-  transition: box-shadow var(--duration-fast) var(--ease-ui);
+  transition:
+    border-color var(--duration-fast) var(--ease-ui),
+    box-shadow var(--duration-fast) var(--ease-ui),
+    background var(--duration-fast) var(--ease-ui);
 }
 
 [data-app='desktop'] .desktop-settings-field:focus {
+  border-color: rgb(var(--desktop-accent-rgb) / 0.34);
   box-shadow: var(--focus-ring-field);
 }
 
@@ -136,13 +223,16 @@
 [data-app='desktop'] .desktop-settings-list-item {
   display: block;
   width: 100%;
-  margin-bottom: 2px;
-  padding: 10px 10px;
+  min-height: var(--desktop-settings-row-min);
+  margin-bottom: 1px;
+  padding: 8px var(--desktop-settings-pad-x);
   border: none;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   background: transparent;
   text-align: left;
-  transition: background var(--duration-fast) var(--ease-ui);
+  transition:
+    background var(--duration-fast) var(--ease-ui),
+    color var(--duration-fast) var(--ease-ui);
 }
 
 [data-app='desktop'] .desktop-settings-list-item:last-child {
@@ -154,8 +244,8 @@
 }
 
 [data-app='desktop'] .desktop-settings-list-item[data-active='true'] {
-  background: var(--desktop-accent-muted);
-  box-shadow: 0 0 0 1px rgb(var(--ui-accent-rgb) / 0.1);
+  background: var(--desktop-nav-selected);
+  box-shadow: inset 0 0 0 1px var(--desktop-border-subtle);
 }
 
 [data-app='desktop'] .desktop-settings-list-title {
@@ -179,24 +269,27 @@
 }
 
 [data-app='desktop'] .desktop-settings-provider-header {
-  padding: 0 2px 8px;
+  padding: 0 2px 7px;
   font-size: 11px;
-  font-weight: 500;
+  font-weight: 600;
+  letter-spacing: 0.02em;
   color: var(--desktop-text-tertiary);
+  text-transform: uppercase;
 }
 
 [data-app='desktop'] .desktop-settings-actions {
   display: flex;
   justify-content: flex-end;
   align-items: center;
-  gap: 12px;
-  padding-top: 4px;
+  gap: 8px;
+  padding-top: 2px;
 }
 
 [data-app='desktop'] .desktop-settings-btn-ghost {
-  border: none;
+  min-height: var(--desktop-settings-control-height);
+  border: 1px solid transparent;
   border-radius: var(--radius-sm);
-  padding: 6px 10px;
+  padding: 5px 10px;
   background: transparent;
   font-size: 12px;
   font-weight: 500;
@@ -210,10 +303,11 @@
 }
 
 [data-app='desktop'] .desktop-settings-btn-primary {
-  border: none;
+  min-height: var(--desktop-settings-control-height);
+  border: 1px solid rgb(var(--desktop-accent-rgb) / 0.18);
   border-radius: var(--radius-sm);
-  padding: 6px 12px;
-  background: transparent;
+  padding: 5px 12px;
+  background: var(--desktop-accent-muted);
   font-size: 12px;
   font-weight: 500;
   color: var(--desktop-accent);
@@ -228,7 +322,7 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 10px 0;
+  padding: 9px 0;
   border-bottom: 1px solid var(--desktop-border-subtle);
 }
 
@@ -237,15 +331,15 @@
 }
 
 [data-app='desktop'] .desktop-settings-hint {
-  margin-top: 8px;
+  margin-top: 6px;
   font-size: 11px;
-  line-height: 1.45;
+  line-height: 1.4;
   color: var(--desktop-text-tertiary);
 }
 
 [data-app='desktop'] .desktop-settings-hint-error {
   margin-top: 0;
-  padding: 8px 10px;
+  padding: 7px 9px;
   border-radius: var(--radius-md);
   border: 1px solid rgb(var(--ui-danger-rgb) / 0.2);
   background: rgb(var(--ui-danger-rgb) / 0.06);
@@ -287,7 +381,7 @@
 [data-app='desktop'] .desktop-model-picker-shell {
   display: grid;
   grid-template-columns: 190px minmax(0, 1fr) 260px;
-  gap: 14px;
+  gap: 12px;
   min-height: 62vh;
   max-height: 76vh;
 }
@@ -301,7 +395,7 @@
 [data-app='desktop'] .desktop-model-provider-rail {
   overflow-y: auto;
   border-right: 1px solid var(--desktop-border-subtle);
-  padding-right: 10px;
+  padding-right: 8px;
 }
 
 [data-app='desktop'] .desktop-model-provider-tab {
@@ -309,10 +403,11 @@
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  margin-bottom: 3px;
-  padding: 9px 10px;
+  min-height: 40px;
+  margin-bottom: 2px;
+  padding: 7px 9px;
   border: none;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   background: transparent;
   text-align: left;
   font-size: 12px;
@@ -328,8 +423,9 @@
 }
 
 [data-app='desktop'] .desktop-model-provider-tab[data-active='true'] {
-  background: var(--desktop-accent-muted);
+  background: var(--desktop-nav-selected);
   color: var(--desktop-text-primary);
+  box-shadow: inset 0 0 0 1px var(--desktop-border-subtle);
 }
 
 [data-app='desktop'] .desktop-model-provider-sub {
@@ -344,8 +440,8 @@
 }
 
 [data-app='desktop'] .desktop-model-provider-divider {
-  margin-top: 10px;
-  padding-top: 10px;
+  margin-top: 8px;
+  padding-top: 8px;
   border-top: 1px solid var(--desktop-border-subtle);
 }
 
@@ -361,8 +457,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 14px;
-  padding-bottom: 12px;
+  gap: 12px;
+  padding-bottom: 10px;
   background: var(--desktop-bg-1);
 }
 
@@ -373,23 +469,25 @@
 [data-app='desktop'] .desktop-model-account-card {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 12px;
-  padding: 10px;
+  gap: 9px;
+  margin-bottom: 10px;
+  padding: 9px;
   border-radius: var(--radius-md);
+  border: 1px solid var(--desktop-border-subtle);
   background: var(--desktop-bg-2);
 }
 
 [data-app='desktop'] .desktop-model-section {
-  margin-bottom: 14px;
+  margin-bottom: 12px;
 }
 
 [data-app='desktop'] .desktop-model-list {
   max-height: 46vh;
   overflow-y: auto;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--desktop-border-subtle);
   background: var(--desktop-bg-2);
-  padding: 4px;
+  padding: 3px;
 }
 
 [data-app='desktop'] .desktop-model-grid {
@@ -403,7 +501,7 @@
   flex-direction: column;
   overflow: hidden;
   border-left: 1px solid var(--desktop-border-subtle);
-  padding-left: 14px;
+  padding-left: 12px;
 }
 
 [data-app='desktop'] .desktop-model-detail-provider {
@@ -412,8 +510,8 @@
 }
 
 [data-app='desktop'] .desktop-model-detail-title {
-  margin-top: 8px;
-  font-size: 18px;
+  margin-top: 7px;
+  font-size: 17px;
   font-weight: 600;
   letter-spacing: -0.04em;
   color: var(--desktop-text-primary);
@@ -430,20 +528,21 @@
 [data-app='desktop'] .desktop-model-detail-tags {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 14px;
+  gap: 5px;
+  margin-top: 12px;
 }
 
 [data-app='desktop'] .desktop-model-detail-tags span {
-  border-radius: 999px;
-  background: rgb(var(--ui-white-rgb) / 0.05);
-  padding: 3px 7px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--desktop-border-subtle);
+  background: var(--desktop-panel-inset);
+  padding: 3px 6px;
   font-size: 11px;
   color: var(--desktop-text-secondary);
 }
 
 [data-app='desktop'] .desktop-model-detail-cost {
-  margin-top: 14px;
+  margin-top: 12px;
   font-size: 11px;
   color: var(--desktop-text-tertiary);
 }
@@ -451,7 +550,7 @@
 [data-app='desktop'] .desktop-model-select-btn {
   margin-top: auto;
   width: 100%;
-  padding: 9px 12px;
+  padding: 7px 12px;
   background: var(--desktop-accent-muted);
 }
 
@@ -459,7 +558,8 @@
 [data-app='desktop'] .desktop-settings-btn-ghost:focus-visible,
 [data-app='desktop'] .desktop-settings-btn-primary:focus-visible,
 [data-app='desktop'] .desktop-settings-list-item:focus-visible,
-[data-app='desktop'] .desktop-model-provider-tab:focus-visible {
+[data-app='desktop'] .desktop-model-provider-tab:focus-visible,
+[data-app='desktop'] .desktop-effort-tick:focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);
 }
@@ -474,6 +574,11 @@
   align-items: flex-start;
   padding: 18vh 16px 16px;
   background: rgb(var(--ui-zinc-950) / 0.25);
+  transition: opacity var(--duration-fast) var(--ease-exit);
+}
+
+[data-app='desktop'] .desktop-command-palette-backdrop[data-state='closing'] {
+  opacity: 0;
 }
 
 [data-app='desktop'] .desktop-command-palette {
@@ -486,6 +591,10 @@
   box-shadow: var(--shadow-menu);
   --pop-offset: 6px;
   animation: ui-pop-in var(--duration-ui) var(--ease-ui);
+}
+
+[data-app='desktop'] .desktop-command-palette[data-state='closing'] {
+  animation: ui-pop-out var(--duration-fast) var(--ease-exit) forwards;
 }
 
 [data-app='desktop'] .desktop-command-palette-input {

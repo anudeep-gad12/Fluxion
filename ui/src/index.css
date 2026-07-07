@@ -276,6 +276,23 @@ textarea {
   animation: ui-pop-in var(--duration-ui) var(--ease-ui);
 }
 
+/* Matching exit — the mirror of ui-pop-in, played while a surface is closing
+ * (data-state='closing') before it unmounts, so nothing just vanishes. */
+@keyframes ui-pop-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(var(--pop-offset, 4px)) scale(0.98);
+  }
+}
+
+.ui-pop-out {
+  animation: ui-pop-out var(--duration-fast) var(--ease-exit) forwards;
+}
+
 /* Shared tooltip surface (components/ui/tooltip.tsx) */
 .ui-tooltip {
   position: fixed;
@@ -381,6 +398,80 @@ textarea {
   background: var(--desktop-bg-0);
 }
 
+/* View Transitions — conversation swaps crossfade the main content only. The
+ * app chrome (sidebar, titlebar) is captured as `root`; we hold it static so
+ * only `convo-main` animates. Driven by withViewTransition() in lib. */
+::view-transition-group(convo-main) {
+  animation-duration: var(--duration-ui);
+  animation-timing-function: var(--ease-emphasized);
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+}
+
+/* Universal press feedback — a subtle tactile scale on click. Apply to buttons
+ * and list rows that lack a bespoke :active state. */
+.ui-pressable {
+  transition: transform var(--duration-fast) var(--ease-ui);
+}
+
+.ui-pressable:active {
+  transform: scale(0.985);
+}
+
+/* Theme crossfade — a one-shot transition window toggled by useTheme when the
+ * user switches themes, so every color fades rather than snapping. The class is
+ * removed after the transition so it never affects normal interaction. */
+html.theme-animating,
+html.theme-animating * {
+  transition:
+    background-color var(--duration-fast) var(--ease-ui),
+    border-color var(--duration-fast) var(--ease-ui),
+    color var(--duration-fast) var(--ease-ui),
+    fill var(--duration-fast) var(--ease-ui),
+    stroke var(--duration-fast) var(--ease-ui) !important;
+}
+
+/* Loading skeleton — a moving highlight sweep. Give a skeleton element explicit
+ * height/width and radius; this paints the shimmer. Static under reduced motion. */
+@keyframes ui-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+.ui-skeleton {
+  background-image: linear-gradient(
+    90deg,
+    var(--desktop-hover) 0%,
+    rgb(var(--desktop-accent-rgb) / 0.075) 50%,
+    var(--desktop-hover) 100%
+  );
+  background-size: 200% 100%;
+  border-radius: var(--radius-md);
+  animation: ui-shimmer 1.8s ease-in-out infinite;
+}
+
+/* Indeterminate progress — a bar that sweeps across its track, for loads with
+ * no known duration (browser page load). Reads as motion, not a stalled fill. */
+@keyframes ui-indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(400%);
+  }
+}
+
+.ui-progress-indeterminate {
+  animation: ui-indeterminate 1.1s var(--ease-ui) infinite;
+}
+
 .ui-transition {
   transition:
     background-color var(--duration-ui) var(--ease-ui),
@@ -405,7 +496,10 @@ textarea {
   .agent-caret,
   .tr-marker[data-tone='running'],
   .animate-pulse,
+  .ui-skeleton,
+  .ui-progress-indeterminate,
   .ui-pop-in,
+  .ui-pop-out,
   .ui-tooltip,
   .desktop-theme-menu,
   .desktop-settings-popover,
@@ -413,5 +507,14 @@ textarea {
   .desktop-command-palette,
   .desktop-shell-right {
     animation: none !important;
+  }
+
+  .ui-pressable:active {
+    transform: none;
+  }
+
+  html.theme-animating,
+  html.theme-animating * {
+    transition: none !important;
   }
 }

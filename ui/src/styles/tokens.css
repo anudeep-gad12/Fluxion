@@ -19,6 +19,13 @@
   /* macOS overlay titlebar: leave room for red/yellow/green controls */
   --desktop-traffic-light-inset: 80px;
   --desktop-dock-height: 132px;
+  --desktop-sidebar-brand-height: 40px;
+  --desktop-control-height: 30px;
+  --desktop-control-height-sm: 26px;
+  --desktop-row-height: 32px;
+  --desktop-transcript-marker-width: 14px;
+  --desktop-transcript-gap: 8px;
+  --desktop-transcript-body-offset: calc(var(--desktop-transcript-marker-width) + var(--desktop-transcript-gap));
   --radius: 0.5rem;
 
   /* Typography */
@@ -30,6 +37,21 @@
     system-ui,
     sans-serif;
   --font-mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  /* Type scale — named steps replacing freehand text-[11px]/[13px] literals.
+     Chrome/UI clusters around caption/meta/body; prose is 14px. */
+  --text-caption: 11px;
+  --leading-caption: 1.3;
+  --text-meta: 12px;
+  --leading-meta: 1.5;
+  --text-body: 13px;
+  --leading-body: 1.6;
+  --text-prose: 14px;
+  --leading-prose: 1.6;
+  --text-title: 15px;
+  --leading-title: 1.4;
+  --tracking-tight: -0.02em;
+  --tracking-body: -0.011em;
 
   /* Luminance ladder */
   --desktop-bg-0: #09090b;
@@ -51,6 +73,11 @@
   --desktop-hover-strong: rgb(var(--ui-white-rgb) / 0.08);
   --desktop-accent-hover: rgb(var(--desktop-accent-rgb) / 0.07);
   --desktop-danger-hover: rgb(var(--ui-danger-rgb) / 0.12);
+  --desktop-nav-selected: rgb(var(--ui-white-rgb) / 0.075);
+  --desktop-nav-selected-border: rgb(var(--desktop-accent-rgb) / 0.32);
+  --desktop-composer-bg: #111113;
+  --desktop-composer-border: rgb(var(--ui-white-rgb) / 0.105);
+  --desktop-source-row-hover: rgb(var(--desktop-accent-rgb) / 0.055);
   /* Translucent panel surfaces (floating cards vs recessed insets) */
   --desktop-panel-overlay: rgb(var(--ui-zinc-950) / 0.94);
   --desktop-panel-inset: rgb(var(--ui-zinc-950) / 0.6);
@@ -61,6 +88,16 @@
   --desktop-success: #34d399;
   --desktop-success-text: #a7f3d0;
   --desktop-violet: #a78bfa;
+
+  /* Tool-category accents — drive the transcript color system. These reference
+     the semantic status/accent colors above, so they stay theme-aware without
+     being redefined per theme (var() resolves at use-time). */
+  --tool-read: var(--desktop-accent); /* read / list / glob / artifact */
+  --tool-search: var(--desktop-violet); /* web_search / web_extract / grep */
+  --tool-edit: var(--desktop-warning); /* edit / write */
+  --tool-exec: var(--desktop-success); /* exec_command / write_stdin */
+  --tool-default: var(--desktop-text-secondary);
+
   /* Interrupted-run status tone */
   --desktop-interrupt: rgb(var(--ui-orange-300) / 0.85);
   --desktop-interrupt-border: rgb(var(--ui-orange-500) / 0.15);
@@ -147,10 +184,19 @@
   --scrollbar-thumb: hsl(240 5% 34%);
   --scrollbar-thumb-hover: hsl(240 5% 46%);
 
-  /* Motion */
+  /* Motion — a hierarchy, not one speed. Micro-interactions use fast/ui + ease-ui;
+     large surfaces (dialogs, panels, view swaps) use slow + ease-emphasized. */
   --ease-ui: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-emphasized: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
   --duration-fast: 140ms;
   --duration-ui: 220ms;
+  --duration-slow: 320ms;
+
+  /* Content rhythm — product spacing tokens for consistent breathing room. */
+  --space-turn: 20px; /* gap between runs */
+  --space-step: 6px; /* gap between transcript steps */
+  --gutter-content: 16px; /* main content horizontal padding */
 
   /* Radius scale */
   --radius-xs: 4px;
@@ -184,21 +230,32 @@
 [data-theme='light'] {
   color-scheme: light;
 
-  --desktop-bg-0: #f2f1ed;
-  --desktop-bg-1: #f7f7f4;
-  --desktop-bg-2: #fdfcfa;
-  --desktop-bg-3: #ebeae5;
+  --desktop-bg-0: #f3f4f6;
+  --desktop-bg-1: #fafafa;
+  --desktop-bg-2: #ffffff;
+  --desktop-bg-3: #eceef1;
 
-  --desktop-border-subtle: rgba(38, 37, 30, 0.08);
-  --desktop-border-strong: rgba(38, 37, 30, 0.14);
+  --desktop-border-subtle: rgba(24, 24, 27, 0.1);
+  --desktop-border-strong: rgba(24, 24, 27, 0.16);
 
-  --desktop-text-primary: #26251e;
-  --desktop-text-secondary: #5c594f;
-  --desktop-text-tertiary: #8a857a;
+  --desktop-text-primary: #18181b;
+  --desktop-text-secondary: #3f3f46;
+  --desktop-text-tertiary: #71717a;
 
   --desktop-accent: #087b94;
   --desktop-accent-rgb: 8 123 148;
   --desktop-accent-muted: rgba(8, 123, 148, 0.1);
+  --desktop-hover: rgba(24, 24, 27, 0.055);
+  --desktop-hover-strong: rgba(24, 24, 27, 0.09);
+  --desktop-accent-hover: rgba(8, 123, 148, 0.075);
+  --desktop-danger-hover: rgba(185, 28, 28, 0.11);
+  --desktop-nav-selected: rgba(24, 24, 27, 0.085);
+  --desktop-nav-selected-border: rgba(8, 123, 148, 0.42);
+  --desktop-composer-bg: #ffffff;
+  --desktop-composer-border: rgba(24, 24, 27, 0.15);
+  --desktop-panel-overlay: rgba(255, 255, 255, 0.97);
+  --desktop-panel-inset: rgba(24, 24, 27, 0.045);
+  --desktop-source-row-hover: rgba(8, 123, 148, 0.06);
   --desktop-warning: #a16207;
   --desktop-warning-text: #854d0e;
   --desktop-danger: #b91c1c;
@@ -207,44 +264,44 @@
   --desktop-success-text: #166534;
   --desktop-violet: #6d4e9c;
 
-  --scrollbar-thumb: #aaa59a;
-  --scrollbar-thumb-hover: #8f8a7e;
+  --scrollbar-thumb: #c2c5cc;
+  --scrollbar-thumb-hover: #a1a1aa;
 
   /* Terminal (xterm) — light needs an explicit ANSI ramp */
-  --term-bg: #fdfcfa;
-  --term-fg: #26251e;
-  --term-cursor: #26251e;
-  --term-cursor-accent: #fdfcfa;
-  --term-selection: #c8e2e7;
-  --term-ansi-black: #3a382f;
+  --term-bg: #ffffff;
+  --term-fg: #18181b;
+  --term-cursor: #18181b;
+  --term-cursor-accent: #ffffff;
+  --term-selection: #d7eef3;
+  --term-ansi-black: #27272a;
   --term-ansi-red: #b91c1c;
   --term-ansi-green: #168052;
   --term-ansi-yellow: #a16207;
   --term-ansi-blue: #276d8a;
   --term-ansi-magenta: #6d4e9c;
   --term-ansi-cyan: #087b94;
-  --term-ansi-white: #dedbd4;
-  --term-ansi-bright-black: #706c62;
+  --term-ansi-white: #e4e4e7;
+  --term-ansi-bright-black: #71717a;
   --term-ansi-bright-red: #dc2626;
   --term-ansi-bright-green: #188c5a;
   --term-ansi-bright-yellow: #b77908;
   --term-ansi-bright-blue: #327f9e;
   --term-ansi-bright-magenta: #815daf;
   --term-ansi-bright-cyan: #0c8fa8;
-  --term-ansi-bright-white: #f7f7f4;
+  --term-ansi-bright-white: #fafafa;
 
-  --ui-white-rgb: 38 37 30;
-  --ui-zinc-50: 38 37 30;
-  --ui-zinc-100: 48 47 39;
-  --ui-zinc-200: 69 66 56;
-  --ui-zinc-300: 92 89 79;
-  --ui-zinc-400: 112 108 98;
-  --ui-zinc-500: 138 133 122;
-  --ui-zinc-600: 169 164 154;
-  --ui-zinc-700: 198 194 185;
-  --ui-zinc-800: 222 219 212;
-  --ui-zinc-900: 235 234 229;
-  --ui-zinc-950: 242 241 237;
+  --ui-white-rgb: 24 24 27;
+  --ui-zinc-50: 24 24 27;
+  --ui-zinc-100: 39 39 42;
+  --ui-zinc-200: 63 63 70;
+  --ui-zinc-300: 82 82 91;
+  --ui-zinc-400: 113 113 122;
+  --ui-zinc-500: 113 113 122;
+  --ui-zinc-600: 161 161 170;
+  --ui-zinc-700: 212 212 216;
+  --ui-zinc-800: 228 228 231;
+  --ui-zinc-900: 244 244 245;
+  --ui-zinc-950: 250 250 250;
   --ui-cyan-50: 8 65 79;
   --ui-cyan-100: 9 82 98;
   --ui-cyan-200: 10 102 121;
@@ -282,23 +339,23 @@
   --ui-danger-rgb: 185 28 28;
   --ui-success-rgb: 22 128 82;
 
-  --background: 48 16% 94%;
-  --foreground: 52 12% 13%;
-  --card: 40 43% 99%;
-  --card-foreground: 52 12% 13%;
-  --popover: 40 43% 99%;
-  --popover-foreground: 52 12% 13%;
+  --background: 240 5% 96%;
+  --foreground: 240 6% 10%;
+  --card: 0 0% 100%;
+  --card-foreground: 240 6% 10%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 240 6% 10%;
   --primary: 191 90% 31%;
-  --primary-foreground: 48 16% 94%;
-  --secondary: 50 13% 91%;
-  --secondary-foreground: 52 12% 22%;
-  --muted: 50 13% 91%;
-  --muted-foreground: 42 7% 35%;
-  --accent: 191 42% 90%;
-  --accent-foreground: 52 12% 13%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 240 5% 92%;
+  --secondary-foreground: 240 5% 20%;
+  --muted: 240 5% 92%;
+  --muted-foreground: 240 4% 42%;
+  --accent: 191 45% 91%;
+  --accent-foreground: 240 6% 10%;
   --destructive: 0 74% 42%;
-  --destructive-foreground: 48 16% 94%;
-  --border: 48 6% 83%;
-  --input: 48 6% 83%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 240 5% 84%;
+  --input: 240 5% 84%;
   --ring: 191 90% 31%;
 }

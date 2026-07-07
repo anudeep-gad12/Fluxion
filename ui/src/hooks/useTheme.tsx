@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
@@ -62,6 +63,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     desktop ? initialResolvedTheme(preference) : 'dark'
   ));
   const theme = preference === 'system' ? resolvedSystemTheme : preference;
+  const appliedTheme = useRef<Theme | null>(null);
 
   useEffect(() => {
     if (!desktop) return;
@@ -74,6 +76,18 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!desktop) return;
+
+    // Crossfade colors when the visible theme actually changes (not on the
+    // initial paint, which already matches the bootstrapped theme). A one-shot
+    // .theme-animating window drives the transition in index.css.
+    const previous = appliedTheme.current;
+    appliedTheme.current = theme;
+    if (previous && previous !== theme) {
+      const root = document.documentElement;
+      root.classList.add('theme-animating');
+      window.setTimeout(() => root.classList.remove('theme-animating'), 260);
+    }
+
     applyTheme(theme);
 
     if (isTauriRuntime()) {

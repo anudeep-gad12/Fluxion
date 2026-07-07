@@ -611,7 +611,7 @@ export function ModelPicker({
             {initialPickerLoading && (
               <div className="space-y-2 p-1">
                 {Array.from({ length: 6 }).map((_, index) => (
-                  <div key={index} className="h-11 rounded-xl bg-white/[0.04]" />
+                  <div key={index} className="ui-skeleton h-11 rounded-xl" />
                 ))}
               </div>
             )}
@@ -704,7 +704,7 @@ export function ModelPicker({
                 </div>
                 <div className="space-y-2 p-2">
                   {Array.from({ length: 6 }).map((_, index) => (
-                    <div key={index} className="h-14 rounded-xl bg-white/[0.035]" />
+                    <div key={index} className="ui-skeleton h-14 rounded-xl" />
                   ))}
                 </div>
               </section>

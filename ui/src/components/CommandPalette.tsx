@@ -20,6 +20,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { useStore } from '@/hooks/useStore';
+import { useMountTransition } from '@/hooks/useMountTransition';
 import { useTheme } from '@/hooks/useTheme';
 import { useTerminalPanelToggle } from '@/components/desktop/TerminalPanel';
 import { truncate } from '@/lib/utils';
@@ -65,6 +66,7 @@ export function CommandPalette() {
   const setConversationMode = useStore((s) => s.setConversationMode);
   const toggleTerminalPanel = useTerminalPanelToggle();
   const { setPreference } = useTheme();
+  const { mounted, closing } = useMountTransition(open);
 
   const [query, setQuery] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
@@ -138,6 +140,20 @@ export function CommandPalette() {
         icon: MessageSquarePlus,
         run: () => startNewConversation(),
       },
+    ];
+    for (const workspacePath of workspacePaths) {
+      const name = workspaceName(workspacePath);
+      if (!name) continue;
+      items.push({
+        id: `workspace-${workspacePath}`,
+        title: `New conversation in ${name}`,
+        meta: 'Workspace',
+        keywords: `new workspace conversation ${name} ${workspacePath}`,
+        icon: FolderPlus,
+        run: () => startNewConversation(workspacePath),
+      });
+    }
+    items.push(
       {
         id: 'toggle-terminal',
         title: 'Toggle terminal panel',
@@ -187,19 +203,7 @@ export function CommandPalette() {
         icon: Monitor,
         run: () => setPreference('system'),
       },
-    ];
-    for (const workspacePath of workspacePaths) {
-      const name = workspaceName(workspacePath);
-      if (!name) continue;
-      items.push({
-        id: `workspace-${workspacePath}`,
-        title: `New in ${name}`,
-        meta: 'Workspace',
-        keywords: `new workspace conversation ${name} ${workspacePath}`,
-        icon: FolderPlus,
-        run: () => startNewConversation(workspacePath),
-      });
-    }
+    );
     return items;
   }, [
     setConversationMode,
@@ -332,7 +336,7 @@ export function CommandPalette() {
     node?.scrollIntoView({ block: 'nearest' });
   }, [activeIndex, open]);
 
-  if (!open) return null;
+  if (!mounted) return null;
 
   let runningIndex = -1;
   const renderRow = (
@@ -368,6 +372,7 @@ export function CommandPalette() {
   return createPortal(
     <div
       className="desktop-command-palette-backdrop"
+      data-state={closing ? 'closing' : 'open'}
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) close();
       }}
@@ -375,6 +380,7 @@ export function CommandPalette() {
       <div
         ref={paletteRef}
         className="desktop-command-palette"
+        data-state={closing ? 'closing' : 'open'}
         role="dialog"
         aria-modal="true"
         aria-label="Command palette"

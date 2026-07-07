@@ -6,6 +6,7 @@
 import { useState, useCallback } from 'react';
 import { cn } from '@/lib/utils';
 import { Check } from 'lucide-react';
+import { Tooltip } from '@/components/ui/tooltip';
 
 interface MessageActionsProps {
   /** The text content to copy (markdown/plain text) */
@@ -41,33 +42,36 @@ export function MessageActions({
         className,
       )}
     >
-      <button
-        onClick={handleCopy}
-        className="ui-transition ui-focus-ring rounded-md border border-transparent px-2 py-1 text-[var(--desktop-text-secondary)] hover:border-cyan-500/30 hover:bg-[var(--desktop-accent-hover)] hover:text-cyan-100"
-        title="Copy response"
-      >
-        {copied ? (
-          <span className="inline-flex items-center gap-1">
-            <Check className="h-3 w-3" /> copied
-          </span>
-        ) : (
-          'copy'
-        )}
-      </button>
-      {onRetry && (
+      <Tooltip content="Copy response">
         <button
-          onClick={onRetry}
-          disabled={!canRetry}
-          className={cn(
-            'ui-transition ui-focus-ring rounded-md border px-2 py-1',
-            canRetry
-              ? 'border-transparent text-[var(--desktop-text-secondary)] hover:border-cyan-500/30 hover:bg-[var(--desktop-accent-hover)] hover:text-cyan-100'
-              : 'border-transparent text-[var(--desktop-text-tertiary)] cursor-not-allowed',
-          )}
-          title={canRetry ? 'Retry this message' : 'Cannot retry during active run'}
+          onClick={handleCopy}
+          className="ui-transition ui-focus-ring rounded-md border border-transparent px-2 py-1 text-[var(--desktop-text-secondary)] hover:border-cyan-500/30 hover:bg-[var(--desktop-accent-hover)] hover:text-cyan-100"
         >
-          retry
+          {copied ? (
+            <span className="inline-flex items-center gap-1">
+              <Check className="h-3 w-3" /> copied
+            </span>
+          ) : (
+            'copy'
+          )}
         </button>
+      </Tooltip>
+      {onRetry && (
+        <Tooltip content="Retry this message" disabled={!canRetry}>
+          <button
+            onClick={onRetry}
+            disabled={!canRetry}
+            className={cn(
+              'ui-transition ui-focus-ring rounded-md border px-2 py-1',
+              canRetry
+                ? 'border-transparent text-[var(--desktop-text-secondary)] hover:border-cyan-500/30 hover:bg-[var(--desktop-accent-hover)] hover:text-cyan-100'
+                : 'border-transparent text-[var(--desktop-text-tertiary)] cursor-not-allowed',
+            )}
+            title={!canRetry ? 'Cannot retry during active run' : undefined}
+          >
+            retry
+          </button>
+        </Tooltip>
       )}
     </div>
   );

@@ -90,9 +90,9 @@ export function DesktopInputDock({
           {queuedSteers.map((steerMessage, index) => (
             <span
               key={index}
-              className="inline-flex items-center gap-1 rounded-md border border-amber-500/20 bg-amber-500/[0.08] px-2 py-1 text-xs text-amber-200/90"
+              className="inline-flex items-center gap-1 rounded-md border border-[rgb(var(--ui-warning-rgb)/0.2)] bg-[rgb(var(--ui-warning-rgb)/0.08)] px-2 py-1 text-xs text-[var(--desktop-warning-text)]"
             >
-              <span className="text-amber-500/60">Queued:</span>{' '}
+              <span className="text-[var(--desktop-warning)]">Queued:</span>{' '}
               {steerMessage.length > 40 ? `${steerMessage.slice(0, 40)}…` : steerMessage}
             </span>
           ))}

@@ -11,6 +11,7 @@ import {
   formatArguments,
   formatBytes,
   resolveUnifiedDiff,
+  toolCategory,
   UnifiedDiffView,
 } from '@/components/transcript/toolFormat';
 import {
@@ -50,7 +51,7 @@ export function ToolCallLine({ toolCall }: { toolCall: AgentToolCall }) {
     !!bashOutput && !hasStdout && !hasStderr && toolCall.status === 'success';
 
   return (
-    <div className="tr-item">
+    <div className="tr-item" data-tool={toolCategory(toolCall.tool_name)}>
       <MarkerLine tone={tone} mono>
         <span className="tr-tool-name">{prefix}</span>
         {argStr && <span className="tr-tool-args">({argStr})</span>}

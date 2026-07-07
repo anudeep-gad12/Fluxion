@@ -18,8 +18,8 @@ export function RunFooter({
   actions?: ReactNode;
 }) {
   return (
-    <div className="desktop-run-meta mt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-1 font-mono text-[11px]">
-      <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-[var(--desktop-text-tertiary)]">
+    <div className="desktop-run-meta">
+      <div className="desktop-run-metrics">
         <span className={pillClassName} data-status={dataStatus}>
           {statusLabel}
         </span>
