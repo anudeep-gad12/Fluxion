@@ -1,4 +1,5 @@
 import * as React from "react";
+import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
 import { useMountTransition } from "@/hooks/useMountTransition";
 import { Button } from "./button";
@@ -66,8 +67,12 @@ export function Dialog({ open, onOpenChange, children, className }: DialogProps)
     }, [open]);
 
     if (!mounted) return null;
+    if (typeof document === "undefined") return null;
 
-    return (
+    // Portal to <body> so the fixed overlay escapes the desktop-shell-main
+    // stacking context (view-transition-name traps fixed descendants), letting
+    // --z-dialog win over the sibling sidebar/terminal panels.
+    return createPortal(
         <div
             className="fixed inset-0 z-[var(--z-dialog)] flex items-center justify-center"
             role="dialog"
@@ -94,7 +99,8 @@ export function Dialog({ open, onOpenChange, children, className }: DialogProps)
             >
                 {children}
             </div>
-        </div>
+        </div>,
+        document.body,
     );
 }
 

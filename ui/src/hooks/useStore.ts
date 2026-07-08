@@ -39,6 +39,9 @@ export interface TerminalUIState {
   buffer: string;
   connected: boolean;
   status: 'idle' | 'connecting' | 'running' | 'closed' | 'stale' | 'error';
+  /** Last authoritative xterm grid size for this panel; used to spawn new PTYs at the right width. */
+  lastCols?: number;
+  lastRows?: number;
 }
 
 export interface BrowserTabState {

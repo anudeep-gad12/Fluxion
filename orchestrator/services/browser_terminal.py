@@ -114,7 +114,10 @@ class TerminalSession:
             fcntl.ioctl(slave_fd, termios.TIOCSCTTY, 0)
 
         self.process = subprocess.Popen(
-            [self.shell],
+            # Login shell (-l) so macOS sources /etc/zprofile and ~/.zprofile
+            # (brew shellenv -> $PATH + $fpath completions). Without it, zsh is
+            # interactive-but-not-login and completion funcs like _bat are missing.
+            [self.shell, "-l"],
             stdin=slave_fd,
             stdout=slave_fd,
             stderr=slave_fd,

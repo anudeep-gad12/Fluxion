@@ -164,6 +164,10 @@ export function TerminalPanel({ agentModeActive }: TerminalPanelProps) {
   const [panelWidth, setPanelWidth] = useState(readPanelWidth);
   const [toolMenuOpen, setToolMenuOpen] = useState(false);
   const [isPanelResizing, setIsPanelResizing] = useState(false);
+  // First terminal in a workspace is spawned only after an offscreen xterm
+  // measures the panel, so the PTY starts at the correct width (see measure mode).
+  const [provisioning, setProvisioning] = useState(false);
+  const provisionInFlightRef = useRef(false);
   const panelRef = useRef<HTMLElement | null>(null);
   const isResizing = useRef(false);
   const panelWidthRef = useRef(panelWidth);
@@ -245,22 +249,13 @@ export function TerminalPanel({ agentModeActive }: TerminalPanelProps) {
 
         const currentState = useStore.getState().terminalByConversation[terminalKey];
         const existingBrowserTabs = currentState?.browserTabs ?? [];
-        let nextSessions = listed.sessions;
-        let activeId = localStorage.getItem(`reasoner_terminal_active_session:${storageScope}`);
+        const nextSessions = listed.sessions;
+        const activeId = localStorage.getItem(`reasoner_terminal_active_session:${storageScope}`);
 
-        if (nextSessions.length === 0 && existingBrowserTabs.length === 0) {
-          const request = {
-            workspace_path: workspacePath.trim() || undefined,
-            cols: 120,
-            rows: 30,
-          };
-          const created = selectedConversationId
-            ? await createTerminalSession(selectedConversationId, request)
-            : await createDraftTerminalSession(request);
-          if (cancelled) return;
-          nextSessions = [created];
-          activeId = created.session_id;
-        }
+        // Don't spawn a PTY at a guessed size. When there's nothing to show,
+        // enter measure mode so IntegratedTerminal can report a real fitted
+        // grid and handleProvision creates the session at that exact width.
+        setProvisioning(nextSessions.length === 0 && existingBrowserTabs.length === 0);
 
         const activeSession =
           nextSessions.find((item) => item.session_id === activeId) ?? nextSessions[0] ?? null;
@@ -332,10 +327,14 @@ export function TerminalPanel({ agentModeActive }: TerminalPanelProps) {
       return;
     }
     try {
+      // Reuse this panel's last measured grid so the new PTY spawns at the
+      // right width (all sessions in a panel share the width). 120x30 only when
+      // nothing has been measured yet.
+      const cached = useStore.getState().terminalByConversation[terminalKey];
       const request = {
         workspace_path: workspacePath.trim() || undefined,
-        cols: 120,
-        rows: 30,
+        cols: cached?.lastCols ?? 120,
+        rows: cached?.lastRows ?? 30,
       };
       const created = selectedConversationId
         ? await createTerminalSession(selectedConversationId, request)
@@ -366,6 +365,48 @@ export function TerminalPanel({ agentModeActive }: TerminalPanelProps) {
       toast.error('Could not create terminal');
     }
   }, [maxSessions, persistActiveTool, selectedConversationId, sessions, storageScope, terminalAtLimit, terminalKey, updateTerminalState, workspacePath]);
+
+  // Measure mode reported a stable grid: spawn the first PTY at exactly that
+  // width so the shell's very first prompt is drawn correctly.
+  const handleProvision = useCallback(async (cols: number, rows: number) => {
+    if (provisionInFlightRef.current) return;
+    provisionInFlightRef.current = true;
+    try {
+      const request = {
+        workspace_path: workspacePath.trim() || undefined,
+        cols,
+        rows,
+      };
+      const created = selectedConversationId
+        ? await createTerminalSession(selectedConversationId, request)
+        : await createDraftTerminalSession(request);
+      const current = useStore.getState().terminalByConversation[terminalKey];
+      const nextTool = terminalTabId(created.session_id);
+      const bufferBySessionId = {
+        ...(current?.bufferBySessionId ?? {}),
+        [created.session_id]: created.replay_buffer || '',
+      };
+      updateTerminalState(terminalKey, {
+        sessions: [...(current?.sessions ?? []), created],
+        activeSessionId: created.session_id,
+        activeToolTabId: nextTool,
+        session: created,
+        bufferBySessionId,
+        buffer: created.replay_buffer || '',
+        status: statusFromSession(created),
+      });
+      localStorage.setItem(`reasoner_terminal_active_session:${storageScope}`, created.session_id);
+      persistActiveTool(nextTool);
+      setProvisioning(false);
+    } catch (error) {
+      setProvisioning(false);
+      if (!(error instanceof ApiError && error.status === 409)) {
+        updateTerminalState(terminalKey, { status: 'error' });
+      }
+    } finally {
+      provisionInFlightRef.current = false;
+    }
+  }, [persistActiveTool, selectedConversationId, storageScope, terminalKey, updateTerminalState, workspacePath]);
 
   const handleNewBrowser = useCallback(() => {
     if (browserAtLimit) {
@@ -643,6 +684,18 @@ export function TerminalPanel({ agentModeActive }: TerminalPanelProps) {
                   chrome="embedded"
                 />
               ) : null}
+              {!activeTerminalSessionId && provisioning ? (
+                <IntegratedTerminal
+                  key="__measuring__"
+                  conversationId={terminalKey}
+                  sessionId={null}
+                  onProvision={handleProvision}
+                  workspacePath={workspacePath}
+                  active={terminalAvailable}
+                  dock="right"
+                  chrome="embedded"
+                />
+              ) : null}
               {browserTabs.map((tab) => (
                 <BrowserPane
                   key={tab.id}
@@ -654,7 +707,7 @@ export function TerminalPanel({ agentModeActive }: TerminalPanelProps) {
                   onOpenNewTab={handleOpenBrowserNewTab}
                 />
               ))}
-              {tabs.length === 0 ? (
+              {tabs.length === 0 && !provisioning ? (
                 <div className="flex h-full flex-col items-center justify-center px-6 text-center">
                   <TerminalSquare
                     className="mb-3 h-6 w-6 text-[var(--desktop-text-tertiary)]"

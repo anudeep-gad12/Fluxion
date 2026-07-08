@@ -84,11 +84,14 @@ type TerminalStatus = 'idle' | 'connecting' | 'running' | 'closed' | 'stale' | '
 
 interface IntegratedTerminalProps {
   conversationId: string;
-  sessionId: string;
+  /** null = "measure mode": open xterm only to report a fitted size via onProvision. */
+  sessionId: string | null;
   workspacePath: string;
   active: boolean;
   dock: TerminalDock;
   onOpenUrl?: (url: string) => void;
+  /** Called once, in measure mode, with the stably-fitted grid so the parent can spawn a PTY at the right width. */
+  onProvision?: (cols: number, rows: number) => void;
   /** When embedded, outer panel supplies header/resize/close chrome */
   chrome?: 'full' | 'embedded';
 }
@@ -186,6 +189,7 @@ export function IntegratedTerminal({
   active,
   dock,
   onOpenUrl,
+  onProvision,
   chrome = 'full',
 }: IntegratedTerminalProps) {
   const { theme } = useTheme();
@@ -204,11 +208,32 @@ export function IntegratedTerminal({
   const dragStartRef = useRef<{ x: number; y: number; width: number; height: number } | null>(null);
   const bufferRef = useRef('');
   const lastSocketStatusRef = useRef<TerminalStatus>('idle');
+  const lastFitSizeRef = useRef<{ cols: number; rows: number } | null>(null);
+  const lastSentSizeRef = useRef<{ cols: number; rows: number } | null>(null);
   const [isRestarting, setIsRestarting] = useState(false);
 
   useEffect(() => {
-    bufferRef.current = terminalState?.bufferBySessionId[sessionId] ?? '';
+    bufferRef.current = sessionId ? (terminalState?.bufferBySessionId[sessionId] ?? '') : '';
   }, [sessionId, terminalState?.bufferBySessionId]);
+
+  // Record each authoritative fit as the panel's size (used to spawn future
+  // terminals at the right width) and push it to the PTY. De-duping avoids the
+  // SIGWINCH storm that corrupts zsh's line editor while typing. Crucially,
+  // lastSentSizeRef only advances on an *actual* send, so ws.onopen still emits
+  // the initial resize even if a pre-connect fit already recorded the grid.
+  const sendResizeIfChanged = useCallback((cols: number, rows: number) => {
+    const fit = lastFitSizeRef.current;
+    if (!fit || fit.cols !== cols || fit.rows !== rows) {
+      lastFitSizeRef.current = { cols, rows };
+      updateTerminalState(conversationId, { lastCols: cols, lastRows: rows });
+    }
+    const socket = socketRef.current;
+    if (socket?.readyState !== WebSocket.OPEN) return;
+    const sent = lastSentSizeRef.current;
+    if (sent && sent.cols === cols && sent.rows === rows) return;
+    lastSentSizeRef.current = { cols, rows };
+    socket.send(JSON.stringify({ type: 'resize', cols, rows }));
+  }, [conversationId, updateTerminalState]);
 
   const connectSocket = useCallback((targetSessionId: string) => {
     if (!active || !terminalState?.isOpen) {
@@ -234,7 +259,8 @@ export function IntegratedTerminal({
       const term = terminalRef.current;
       if (term) {
         term.focus();
-        ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+        // Authoritative initial size (deduped so reconnects don't re-send).
+        sendResizeIfChanged(term.cols, term.rows);
       }
     };
 
@@ -292,16 +318,20 @@ export function IntegratedTerminal({
     appendTerminalBuffer,
     conversationId,
     replaceTerminalBuffer,
+    sendResizeIfChanged,
     terminalState?.isOpen,
     updateTerminalState,
     workspacePath,
   ]);
 
   useEffect(() => {
-    if (!containerRef.current || !terminalState?.isOpen || !active) {
+    const container = containerRef.current;
+    if (!container || !terminalState?.isOpen || !active) {
       return;
     }
     let cancelled = false;
+    lastFitSizeRef.current = null;
+    lastSentSizeRef.current = null;
     const term = new Terminal({
       cursorBlink: true,
       convertEol: false,
@@ -312,11 +342,54 @@ export function IntegratedTerminal({
     });
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
-    term.open(containerRef.current);
-    fitAddon.fit();
+    term.open(container);
     term.focus();
     terminalRef.current = term;
     fitAddonRef.current = fitAddon;
+
+    // Fit only once the container has a real, stable size — proposeDimensions()
+    // returns undefined (and clientWidth is 0) while the panel is still laying
+    // out. Fitting against that garbage is what desyncs xterm's grid from the
+    // PTY and produces the "brbat" / mid-line-cursor corruption. Retry on rAF
+    // (bounded) until the measurement is trustworthy, then fit exactly once.
+    let frames = 0;
+    const MAX_FRAMES = 60;
+    const fitStable = (onReady: (cols: number, rows: number) => void) => {
+      const attempt = () => {
+        if (cancelled) return;
+        const fit = fitAddonRef.current;
+        const activeTerm = terminalRef.current;
+        if (!fit || !activeTerm) return;
+        const proposed = fit.proposeDimensions();
+        if (proposed && container.clientWidth > 0) {
+          fit.fit();
+          activeTerm.focus();
+          onReady(activeTerm.cols, activeTerm.rows);
+          return;
+        }
+        if (frames++ < MAX_FRAMES) {
+          requestAnimationFrame(attempt);
+        }
+      };
+      requestAnimationFrame(attempt);
+    };
+
+    // Measure mode: no PTY yet. Report a stable fit so the parent can spawn the
+    // shell at the correct width, then bail (no socket, no buffer, no observer).
+    if (sessionId === null) {
+      fitStable((cols, rows) => {
+        if (cancelled) return;
+        updateTerminalState(conversationId, { lastCols: cols, lastRows: rows });
+        onProvision?.(cols, rows);
+      });
+      return () => {
+        cancelled = true;
+        term.dispose();
+        terminalRef.current = null;
+        fitAddonRef.current = null;
+      };
+    }
+
     if (bufferRef.current) {
       term.write(bufferRef.current);
     }
@@ -332,42 +405,36 @@ export function IntegratedTerminal({
       },
     };
     const linkProviderDisposable = term.registerLinkProvider(linkProvider);
+
+    // One rAF-coalesced fit per resize burst, and only tell the PTY when the
+    // grid genuinely changed (sendResizeIfChanged dedupes).
+    let resizePending = false;
     resizeObserverRef.current = new ResizeObserver(() => {
-      if (!fitAddonRef.current || !terminalRef.current) return;
-      fitAddonRef.current.fit();
-      const socket = socketRef.current;
-      if (socket?.readyState === WebSocket.OPEN) {
-        socket.send(
-          JSON.stringify({
-            type: 'resize',
-            cols: terminalRef.current.cols,
-            rows: terminalRef.current.rows,
-          })
-        );
-      }
+      if (resizePending) return;
+      resizePending = true;
+      requestAnimationFrame(() => {
+        resizePending = false;
+        const fit = fitAddonRef.current;
+        const activeTerm = terminalRef.current;
+        if (!fit || !activeTerm || container.clientWidth <= 0) return;
+        fit.fit();
+        sendResizeIfChanged(activeTerm.cols, activeTerm.rows);
+      });
     });
-    resizeObserverRef.current.observe(containerRef.current);
-    requestAnimationFrame(() => {
-      fitAddon.fit();
-      term.focus();
-    });
-    const delayedFit = window.setTimeout(() => {
-      if (cancelled) return;
-      fitAddon.fit();
-      term.focus();
-      const socket = socketRef.current;
-      if (socket?.readyState === WebSocket.OPEN) {
-        socket.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
-      }
-    }, 80);
+    resizeObserverRef.current.observe(container);
+
     updateTerminalState(conversationId, { status: 'connecting' });
-    connectSocket(sessionId);
+    // Connect only after the first authoritative fit, so ws.onopen's resize and
+    // the shell's first prompt share the same, correct grid.
+    fitStable(() => {
+      if (cancelled) return;
+      connectSocket(sessionId);
+    });
 
     return () => {
       cancelled = true;
       resizeObserverRef.current?.disconnect();
       resizeObserverRef.current = null;
-      window.clearTimeout(delayedFit);
       disposable.dispose();
       linkProviderDisposable.dispose();
       socketGenerationRef.current += 1;
@@ -377,7 +444,7 @@ export function IntegratedTerminal({
       terminalRef.current = null;
       fitAddonRef.current = null;
     };
-  }, [active, connectSocket, conversationId, onOpenUrl, sessionId, terminalState?.isOpen, updateTerminalState, workspacePath]);
+  }, [active, connectSocket, conversationId, onOpenUrl, onProvision, sendResizeIfChanged, sessionId, terminalState?.isOpen, updateTerminalState, workspacePath]);
 
   useEffect(() => {
     themeRef.current = theme;
@@ -400,12 +467,9 @@ export function IntegratedTerminal({
     const syncLayout = () => {
       const fitAddon = fitAddonRef.current;
       const term = terminalRef.current;
-      if (!fitAddon || !term) return;
+      if (!fitAddon || !term || (containerRef.current?.clientWidth ?? 0) <= 0) return;
       fitAddon.fit();
-      const socket = socketRef.current;
-      if (socket?.readyState === WebSocket.OPEN) {
-        socket.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
-      }
+      sendResizeIfChanged(term.cols, term.rows);
     };
 
     const raf = requestAnimationFrame(() => {
@@ -414,10 +478,10 @@ export function IntegratedTerminal({
     });
 
     return () => cancelAnimationFrame(raf);
-  }, [active, dock, terminalState?.height, terminalState?.isOpen, terminalState?.width]);
+  }, [active, dock, sendResizeIfChanged, terminalState?.height, terminalState?.isOpen, terminalState?.width]);
 
   const handleRestart = useCallback(async () => {
-    if (!terminalState) return;
+    if (!terminalState || !sessionId) return;
     setIsRestarting(true);
     try {
       socketGenerationRef.current += 1;
@@ -467,7 +531,7 @@ export function IntegratedTerminal({
   ]);
 
   const handleClear = useCallback(() => {
-    clearTerminalBuffer(conversationId, sessionId);
+    if (sessionId) clearTerminalBuffer(conversationId, sessionId);
     terminalRef.current?.clear();
   }, [clearTerminalBuffer, conversationId, sessionId]);
 
