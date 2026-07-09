@@ -121,13 +121,13 @@ class TestExplicitProviderPrefix:
         )
         monkeypatch.setenv("GROK_AUTH_FILE", str(auth_file))
 
-        resolved = ModelRegistry.resolve("grok:grok-build")
+        resolved = ModelRegistry.resolve("grok:grok-4.5")
         assert resolved.provider_name == "grok"
-        assert resolved.model_id == "grok-build"
+        assert resolved.model_id == "grok-4.5"
         assert resolved.base_url == "https://cli-chat-proxy.grok.com/v1"
         assert resolved.endpoint == "responses"
         assert resolved.api_key == "grok-token"
-        assert resolved.reasoning_effort is None
+        assert resolved.reasoning_effort == "high"
         assert resolved.supports_vision is True
 
         composer = ModelRegistry.resolve("grok:grok-composer-2.5-fast")
@@ -144,7 +144,7 @@ class TestExplicitProviderPrefix:
         """Grok OAuth provider requires a valid local Grok CLI token."""
         monkeypatch.setenv("GROK_AUTH_FILE", str(tmp_path / "missing-auth.json"))
         with pytest.raises(ValueError, match="Connect Grok OAuth"):
-            ModelRegistry.resolve("grok:grok-build")
+            ModelRegistry.resolve("grok:grok-4.5")
 
     def test_grok_provider_uses_cli_proxy_headers(self, tmp_path, monkeypatch):
         """Grok OAuth provider sends the CLI-token auth headers required by the proxy."""
@@ -163,11 +163,11 @@ class TestExplicitProviderPrefix:
         )
         monkeypatch.setenv("GROK_AUTH_FILE", str(auth_file))
 
-        provider, resolved = create_provider_for_model("grok:grok-build")
+        provider, resolved = create_provider_for_model("grok:grok-4.5")
         assert resolved.provider_name == "grok"
         assert provider._client.headers["authorization"] == "Bearer grok-token"  # noqa: SLF001
         assert provider._client.headers["x-xai-token-auth"] == "xai-grok-cli"  # noqa: SLF001
-        assert provider._client.headers["x-grok-model-override"] == "grok-build"  # noqa: SLF001
+        assert provider._client.headers["x-grok-model-override"] == "grok-4.5"  # noqa: SLF001
         assert provider._client.headers["x-grok-client-version"]  # noqa: SLF001
         assert provider._client.headers["x-grok-client-identifier"] == "fluxion"  # noqa: SLF001
         assert provider._supports_vision is True  # noqa: SLF001

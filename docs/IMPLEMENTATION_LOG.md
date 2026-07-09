@@ -9,6 +9,8 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| main | Drop dead `grok-build` — removed the retired Grok OAuth `grok-build` preset + catalog entry (proxy no longer lists it); grok sub is now Grok 4.5 + Composer 2.5 | done | 2026-07-09 |
+| main | Grok 4.5 model — registered `grok-4.5` under the Grok OAuth subscription provider (500k ctx, reasoning effort, vision, responses backend); verified live via the proxy (lists + generates) | done | 2026-07-09 |
 | main | Big-screen titlebar — conversation title left-aligned (`DesktopChrome` `justify-center`→`justify-start`) so it grounds top-left like Claude instead of floating centered on wide screens | done | 2026-07-08 |
 | main | Terminal corruption + modal stacking fixes — PTY spawns `zsh -l` (fixes `_bat`/`PATH`); killed width-desync (`bat`→`brbat`) via gated single `fitStable`, de-duped resizes, and session-less "measure mode" so the PTY spawns at the real grid; `ui/dialog.tsx` portals to `document.body` so modals clear the `desktop-shell-main` stacking-context trap | done | 2026-07-08 |
 | main | frontend polish sweep — finished desktop-token cleanup, shared tooltip/settings polish, terminal empty state, vivid tool-colored transcript/motion, neutral light mode, sidebar performance, macOS spacing, and reliable streaming/final-answer autoscroll | done | 2026-07-07 |
