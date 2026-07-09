@@ -9,6 +9,7 @@
 
 | Branch | Description | Status | Started |
 |--------|-------------|--------|---------|
+| main | Big-screen titlebar — conversation title left-aligned (`DesktopChrome` `justify-center`→`justify-start`) so it grounds top-left like Claude instead of floating centered on wide screens | done | 2026-07-08 |
 | main | Terminal corruption + modal stacking fixes — PTY spawns `zsh -l` (fixes `_bat`/`PATH`); killed width-desync (`bat`→`brbat`) via gated single `fitStable`, de-duped resizes, and session-less "measure mode" so the PTY spawns at the real grid; `ui/dialog.tsx` portals to `document.body` so modals clear the `desktop-shell-main` stacking-context trap | done | 2026-07-08 |
 | main | frontend polish sweep — finished desktop-token cleanup, shared tooltip/settings polish, terminal empty state, vivid tool-colored transcript/motion, neutral light mode, sidebar performance, macOS spacing, and reliable streaming/final-answer autoscroll | done | 2026-07-07 |
 | main | UI polish pass 2 command palette — moved conversation mode fully into the shared store, replaced the hidden k-chord with a global ⌘K palette for actions/workspaces/recent conversations, added keyboard navigation/focus containment and native-webview obscuring, and styled the palette with the desktop token system and reduced-motion support | done | 2026-07-06 |

@@ -8,7 +8,7 @@ interface DesktopChromeProps {
 export function DesktopChrome({ title, mergeTitlebar = false }: DesktopChromeProps) {
   if (!mergeTitlebar) {
     return (
-      <header className="desktop-chrome desktop-chrome-scrim flex flex-shrink-0 items-center justify-center border-b border-[var(--desktop-border-subtle)] px-4">
+      <header className="desktop-chrome desktop-chrome-scrim flex flex-shrink-0 items-center justify-start border-b border-[var(--desktop-border-subtle)] px-4">
         <p className="desktop-chrome-title">{title || 'New chat'}</p>
       </header>
     );
@@ -16,7 +16,7 @@ export function DesktopChrome({ title, mergeTitlebar = false }: DesktopChromePro
 
   return (
     <DesktopTitlebar
-      className="desktop-chrome desktop-chrome-scrim flex items-center justify-center border-b border-[var(--desktop-border-subtle)] px-4"
+      className="desktop-chrome desktop-chrome-scrim flex items-center justify-start border-b border-[var(--desktop-border-subtle)] px-4"
     >
       <p className="desktop-chrome-title pointer-events-none">
         {title || 'New chat'}
